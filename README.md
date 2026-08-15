@@ -1,8 +1,8 @@
 <div align="center">
   <img src="media/switchboard.png" width="80" height="80" alt="Switchboard logo">
   <h1>Switchboard</h1>
-  <p><strong>Start and stop your local development projects from one simple VS Code sidebar.</strong></p>
-  <p>No more hunting through old notes or trying to remember how each project starts.</p>
+  <p><strong>Every local app, across every repository, in one focused VS Code control panel.</strong></p>
+  <p>Save each project's folder and commands once, then start, stop, inspect, and open it from the sidebar.</p>
   <p>
     <a href="https://github.com/HSwart/Switchboard/releases/download/v0.0.1/switchboard.vsix">
       <img src="https://img.shields.io/badge/Download-Switchboard%200.0.1-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="Download Switchboard 0.0.1">
@@ -13,12 +13,12 @@
 ---
 
 <p align="center">
-  <img src="media/switchboard-preview.png" width="1200" alt="Switchboard in VS Code showing local projects with running and stopped statuses">
+  <img src="media/switchboard-screenshot.png" width="680" alt="Straight view of the Switchboard sidebar showing projects, service ports, and start and stop controls">
 </p>
 
-## Everything you are working on, in one place
+## A control panel for local projects
 
-Switchboard keeps a reusable list of your local projects inside VS Code. Save each project’s folder and start command once, then use **Start** and **Stop** whenever you return to it.
+Switchboard keeps a reusable list of local projects from different repositories inside VS Code. It combines saved commands with project status, cautious port checks, quick links, and recent output, so it is more than a list of tasks to run.
 
 - Start projects with their saved commands and safely stop the process trees Switchboard launched.
 - Search saved projects by name or folder.
@@ -29,7 +29,7 @@ Switchboard keeps a reusable list of your local projects inside VS Code. Save ea
 - View readable recent output from the latest run, follow new lines, and open web links without leaving the sidebar.
 - Edit or remove a saved project without touching its files.
 
-> Switchboard remembers the setup. You stay in control of when a project runs.
+> Switchboard remembers the setup. You decide what runs.
 
 ## Download and install
 
@@ -67,13 +67,13 @@ Your project is now ready whenever you need it. Select the **Start** icon to run
 
 If Switchboard is open in more than one VS Code window, starting or stopping a project in one window updates its status in the others automatically.
 
-Projects may save the same app port because they can still run at different times. Switchboard points this out while you add or edit a project. Before starting anything, it checks the port again and blocks the start if another app is already using it.
+Configured ports are lightweight service details, not a port-management system. Projects may save the same app port because they can still run at different times. Switchboard points this out while you add or edit a project, checks the port again before starting, and blocks the start if another app is already using it.
 
 If another Switchboard project owns the port, Switchboard names it. If a shared port is occupied but its owner cannot be identified safely, both Start and Stop remain unavailable until the port is free. Switchboard never changes ports or stops an unknown process automatically.
 
-If you do not know the exact commands, use the coding-agent setup below. A supported agent can inspect the project and identify its commands and service ports for you.
+You can set up every project yourself. If you prefer, the optional coding-agent setup below can inspect a project and propose its commands and service ports for your approval.
 
-## Set up a project with your coding agent
+## Optional: set up a project with your coding agent
 
 Switchboard can also give a supported coding agent a guided setup skill. The agent inspects the project, finds its existing commands and service ports, and saves the result through Switchboard.
 
@@ -93,7 +93,7 @@ You can also describe what you want naturally. For example:
 
 > Inspect this project and add it to Switchboard with the name My App. Identify the exact start command and the port for every service it runs. Include a custom stop command only if it needs a special shutdown workflow.
 
-The agent can save a new project or update one already in Switchboard. The project then shows **Review setup** in the sidebar. Check its folder and exact commands, then select **Approve setup** before Start or Stop becomes available.
+The agent can propose a new project or an update to one already in Switchboard. The project then shows **Review setup** in the sidebar. Check its folder and exact commands, then select **Approve setup** before Start or Stop becomes available. Agent-proposed commands never run without this approval.
 
 After updating Switchboard, return to **Agent connections** and select **Refresh setup** so the agent uses the current connection and skill. Switchboard will not replace a different skill you created with the same name.
 
