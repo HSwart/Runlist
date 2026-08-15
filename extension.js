@@ -10,6 +10,10 @@ const {
   registerWithCodex
 } = require('./agent-registration');
 const {
+  agentSkillStatus,
+  installAgentSkill
+} = require('./skill-installation');
+const {
   primaryServiceUrl,
   projectStatus,
   servicePortStatus,
@@ -73,10 +77,10 @@ class SwitchboardViewProvider {
     this.stoppingProjectIds = new Set();
     this.statusRefreshInFlight = false;
     this.statusRevision = 0;
-    this.agentConnections = {
-      claude: { status: 'idle', message: '' },
-      codex: { status: 'idle', message: '' }
-    };
+    this.skillSourceDirectory = path.join(context.extensionUri.fsPath, 'skills', 'switchboard');
+    this.agentConnections = Object.fromEntries(
+      ['copilot', 'codex', 'claude'].map((agent) => [agent, initialAgentConnection(agent)])
+    );
   }
 
   resolveWebviewView(view) {
@@ -304,15 +308,19 @@ class SwitchboardViewProvider {
 
   async registerAgent(agent) {
     const registrations = {
+      copilot: {
+        label: 'GitHub Copilot',
+        success: 'Skill installed. Use /switchboard in Copilot CLI, or ask Copilot agent mode to set up this project.'
+      },
       claude: {
         label: 'Claude Code',
         register: registerWithClaude,
-        success: 'Registered for every Claude Code project. Restart Claude Code and use /mcp to confirm.'
+        success: 'Connection and skill are ready. Use /switchboard. Restart Claude Code if it was already open and does not detect the skill.'
       },
       codex: {
         label: 'Codex',
         register: registerWithCodex,
-        success: 'Registered with Codex. Restart Codex and use /mcp to confirm.'
+        success: 'Connection and skill are ready. Restart Codex, then use $switchboard.'
       }
     };
     const registration = registrations[agent];
@@ -322,19 +330,27 @@ class SwitchboardViewProvider {
 
     this.agentConnections[agent] = {
       status: 'loading',
-      message: `Registering with ${registration.label}…`
+      message: `Setting up ${registration.label}…`
     };
     this.render();
 
     try {
-      await registration.register({
-        bundledCliPaths: installedClaudeCliPaths(),
-        bundledCliPath: installedCodexCliPath(),
+      if (registration.register) {
+        await registration.register({
+          bundledCliPaths: installedClaudeCliPaths(),
+          bundledCliPath: installedCodexCliPath(),
+          environment: process.env,
+          platform: process.platform,
+          projectsFile: this.projectsFile,
+          runtimePath: process.execPath,
+          serverPath: this.serverPath
+        });
+      }
+      installAgentSkill({
+        agent,
         environment: process.env,
         platform: process.platform,
-        projectsFile: this.projectsFile,
-        runtimePath: process.execPath,
-        serverPath: this.serverPath
+        sourceDirectory: this.skillSourceDirectory
       });
       this.agentConnections[agent] = {
         status: 'success',
@@ -972,6 +988,27 @@ function installedCodexCliPath() {
 function installedClaudeCliPaths() {
   const extension = vscode.extensions.getExtension('Anthropic.claude-code');
   return claudeBundledCliPaths(extension?.extensionPath);
+}
+
+function initialAgentConnection(agent) {
+  try {
+    const skill = agentSkillStatus({ agent, environment: process.env, platform: process.platform });
+    if (skill.status === 'installed') {
+      return {
+        status: 'success',
+        message: `Switchboard skill installed. Use ${skill.invocation}, or select Refresh setup after an extension update.`
+      };
+    }
+    if (skill.status === 'conflict') {
+      return {
+        status: 'error',
+        message: `A different Switchboard skill already exists at ${skill.targetDirectory}. Rename or remove it, then try again.`
+      };
+    }
+  } catch (error) {
+    return { status: 'error', message: registrationErrorMessage('Agent setup', error) };
+  }
+  return { status: 'idle', message: '' };
 }
 
 function registrationErrorMessage(clientLabel, error) {

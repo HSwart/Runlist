@@ -71,17 +71,27 @@ If you do not know the exact commands, use the coding-agent setup below. A suppo
 
 ## Set up a project with your coding agent
 
-Switchboard can also let a supported coding agent save a project for you.
+Switchboard can also give a supported coding agent a guided setup skill. The agent inspects the project, finds its existing commands and service ports, and saves the result through Switchboard.
 
 1. Select the **plug** button beside the **+** button to open **Agent connections**.
-2. Register Switchboard with Codex or Claude Code. GitHub Copilot is discovered automatically through VS Code.
-3. Restart Codex or Claude Code after registration.
+2. Select **Set up** beside the agent you use.
+3. Restart Codex after setup. If an already-open Claude Code session does not find the new skill, restart it too.
 
-Then ask the agent to inspect the project and set it up. For example:
+Then open the project with your agent and use its Switchboard skill:
+
+| Agent | What to use |
+| --- | --- |
+| **GitHub Copilot** | `/switchboard` in Copilot CLI, or ask Copilot agent mode to set up the project in Switchboard. |
+| **Codex** | `$switchboard` |
+| **Claude Code** | `/switchboard` |
+
+You can also describe what you want naturally. For example:
 
 > Inspect this project and add it to Switchboard with the name My App. Identify the exact start and stop commands, and include the port for every service it runs.
 
-The agent can save or update the project setup. Starting and stopping projects remains a deliberate action in the Switchboard sidebar.
+The agent can save a new project or update one already in Switchboard. Starting and stopping projects remains a deliberate action in the Switchboard sidebar.
+
+After updating Switchboard, return to **Agent connections** and select **Refresh setup** so the agent uses the current connection and skill. Switchboard will not replace a different skill you created with the same name.
 
 ## Day-to-day use
 
