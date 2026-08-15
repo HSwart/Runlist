@@ -1,7 +1,13 @@
 const assert = require('node:assert/strict');
 const net = require('node:net');
 const test = require('node:test');
-const { areServicesRunning, isPortOpen, primaryServiceUrl } = require('../project-status');
+const {
+  areServicesRunning,
+  isPortOpen,
+  primaryServiceUrl,
+  projectStatus,
+  servicePortStatus
+} = require('../project-status');
 
 test('detects whether configured local service ports are accepting connections', async () => {
   const server = net.createServer();
@@ -10,9 +16,42 @@ test('detects whether configured local service ports are accepting connections',
 
   assert.equal(await isPortOpen(port), true);
   assert.equal(await areServicesRunning([{ name: 'web', port }]), true);
+  assert.deepEqual(await servicePortStatus([{ name: 'web', port }]), {
+    allOpen: true,
+    anyOpen: true,
+    openPorts: [port]
+  });
 
   await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   assert.equal(await isPortOpen(port), false);
+});
+
+test('distinguishes a managed app from an occupied configured port', () => {
+  assert.equal(projectStatus({
+    allPortsOpen: true,
+    anyPortOpen: true,
+    hasServices: true,
+    managed: true
+  }), 'running');
+  assert.equal(projectStatus({
+    allPortsOpen: true,
+    anyPortOpen: true,
+    hasServices: true,
+    managed: false
+  }), 'active');
+  assert.equal(projectStatus({
+    allPortsOpen: true,
+    anyPortOpen: true,
+    hasServices: true,
+    knownConflict: true,
+    managed: false
+  }), 'port-in-use');
+  assert.equal(projectStatus({
+    hasServices: true,
+    managed: true,
+    processActive: true
+  }), 'starting');
+  assert.equal(projectStatus({ stopping: true }), 'stopping');
 });
 
 test('builds the primary local service URL from the first configured port', () => {

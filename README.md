@@ -1,11 +1,11 @@
 <div align="center">
-  <img src="media/switchboard-readme.svg" width="80" height="80" alt="Switchboard logo">
+  <img src="media/switchboard.png" width="80" height="80" alt="Switchboard logo">
   <h1>Switchboard</h1>
   <p><strong>Start and stop your local development projects from one simple VS Code sidebar.</strong></p>
   <p>No more hunting through old notes or trying to remember how each project starts.</p>
   <p>
-    <a href="releases/switchboard-0.0.1.vsix">
-      <img src="https://img.shields.io/badge/Download-Switchboard%200.0.1-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="Download Switchboard 0.0.1">
+    <a href="releases/switchboard-0.0.2.vsix">
+      <img src="https://img.shields.io/badge/Download-Switchboard%200.0.2-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="Download Switchboard 0.0.2">
     </a>
   </p>
 </div>
@@ -27,9 +27,9 @@ Switchboard keeps a reusable list of your local projects inside VS Code. Save ea
 
 ### 1. Download Switchboard
 
-Download version 0.0.1 here:
+Download version 0.0.2 here:
 
-**[Download Switchboard 0.0.1](releases/switchboard-0.0.1.vsix)**
+**[Download Switchboard 0.0.2](releases/switchboard-0.0.2.vsix)**
 
 ### 2. Install it in VS Code
 
@@ -47,9 +47,12 @@ After installation, select the Switchboard icon in the VS Code Activity Bar.
 2. Choose the project folder.
 3. Enter the command that starts the project.
 4. Enter the command that stops the project.
-5. Save it.
+5. If you know it, enter the app's port so Switchboard can verify its status and open it in your browser.
+6. Save it.
 
 Your project is now ready whenever you need it. Select **Start** to run its saved start command and **Stop** to run its saved stop command.
+
+When two saved projects use the same app port, Switchboard identifies the conflict so you can stop the running project first.
 
 If you do not know the exact commands, use the coding-agent setup below. A supported agent can inspect the project and identify its commands and service ports for you.
 
@@ -87,5 +90,5 @@ Switchboard stores its project list in your local VS Code data. Switchboard itse
 
 <div align="center">
   <p><strong>Spend less time remembering commands. Spend more time building.</strong></p>
-  <p><a href="releases/switchboard-0.0.1.vsix">Download Switchboard 0.0.1</a></p>
+  <p><a href="releases/switchboard-0.0.2.vsix">Download Switchboard 0.0.2</a></p>
 </div>

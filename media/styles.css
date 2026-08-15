@@ -91,6 +91,11 @@ button:active:not(:disabled) {
   background: var(--vscode-testing-iconPassed, #4caf78);
 }
 
+.status-dot.conflict,
+.service-indicator.conflict {
+  background: var(--vscode-editorWarning-foreground, #cca700);
+}
+
 .project-row {
   position: relative;
   min-width: 0;
@@ -180,6 +185,17 @@ button:active:not(:disabled) {
 
 .run-button.stop:hover {
   background: var(--vscode-toolbar-hoverBackground);
+}
+
+.run-button.blocked {
+  color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
+  background: transparent;
+  border: 1px solid var(--vscode-widget-border, var(--vscode-disabledForeground));
+}
+
+.run-button:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 
 .action-icon.triangle {
@@ -386,6 +402,19 @@ label {
   color: var(--vscode-descriptionForeground);
   font-size: 10px;
   font-weight: 600;
+}
+
+.optional-label {
+  margin-left: 4px;
+  color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
+  font-weight: 400;
+}
+
+.field-hint {
+  margin: -2px 0 2px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  line-height: 1.45;
 }
 
 input {

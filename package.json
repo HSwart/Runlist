@@ -2,8 +2,25 @@
   "name": "switchboard",
   "displayName": "Switchboard",
   "description": "Start and stop local projects from one focused sidebar.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "local",
+  "preview": true,
+  "icon": "media/switchboard.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HSwart/Switchboard.git"
+  },
+  "homepage": "https://github.com/HSwart/Switchboard#readme",
+  "bugs": {
+    "url": "https://github.com/HSwart/Switchboard/issues"
+  },
+  "keywords": [
+    "local development",
+    "projects",
+    "start",
+    "stop",
+    "mcp"
+  ],
   "engines": {
     "vscode": "^1.113.0"
   },
@@ -16,6 +33,9 @@
     "onCommand:switchboard.showAgentSetup"
   ],
   "main": "./extension.js",
+  "extensionKind": [
+    "ui"
+  ],
   "contributes": {
     "commands": [
       {

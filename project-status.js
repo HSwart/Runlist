@@ -23,12 +23,48 @@ function isPortOpen(port, options = {}) {
   });
 }
 
-async function areServicesRunning(services) {
+async function servicePortStatus(services) {
   if (!Array.isArray(services) || services.length === 0) {
-    return false;
+    return { allOpen: false, anyOpen: false, openPorts: [] };
   }
   const results = await Promise.all(services.map((service) => isPortOpen(service.port)));
-  return results.every(Boolean);
+  return {
+    allOpen: results.every(Boolean),
+    anyOpen: results.some(Boolean),
+    openPorts: services.filter((_, index) => results[index]).map((service) => service.port)
+  };
+}
+
+async function areServicesRunning(services) {
+  return (await servicePortStatus(services)).allOpen;
+}
+
+function projectStatus({
+  allPortsOpen = false,
+  anyPortOpen = false,
+  hasServices = false,
+  knownConflict = false,
+  managed = false,
+  processActive = false,
+  stopping = false,
+  withinStartGrace = false
+}) {
+  if (stopping) {
+    return 'stopping';
+  }
+  if (!hasServices) {
+    return processActive ? 'running' : 'stopped';
+  }
+  if (allPortsOpen) {
+    return managed ? 'running' : knownConflict ? 'port-in-use' : 'active';
+  }
+  if (anyPortOpen) {
+    return managed ? 'starting' : knownConflict ? 'port-in-use' : 'active';
+  }
+  if (managed && (processActive || withinStartGrace)) {
+    return 'starting';
+  }
+  return 'stopped';
 }
 
 function primaryServiceUrl(services) {
@@ -39,4 +75,10 @@ function primaryServiceUrl(services) {
   return `http://127.0.0.1:${port}`;
 }
 
-module.exports = { areServicesRunning, isPortOpen, primaryServiceUrl };
+module.exports = {
+  areServicesRunning,
+  isPortOpen,
+  primaryServiceUrl,
+  projectStatus,
+  servicePortStatus
+};

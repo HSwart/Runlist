@@ -3,7 +3,11 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { registerWithClaude, registerWithCodex } = require('./agent-registration');
-const { areServicesRunning, primaryServiceUrl } = require('./project-status');
+const {
+  primaryServiceUrl,
+  projectStatus,
+  servicePortStatus
+} = require('./project-status');
 const {
   initializeProjectStore,
   readProjects,
@@ -23,7 +27,8 @@ class SwitchboardViewProvider {
     this.draft = {};
     this.selectedProjectId = undefined;
     this.processes = new Map();
-    this.runningProjectIds = new Set();
+    this.managedProjectIds = new Set();
+    this.projectStatuses = new Map();
     this.startGraceUntil = new Map();
     this.stoppingProjectIds = new Set();
     this.statusRefreshInFlight = false;
@@ -64,9 +69,16 @@ class SwitchboardViewProvider {
     return readProjects(this.projectsFile);
   }
 
+  getProjectStatus(id) {
+    if (this.stoppingProjectIds.has(id)) {
+      return 'stopping';
+    }
+    return this.projectStatuses.get(id)
+      || (this.processes.has(id) ? 'running' : 'stopped');
+  }
+
   isProjectRunning(id) {
-    return !this.stoppingProjectIds.has(id)
-      && (this.runningProjectIds.has(id) || this.processes.has(id));
+    return ['running', 'active'].includes(this.getProjectStatus(id));
   }
 
   startStatusMonitoring() {
@@ -83,29 +95,45 @@ class SwitchboardViewProvider {
     this.statusRefreshInFlight = true;
     try {
       const now = Date.now();
-      const checks = await Promise.all(this.projects.map(async (project) => {
-        if (this.stoppingProjectIds.has(project.id)) {
-          return [project.id, false];
-        }
-        if (!project.services?.length) {
-          return [project.id, this.processes.has(project.id)];
-        }
-
-        const portsAreOpen = await areServicesRunning(project.services);
-        if (portsAreOpen) {
+      const projects = this.projects;
+      const managedPorts = new Set(projects
+        .filter((project) => this.managedProjectIds.has(project.id))
+        .flatMap((project) => project.services || [])
+        .map((service) => service.port));
+      const checks = await Promise.all(projects.map(async (project) => {
+        const hasServices = Boolean(project.services?.length);
+        const portStatus = hasServices
+          ? await servicePortStatus(project.services)
+          : { allOpen: false, anyOpen: false, openPorts: [] };
+        if (portStatus.allOpen) {
           this.startGraceUntil.delete(project.id);
         }
-        const isStarting = now < (this.startGraceUntil.get(project.id) || 0);
-        return [project.id, portsAreOpen || (isStarting && this.runningProjectIds.has(project.id))];
+        const status = projectStatus({
+          ...portStatus,
+          hasServices,
+          knownConflict: !this.managedProjectIds.has(project.id)
+            && portStatus.openPorts.some((port) => managedPorts.has(port)),
+          managed: this.managedProjectIds.has(project.id),
+          processActive: this.processes.has(project.id),
+          stopping: this.stoppingProjectIds.has(project.id),
+          withinStartGrace: now < (this.startGraceUntil.get(project.id) || 0)
+        });
+        if (status === 'stopped') {
+          this.managedProjectIds.delete(project.id);
+          this.startGraceUntil.delete(project.id);
+        }
+        return [project.id, status];
       }));
 
-      const nextRunningIds = new Set(checks.filter(([, running]) => running).map(([id]) => id));
-      const changed = nextRunningIds.size !== this.runningProjectIds.size
-        || [...nextRunningIds].some((id) => !this.runningProjectIds.has(id));
-      this.runningProjectIds = nextRunningIds;
+      const nextStatuses = new Map(checks);
+      const changed = nextStatuses.size !== this.projectStatuses.size
+        || [...nextStatuses].some(([id, status]) => this.projectStatuses.get(id) !== status);
+      this.projectStatuses = nextStatuses;
       if (changed) {
         this.render();
       }
+    } catch (error) {
+      vscode.window.showErrorMessage(`Could not refresh Switchboard status: ${error.message}`);
     } finally {
       this.statusRefreshInFlight = false;
     }
@@ -248,18 +276,31 @@ class SwitchboardViewProvider {
     const folder = project.folder?.trim();
     const startCommand = project.startCommand?.trim();
     const stopCommand = project.stopCommand?.trim();
+    const appPortText = String(project.appPort || '').trim();
 
     if (!folder || !startCommand || !stopCommand) {
       vscode.window.showErrorMessage('Choose a project folder and enter both commands.');
       return;
     }
+    const appPort = appPortText ? Number(appPortText) : undefined;
+    if (appPort !== undefined && (!Number.isInteger(appPort) || appPort < 1 || appPort > 65535)) {
+      vscode.window.showErrorMessage('App port must be a whole number from 1 to 65535.');
+      return;
+    }
 
     try {
+      const existing = this.selectedProjectId
+        ? this.projects.find((item) => item.id === this.selectedProjectId)
+        : undefined;
+      const services = appPort === undefined
+        ? undefined
+        : updatePrimaryService(existing?.services, appPort);
       upsertProject(this.projectsFile, {
         id: this.selectedProjectId,
         folder,
         startCommand,
-        stopCommand
+        stopCommand,
+        ...(services ? { services } : {})
       });
     } catch (error) {
       vscode.window.showErrorMessage(`Could not save the project: ${error.message}`);
@@ -296,6 +337,10 @@ class SwitchboardViewProvider {
     }
 
     removeProject(this.projectsFile, id);
+    this.managedProjectIds.delete(id);
+    this.projectStatuses.delete(id);
+    this.startGraceUntil.delete(id);
+    this.stoppingProjectIds.delete(id);
     this.mode = 'list';
     this.draft = {};
     this.selectedProjectId = undefined;
@@ -303,7 +348,11 @@ class SwitchboardViewProvider {
   }
 
   startProject(id) {
-    if (this.isProjectRunning(id)) {
+    const currentStatus = this.getProjectStatus(id);
+    if (currentStatus !== 'stopped') {
+      if (currentStatus === 'port-in-use') {
+        vscode.window.showWarningMessage('A configured app port is already in use. Stop that app before starting this project.');
+      }
       return;
     }
 
@@ -311,21 +360,37 @@ class SwitchboardViewProvider {
     if (!project) {
       return;
     }
+    const conflictingProject = this.projects.find((item) => item.id !== id
+      && this.managedProjectIds.has(item.id)
+      && item.services?.some((service) => project.services?.some((own) => own.port === service.port)));
+    if (conflictingProject) {
+      vscode.window.showWarningMessage(
+        `${conflictingProject.name} uses the same app port. Stop it before starting ${project.name}.`
+      );
+      return;
+    }
 
     try {
-      this.runningProjectIds.add(id);
+      this.managedProjectIds.add(id);
+      this.projectStatuses.set(id, 'starting');
       this.startGraceUntil.set(id, Date.now() + 15000);
       const child = spawn(project.startCommand, {
         cwd: project.folder,
         shell: true,
-        stdio: 'ignore',
+        stdio: ['ignore', 'ignore', 'pipe'],
         env: process.env
       });
 
       this.processes.set(id, child);
+      let stderr = '';
+      child.stderr?.setEncoding('utf8');
+      child.stderr?.on('data', (chunk) => {
+        stderr = `${stderr}${chunk}`.slice(-2000);
+      });
       child.once('error', (error) => {
         this.processes.delete(id);
-        this.runningProjectIds.delete(id);
+        this.managedProjectIds.delete(id);
+        this.projectStatuses.set(id, 'stopped');
         this.startGraceUntil.delete(id);
         vscode.window.showErrorMessage(`Could not start ${project.name}: ${error.message}`);
         this.render();
@@ -334,9 +399,13 @@ class SwitchboardViewProvider {
         if (this.processes.get(id) === child) {
           this.processes.delete(id);
           if (code !== 0) {
-            this.runningProjectIds.delete(id);
+            this.managedProjectIds.delete(id);
+            this.projectStatuses.set(id, 'stopped');
             this.startGraceUntil.delete(id);
-            vscode.window.showErrorMessage(`Could not start ${project.name}: command exited with code ${code}.`);
+            const detail = lastUsefulLine(stderr);
+            vscode.window.showErrorMessage(
+              `Could not start ${project.name}: ${detail || `command exited with code ${code}.`}`
+            );
             this.render();
           }
           this.refreshProjectStatuses();
@@ -344,7 +413,8 @@ class SwitchboardViewProvider {
       });
       this.render();
     } catch (error) {
-      this.runningProjectIds.delete(id);
+      this.managedProjectIds.delete(id);
+      this.projectStatuses.set(id, 'stopped');
       this.startGraceUntil.delete(id);
       vscode.window.showErrorMessage(`Could not start ${project.name}: ${error.message}`);
       this.render();
@@ -357,32 +427,60 @@ class SwitchboardViewProvider {
       return;
     }
 
+    if (this.getProjectStatus(id) === 'stopping') {
+      return;
+    }
+
     this.stoppingProjectIds.add(id);
-    this.runningProjectIds.delete(id);
+    this.projectStatuses.set(id, 'stopping');
     this.startGraceUntil.delete(id);
 
     const stopProcess = spawn(project.stopCommand, {
       cwd: project.folder,
       shell: true,
-      stdio: 'ignore',
+      stdio: ['ignore', 'ignore', 'pipe'],
       env: process.env
     });
 
     let finalized = false;
-    const finalizeStop = () => {
+    let stderr = '';
+    stopProcess.stderr?.setEncoding('utf8');
+    stopProcess.stderr?.on('data', (chunk) => {
+      stderr = `${stderr}${chunk}`.slice(-2000);
+    });
+    const stopTimeout = setTimeout(() => {
+      stopProcess.kill();
+      vscode.window.showErrorMessage(`Could not stop ${project.name}: the stop command did not finish.`);
+      finalizeStop(false);
+    }, 15000);
+    const finalizeStop = (succeeded) => {
       if (finalized) {
         return;
       }
       finalized = true;
+      clearTimeout(stopTimeout);
       this.stoppingProjectIds.delete(id);
+      if (succeeded) {
+        this.managedProjectIds.delete(id);
+      }
+      this.projectStatuses.set(id, succeeded ? 'stopped' : 'active');
+      this.render();
       setTimeout(() => this.refreshProjectStatuses(), 250);
     };
 
     stopProcess.once('error', (error) => {
       vscode.window.showErrorMessage(`Could not stop ${project.name}: ${error.message}`);
-      finalizeStop();
+      finalizeStop(false);
     });
-    stopProcess.once('exit', finalizeStop);
+    stopProcess.once('exit', (code) => {
+      if (code !== 0) {
+        const detail = lastUsefulLine(stderr);
+        vscode.window.showErrorMessage(
+          `Could not stop ${project.name}: ${detail || `command exited with code ${code}.`}`
+        );
+      }
+      finalizeStop(code === 0);
+    });
 
     this.processes.get(id)?.kill('SIGTERM');
     this.processes.delete(id);
@@ -407,7 +505,7 @@ class SwitchboardViewProvider {
       draft: this.draft,
       projects: this.projects.map((project) => ({
         ...project,
-        running: this.isProjectRunning(project.id)
+        status: this.getProjectStatus(project.id)
       }))
     };
 
@@ -446,11 +544,42 @@ function registrationErrorMessage(clientLabel, error) {
   return detail.length > 240 ? `${detail.slice(0, 237)}…` : detail;
 }
 
+function lastUsefulLine(value) {
+  return String(value || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .at(-1);
+}
+
+function updatePrimaryService(existingServices, port) {
+  if (!existingServices?.length) {
+    return [{ name: 'app', port }];
+  }
+  return existingServices.map((service, index) => index === 0 ? { ...service, port } : service);
+}
+
+function installMcpBridge(context) {
+  const storageRoot = context.globalStorageUri.fsPath;
+  const mcpRoot = path.join(storageRoot, 'mcp');
+  const serverPath = path.join(mcpRoot, 'server.js');
+  fs.mkdirSync(mcpRoot, { recursive: true });
+  fs.copyFileSync(
+    vscode.Uri.joinPath(context.extensionUri, 'mcp', 'server.js').fsPath,
+    serverPath
+  );
+  fs.copyFileSync(
+    vscode.Uri.joinPath(context.extensionUri, 'project-store.js').fsPath,
+    path.join(storageRoot, 'project-store.js')
+  );
+  return serverPath;
+}
+
 function activate(context) {
   const projectsFile = path.join(context.globalStorageUri.fsPath, 'projects.json');
   initializeProjectStore(projectsFile, context.globalState.get(STORAGE_KEY, []));
 
-  const serverPath = vscode.Uri.joinPath(context.extensionUri, 'mcp', 'server.js').fsPath;
+  const serverPath = installMcpBridge(context);
   const provider = new SwitchboardViewProvider(context, projectsFile, serverPath);
   const handleProjectStoreChange = () => provider.render();
   fs.watchFile(projectsFile, { interval: 500 }, handleProjectStoreChange);
@@ -465,7 +594,7 @@ function activate(context) {
     },
     context.extension.packageJSON.version
   );
-  mcpDefinition.cwd = context.extensionUri;
+  mcpDefinition.cwd = context.globalStorageUri;
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('switchboard.projects', provider),

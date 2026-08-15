@@ -10,10 +10,21 @@ test('serves the setup tool over MCP stdio', async (t) => {
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-mcp-'));
   const projectFolder = path.join(temporaryRoot, 'agent-app');
   const projectsFile = path.join(temporaryRoot, 'projects.json');
+  const installedRoot = path.join(temporaryRoot, 'installed-bridge');
+  const installedMcpRoot = path.join(installedRoot, 'mcp');
   fs.mkdirSync(projectFolder);
+  fs.mkdirSync(installedMcpRoot, { recursive: true });
+  fs.copyFileSync(
+    path.join(__dirname, '..', 'mcp', 'server.js'),
+    path.join(installedMcpRoot, 'server.js')
+  );
+  fs.copyFileSync(
+    path.join(__dirname, '..', 'project-store.js'),
+    path.join(installedRoot, 'project-store.js')
+  );
   t.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
 
-  const server = spawn(process.execPath, [path.join(__dirname, '..', 'mcp', 'server.js')], {
+  const server = spawn(process.execPath, [path.join(installedMcpRoot, 'server.js')], {
     env: { ...process.env, SWITCHBOARD_PROJECTS_FILE: projectsFile },
     stdio: ['pipe', 'pipe', 'pipe']
   });

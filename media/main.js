@@ -24,8 +24,9 @@ function icon(name, className = 'icon') {
 }
 
 function renderList() {
-  const runningCount = state.projects.filter((project) => project.running).length;
-  const stoppedCount = state.projects.length - runningCount;
+  const runningCount = state.projects.filter((project) => ['running', 'starting', 'active'].includes(project.status)).length;
+  const portConflictCount = state.projects.filter((project) => project.status === 'port-in-use').length;
+  const stoppedCount = state.projects.filter((project) => project.status === 'stopped').length;
 
   if (state.projects.length === 0) {
     app.innerHTML = `
@@ -41,28 +42,49 @@ function renderList() {
   app.innerHTML = `
     <header class="summary" aria-label="Project status summary">
       <span><strong>${state.projects.length}</strong> ${state.projects.length === 1 ? 'project' : 'projects'}</span>
-      <span class="summary-status"><span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped</span>
+      <span class="summary-status"><span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped${portConflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${portConflictCount} unavailable` : ''}</span>
     </header>
     <section class="project-list" aria-label="Projects">
       ${state.projects.map((project) => {
         const projectId = escapeHtml(project.id);
         const projectName = escapeHtml(project.name);
-        const canOpen = project.running && project.services?.length;
+        const projectStatus = project.status || 'stopped';
+        const statusLabels = {
+          running: 'Running',
+          starting: 'Starting…',
+          stopping: 'Stopping…',
+          active: 'Active',
+          'port-in-use': 'Port in use',
+          stopped: 'Stopped'
+        };
+        const active = ['running', 'starting', 'active'].includes(projectStatus);
+        const canOpen = ['running', 'active'].includes(projectStatus) && project.services?.length;
+        const stopsProject = ['running', 'starting', 'active'].includes(projectStatus);
+        const blocked = projectStatus === 'port-in-use';
+        const action = stopsProject ? 'stop' : 'start';
+        const actionLabel = blocked
+          ? 'Unavailable'
+          : projectStatus === 'stopping'
+          ? 'Stopping…'
+          : stopsProject
+            ? 'Stop'
+            : 'Start';
+        const actionDisabled = projectStatus === 'stopping' || blocked;
         return `
           <article class="project-row" aria-labelledby="project-${projectId}">
             <div class="project-topline">
               <div class="project-heading">
                 <h2 id="project-${projectId}">${projectName}</h2>
-                <div class="project-status"><span class="status-dot ${project.running ? 'running' : ''}"></span>${project.running ? 'Running' : 'Stopped'}</div>
+                <div class="project-status"><span class="status-dot ${active ? 'running' : projectStatus === 'port-in-use' ? 'conflict' : ''}"></span>${statusLabels[projectStatus]}</div>
               </div>
               <div class="project-actions">
-                <button class="run-button ${project.running ? 'stop' : 'start'}" data-action="${project.running ? 'stop' : 'start'}" data-id="${projectId}" aria-label="${project.running ? 'Stop' : 'Start'} ${projectName}">
-                  <span class="action-icon ${project.running ? 'square' : 'triangle'}" aria-hidden="true"></span>
-                  ${project.running ? 'Stop' : 'Start'}
+                <button class="run-button ${blocked ? 'blocked' : stopsProject || projectStatus === 'stopping' ? 'stop' : 'start'}" data-action="${action}" data-id="${projectId}" aria-label="${actionLabel} ${projectName}" ${actionDisabled ? 'disabled' : ''}>
+                  ${blocked ? '' : `<span class="action-icon ${stopsProject || projectStatus === 'stopping' ? 'square' : 'triangle'}" aria-hidden="true"></span>`}
+                  ${actionLabel}
                 </button>
                 <button class="more-button" data-action="toggle-menu" data-id="${projectId}" aria-label="More actions for ${projectName}" aria-haspopup="menu" aria-expanded="false">${icon('more')}</button>
                 <div class="action-menu" data-menu-id="${projectId}" role="menu" aria-label="Actions for ${projectName}" hidden>
-                  <button data-action="open" data-id="${projectId}" role="menuitem" ${canOpen ? '' : 'disabled'} title="${canOpen ? `Open ${projectName} in your browser` : `Start ${projectName} before opening it`}">
+                  <button data-action="open" data-id="${projectId}" role="menuitem" ${canOpen ? '' : 'disabled'} title="${canOpen ? `Open ${projectName} in your browser` : projectStatus === 'port-in-use' ? 'This port may belong to another app' : `Start ${projectName} before opening it`}">
                     ${icon('external', 'menu-icon')}<span>Open app</span>
                   </button>
                   <button data-action="edit" data-id="${projectId}" role="menuitem">
@@ -82,7 +104,7 @@ function renderList() {
             </div>
             ${project.services?.length ? `
               <div class="project-services" aria-label="Service ports">
-                ${project.services.map((service) => `<span><span class="service-indicator ${project.running ? 'running' : ''}" aria-hidden="true"></span>${escapeHtml(service.name)} <strong>:${escapeHtml(String(service.port))}</strong></span>`).join('')}
+                ${project.services.map((service) => `<span><span class="service-indicator ${active ? 'running' : projectStatus === 'port-in-use' ? 'conflict' : ''}" aria-hidden="true"></span>${escapeHtml(service.name)} <strong>:${escapeHtml(String(service.port))}</strong></span>`).join('')}
               </div>` : ''}
           </article>`;
       }).join('')}
@@ -110,6 +132,10 @@ function renderProjectForm(mode) {
 
         <label for="stop-command">Stop command</label>
         <input id="stop-command" name="stopCommand" value="${escapeHtml(state.draft.stopCommand || '')}" placeholder="pkill -f vite" required>
+
+        <label for="app-port">App port <span class="optional-label">Optional</span></label>
+        <input id="app-port" name="appPort" type="number" min="1" max="65535" step="1" inputmode="numeric" value="${escapeHtml(String(state.draft.appPort ?? state.draft.services?.[0]?.port ?? ''))}" placeholder="3000">
+        <p class="field-hint">Used to confirm the app is running and enable Open app.</p>
 
         <button class="primary-button save-button" type="submit">${editing ? 'Save changes' : 'Save project'}</button>
         <p class="form-hint">${editing ? 'Changes apply the next time you start this project.' : 'Commands run inside the selected folder.'}</p>
@@ -166,7 +192,8 @@ function currentDraft() {
   return {
     folder: document.getElementById('folder')?.value || '',
     startCommand: document.getElementById('start-command')?.value || '',
-    stopCommand: document.getElementById('stop-command')?.value || ''
+    stopCommand: document.getElementById('stop-command')?.value || '',
+    appPort: document.getElementById('app-port')?.value || ''
   };
 }
 
