@@ -46,9 +46,12 @@ function upsertProject(filePath, input) {
   }
 
   const existing = index >= 0 ? projects[index] : undefined;
+  const name = input.name === undefined
+    ? existing?.name || path.basename(folder)
+    : normalizeProjectName(input.name, path.basename(folder));
   const project = {
     id: existing?.id || createId(),
-    name: path.basename(folder),
+    name,
     folder,
     startCommand,
     stopCommand,
@@ -76,6 +79,20 @@ function removeProject(filePath, id) {
   }
   writeProjects(filePath, nextProjects);
   return true;
+}
+
+function normalizeProjectName(value, fallback) {
+  if (typeof value !== 'string') {
+    throw new Error('name must be text.');
+  }
+  const name = value.trim();
+  if (!name) {
+    return fallback;
+  }
+  if (name.length > 100) {
+    throw new Error('name cannot contain more than 100 characters.');
+  }
+  return name;
 }
 
 function normalizeFolder(value) {

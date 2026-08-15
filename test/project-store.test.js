@@ -31,6 +31,7 @@ test('creates, updates, and removes projects in the shared store', (t) => {
   assert.equal(readProjects(projectsFile).length, 1);
 
   const updated = upsertProject(projectsFile, {
+    name: 'Sample web app',
     folder: projectFolder,
     startCommand: 'pnpm dev',
     stopCommand: 'pkill -f vite',
@@ -39,8 +40,24 @@ test('creates, updates, and removes projects in the shared store', (t) => {
 
   assert.equal(updated.action, 'updated');
   assert.equal(updated.project.id, created.project.id);
+  assert.equal(updated.project.name, 'Sample web app');
   assert.equal(readProjects(projectsFile)[0].startCommand, 'pnpm dev');
   assert.equal(readProjects(projectsFile)[0].services[0].port, 3001);
+
+  const updatedWithoutName = upsertProject(projectsFile, {
+    folder: projectFolder,
+    startCommand: 'pnpm dev',
+    stopCommand: 'pkill -f vite'
+  });
+  assert.equal(updatedWithoutName.project.name, 'Sample web app');
+
+  const resetName = upsertProject(projectsFile, {
+    name: '  ',
+    folder: projectFolder,
+    startCommand: 'pnpm dev',
+    stopCommand: 'pkill -f vite'
+  });
+  assert.equal(resetName.project.name, 'sample-app');
   assert.equal(removeProject(projectsFile, created.project.id), true);
   assert.deepEqual(readProjects(projectsFile), []);
 });

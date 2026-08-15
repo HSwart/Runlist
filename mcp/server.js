@@ -16,10 +16,15 @@ const PROJECTS_FILE = process.env.SWITCHBOARD_PROJECTS_FILE;
 const tool = {
   name: 'switchboard_setup_project',
   title: 'Set up a Switchboard project',
-  description: 'Add a local project to Switchboard, or update the existing entry for the same folder. Before calling, identify every service the project starts and provide its explicit port. Stores commands that Switchboard may execute later when the user clicks Start or Stop.',
+  description: 'Add a local project to Switchboard, or update the existing entry for the same folder. You may give the project a friendly custom name. Before calling, identify every service the project starts and provide its explicit port. Stores commands that Switchboard may execute later when the user clicks Start or Stop.',
   inputSchema: {
     type: 'object',
     properties: {
+      name: {
+        type: 'string',
+        maxLength: 100,
+        description: 'Optional friendly project name. Omit it to keep the existing name or use the folder name for a new project.'
+      },
       folder: {
         type: 'string',
         description: 'Absolute path to the existing local project folder.'
@@ -148,7 +153,7 @@ function handleRequest(message) {
           version: SERVER_VERSION,
           description: 'Adds local projects to the Switchboard VS Code extension.'
         },
-        instructions: 'Use switchboard_setup_project when the user asks to save a local project in Switchboard. Inspect the project first, identify every service it starts, and provide the absolute folder path, exact start and stop commands, and an explicit unique port for each service.'
+        instructions: 'Use switchboard_setup_project when the user asks to save a local project in Switchboard. Inspect the project first, identify every service it starts, and provide the absolute folder path, exact start and stop commands, and an explicit unique port for each service. You may also provide a friendly custom project name when the user requests one.'
       });
       break;
     case 'ping':
@@ -181,7 +186,7 @@ function callTool(message) {
     if (!argumentsValue || typeof argumentsValue !== 'object' || Array.isArray(argumentsValue)) {
       throw new Error('arguments must be an object.');
     }
-    const allowedKeys = new Set(['folder', 'startCommand', 'stopCommand', 'services']);
+    const allowedKeys = new Set(['name', 'folder', 'startCommand', 'stopCommand', 'services']);
     const unsupportedKeys = Object.keys(argumentsValue).filter((key) => !allowedKeys.has(key));
     if (unsupportedKeys.length) {
       throw new Error(`unsupported argument: ${unsupportedKeys.join(', ')}`);

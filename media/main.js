@@ -192,6 +192,9 @@ function renderProjectForm(mode) {
       </header>
       <p class="screen-copy">${editing ? `Update ${escapeHtml(state.draft.name || 'this project')} and its saved commands.` : 'Choose a folder and save its commands once.'}</p>
       <form id="project-form">
+        <label for="project-name">Project name <span class="optional-label">Optional</span></label>
+        <input id="project-name" name="name" value="${escapeHtml(state.draft.name || '')}" placeholder="Defaults to folder name" maxlength="100">
+
         <label for="folder">Project folder</label>
         <div class="folder-control">
           <input id="folder" name="folder" value="${escapeHtml(state.draft.folder || '')}" placeholder="Choose a folder" required>
@@ -259,12 +262,15 @@ function renderAgentSetup() {
     </section>`;
 }
 
-function currentDraft() {
+function currentDraft(form = document.getElementById('project-form')) {
+  const fieldValue = (name) => form?.elements.namedItem(name)?.value || '';
   return {
-    folder: document.getElementById('folder')?.value || '',
-    startCommand: document.getElementById('start-command')?.value || '',
-    stopCommand: document.getElementById('stop-command')?.value || '',
-    appPort: document.getElementById('app-port')?.value || ''
+    id: state.draft.id,
+    name: fieldValue('name'),
+    folder: fieldValue('folder'),
+    startCommand: fieldValue('startCommand'),
+    stopCommand: fieldValue('stopCommand'),
+    appPort: fieldValue('appPort')
   };
 }
 
@@ -303,7 +309,7 @@ app.addEventListener('submit', (event) => {
     return;
   }
   event.preventDefault();
-  vscode.postMessage({ type: 'saveProject', project: currentDraft() });
+  vscode.postMessage({ type: 'saveProject', project: currentDraft(event.target) });
 });
 
 function handleSearchInput(event) {
