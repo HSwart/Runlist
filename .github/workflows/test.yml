@@ -15,23 +15,27 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
+          cache: npm
+      - run: npm ci
       - run: npm test
 
   windows-compatibility:
     name: Windows compatibility
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
+          cache: npm
+      - run: npm ci
       - name: Test extension and Windows MCP registration
         shell: pwsh
         run: npm test
       - name: Build the extension package on Windows
         shell: pwsh
-        run: npx --yes @vscode/vsce@3.9.2 package --no-dependencies --out switchboard-windows-ci.vsix
+        run: npm run package
