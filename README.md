@@ -22,6 +22,7 @@ Switchboard keeps a reusable list of your local projects inside VS Code. Save ea
 - Keep configured service names and ports visible at a glance.
 - When service ports are configured, see project status and open the first local service in your browser.
 - Open any saved project folder in a new VS Code window.
+- View readable recent output from the latest run without leaving the sidebar.
 - Edit or remove a saved project without touching its files.
 
 > Switchboard remembers the setup. You stay in control of when a project runs.
@@ -85,7 +86,8 @@ Switchboard keeps the everyday controls simple:
 | **Search** | Filters your saved projects by project name or folder. |
 | **Start** | Runs the saved start command inside the project folder. |
 | **Stop** | Runs the saved stop command inside the project folder. |
-| **…** | Opens the local app or project folder, edits the setup, or removes the project from Switchboard. |
+| **View output** | Highlights common log levels and lets you copy output from the latest run. |
+| **…** | Opens the app, project folder, recent output, edit screen, or remove action. |
 
 Removing a project from Switchboard does **not** delete the project or any of its files.
 

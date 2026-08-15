@@ -16,6 +16,38 @@ function escapeHtml(value = '') {
     .replaceAll("'", '&#039;');
 }
 
+function outputMessageHtml(value) {
+  const urlPattern = /https?:\/\/[^\s<>"']+/g;
+  let html = '';
+  let previousIndex = 0;
+  for (const match of String(value || '').matchAll(urlPattern)) {
+    html += escapeHtml(String(value).slice(previousIndex, match.index));
+    html += `<span class="output-url">${escapeHtml(match[0])}</span>`;
+    previousIndex = match.index + match[0].length;
+  }
+  return html + escapeHtml(String(value || '').slice(previousIndex));
+}
+
+function outputEntriesHtml(entries) {
+  if (!entries?.length) {
+    return '<p class="output-empty">No output yet. Start this project to see its output here.</p>';
+  }
+  return entries.map((entry) => {
+    if (entry.kind === 'blank') {
+      return '<div class="output-gap" aria-hidden="true"></div>';
+    }
+    if (entry.kind === 'structured') {
+      const level = entry.level || 'log';
+      return `
+        <div class="output-entry structured ${escapeHtml(level)}">
+          ${(entry.time || entry.level) ? `<div class="output-entry-meta">${entry.time ? `<time>${escapeHtml(entry.time)}</time>` : ''}${entry.level ? `<span>${escapeHtml(entry.level)}</span>` : ''}</div>` : ''}
+          <div class="output-message">${outputMessageHtml(entry.message)}</div>
+        </div>`;
+    }
+    return `<div class="output-entry raw"><div class="output-message">${outputMessageHtml(entry.message)}</div></div>`;
+  }).join('');
+}
+
 function icon(name, className = 'icon') {
   const paths = {
     close: '<path d="M5 5l10 10M15 5 5 15"/>',
@@ -24,6 +56,7 @@ function icon(name, className = 'icon') {
     folder: '<path d="M2.5 5.5h5l1.5 2h8.5v8.5h-15z"/>',
     more: '<circle cx="4" cy="10" r="1" fill="currentColor" stroke="none"/><circle cx="10" cy="10" r="1" fill="currentColor" stroke="none"/><circle cx="16" cy="10" r="1" fill="currentColor" stroke="none"/>',
     search: '<circle cx="8.5" cy="8.5" r="4.5"/><path d="m12 12 4 4"/>',
+    terminal: '<path d="m3.5 5 4 4-4 4M9.5 13h6"/>',
     trash: '<path d="M4 6h12M8 3h4l1 3H7l1-3ZM6 6l1 11h6l1-11M9 9v5M11 9v5"/>'
   };
   return `<svg class="${className}" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]}</svg>`;
@@ -100,6 +133,9 @@ function renderList() {
                   </button>
                   <button data-action="open-vscode" data-id="${projectId}" role="menuitem" title="Open ${projectName} in a new VS Code window">
                     ${icon('folder', 'menu-icon')}<span>Open in VS Code</span>
+                  </button>
+                  <button data-action="output" data-id="${projectId}" role="menuitem">
+                    ${icon('terminal', 'menu-icon')}<span>View output</span>
                   </button>
                   <button data-action="edit" data-id="${projectId}" role="menuitem">
                     ${icon('edit', 'menu-icon')}<span>Edit project</span>
@@ -262,6 +298,31 @@ function renderAgentSetup() {
     </section>`;
 }
 
+function renderProjectOutput() {
+  const projectOutput = state.projectOutput || { entries: [], name: 'Project', output: '' };
+  app.innerHTML = `
+    <section class="output-screen">
+      <header class="screen-header">
+        <h2>Recent output</h2>
+        <div class="screen-header-actions">
+          <button class="output-copy-button" data-action="copy-output" ${projectOutput.output ? '' : 'disabled'}>Copy output</button>
+          <button class="icon-button" data-action="close-screen" aria-label="Close recent output">${icon('close')}</button>
+        </div>
+      </header>
+      <p class="screen-copy">${escapeHtml(projectOutput.name)}</p>
+      <div class="output-panel" data-empty="${projectOutput.output ? 'false' : 'true'}" aria-live="polite">
+        <div id="project-output">${outputEntriesHtml(projectOutput.entries)}</div>
+      </div>
+      <p class="output-hint">Output is kept for the latest run in this VS Code window.</p>
+    </section>`;
+  requestAnimationFrame(() => {
+    const outputPanel = document.querySelector('.output-panel');
+    if (outputPanel) {
+      outputPanel.scrollTop = outputPanel.scrollHeight;
+    }
+  });
+}
+
 function currentDraft(form = document.getElementById('project-form')) {
   const fieldValue = (name) => form?.elements.namedItem(name)?.value || '';
   return {
@@ -295,6 +356,11 @@ app.addEventListener('click', (event) => {
       closeMenus();
       vscode.postMessage({ type: 'openProjectFolder', id: button.dataset.id });
     },
+    output: () => {
+      closeMenus();
+      vscode.postMessage({ type: 'showOutput', id: button.dataset.id });
+    },
+    'copy-output': () => vscode.postMessage({ type: 'copyOutput' }),
     edit: () => vscode.postMessage({ type: 'showEdit', id: button.dataset.id }),
     delete: () => vscode.postMessage({ type: 'deleteProject', id: button.dataset.id }),
     start: () => vscode.postMessage({ type: 'startProject', id: button.dataset.id }),
@@ -302,6 +368,38 @@ app.addEventListener('click', (event) => {
   };
 
   actions[button.dataset.action]?.();
+});
+
+window.addEventListener('message', (event) => {
+  if (event.data?.type !== 'projectOutput') {
+    return;
+  }
+  const outputPanel = document.querySelector('.output-panel');
+  const output = document.getElementById('project-output');
+  if (!outputPanel || !output) {
+    return;
+  }
+  outputPanel.dataset.empty = String(!event.data.output);
+  output.innerHTML = outputEntriesHtml(event.data.entries);
+  const copyButton = document.querySelector('.output-copy-button');
+  if (copyButton) {
+    copyButton.disabled = !event.data.output;
+  }
+  outputPanel.scrollTop = outputPanel.scrollHeight;
+});
+
+window.addEventListener('message', (event) => {
+  if (event.data?.type !== 'outputCopied') {
+    return;
+  }
+  const copyButton = document.querySelector('.output-copy-button');
+  if (!copyButton) {
+    return;
+  }
+  copyButton.textContent = 'Copied';
+  setTimeout(() => {
+    copyButton.textContent = 'Copy output';
+  }, 1500);
 });
 
 app.addEventListener('submit', (event) => {
@@ -377,6 +475,8 @@ if (state.mode === 'list') {
   document.getElementById('project-search')?.addEventListener('input', handleSearchInput);
 } else if (state.mode === 'agents') {
   renderAgentSetup();
+} else if (state.mode === 'output') {
+  renderProjectOutput();
 } else {
   renderProjectForm(state.mode);
 }
