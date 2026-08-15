@@ -61,6 +61,15 @@ test('uses bundled Codex and native Claude CLI fallbacks on macOS', () => {
   ]);
 });
 
+test('builds the Claude fallback with Windows path separators', () => {
+  assert.deepEqual(claudeCommandCandidates('win32', {
+    USERPROFILE: 'C:\\Users\\example'
+  }), [
+    'claude',
+    'C:\\Users\\example\\.local\\bin\\claude.exe'
+  ]);
+});
+
 test('refreshes Codex registration before adding the current extension path', async () => {
   const calls = [];
   const run = async (command, args) => {

@@ -17,7 +17,8 @@ function claudeCommandCandidates(
   const candidates = ['claude'];
   const userDirectory = environment.USERPROFILE || environment.HOME;
   if (userDirectory) {
-    candidates.push(path.join(
+    const pathForPlatform = platform === 'win32' ? path.win32 : path.posix;
+    candidates.push(pathForPlatform.join(
       userDirectory,
       '.local',
       'bin',
