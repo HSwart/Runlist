@@ -165,6 +165,20 @@ class SwitchboardViewProvider {
     try {
       const now = Date.now();
       const projects = this.projects;
+      const sharedRuntime = this.portReservations.snapshot();
+      for (const id of [...this.managedProjectIds]) {
+        if (!sharedRuntime.has(id)) {
+          this.processes.get(id)?.kill('SIGTERM');
+          this.processes.delete(id);
+          this.managedProjectIds.delete(id);
+          this.portReservations.release(id);
+          this.startGraceUntil.delete(id);
+        }
+      }
+      const managedProjectIds = new Set([
+        ...this.managedProjectIds,
+        ...sharedRuntime.keys()
+      ]);
       const checks = await Promise.all(projects.map(async (project) => {
         const hasServices = Boolean(project.services?.length);
         const portStatus = hasServices
@@ -172,11 +186,15 @@ class SwitchboardViewProvider {
           : { allOpen: false, anyOpen: false, openPorts: [] };
         if (portStatus.allOpen) {
           this.startGraceUntil.delete(project.id);
+          if (this.managedProjectIds.has(project.id)) {
+            this.portReservations.setState(project.id, 'running');
+          }
         }
+        const sharedState = sharedRuntime.get(project.id);
         const conflict = occupiedPortConflict({
           project,
           projects,
-          managedProjectIds: this.managedProjectIds,
+          managedProjectIds,
           openPorts: portStatus.openPorts
         });
         const status = projectStatus({
@@ -184,10 +202,11 @@ class SwitchboardViewProvider {
           ambiguousConflict: conflict?.kind === 'ambiguous',
           hasServices,
           knownConflict: conflict?.kind === 'managed',
-          managed: this.managedProjectIds.has(project.id),
-          processActive: this.processes.has(project.id),
-          stopping: this.stoppingProjectIds.has(project.id),
-          withinStartGrace: now < (this.startGraceUntil.get(project.id) || 0)
+          managed: managedProjectIds.has(project.id),
+          processActive: this.processes.has(project.id) || sharedState === 'running',
+          stopping: this.stoppingProjectIds.has(project.id) || sharedState === 'stopping',
+          withinStartGrace: sharedState === 'starting'
+            || now < (this.startGraceUntil.get(project.id) || 0)
         });
         return [project.id, status, portConflictSummary(conflict)];
       }));
@@ -572,6 +591,7 @@ class SwitchboardViewProvider {
     const adjacentProject = remainingProjects[projectIndex] || remainingProjects[projectIndex - 1];
     this.managedProjectIds.delete(id);
     this.statusRevision += 1;
+    this.portReservations.releaseShared(id);
     this.releaseStartReservation(id);
     this.projectStatuses.delete(id);
     this.projectPortConflicts.delete(id);
@@ -671,6 +691,7 @@ class SwitchboardViewProvider {
 
       this.processes.set(id, child);
       this.startAttempts.delete(id);
+      this.portReservations.setState(id, 'running');
       this.statusRevision += 1;
       let stderr = '';
       listenToProjectOutput(child, (chunk) => this.addProjectOutput(id, chunk));
@@ -682,6 +703,7 @@ class SwitchboardViewProvider {
         this.statusRevision += 1;
         this.processes.delete(id);
         this.managedProjectIds.delete(id);
+        this.portReservations.releaseShared(id);
         this.releaseStartReservation(id);
         this.projectStatuses.set(id, 'stopped');
         this.startGraceUntil.delete(id);
@@ -695,6 +717,7 @@ class SwitchboardViewProvider {
           this.processes.delete(id);
           if (code !== 0) {
             this.managedProjectIds.delete(id);
+            this.portReservations.releaseShared(id);
             this.releaseStartReservation(id);
             this.projectStatuses.set(id, 'stopped');
             this.startGraceUntil.delete(id);
@@ -715,6 +738,7 @@ class SwitchboardViewProvider {
     } catch (error) {
       this.statusRevision += 1;
       this.managedProjectIds.delete(id);
+      this.portReservations.releaseShared(id);
       this.releaseStartReservation(id);
       this.projectStatuses.set(id, 'stopped');
       this.startGraceUntil.delete(id);
@@ -731,6 +755,7 @@ class SwitchboardViewProvider {
 
     if (this.startAttempts.has(id)) {
       this.statusRevision += 1;
+      this.portReservations.releaseShared(id);
       this.releaseStartReservation(id);
       this.projectStatuses.set(id, 'stopped');
       this.renderProjectList();
@@ -742,6 +767,7 @@ class SwitchboardViewProvider {
     }
 
     this.stoppingProjectIds.add(id);
+    this.portReservations.setState(id, 'stopping');
     this.statusRevision += 1;
     this.projectStatuses.set(id, 'stopping');
     this.startGraceUntil.delete(id);
@@ -774,7 +800,10 @@ class SwitchboardViewProvider {
       this.statusRevision += 1;
       if (succeeded) {
         this.managedProjectIds.delete(id);
+        this.portReservations.releaseShared(id);
         this.releaseStartReservation(id);
+      } else {
+        this.portReservations.setState(id, 'running');
       }
       this.projectStatuses.set(id, succeeded ? 'stopped' : 'active');
       this.renderProjectList();

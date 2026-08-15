@@ -46,3 +46,7 @@ Thumbs.db
 # Local design and icon exploration files
 /porter.pen
 /switchboard-icon-options.html
+
+# Local screenshot demo projects
+/demos/
+/Switchboard Demos/

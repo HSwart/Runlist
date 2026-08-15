@@ -70,8 +70,14 @@ test('coordinates reservations across independent extension hosts', (t) => {
   const secondHost = new PortReservationStore(directory, { pid: 202, isProcessAlive: () => true });
 
   assert.equal(firstHost.reserve(projects[0]), undefined);
+  assert.equal(secondHost.snapshot().get('alpha'), 'starting');
+  firstHost.setState('alpha', 'running');
+  assert.equal(secondHost.snapshot().get('alpha'), 'running');
   assert.deepEqual(secondHost.reserve(projects[1]), { port: 3000, projectId: 'alpha' });
-  firstHost.release('alpha');
+  secondHost.setState('alpha', 'stopping');
+  assert.equal(firstHost.snapshot().get('alpha'), 'stopping');
+  secondHost.releaseShared('alpha');
+  assert.equal(firstHost.snapshot().has('alpha'), false);
   assert.equal(secondHost.reserve(projects[1]), undefined);
   secondHost.dispose();
 });
