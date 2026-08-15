@@ -61,7 +61,9 @@ Switchboard points out missing or invalid details beside the field that needs at
 
 Your project is now ready whenever you need it. Select the **Start** icon to run its saved start command and the **Stop** icon to run its saved stop command. While a command is being handled, the project clearly shows **Starting…** or **Stopping…**.
 
-When two saved projects use the same app port, Switchboard identifies the conflict so you can stop the running project first.
+Projects may save the same app port because they can still run at different times. Switchboard points this out while you add or edit a project. Before starting anything, it checks the port again and blocks the start if another app is already using it.
+
+If another Switchboard project owns the port, Switchboard names it. If a shared port is occupied but its owner cannot be identified safely, both Start and Stop remain unavailable until the port is free. Switchboard never changes ports or stops an unknown process automatically.
 
 If you do not know the exact commands, use the coding-agent setup below. A supported agent can inspect the project and identify its commands and service ports for you.
 
@@ -89,6 +91,7 @@ Switchboard keeps the everyday controls simple:
 | **Start icon** | Runs the saved start command inside the project folder. |
 | **Stop icon** | Runs the saved stop command inside the project folder. |
 | **Stop all running** | Appears when two or more projects are running and stops them together. |
+| **Port in use** | Prevents conflicting projects from starting and identifies the owning project when possible. |
 | **View output** | Highlights common log levels, opens web links, and lets you copy output from the latest run. If you scroll up, Switchboard keeps your place and offers a **Latest** button when new output arrives. |
 | **…** | Opens the app, project folder, recent output, edit screen, or remove action. |
 

@@ -48,6 +48,13 @@ test('distinguishes a managed app from an occupied configured port', () => {
     managed: false
   }), 'port-in-use');
   assert.equal(projectStatus({
+    allPortsOpen: true,
+    anyPortOpen: true,
+    ambiguousConflict: true,
+    hasServices: true,
+    managed: false
+  }), 'port-in-use-unknown');
+  assert.equal(projectStatus({
     hasServices: true,
     managed: true,
     withinStartGrace: true
@@ -77,7 +84,8 @@ test('selects only projects that can be stopped together', () => {
     { id: 'active', status: 'active' },
     { id: 'stopping', status: 'stopping' },
     { id: 'stopped', status: 'stopped' },
-    { id: 'conflict', status: 'port-in-use' }
+    { id: 'conflict', status: 'port-in-use' },
+    { id: 'unknown-owner', status: 'port-in-use-unknown' }
   ];
 
   assert.deepEqual(stoppableProjectIds(projects), ['running', 'starting', 'active']);

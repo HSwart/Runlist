@@ -93,7 +93,8 @@ function statusSummaryHtml(projects) {
   const startingCount = projects.filter((project) => project.status === 'starting').length;
   const stoppingCount = projects.filter((project) => project.status === 'stopping').length;
   const stoppedCount = projects.filter((project) => project.status === 'stopped').length;
-  const conflictCount = projects.filter((project) => project.status === 'port-in-use').length;
+  const conflictCount = projects
+    .filter((project) => ['port-in-use', 'port-in-use-unknown'].includes(project.status)).length;
   return `<span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running${startingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${startingCount} starting` : ''}${stoppingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${stoppingCount} stopping` : ''} <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped${conflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${conflictCount} unavailable` : ''}`;
 }
 
@@ -131,19 +132,24 @@ function renderList() {
         const projectId = escapeHtml(project.id);
         const projectName = escapeHtml(project.name);
         const projectStatus = project.status || 'stopped';
+        const conflict = project.portConflict;
+        const conflictOwnerName = escapeHtml(conflict?.ownerName || 'Another app');
+        const conflictProjectNames = (conflict?.projectNames || []).map(escapeHtml).join(', ');
         const statusLabels = {
           running: 'Running',
           starting: 'Starting…',
           stopping: 'Stopping…',
           active: 'Detected running',
-          'port-in-use': 'Port in use',
+          'port-in-use': conflict?.ownerName ? `Port in use by ${conflictOwnerName}` : 'Port in use',
+          'port-in-use-unknown': 'Port in use — owner unknown',
           stopped: 'Stopped'
         };
         const active = ['running', 'active'].includes(projectStatus);
+        const conflicted = ['port-in-use', 'port-in-use-unknown'].includes(projectStatus);
         const transitioning = ['starting', 'stopping'].includes(projectStatus);
         const canOpen = ['running', 'active'].includes(projectStatus) && project.services?.length;
         const stopsProject = ['running', 'starting', 'active'].includes(projectStatus);
-        const blocked = projectStatus === 'port-in-use';
+        const blocked = conflicted;
         const action = stopsProject ? 'stop' : 'start';
         const actionLabel = blocked
           ? 'Unavailable'
@@ -152,16 +158,25 @@ function renderList() {
           : stopsProject
             ? 'Stop'
             : 'Start';
-        const actionTitle = blocked
-          ? `Port in use — cannot start ${projectName}`
+        const actionTitle = projectStatus === 'port-in-use-unknown'
+          ? `Port :${conflict?.port || 'unknown'} owner is unknown — cannot safely start or stop ${projectName}`
+          : blocked
+            ? `${conflictOwnerName} is using port :${conflict?.port || 'unknown'} — cannot start ${projectName}`
           : `${actionLabel} ${projectName}`;
+        const statusTitle = projectStatus === 'active'
+          ? 'Detected through a configured service port; Switchboard did not start this process.'
+          : projectStatus === 'port-in-use-unknown'
+            ? `Port :${conflict?.port || 'unknown'} is shared with ${conflictProjectNames}. Switchboard cannot identify the running owner.`
+            : projectStatus === 'port-in-use'
+              ? `${conflictOwnerName} is using port :${conflict?.port || 'unknown'}.`
+              : '';
         const actionDisabled = projectStatus === 'stopping' || blocked;
         return `
           <article class="project-row" data-project-id="${projectId}" aria-labelledby="project-${projectId}">
             <div class="project-topline">
               <div class="project-heading">
                 <h2 id="project-${projectId}">${projectName}</h2>
-                <div class="project-status"${projectStatus === 'active' ? ' title="Detected through a configured service port; Switchboard did not start this process."' : ''}>${transitioning ? productIcon('loading', 'status-progress') : `<span class="status-dot ${active ? 'running' : projectStatus === 'port-in-use' ? 'conflict' : ''}"></span>`}${statusLabels[projectStatus]}</div>
+                <div class="project-status"${statusTitle ? ` title="${statusTitle}"` : ''}>${transitioning ? productIcon('loading', 'status-progress') : `<span class="status-dot ${active ? 'running' : conflicted ? 'conflict' : ''}"></span>`}${statusLabels[projectStatus]}</div>
               </div>
               <div class="project-actions">
                 <button class="run-button ${blocked ? 'blocked' : stopsProject || projectStatus === 'stopping' ? 'stop' : 'start'}" data-action="${action}" data-id="${projectId}" aria-label="${actionTitle}" title="${actionTitle}" ${actionDisabled ? 'disabled' : ''}>
@@ -169,7 +184,7 @@ function renderList() {
                 </button>
                 <button class="more-button" data-action="toggle-menu" data-id="${projectId}" aria-label="More actions for ${projectName}" aria-haspopup="menu" aria-expanded="false">${icon('more')}</button>
                 <div class="action-menu" data-menu-id="${projectId}" role="menu" aria-label="Actions for ${projectName}" hidden>
-                  <button data-action="open" data-id="${projectId}" role="menuitem" ${canOpen ? '' : 'disabled'} title="${canOpen ? `Open ${projectName} in your browser` : projectStatus === 'port-in-use' ? 'This port may belong to another app' : `Start ${projectName} before opening it`}">
+                  <button data-action="open" data-id="${projectId}" role="menuitem" ${canOpen ? '' : 'disabled'} title="${canOpen ? `Open ${projectName} in your browser` : conflicted ? 'This port may belong to another app' : `Start ${projectName} before opening it`}">
                     ${icon('external', 'menu-icon')}<span>Open app</span>
                   </button>
                   <button data-action="open-vscode" data-id="${projectId}" role="menuitem" title="Open ${projectName} in a new VS Code window">
@@ -195,7 +210,7 @@ function renderList() {
             </div>
             ${project.services?.length ? `
               <div class="project-services" aria-label="Service ports">
-                ${project.services.map((service) => `<span><span class="service-indicator ${active ? 'running' : projectStatus === 'port-in-use' ? 'conflict' : ''}" aria-hidden="true"></span>${escapeHtml(service.name)} <strong>:${escapeHtml(String(service.port))}</strong></span>`).join('')}
+                ${project.services.map((service) => `<span><span class="service-indicator ${active ? 'running' : conflicted ? 'conflict' : ''}" aria-hidden="true"></span>${escapeHtml(service.name)} <strong>:${escapeHtml(String(service.port))}</strong></span>`).join('')}
               </div>` : ''}
           </article>`;
       }).join('')}
@@ -253,6 +268,31 @@ function applyProjectFilter(query) {
   }
 }
 
+function sharedPortWarningText(draft) {
+  const port = Number(draft?.appPort ?? draft?.services?.[0]?.port);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return '';
+  }
+  const folder = String(draft?.folder || '').trim();
+  const sharedWith = state.projects.filter((project) => project.id !== draft?.id
+    && String(project.folder || '').trim() !== folder
+    && project.services?.some((service) => service.port === port));
+  if (!sharedWith.length) {
+    return '';
+  }
+  const names = sharedWith.map((project) => project.name).join(', ');
+  return `Port :${port} is also used by ${names}. These projects can be saved, but cannot run together.`;
+}
+
+function updateSharedPortWarning(draft = currentDraft()) {
+  const warning = document.getElementById('shared-port-warning');
+  if (!warning) {
+    return;
+  }
+  warning.textContent = sharedPortWarningText(draft);
+  warning.hidden = !warning.textContent;
+}
+
 function renderProjectForm(mode) {
   const editing = mode === 'edit';
   const errors = state.formErrors || {};
@@ -262,6 +302,7 @@ function renderProjectForm(mode) {
   const fieldError = (field) => errors[field]
     ? `<p id="${field}-error" class="field-error" role="alert">${escapeHtml(errors[field])}</p>`
     : '';
+  const sharedPortWarning = sharedPortWarningText(state.draft);
   app.innerHTML = `
     <section class="add-screen">
       <header class="screen-header">
@@ -294,6 +335,7 @@ function renderProjectForm(mode) {
         <input id="app-port" name="appPort" type="number" min="1" max="65535" step="1" inputmode="numeric" value="${escapeHtml(String(state.draft.appPort ?? state.draft.services?.[0]?.port ?? ''))}" placeholder="3000" ${errorAttributes('app-port')}>
         ${fieldError('app-port')}
         <p class="field-hint">Used to confirm the app is running and enable Open app.</p>
+        <p id="shared-port-warning" class="shared-port-warning" role="status" ${sharedPortWarning ? '' : 'hidden'}>${escapeHtml(sharedPortWarning)}</p>
 
         <button class="primary-button save-button" type="submit">${editing ? 'Save changes' : 'Save project'}</button>
         <p class="form-hint">${editing ? 'Changes apply the next time you start this project.' : 'Commands run inside the selected folder.'}</p>
@@ -576,7 +618,9 @@ app.addEventListener('input', (event) => {
   event.target.setAttribute('aria-invalid', 'false');
   event.target.removeAttribute('aria-describedby');
   document.getElementById(`${field}-error`)?.remove();
-  vscode.postMessage({ type: 'updateDraft', draft: currentDraft() });
+  const draft = currentDraft();
+  updateSharedPortWarning(draft);
+  vscode.postMessage({ type: 'updateDraft', draft });
 });
 
 app.addEventListener('focusin', (event) => {
