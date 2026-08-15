@@ -17,6 +17,10 @@ const {
 } = require('./project-status');
 const { openProjectInNewWindow } = require('./project-navigation');
 const {
+  occupiedPortConflict,
+  PortReservationStore
+} = require('./port-gate');
+const {
   projectFormChanged,
   projectFormValues,
   projectSaveError,
@@ -59,10 +63,16 @@ class SwitchboardViewProvider {
     this.projectOutputs = new Map();
     this.outputUpdateScheduler = createOutputUpdateScheduler((id) => this.sendProjectOutput(id));
     this.managedProjectIds = new Set();
+    this.portReservations = new PortReservationStore(
+      path.join(path.dirname(projectsFile), 'port-reservations')
+    );
+    this.startAttempts = new Map();
+    this.projectPortConflicts = new Map();
     this.projectStatuses = new Map();
     this.startGraceUntil = new Map();
     this.stoppingProjectIds = new Set();
     this.statusRefreshInFlight = false;
+    this.statusRevision = 0;
     this.agentConnections = {
       claude: { status: 'idle', message: '' },
       codex: { status: 'idle', message: '' }
@@ -122,6 +132,9 @@ class SwitchboardViewProvider {
     if (this.stoppingProjectIds.has(id)) {
       return 'stopping';
     }
+    if (this.startAttempts.has(id)) {
+      return 'starting';
+    }
     return this.projectStatuses.get(id)
       || (this.processes.has(id) ? 'running' : 'stopped');
   }
@@ -148,13 +161,10 @@ class SwitchboardViewProvider {
     }
 
     this.statusRefreshInFlight = true;
+    const revision = this.statusRevision;
     try {
       const now = Date.now();
       const projects = this.projects;
-      const managedPorts = new Set(projects
-        .filter((project) => this.managedProjectIds.has(project.id))
-        .flatMap((project) => project.services || [])
-        .map((service) => service.port));
       const checks = await Promise.all(projects.map(async (project) => {
         const hasServices = Boolean(project.services?.length);
         const portStatus = hasServices
@@ -163,27 +173,45 @@ class SwitchboardViewProvider {
         if (portStatus.allOpen) {
           this.startGraceUntil.delete(project.id);
         }
+        const conflict = occupiedPortConflict({
+          project,
+          projects,
+          managedProjectIds: this.managedProjectIds,
+          openPorts: portStatus.openPorts
+        });
         const status = projectStatus({
           ...portStatus,
+          ambiguousConflict: conflict?.kind === 'ambiguous',
           hasServices,
-          knownConflict: !this.managedProjectIds.has(project.id)
-            && portStatus.openPorts.some((port) => managedPorts.has(port)),
+          knownConflict: conflict?.kind === 'managed',
           managed: this.managedProjectIds.has(project.id),
           processActive: this.processes.has(project.id),
           stopping: this.stoppingProjectIds.has(project.id),
           withinStartGrace: now < (this.startGraceUntil.get(project.id) || 0)
         });
-        if (status === 'stopped') {
-          this.managedProjectIds.delete(project.id);
-          this.startGraceUntil.delete(project.id);
-        }
-        return [project.id, status];
+        return [project.id, status, portConflictSummary(conflict)];
       }));
 
-      const nextStatuses = new Map(checks);
+      if (revision !== this.statusRevision) {
+        return;
+      }
+
+      for (const [id, status] of checks) {
+        if (status === 'stopped') {
+          this.managedProjectIds.delete(id);
+          this.startGraceUntil.delete(id);
+        }
+      }
+
+      const nextStatuses = new Map(checks.map(([id, status]) => [id, status]));
+      const nextConflicts = new Map(checks
+        .filter(([, , conflict]) => conflict)
+        .map(([id, , conflict]) => [id, conflict]));
       const changed = nextStatuses.size !== this.projectStatuses.size
-        || [...nextStatuses].some(([id, status]) => this.projectStatuses.get(id) !== status);
+        || [...nextStatuses].some(([id, status]) => this.projectStatuses.get(id) !== status)
+        || portConflictMapsDiffer(nextConflicts, this.projectPortConflicts);
       this.projectStatuses = nextStatuses;
+      this.projectPortConflicts = nextConflicts;
       if (changed) {
         this.renderProjectList();
       }
@@ -221,7 +249,7 @@ class SwitchboardViewProvider {
         await this.saveProject(message.project);
         break;
       case 'startProject':
-        this.startProject(message.id);
+        await this.startProject(message.id);
         break;
       case 'stopProject':
         this.stopProject(message.id);
@@ -543,7 +571,10 @@ class SwitchboardViewProvider {
     const remainingProjects = projects.filter((item) => item.id !== id);
     const adjacentProject = remainingProjects[projectIndex] || remainingProjects[projectIndex - 1];
     this.managedProjectIds.delete(id);
+    this.statusRevision += 1;
+    this.releaseStartReservation(id);
     this.projectStatuses.delete(id);
+    this.projectPortConflicts.delete(id);
     this.startGraceUntil.delete(id);
     this.stoppingProjectIds.delete(id);
     this.projectOutputs.delete(id);
@@ -561,26 +592,68 @@ class SwitchboardViewProvider {
     this.render();
   }
 
-  startProject(id) {
+  releaseStartReservation(id) {
+    this.startAttempts.delete(id);
+    this.portReservations.release(id);
+  }
+
+  async startProject(id) {
     const currentStatus = this.getProjectStatus(id);
     if (currentStatus !== 'stopped') {
-      if (currentStatus === 'port-in-use') {
-        vscode.window.showWarningMessage('A configured app port is already in use. Stop that app before starting this project.');
+      if (['port-in-use', 'port-in-use-unknown'].includes(currentStatus)) {
+        vscode.window.showWarningMessage('A configured app port is already in use. Stop the running app before starting this project.');
       }
       return;
     }
 
-    const project = this.projects.find((item) => item.id === id);
+    const projects = this.projects;
+    const project = projects.find((item) => item.id === id);
     if (!project) {
       return;
     }
-    const conflictingProject = this.projects.find((item) => item.id !== id
-      && this.managedProjectIds.has(item.id)
-      && item.services?.some((service) => project.services?.some((own) => own.port === service.port)));
-    if (conflictingProject) {
+
+    const reservationConflict = this.portReservations.reserve(project);
+    if (reservationConflict) {
+      const owner = projects.find((candidate) => candidate.id === reservationConflict.projectId);
       vscode.window.showWarningMessage(
-        `${conflictingProject.name} uses the same app port. Stop it before starting ${project.name}.`
+        `${owner?.name || 'Another Switchboard project'} is using port :${reservationConflict.port}. Stop it before starting ${project.name}.`
       );
+      return;
+    }
+
+    const attempt = Symbol(id);
+    this.statusRevision += 1;
+    this.startAttempts.set(id, attempt);
+    this.projectPortConflicts.delete(id);
+    this.projectStatuses.set(id, 'starting');
+    this.renderProjectList();
+
+    const portStatus = project.services?.length
+      ? await servicePortStatus(project.services)
+      : { allOpen: false, anyOpen: false, openPorts: [] };
+    if (this.startAttempts.get(id) !== attempt) {
+      return;
+    }
+    if (portStatus.anyOpen) {
+      const conflict = occupiedPortConflict({
+        project,
+        projects,
+        managedProjectIds: this.managedProjectIds,
+        openPorts: portStatus.openPorts
+      });
+      this.statusRevision += 1;
+      this.releaseStartReservation(id);
+      this.projectStatuses.set(id, conflict?.kind === 'managed'
+        ? 'port-in-use'
+        : conflict?.kind === 'ambiguous'
+          ? 'port-in-use-unknown'
+          : 'active');
+      const conflictSummary = portConflictSummary(conflict);
+      if (conflictSummary) {
+        this.projectPortConflicts.set(id, conflictSummary);
+      }
+      vscode.window.showWarningMessage(startBlockedMessage(project, conflict));
+      this.renderProjectList();
       return;
     }
 
@@ -597,6 +670,8 @@ class SwitchboardViewProvider {
       });
 
       this.processes.set(id, child);
+      this.startAttempts.delete(id);
+      this.statusRevision += 1;
       let stderr = '';
       listenToProjectOutput(child, (chunk) => this.addProjectOutput(id, chunk));
       child.stderr?.setEncoding('utf8');
@@ -604,8 +679,10 @@ class SwitchboardViewProvider {
         stderr = `${stderr}${chunk}`.slice(-2000);
       });
       child.once('error', (error) => {
+        this.statusRevision += 1;
         this.processes.delete(id);
         this.managedProjectIds.delete(id);
+        this.releaseStartReservation(id);
         this.projectStatuses.set(id, 'stopped');
         this.startGraceUntil.delete(id);
         this.addProjectOutput(id, `Switchboard could not start this project: ${error.message}\n`);
@@ -614,9 +691,11 @@ class SwitchboardViewProvider {
       });
       child.once('exit', (code) => {
         if (this.processes.get(id) === child) {
+          this.statusRevision += 1;
           this.processes.delete(id);
           if (code !== 0) {
             this.managedProjectIds.delete(id);
+            this.releaseStartReservation(id);
             this.projectStatuses.set(id, 'stopped');
             this.startGraceUntil.delete(id);
             const detail = lastUsefulLine(stderr);
@@ -634,7 +713,9 @@ class SwitchboardViewProvider {
       });
       this.renderProjectList();
     } catch (error) {
+      this.statusRevision += 1;
       this.managedProjectIds.delete(id);
+      this.releaseStartReservation(id);
       this.projectStatuses.set(id, 'stopped');
       this.startGraceUntil.delete(id);
       vscode.window.showErrorMessage(`Could not start ${project.name}: ${error.message}`);
@@ -648,11 +729,20 @@ class SwitchboardViewProvider {
       return;
     }
 
+    if (this.startAttempts.has(id)) {
+      this.statusRevision += 1;
+      this.releaseStartReservation(id);
+      this.projectStatuses.set(id, 'stopped');
+      this.renderProjectList();
+      return;
+    }
+
     if (this.getProjectStatus(id) === 'stopping') {
       return;
     }
 
     this.stoppingProjectIds.add(id);
+    this.statusRevision += 1;
     this.projectStatuses.set(id, 'stopping');
     this.startGraceUntil.delete(id);
 
@@ -681,8 +771,10 @@ class SwitchboardViewProvider {
       finalized = true;
       clearTimeout(stopTimeout);
       this.stoppingProjectIds.delete(id);
+      this.statusRevision += 1;
       if (succeeded) {
         this.managedProjectIds.delete(id);
+        this.releaseStartReservation(id);
       }
       this.projectStatuses.set(id, succeeded ? 'stopped' : 'active');
       this.renderProjectList();
@@ -740,6 +832,7 @@ class SwitchboardViewProvider {
     const cleanProjectOutput = sanitizeProjectOutput(rawProjectOutput);
     const stateProjects = projects.map((project) => ({
       ...project,
+      portConflict: this.projectPortConflicts.get(project.id),
       status: this.getProjectStatus(project.id),
       searchText: projectSearchText(project)
     }));
@@ -776,10 +869,57 @@ class SwitchboardViewProvider {
       </html>`;
     this.focusTarget = undefined;
   }
+
+  dispose() {
+    this.portReservations.dispose();
+  }
 }
 
 function safeJson(value) {
   return JSON.stringify(value).replace(/</g, '\\u003c');
+}
+
+function startBlockedMessage(project, conflict) {
+  if (conflict?.kind === 'managed') {
+    return `${conflict.owner.name} is already using port :${conflict.port}. Stop it before starting ${project.name}.`;
+  }
+  if (conflict?.kind === 'ambiguous') {
+    const names = conflict.sharedWith.map((candidate) => candidate.name).join(', ');
+    return `Port :${conflict.port} is already in use and is also configured for ${names}. Switchboard cannot safely identify its owner.`;
+  }
+  return `Port :${conflict?.port || 'unknown'} is already in use. ${project.name} appears to be running already.`;
+}
+
+function portConflictSummary(conflict) {
+  if (conflict?.kind === 'managed') {
+    return {
+      kind: conflict.kind,
+      ownerName: conflict.owner.name,
+      port: conflict.port
+    };
+  }
+  if (conflict?.kind === 'ambiguous') {
+    return {
+      kind: conflict.kind,
+      port: conflict.port,
+      projectNames: conflict.sharedWith.map((project) => project.name)
+    };
+  }
+  return undefined;
+}
+
+function portConflictMapsDiffer(left, right) {
+  if (left.size !== right.size) {
+    return true;
+  }
+  return [...left].some(([id, conflict]) => {
+    const previous = right.get(id);
+    return !previous
+      || previous.kind !== conflict.kind
+      || previous.port !== conflict.port
+      || previous.ownerName !== conflict.ownerName
+      || String(previous.projectNames) !== String(conflict.projectNames);
+  });
 }
 
 function validFocusTarget(target) {
@@ -855,6 +995,7 @@ function activate(context) {
 
   const serverPath = installMcpBridge(context);
   const provider = new SwitchboardViewProvider(context, projectsFile, serverPath);
+  context.subscriptions.push({ dispose: () => provider.dispose() });
   const handleProjectStoreChange = () => provider.renderProjectList();
   fs.watchFile(projectsFile, { interval: 500 }, handleProjectStoreChange);
 
