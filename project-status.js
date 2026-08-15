@@ -52,8 +52,14 @@ function projectStatus({
   if (stopping) {
     return 'stopping';
   }
+  if (managed && withinStartGrace) {
+    return 'starting';
+  }
+  if (managed && processActive) {
+    return 'running';
+  }
   if (!hasServices) {
-    return processActive ? 'running' : 'stopped';
+    return managed || processActive ? 'running' : 'stopped';
   }
   if (allPortsOpen) {
     return managed ? 'running' : knownConflict ? 'port-in-use' : 'active';
@@ -61,8 +67,8 @@ function projectStatus({
   if (anyPortOpen) {
     return managed ? 'starting' : knownConflict ? 'port-in-use' : 'active';
   }
-  if (managed && (processActive || withinStartGrace)) {
-    return 'starting';
+  if (managed) {
+    return 'running';
   }
   return 'stopped';
 }

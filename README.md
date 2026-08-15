@@ -4,8 +4,8 @@
   <p><strong>Start and stop your local development projects from one simple VS Code sidebar.</strong></p>
   <p>No more hunting through old notes or trying to remember how each project starts.</p>
   <p>
-    <a href="releases/switchboard-0.0.2.vsix">
-      <img src="https://img.shields.io/badge/Download-Switchboard%200.0.2-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="Download Switchboard 0.0.2">
+    <a href="releases/switchboard-0.0.1.vsix">
+      <img src="https://img.shields.io/badge/Download-Switchboard%200.0.1-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="Download Switchboard 0.0.1">
     </a>
   </p>
 </div>
@@ -27,9 +27,9 @@ Switchboard keeps a reusable list of your local projects inside VS Code. Save ea
 
 ### 1. Download Switchboard
 
-Download version 0.0.2 here:
+Download version 0.0.1 here:
 
-**[Download Switchboard 0.0.2](releases/switchboard-0.0.2.vsix)**
+**[Download Switchboard 0.0.1](releases/switchboard-0.0.1.vsix)**
 
 ### 2. Install it in VS Code
 
@@ -90,5 +90,5 @@ Switchboard stores its project list in your local VS Code data. Switchboard itse
 
 <div align="center">
   <p><strong>Spend less time remembering commands. Spend more time building.</strong></p>
-  <p><a href="releases/switchboard-0.0.2.vsix">Download Switchboard 0.0.2</a></p>
+  <p><a href="releases/switchboard-0.0.1.vsix">Download Switchboard 0.0.1</a></p>
 </div>

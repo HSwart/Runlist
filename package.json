@@ -2,7 +2,7 @@
   "name": "switchboard",
   "displayName": "Switchboard",
   "description": "Start and stop local projects from one focused sidebar.",
-  "version": "0.0.2",
+  "version": "0.0.1",
   "publisher": "local",
   "preview": true,
   "icon": "media/switchboard.png",

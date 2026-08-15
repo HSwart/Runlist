@@ -49,8 +49,18 @@ test('distinguishes a managed app from an occupied configured port', () => {
   assert.equal(projectStatus({
     hasServices: true,
     managed: true,
-    processActive: true
+    withinStartGrace: true
   }), 'starting');
+  assert.equal(projectStatus({
+    hasServices: true,
+    managed: true,
+    processActive: true
+  }), 'running');
+  assert.equal(projectStatus({
+    hasServices: true,
+    managed: true
+  }), 'running');
+  assert.equal(projectStatus({ managed: true }), 'running');
   assert.equal(projectStatus({ stopping: true }), 'stopping');
 });
 

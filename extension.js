@@ -16,6 +16,7 @@ const {
 } = require('./project-store');
 
 const STORAGE_KEY = 'switchboard.projects';
+const STARTING_DISPLAY_MS = 3000;
 
 class SwitchboardViewProvider {
   constructor(context, projectsFile, serverPath) {
@@ -373,7 +374,7 @@ class SwitchboardViewProvider {
     try {
       this.managedProjectIds.add(id);
       this.projectStatuses.set(id, 'starting');
-      this.startGraceUntil.set(id, Date.now() + 15000);
+      this.startGraceUntil.set(id, Date.now() + STARTING_DISPLAY_MS);
       const child = spawn(project.startCommand, {
         cwd: project.folder,
         shell: true,
@@ -406,6 +407,10 @@ class SwitchboardViewProvider {
             vscode.window.showErrorMessage(
               `Could not start ${project.name}: ${detail || `command exited with code ${code}.`}`
             );
+            this.render();
+          } else {
+            this.startGraceUntil.delete(id);
+            this.projectStatuses.set(id, 'running');
             this.render();
           }
           this.refreshProjectStatuses();
