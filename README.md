@@ -12,6 +12,10 @@
 
 ---
 
+<p align="center">
+  <img src="media/switchboard-preview.png" width="1200" alt="Switchboard in VS Code showing local projects with running and stopped statuses">
+</p>
+
 ## Everything you are working on, in one place
 
 Switchboard keeps a reusable list of your local projects inside VS Code. Save each project’s folder and commands once, then use **Start** and **Stop** whenever you return to it.
