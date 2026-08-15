@@ -14,7 +14,7 @@ function readProjects(filePath) {
   const contents = fs.readFileSync(filePath, 'utf8');
   const projects = JSON.parse(contents);
   if (!Array.isArray(projects)) {
-    throw new Error('Porter project storage is not a valid list.');
+    throw new Error('Switchboard project storage is not a valid list.');
   }
   return projects;
 }
@@ -42,7 +42,7 @@ function upsertProject(filePath, input) {
     : projects.findIndex((project) => normalizeForComparison(project.folder) === folder);
 
   if (input.id && index === -1) {
-    throw new Error('The Porter project being edited no longer exists.');
+    throw new Error('The Switchboard project being edited no longer exists.');
   }
 
   const existing = index >= 0 ? projects[index] : undefined;

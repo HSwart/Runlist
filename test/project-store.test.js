@@ -11,7 +11,7 @@ const {
 } = require('../project-store');
 
 test('creates, updates, and removes projects in the shared store', (t) => {
-  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'porter-store-'));
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-store-'));
   const projectFolder = path.join(temporaryRoot, 'sample-app');
   const projectsFile = path.join(temporaryRoot, 'storage', 'projects.json');
   fs.mkdirSync(projectFolder);
@@ -46,7 +46,7 @@ test('creates, updates, and removes projects in the shared store', (t) => {
 });
 
 test('rejects duplicate service ports', (t) => {
-  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'porter-store-'));
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-store-'));
   const projectFolder = path.join(temporaryRoot, 'sample-app');
   const projectsFile = path.join(temporaryRoot, 'projects.json');
   fs.mkdirSync(projectFolder);
@@ -67,7 +67,7 @@ test('rejects duplicate service ports', (t) => {
 });
 
 test('rejects project folders that do not exist', (t) => {
-  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'porter-store-'));
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-store-'));
   const projectsFile = path.join(temporaryRoot, 'projects.json');
   t.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
 

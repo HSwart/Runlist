@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Main Outer Frame -->
+  <rect x="3" y="3" width="18" height="18" rx="4" />
+
+  <!-- Divider Line -->
+  <line x1="10" y1="3" x2="10" y2="21" />
+
+  <!-- Play Trigger Symbol -->
+  <polygon points="14,8 14,16 19,12" fill="currentColor" stroke="none" />
+
+  <!-- Active / Inactive Status Dots -->
+  <circle cx="6.5" cy="7.5" r="1" fill="currentColor" />
+  <circle cx="6.5" cy="12" r="1" fill="currentColor" />
+  <circle cx="6.5" cy="16.5" r="1" fill="currentColor" />
+</svg>

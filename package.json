@@ -1,6 +1,6 @@
 {
-  "name": "porter",
-  "displayName": "Porter",
+  "name": "switchboard",
+  "displayName": "Switchboard",
   "description": "Start and stop local projects from one focused sidebar.",
   "version": "0.0.2",
   "publisher": "local",
@@ -11,47 +11,47 @@
     "Other"
   ],
   "activationEvents": [
-    "onView:porter.projects",
-    "onCommand:porter.addProject"
+    "onView:switchboard.projects",
+    "onCommand:switchboard.addProject"
   ],
   "main": "./extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "porter.addProject",
+        "command": "switchboard.addProject",
         "title": "Add Project",
         "icon": "$(add)"
       }
     ],
     "mcpServerDefinitionProviders": [
       {
-        "id": "porter.projects",
-        "label": "Porter"
+        "id": "switchboard.projects",
+        "label": "Switchboard"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "porter",
-          "title": "Porter",
-          "icon": "media/porter.svg"
+          "id": "switchboard",
+          "title": "Switchboard",
+          "icon": "media/switchboard.svg"
         }
       ]
     },
     "views": {
-      "porter": [
+      "switchboard": [
         {
           "type": "webview",
-          "id": "porter.projects",
-          "name": "Porter"
+          "id": "switchboard.projects",
+          "name": "Switchboard"
         }
       ]
     },
     "menus": {
       "view/title": [
         {
-          "command": "porter.addProject",
-          "when": "view == porter.projects",
+          "command": "switchboard.addProject",
+          "when": "view == switchboard.projects",
           "group": "navigation"
         }
       ]

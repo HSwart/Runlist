@@ -7,14 +7,14 @@ const { spawn } = require('node:child_process');
 const test = require('node:test');
 
 test('serves the setup tool over MCP stdio', async (t) => {
-  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'porter-mcp-'));
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-mcp-'));
   const projectFolder = path.join(temporaryRoot, 'agent-app');
   const projectsFile = path.join(temporaryRoot, 'projects.json');
   fs.mkdirSync(projectFolder);
   t.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
 
   const server = spawn(process.execPath, [path.join(__dirname, '..', 'mcp', 'server.js')], {
-    env: { ...process.env, PORTER_PROJECTS_FILE: projectsFile },
+    env: { ...process.env, SWITCHBOARD_PROJECTS_FILE: projectsFile },
     stdio: ['pipe', 'pipe', 'pipe']
   });
   t.after(() => server.kill());
@@ -44,17 +44,17 @@ test('serves the setup tool over MCP stdio', async (t) => {
   const initialized = await request('initialize', {
     protocolVersion: '2025-11-25',
     capabilities: {},
-    clientInfo: { name: 'porter-test', version: '1.0.0' }
+    clientInfo: { name: 'switchboard-test', version: '1.0.0' }
   });
-  assert.equal(initialized.result.serverInfo.name, 'porter-mcp-server');
+  assert.equal(initialized.result.serverInfo.name, 'switchboard-mcp-server');
 
   const listed = await request('tools/list');
   assert.equal(listed.result.tools.length, 1);
-  assert.equal(listed.result.tools[0].name, 'porter_setup_project');
+  assert.equal(listed.result.tools[0].name, 'switchboard_setup_project');
   assert.ok(listed.result.tools[0].inputSchema.required.includes('services'));
 
   const called = await request('tools/call', {
-    name: 'porter_setup_project',
+    name: 'switchboard_setup_project',
     arguments: {
       folder: projectFolder,
       startCommand: 'npm run dev',
@@ -74,7 +74,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).length, 1);
 
   const invalid = await request('tools/call', {
-    name: 'porter_setup_project',
+    name: 'switchboard_setup_project',
     arguments: {
       folder: 'relative/path',
       startCommand: 'npm run dev',
@@ -86,7 +86,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.match(invalid.result.content[0].text, /absolute path/);
 
   const missingServices = await request('tools/call', {
-    name: 'porter_setup_project',
+    name: 'switchboard_setup_project',
     arguments: {
       folder: projectFolder,
       startCommand: 'npm run dev',

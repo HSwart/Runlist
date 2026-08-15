@@ -9,9 +9,9 @@ const {
   upsertProject
 } = require('./project-store');
 
-const STORAGE_KEY = 'porter.projects';
+const STORAGE_KEY = 'switchboard.projects';
 
-class PorterViewProvider {
+class SwitchboardViewProvider {
   constructor(context, projectsFile) {
     this.context = context;
     this.projectsFile = projectsFile;
@@ -142,10 +142,10 @@ class PorterViewProvider {
     }
 
     const detail = this.processes.has(id)
-      ? 'This removes the saved project from Porter and stops its running process. Project files are not deleted.'
-      : 'This removes the saved project from Porter. Project files are not deleted.';
+      ? 'This removes the saved project from Switchboard and stops its running process. Project files are not deleted.'
+      : 'This removes the saved project from Switchboard. Project files are not deleted.';
     const choice = await vscode.window.showWarningMessage(
-      `Delete ${project.name} from Porter?`,
+      `Delete ${project.name} from Switchboard?`,
       { modal: true, detail },
       'Delete project'
     );
@@ -251,11 +251,11 @@ class PorterViewProvider {
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this.view.webview.cspSource}; script-src 'nonce-${nonce}';">
           <link rel="stylesheet" href="${stylesUri}">
-          <title>Porter</title>
+          <title>Switchboard</title>
         </head>
         <body>
           <main id="app"></main>
-          <script nonce="${nonce}">window.porterState = ${safeJson(state)};</script>
+          <script nonce="${nonce}">window.switchboardState = ${safeJson(state)};</script>
           <script nonce="${nonce}" src="${scriptUri}"></script>
         </body>
       </html>`;
@@ -270,24 +270,24 @@ function activate(context) {
   const projectsFile = path.join(context.globalStorageUri.fsPath, 'projects.json');
   initializeProjectStore(projectsFile, context.globalState.get(STORAGE_KEY, []));
 
-  const provider = new PorterViewProvider(context, projectsFile);
+  const provider = new SwitchboardViewProvider(context, projectsFile);
   const handleProjectStoreChange = () => provider.render();
   fs.watchFile(projectsFile, { interval: 500 }, handleProjectStoreChange);
 
   const serverPath = vscode.Uri.joinPath(context.extensionUri, 'mcp', 'server.js').fsPath;
   const mcpDefinition = new vscode.McpStdioServerDefinition(
-    'Porter',
+    'Switchboard',
     process.execPath,
     [serverPath],
-    { PORTER_PROJECTS_FILE: projectsFile },
+    { SWITCHBOARD_PROJECTS_FILE: projectsFile },
     context.extension.packageJSON.version
   );
   mcpDefinition.cwd = context.extensionUri;
 
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider('porter.projects', provider),
-    vscode.commands.registerCommand('porter.addProject', () => provider.showAddProject()),
-    vscode.lm.registerMcpServerDefinitionProvider('porter.projects', {
+    vscode.window.registerWebviewViewProvider('switchboard.projects', provider),
+    vscode.commands.registerCommand('switchboard.addProject', () => provider.showAddProject()),
+    vscode.lm.registerMcpServerDefinitionProvider('switchboard.projects', {
       provideMcpServerDefinitions: () => [mcpDefinition],
       resolveMcpServerDefinition: (server) => server
     }),

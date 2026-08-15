@@ -1,5 +1,5 @@
 const vscode = acquireVsCodeApi();
-const state = window.porterState;
+const state = window.switchboardState;
 const app = document.getElementById('app');
 
 function escapeHtml(value = '') {

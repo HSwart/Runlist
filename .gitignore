@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# VS Code extension build and test output
+out/
+dist/
+coverage/
+.nyc_output/
+.vscode-test/
+*.vsix
+*.tgz
+
+# Tool caches
+.cache/
+.eslintcache
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+*.tmp
+*.swp
+*.swo
+*~
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Local design and icon exploration files
+/porter.pen
+/switchboard-icon-options.html

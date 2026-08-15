@@ -2,7 +2,7 @@
 const readline = require('readline');
 const { upsertProject } = require('../project-store');
 
-const SERVER_NAME = 'porter-mcp-server';
+const SERVER_NAME = 'switchboard-mcp-server';
 const SERVER_VERSION = '0.0.2';
 const LATEST_PROTOCOL_VERSION = '2025-11-25';
 const SUPPORTED_PROTOCOL_VERSIONS = new Set([
@@ -11,12 +11,12 @@ const SUPPORTED_PROTOCOL_VERSIONS = new Set([
   '2025-03-26',
   '2024-11-05'
 ]);
-const PROJECTS_FILE = process.env.PORTER_PROJECTS_FILE;
+const PROJECTS_FILE = process.env.SWITCHBOARD_PROJECTS_FILE;
 
 const tool = {
-  name: 'porter_setup_project',
-  title: 'Set up a Porter project',
-  description: 'Add a local project to Porter, or update the existing entry for the same folder. Before calling, identify every service the project starts and provide its explicit port. Stores commands that Porter may execute later when the user clicks Start or Stop.',
+  name: 'switchboard_setup_project',
+  title: 'Set up a Switchboard project',
+  description: 'Add a local project to Switchboard, or update the existing entry for the same folder. Before calling, identify every service the project starts and provide its explicit port. Stores commands that Switchboard may execute later when the user clicks Start or Stop.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -26,11 +26,11 @@ const tool = {
       },
       startCommand: {
         type: 'string',
-        description: 'Shell command Porter should execute to start this project.'
+        description: 'Shell command Switchboard should execute to start this project.'
       },
       stopCommand: {
         type: 'string',
-        description: 'Shell command Porter should execute to stop this project.'
+        description: 'Shell command Switchboard should execute to stop this project.'
       },
       services: {
         type: 'array',
@@ -94,7 +94,7 @@ const tool = {
     additionalProperties: false
   },
   annotations: {
-    title: 'Set up a Porter project',
+    title: 'Set up a Switchboard project',
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: true,
@@ -144,11 +144,11 @@ function handleRequest(message) {
         capabilities: { tools: { listChanged: false } },
         serverInfo: {
           name: SERVER_NAME,
-          title: 'Porter',
+          title: 'Switchboard',
           version: SERVER_VERSION,
-          description: 'Adds local projects to the Porter VS Code extension.'
+          description: 'Adds local projects to the Switchboard VS Code extension.'
         },
-        instructions: 'Use porter_setup_project when the user asks to save a local project in Porter. Inspect the project first, identify every service it starts, and provide the absolute folder path, exact start and stop commands, and an explicit unique port for each service.'
+        instructions: 'Use switchboard_setup_project when the user asks to save a local project in Switchboard. Inspect the project first, identify every service it starts, and provide the absolute folder path, exact start and stop commands, and an explicit unique port for each service.'
       });
       break;
     case 'ping':
@@ -172,7 +172,7 @@ function callTool(message) {
     return;
   }
   if (!PROJECTS_FILE) {
-    toolError(message.id, 'Porter storage is unavailable. Restart VS Code and try again.');
+    toolError(message.id, 'Switchboard storage is unavailable. Restart VS Code and try again.');
     return;
   }
 
@@ -201,7 +201,7 @@ function callTool(message) {
       isError: false
     });
   } catch (toolFailure) {
-    toolError(message.id, `Could not set up the Porter project: ${toolFailure.message}`);
+    toolError(message.id, `Could not set up the Switchboard project: ${toolFailure.message}`);
   }
 }
 
