@@ -282,7 +282,7 @@ function parseJsonLogLine(line) {
 
 function parseLogFields(line) {
   const fields = {};
-  const fieldPattern = /([A-Za-z_][\w.-]*)=("(?:\\.|[^"])*"|'(?:\\.|[^'])*'|\S+)/g;
+  const fieldPattern = /([A-Za-z_][\w.-]*)=("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\S+)/g;
   for (const match of line.matchAll(fieldPattern)) {
     fields[match[1].toLowerCase()] = unquoteLogValue(match[2]);
   }

@@ -43,3 +43,4 @@
 - Tested on Windows, macOS, and Linux.
 - Store the Switchboard project list in local VS Code data.
 - Publish a clear security policy and private vulnerability-reporting guidance.
+- Harden recent-output parsing against crafted log text that could otherwise slow the extension host.
