@@ -1,6 +1,11 @@
 const vscode = acquireVsCodeApi();
 const state = window.switchboardState;
 const app = document.getElementById('app');
+let searchQuery = String(state.searchQuery || '');
+
+function normalizeSearchQuery(value) {
+  return String(value || '').trim().toLocaleLowerCase();
+}
 
 function escapeHtml(value = '') {
   return value
@@ -18,6 +23,7 @@ function icon(name, className = 'icon') {
     external: '<path d="M11 4h5v5M9 11l7-7"/><path d="M14 11v5H4V6h5"/>',
     folder: '<path d="M2.5 5.5h5l1.5 2h8.5v8.5h-15z"/>',
     more: '<circle cx="4" cy="10" r="1" fill="currentColor" stroke="none"/><circle cx="10" cy="10" r="1" fill="currentColor" stroke="none"/><circle cx="16" cy="10" r="1" fill="currentColor" stroke="none"/>',
+    search: '<circle cx="8.5" cy="8.5" r="4.5"/><path d="m12 12 4 4"/>',
     trash: '<path d="M4 6h12M8 3h4l1 3H7l1-3ZM6 6l1 11h6l1-11M9 9v5M11 9v5"/>'
   };
   return `<svg class="${className}" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]}</svg>`;
@@ -41,9 +47,14 @@ function renderList() {
 
   app.innerHTML = `
     <header class="summary" aria-label="Project status summary">
-      <span><strong>${state.projects.length}</strong> ${state.projects.length === 1 ? 'project' : 'projects'}</span>
-      <span class="summary-status"><span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped${portConflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${portConflictCount} unavailable` : ''}</span>
+      <span id="project-count"><strong>${state.projects.length}</strong> ${state.projects.length === 1 ? 'project' : 'projects'}</span>
+      <span id="summary-status" class="summary-status"><span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped${portConflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${portConflictCount} unavailable` : ''}</span>
     </header>
+    <div class="project-search">
+      ${icon('search', 'search-icon')}
+      <input id="project-search" type="search" value="${escapeHtml(searchQuery)}" placeholder="Search projects" aria-label="Search projects" autocomplete="off" spellcheck="false">
+    </div>
+    <span id="project-search-status" class="visually-hidden" aria-live="polite"></span>
     <section class="project-list" aria-label="Projects">
       ${state.projects.map((project) => {
         const projectId = escapeHtml(project.id);
@@ -71,7 +82,7 @@ function renderList() {
             : 'Start';
         const actionDisabled = projectStatus === 'stopping' || blocked;
         return `
-          <article class="project-row" aria-labelledby="project-${projectId}">
+          <article class="project-row" data-project-id="${projectId}" aria-labelledby="project-${projectId}">
             <div class="project-topline">
               <div class="project-heading">
                 <h2 id="project-${projectId}">${projectName}</h2>
@@ -111,7 +122,64 @@ function renderList() {
               </div>` : ''}
           </article>`;
       }).join('')}
+      <div class="search-empty" data-search-empty hidden>
+        <h2>No matching projects</h2>
+        <p>Try a different name or folder.</p>
+      </div>
     </section>`;
+
+  applyProjectFilter(searchQuery);
+}
+
+function applyProjectFilter(query) {
+  searchQuery = query;
+  const normalizedQuery = normalizeSearchQuery(query);
+  const matchingProjects = state.projects.filter((project) => {
+    if (!normalizedQuery) {
+      return true;
+    }
+
+    const searchableText = String(
+      project.searchText || [project.name, project.folder].filter(Boolean).join('\n')
+    ).toLocaleLowerCase();
+    return searchableText.includes(normalizedQuery);
+  });
+  const matchingIds = new Set(matchingProjects.map((project) => String(project.id)));
+
+  document.querySelectorAll('.project-row').forEach((row) => {
+    row.hidden = !matchingIds.has(row.dataset.projectId);
+  });
+
+  const searching = normalizedQuery.length > 0;
+  const projectCount = document.getElementById('project-count');
+  if (projectCount) {
+    projectCount.innerHTML = searching
+      ? `<strong>${matchingIds.size}</strong> of ${state.projects.length} projects`
+      : `<strong>${state.projects.length}</strong> ${state.projects.length === 1 ? 'project' : 'projects'}`;
+  }
+
+  const visibleRunningCount = matchingProjects
+    .filter((project) => ['running', 'starting', 'active'].includes(project.status)).length;
+  const visibleStoppedCount = matchingProjects
+    .filter((project) => project.status === 'stopped').length;
+  const visibleConflictCount = matchingProjects
+    .filter((project) => project.status === 'port-in-use').length;
+  const summaryStatus = document.getElementById('summary-status');
+  if (summaryStatus) {
+    summaryStatus.innerHTML = `<span class="status-dot ${visibleRunningCount ? 'running' : ''}"></span>${visibleRunningCount} running <span class="summary-separator" aria-hidden="true">·</span> ${visibleStoppedCount} stopped${visibleConflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${visibleConflictCount} unavailable` : ''}`;
+  }
+
+  const emptyState = document.querySelector('[data-search-empty]');
+  if (emptyState) {
+    emptyState.hidden = !searching || matchingIds.size > 0;
+  }
+
+  const status = document.getElementById('project-search-status');
+  if (status) {
+    status.textContent = searching
+      ? `${matchingIds.size} ${matchingIds.size === 1 ? 'project' : 'projects'} found`
+      : '';
+  }
 }
 
 function renderProjectForm(mode) {
@@ -238,6 +306,13 @@ app.addEventListener('submit', (event) => {
   vscode.postMessage({ type: 'saveProject', project: currentDraft() });
 });
 
+function handleSearchInput(event) {
+  const query = event.currentTarget.value;
+  vscode.postMessage({ type: 'setSearchQuery', query });
+  closeMenus();
+  applyProjectFilter(query);
+}
+
 document.addEventListener('keydown', (event) => {
   const menu = event.target.closest('.action-menu');
   if (menu && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
@@ -293,6 +368,7 @@ function toggleMenu(button) {
 
 if (state.mode === 'list') {
   renderList();
+  document.getElementById('project-search')?.addEventListener('input', handleSearchInput);
 } else if (state.mode === 'agents') {
   renderAgentSetup();
 } else {

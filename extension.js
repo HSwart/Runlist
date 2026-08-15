@@ -14,6 +14,7 @@ const {
   servicePortStatus
 } = require('./project-status');
 const { openProjectInNewWindow } = require('./project-navigation');
+const { projectSearchText } = require('./project-search');
 const {
   initializeProjectStore,
   readProjects,
@@ -31,6 +32,7 @@ class SwitchboardViewProvider {
     this.serverPath = serverPath;
     this.view = undefined;
     this.mode = 'list';
+    this.searchQuery = '';
     this.draft = {};
     this.selectedProjectId = undefined;
     this.processes = new Map();
@@ -180,6 +182,9 @@ class SwitchboardViewProvider {
         break;
       case 'openProjectFolder':
         await this.openProjectFolder(message.id);
+        break;
+      case 'setSearchQuery':
+        this.searchQuery = String(message.query || '');
         break;
       case 'deleteProject':
         await this.deleteProject(message.id);
@@ -533,10 +538,12 @@ class SwitchboardViewProvider {
     const state = {
       agentConnections: this.agentConnections,
       mode: this.mode,
+      searchQuery: this.searchQuery,
       draft: this.draft,
       projects: this.projects.map((project) => ({
         ...project,
-        status: this.getProjectStatus(project.id)
+        status: this.getProjectStatus(project.id),
+        searchText: projectSearchText(project)
       }))
     };
 
