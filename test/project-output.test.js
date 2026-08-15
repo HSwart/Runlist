@@ -26,6 +26,13 @@ test('keeps only the newest output within the configured limit', () => {
   assert.equal(appendProjectOutput('12345', '67890', 6), '567890');
 });
 
+test('does not expose an ANSI sequence fragment when old output is trimmed', () => {
+  const output = appendProjectOutput('12', '\u001b[31mRED', 7);
+
+  assert.equal(output, 'RED');
+  assert.equal(sanitizeProjectOutput(output), 'RED');
+});
+
 test('listens to both stdout and stderr from a project process', () => {
   const child = { stdout: new PassThrough(), stderr: new PassThrough() };
   const chunks = [];

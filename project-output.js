@@ -3,7 +3,26 @@ const { stripVTControlCharacters } = require('util');
 const MAX_PROJECT_OUTPUT_CHARS = 20000;
 
 function appendProjectOutput(current, chunk, limit = MAX_PROJECT_OUTPUT_CHARS) {
-  return `${current || ''}${String(chunk || '')}`.slice(-limit);
+  const output = `${current || ''}${String(chunk || '')}`;
+  if (output.length <= limit) {
+    return output;
+  }
+  return output.slice(findAnsiSafeStart(output, output.length - limit));
+}
+
+function findAnsiSafeStart(output, requestedStart) {
+  const escapeStart = output.lastIndexOf('\u001b', requestedStart - 1);
+  if (escapeStart < 0 || output[escapeStart + 1] !== '[') {
+    return requestedStart;
+  }
+
+  const sequence = output.slice(escapeStart).match(/^\u001b\[[0-?]*[ -/]*[@-~]/)?.[0];
+  if (!sequence) {
+    return escapeStart;
+  }
+
+  const escapeEnd = escapeStart + sequence.length;
+  return escapeEnd > requestedStart ? escapeEnd : requestedStart;
 }
 
 function sanitizeProjectOutput(output) {
