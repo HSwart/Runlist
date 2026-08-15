@@ -9,4 +9,19 @@ function terminateTrackedProcess(processes, id) {
   return true;
 }
 
-module.exports = { terminateTrackedProcess };
+function cleanupTrackedProcessForDeletion(processes, id, project, stopProject) {
+  if (!processes.has(id)) {
+    return false;
+  }
+  if (!project || project.reviewRequired) {
+    return terminateTrackedProcess(processes, id);
+  }
+
+  stopProject(project);
+  return true;
+}
+
+module.exports = {
+  cleanupTrackedProcessForDeletion,
+  terminateTrackedProcess
+};

@@ -20,7 +20,10 @@ const {
   stoppableProjectIds
 } = require('./project-status');
 const { openProjectInNewWindow } = require('./project-navigation');
-const { terminateTrackedProcess } = require('./project-process');
+const {
+  cleanupTrackedProcessForDeletion,
+  terminateTrackedProcess
+} = require('./project-process');
 const {
   occupiedPortConflict,
   PortReservationStore
@@ -599,13 +602,13 @@ class SwitchboardViewProvider {
       return;
     }
 
-    if (this.processes.has(id)) {
-      if (project.reviewRequired) {
-        terminateTrackedProcess(this.processes, id);
-      } else {
-        this.stopProject(id);
-      }
-    }
+    const latestProject = this.projects.find((item) => item.id === id);
+    cleanupTrackedProcessForDeletion(
+      this.processes,
+      id,
+      latestProject,
+      (approvedProject) => this.stopProject(id, approvedProject)
+    );
 
     removeProject(this.projectsFile, id);
     const remainingProjects = projects.filter((item) => item.id !== id);
@@ -773,8 +776,8 @@ class SwitchboardViewProvider {
     }
   }
 
-  stopProject(id) {
-    const project = this.projects.find((item) => item.id === id);
+  stopProject(id, projectSnapshot) {
+    const project = projectSnapshot || this.projects.find((item) => item.id === id);
     if (!project) {
       return;
     }
