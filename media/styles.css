@@ -73,6 +73,37 @@ button:active:not(:disabled) {
   white-space: nowrap;
 }
 
+.bulk-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-widget-border));
+}
+
+.stop-all-button {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  color: var(--vscode-testing-iconFailed, #d96c75);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.stop-all-button:hover:not(:disabled) {
+  background: var(--vscode-toolbar-hoverBackground);
+  border-color: var(--vscode-widget-border, transparent);
+}
+
+.stop-all-button:disabled {
+  cursor: default;
+  color: var(--vscode-disabledForeground);
+}
+
 .project-search {
   position: relative;
   padding: 8px 12px;

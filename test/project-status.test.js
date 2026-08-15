@@ -6,7 +6,8 @@ const {
   isPortOpen,
   primaryServiceUrl,
   projectStatus,
-  servicePortStatus
+  servicePortStatus,
+  stoppableProjectIds
 } = require('../project-status');
 
 test('detects whether configured local service ports are accepting connections', async () => {
@@ -67,4 +68,18 @@ test('distinguishes a managed app from an occupied configured port', () => {
 test('builds the primary local service URL from the first configured port', () => {
   assert.equal(primaryServiceUrl([{ name: 'web', port: 8787 }]), 'http://127.0.0.1:8787');
   assert.equal(primaryServiceUrl([]), undefined);
+});
+
+test('selects only projects that can be stopped together', () => {
+  const projects = [
+    { id: 'running', status: 'running' },
+    { id: 'starting', status: 'starting' },
+    { id: 'active', status: 'active' },
+    { id: 'stopping', status: 'stopping' },
+    { id: 'stopped', status: 'stopped' },
+    { id: 'conflict', status: 'port-in-use' }
+  ];
+
+  assert.deepEqual(stoppableProjectIds(projects), ['running', 'starting', 'active']);
+  assert.deepEqual(stoppableProjectIds(), []);
 });

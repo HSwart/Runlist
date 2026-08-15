@@ -81,10 +81,17 @@ function primaryServiceUrl(services) {
   return `http://127.0.0.1:${port}`;
 }
 
+function stoppableProjectIds(projects) {
+  return (projects || [])
+    .filter((project) => ['running', 'starting', 'active'].includes(project.status))
+    .map((project) => project.id);
+}
+
 module.exports = {
   areServicesRunning,
   isPortOpen,
   primaryServiceUrl,
   projectStatus,
-  servicePortStatus
+  servicePortStatus,
+  stoppableProjectIds
 };

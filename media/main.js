@@ -83,6 +83,13 @@ function renderList() {
       <span id="project-count"><strong>${state.projects.length}</strong> ${state.projects.length === 1 ? 'project' : 'projects'}</span>
       <span id="summary-status" class="summary-status"><span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped${portConflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${portConflictCount} unavailable` : ''}</span>
     </header>
+    ${state.stopAllCount > 1 ? `
+      <div class="bulk-actions">
+        <button class="stop-all-button" data-action="stop-all" aria-label="Stop all ${state.stopAllCount} running projects">
+          <span class="action-icon square" aria-hidden="true"></span>
+          Stop all running (${state.stopAllCount})
+        </button>
+      </div>` : ''}
     <div class="project-search">
       ${icon('search', 'search-icon')}
       <input id="project-search" type="search" value="${escapeHtml(searchQuery)}" placeholder="Search projects" aria-label="Search projects" autocomplete="off" spellcheck="false">
@@ -364,7 +371,12 @@ app.addEventListener('click', (event) => {
     edit: () => vscode.postMessage({ type: 'showEdit', id: button.dataset.id }),
     delete: () => vscode.postMessage({ type: 'deleteProject', id: button.dataset.id }),
     start: () => vscode.postMessage({ type: 'startProject', id: button.dataset.id }),
-    stop: () => vscode.postMessage({ type: 'stopProject', id: button.dataset.id })
+    stop: () => vscode.postMessage({ type: 'stopProject', id: button.dataset.id }),
+    'stop-all': () => {
+      button.disabled = true;
+      button.textContent = 'Stopping…';
+      vscode.postMessage({ type: 'stopAllProjects' });
+    }
   };
 
   actions[button.dataset.action]?.();
