@@ -1,0 +1,4 @@
+interface:
+  display_name: "Switchboard"
+  short_description: "Set up local projects in Switchboard"
+  default_prompt: "Use $switchboard to add this local project to Switchboard."

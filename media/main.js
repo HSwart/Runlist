@@ -356,9 +356,10 @@ function renderAgentSetup() {
             <h3>${escapeHtml(name)}</h3>
             <p>${escapeHtml(description)}</p>
           </div>
+          ${registered ? '<span class="connection-label"><span class="status-dot running" aria-hidden="true"></span>Ready</span>' : ''}
         </div>
         <button class="secondary-button agent-register-button" data-action="register-agent" data-agent="${id}" ${busy ? 'disabled aria-busy="true"' : ''} ${connection.message ? `aria-describedby="${messageId}"` : ''}>
-          ${busy ? 'Registering…' : registered ? 'Refresh registration' : 'Register'}
+          ${busy ? 'Setting up…' : registered ? 'Refresh setup' : 'Set up'}
         </button>
         ${connection.message ? `<p id="${messageId}" class="connection-message ${connection.status}" ${connection.status === 'error' ? 'role="alert"' : 'role="status"'}>${escapeHtml(connection.message)}</p>` : ''}
       </article>`;
@@ -370,21 +371,13 @@ function renderAgentSetup() {
         <h2>Agent connections</h2>
         <button class="icon-button" data-action="close-screen" aria-label="Close agent connections screen">${icon('close')}</button>
       </header>
-      <p class="screen-copy">Let your coding agent add or update projects in Switchboard.</p>
+      <p class="screen-copy">Connect Switchboard and add its guided project setup skill.</p>
       <div class="agent-list" aria-label="Supported coding agents">
-        <article class="agent-card">
-          <div class="agent-card-heading">
-            <div>
-              <h3>GitHub Copilot</h3>
-              <p>Discovered automatically through VS Code.</p>
-            </div>
-            <span class="connection-label"><span class="status-dot running" aria-hidden="true"></span>Ready</span>
-          </div>
-        </article>
-        ${agentCard('codex', 'Codex', 'Registers Switchboard in your global Codex MCP configuration.')}
-        ${agentCard('claude', 'Claude Code', 'Registers Switchboard for every local Claude Code project.')}
+        ${agentCard('copilot', 'GitHub Copilot', 'Adds /switchboard. The connection is discovered automatically through VS Code.')}
+        ${agentCard('codex', 'Codex', 'Registers the connection and adds $switchboard.')}
+        ${agentCard('claude', 'Claude Code', 'Registers the connection and adds /switchboard.')}
       </div>
-      <p class="agent-footnote">Agents can save project commands and explicit service ports. Starting and stopping projects stays in this sidebar.</p>
+      <p class="agent-footnote">The skill inspects exact project commands and service ports, then saves them through Switchboard.</p>
     </section>`;
 }
 
