@@ -205,3 +205,16 @@ test('formats common structured log lines and preserves raw output', () => {
     }
   ]);
 });
+
+test('parses escaped quoted fields without excessive backtracking', { timeout: 1000 }, () => {
+  const escaped = 'level=info msg="path C:\\\\temp says \\"ready\\""';
+  assert.deepEqual(formatProjectOutput(escaped), [{
+    kind: 'structured',
+    level: 'info',
+    message: 'path C:\\temp says "ready"',
+    time: ''
+  }]);
+
+  const malformed = `level="${'\\!'.repeat(5000)}`;
+  assert.equal(formatProjectOutput(malformed).length, 1);
+});
