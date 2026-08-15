@@ -61,7 +61,7 @@ input:focus-visible {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 6px;
 }
 
 .project-heading {
@@ -113,6 +113,77 @@ input:focus-visible {
   color: var(--vscode-testing-iconFailed, #f87171);
   background: transparent;
   border: 1px solid var(--vscode-testing-iconFailed, #f87171);
+}
+
+.project-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.more-button {
+  width: 28px;
+  height: 30px;
+  padding: 0 0 6px;
+  color: var(--vscode-icon-foreground);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.more-button:hover,
+.more-button[aria-expanded='true'] {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.action-menu {
+  position: absolute;
+  z-index: 20;
+  top: 34px;
+  right: 0;
+  width: 154px;
+  padding: 4px;
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+  border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
+  border-radius: 5px;
+  box-shadow: 0 5px 16px var(--vscode-widget-shadow);
+}
+
+.action-menu[hidden] {
+  display: none;
+}
+
+.action-menu button {
+  display: block;
+  width: 100%;
+  height: 32px;
+  padding: 0 9px;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  text-align: left;
+  font-size: 11px;
+}
+
+.action-menu button:hover,
+.action-menu button:focus-visible {
+  color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
+}
+
+.action-menu button.danger {
+  color: var(--vscode-testing-iconFailed, #f87171);
+}
+
+.menu-divider {
+  height: 1px;
+  margin: 2px 5px;
+  background: var(--vscode-menu-separatorBackground, var(--vscode-widget-border));
 }
 
 .action-icon.triangle {

@@ -10,6 +10,7 @@ class PorterViewProvider {
     this.view = undefined;
     this.mode = 'list';
     this.draft = {};
+    this.selectedProjectId = undefined;
     this.processes = new Map();
   }
 
@@ -27,6 +28,7 @@ class PorterViewProvider {
   showAddProject() {
     this.mode = 'add';
     this.draft = {};
+    this.selectedProjectId = undefined;
     this.view?.show?.(true);
     this.render();
   }
@@ -40,12 +42,17 @@ class PorterViewProvider {
       case 'showAdd':
         this.mode = 'add';
         this.draft = {};
+        this.selectedProjectId = undefined;
         this.render();
         break;
-      case 'closeAdd':
+      case 'closeScreen':
         this.mode = 'list';
         this.draft = {};
+        this.selectedProjectId = undefined;
         this.render();
+        break;
+      case 'showEdit':
+        this.showEditProject(message.id);
         break;
       case 'pickFolder':
         await this.pickFolder(message.draft);
@@ -59,11 +66,26 @@ class PorterViewProvider {
       case 'stopProject':
         this.stopProject(message.id);
         break;
+      case 'deleteProject':
+        await this.deleteProject(message.id);
+        break;
     }
   }
 
+  showEditProject(id) {
+    const project = this.projects.find((item) => item.id === id);
+    if (!project) {
+      return;
+    }
+
+    this.mode = 'edit';
+    this.selectedProjectId = id;
+    this.draft = { ...project };
+    this.render();
+  }
+
   async pickFolder(draft = {}) {
-    this.draft = draft;
+    this.draft = { ...this.draft, ...draft };
     const selection = await vscode.window.showOpenDialog({
       canSelectFiles: false,
       canSelectFolders: true,
@@ -88,17 +110,61 @@ class PorterViewProvider {
     }
 
     const projects = this.projects;
-    projects.push({
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    const savedProject = {
+      id: this.selectedProjectId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       name: path.basename(folder),
       folder,
       startCommand,
       stopCommand
-    });
+    };
+
+    if (this.selectedProjectId) {
+      const index = projects.findIndex((item) => item.id === this.selectedProjectId);
+      if (index === -1) {
+        return;
+      }
+      projects[index] = savedProject;
+    } else {
+      projects.push(savedProject);
+    }
 
     await this.context.globalState.update(STORAGE_KEY, projects);
     this.mode = 'list';
     this.draft = {};
+    this.selectedProjectId = undefined;
+    this.render();
+  }
+
+  async deleteProject(id) {
+    const project = this.projects.find((item) => item.id === id);
+    if (!project) {
+      return;
+    }
+
+    const detail = this.processes.has(id)
+      ? 'This removes the saved project from Porter and stops its running process. Project files are not deleted.'
+      : 'This removes the saved project from Porter. Project files are not deleted.';
+    const choice = await vscode.window.showWarningMessage(
+      `Delete ${project.name} from Porter?`,
+      { modal: true, detail },
+      'Delete project'
+    );
+
+    if (choice !== 'Delete project') {
+      return;
+    }
+
+    if (this.processes.has(id)) {
+      this.stopProject(id);
+    }
+
+    await this.context.globalState.update(
+      STORAGE_KEY,
+      this.projects.filter((item) => item.id !== id)
+    );
+    this.mode = 'list';
+    this.draft = {};
+    this.selectedProjectId = undefined;
     this.render();
   }
 
