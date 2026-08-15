@@ -33,6 +33,52 @@ test('does not expose an ANSI sequence fragment when old output is trimmed', () 
   assert.equal(sanitizeProjectOutput(output), 'RED');
 });
 
+test('keeps the output buffer bounded when a malformed CSI sequence rolls over', () => {
+  const output = appendProjectOutput('', `\u001b[\n${'x'.repeat(100)}`, 20);
+
+  assert.equal(output, 'x'.repeat(20));
+  assert.equal(output.length, 20);
+});
+
+test('removes complete OSC sequences before the output buffer is trimmed', () => {
+  const output = appendProjectOutput('', '12\u001b]8;;https://example.com\u0007LINK', 16);
+
+  assert.equal(output, 'LINK');
+  assert.equal(sanitizeProjectOutput(output), 'LINK');
+});
+
+test('does not expose a standard escape sequence fragment at rollover', () => {
+  const output = appendProjectOutput('', '12\u001b(0TEXT', 6);
+
+  assert.equal(output, 'TEXT');
+  assert.equal(sanitizeProjectOutput(output), 'TEXT');
+});
+
+test('hides an incomplete OSC sequence until its remaining chunk arrives', () => {
+  let output = appendProjectOutput('Ready\n', '\u001b]8;;https://example.com');
+  assert.equal(sanitizeProjectOutput(output), 'Ready\n');
+
+  output = appendProjectOutput(output, '\u0007Link');
+  assert.equal(sanitizeProjectOutput(output), 'Ready\nLink');
+});
+
+test('keeps a split ANSI sequence bounded and completes it on the next chunk', () => {
+  let output = appendProjectOutput('xx', `\u001b[${'3'.repeat(20)}`, 10);
+  assert.equal(output.length, 10);
+  assert.equal(sanitizeProjectOutput(output), '');
+
+  output = appendProjectOutput(output, 'mRED', 10);
+  assert.equal(output, 'RED');
+  assert.ok(output.length <= 10);
+});
+
+test('keeps incomplete ANSI state bounded at very small limits', () => {
+  const output = appendProjectOutput('\u001b[', '31', 2);
+
+  assert.equal(output, '\u001b[');
+  assert.equal(output.length, 2);
+});
+
 test('listens to both stdout and stderr from a project process', () => {
   const child = { stdout: new PassThrough(), stderr: new PassThrough() };
   const chunks = [];

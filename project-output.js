@@ -4,29 +4,93 @@ const MAX_PROJECT_OUTPUT_CHARS = 20000;
 
 function appendProjectOutput(current, chunk, limit = MAX_PROJECT_OUTPUT_CHARS) {
   const output = `${current || ''}${String(chunk || '')}`;
+  if (limit <= 0) {
+    return '';
+  }
   if (output.length <= limit) {
     return output;
   }
-  return output.slice(findAnsiSafeStart(output, output.length - limit));
+  return trimProjectOutput(output, limit);
 }
 
-function findAnsiSafeStart(output, requestedStart) {
+function trimProjectOutput(output, limit) {
+  const requestedStart = output.length - limit;
   const escapeStart = output.lastIndexOf('\u001b', requestedStart - 1);
-  if (escapeStart < 0 || output[escapeStart + 1] !== '[') {
-    return requestedStart;
+  if (escapeStart < 0) {
+    return output.slice(requestedStart);
   }
 
-  const sequence = output.slice(escapeStart).match(/^\u001b\[[0-?]*[ -/]*[@-~]/)?.[0];
-  if (!sequence) {
-    return escapeStart;
+  const sequence = ansiSequenceAt(output, escapeStart);
+  if (!sequence || sequence.end <= requestedStart) {
+    return output.slice(requestedStart);
+  }
+  if (sequence.complete) {
+    return output.slice(sequence.end);
   }
 
-  const escapeEnd = escapeStart + sequence.length;
-  return escapeEnd > requestedStart ? escapeEnd : requestedStart;
+  return boundIncompleteAnsi(output.slice(escapeStart), limit);
+}
+
+function ansiSequenceAt(output, escapeStart) {
+  const marker = output[escapeStart + 1];
+  if (!marker) {
+    return { complete: false, end: output.length };
+  }
+
+  if (marker === '[') {
+    for (let index = escapeStart + 2; index < output.length; index += 1) {
+      const code = output.charCodeAt(index);
+      if (code >= 0x40 && code <= 0x7e) {
+        return { complete: true, end: index + 1 };
+      }
+      if (code < 0x20 || code > 0x3f) {
+        return { complete: true, end: escapeStart + 2 };
+      }
+    }
+    return { complete: false, end: output.length };
+  }
+
+  if (']PX^_'.includes(marker)) {
+    for (let index = escapeStart + 2; index < output.length; index += 1) {
+      if (output.charCodeAt(index) === 0x07) {
+        return { complete: true, end: index + 1 };
+      }
+      if (output[index] === '\u001b' && output[index + 1] === '\\') {
+        return { complete: true, end: index + 2 };
+      }
+    }
+    return { complete: false, end: output.length };
+  }
+
+  for (let index = escapeStart + 1; index < output.length; index += 1) {
+    const code = output.charCodeAt(index);
+    if (code >= 0x30 && code <= 0x7e) {
+      return { complete: true, end: index + 1 };
+    }
+    if (code < 0x20 || code > 0x2f) {
+      return { complete: true, end: escapeStart + 1 };
+    }
+  }
+  return { complete: false, end: output.length };
+}
+
+function boundIncompleteAnsi(sequence, limit) {
+  if (limit <= 2) {
+    return sequence.slice(0, limit);
+  }
+  return `${sequence.slice(0, 2)}${sequence.slice(-(limit - 2))}`;
 }
 
 function sanitizeProjectOutput(output) {
-  return stripVTControlCharacters(String(output || ''));
+  const value = String(output || '');
+  const escapeStart = value.lastIndexOf('\u001b');
+  if (escapeStart >= 0) {
+    const sequence = ansiSequenceAt(value, escapeStart);
+    if (sequence && !sequence.complete) {
+      return stripVTControlCharacters(value.slice(0, escapeStart));
+    }
+  }
+  return stripVTControlCharacters(value);
 }
 
 function listenToProjectOutput(child, onOutput) {
