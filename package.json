@@ -4,6 +4,7 @@
   "description": "Start and stop local projects from one focused sidebar.",
   "version": "0.0.1",
   "publisher": "local",
+  "license": "MIT",
   "preview": true,
   "icon": "media/switchboard.png",
   "repository": {

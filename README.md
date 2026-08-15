@@ -4,7 +4,7 @@
   <p><strong>Start and stop your local development projects from one simple VS Code sidebar.</strong></p>
   <p>No more hunting through old notes or trying to remember how each project starts.</p>
   <p>
-    <a href="releases/switchboard-0.0.1.vsix">
+    <a href="https://github.com/HSwart/Switchboard/releases/download/v0.0.1/switchboard-0.0.1.vsix">
       <img src="https://img.shields.io/badge/Download-Switchboard%200.0.1-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="Download Switchboard 0.0.1">
     </a>
   </p>
@@ -29,7 +29,7 @@ Switchboard keeps a reusable list of your local projects inside VS Code. Save ea
 
 Download version 0.0.1 here:
 
-**[Download Switchboard 0.0.1](releases/switchboard-0.0.1.vsix)**
+**[Download Switchboard 0.0.1](https://github.com/HSwart/Switchboard/releases/download/v0.0.1/switchboard-0.0.1.vsix)**
 
 ### 2. Install it in VS Code
 
@@ -86,9 +86,11 @@ Removing a project from Switchboard does **not** delete the project or any of it
 
 Switchboard stores its project list in your local VS Code data. Switchboard itself does not upload project folders, commands, or service ports. Any coding agent you connect has its own data and privacy settings.
 
+Switchboard is available under the [MIT License](LICENSE).
+
 ---
 
 <div align="center">
   <p><strong>Spend less time remembering commands. Spend more time building.</strong></p>
-  <p><a href="releases/switchboard-0.0.1.vsix">Download Switchboard 0.0.1</a></p>
+  <p><a href="https://github.com/HSwart/Switchboard/releases/download/v0.0.1/switchboard-0.0.1.vsix">Download Switchboard 0.0.1</a></p>
 </div>
