@@ -32,17 +32,30 @@ Switchboard keeps a reusable list of local projects from different repositories 
 
 > Switchboard remembers the setup. You decide what runs.
 
-## Download and install
+## Install
 
 Switchboard is tested on Windows, macOS, and Linux.
 
-### 1. Download Switchboard
+### From the VS Code Marketplace after publication
+
+Switchboard is not listed in the VS Code Marketplace yet. The permanent publisher identifier still needs to be selected before the first listing can be created.
+
+After an official Marketplace link is added here:
+
+1. Open the **Extensions** view in VS Code.
+2. Search for **Switchboard**.
+3. Confirm that the publisher matches the publisher shown in this README.
+4. Select **Install**.
+
+Marketplace installations receive updates through VS Code. Until the official listing is available, use the GitHub release below.
+
+### From the GitHub release
 
 Download version 0.0.1 here:
 
 **[Download Switchboard 0.0.1](https://github.com/HSwart/Switchboard/releases/download/v0.0.1/switchboard.vsix)**
 
-### 2. Install it in VS Code
+Then install the downloaded VSIX:
 
 1. Open the **Extensions** view in VS Code.
 2. Select the **…** menu at the top of the Extensions view.

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Stop the exact process trees Switchboard launched by default.
+- Keep the optional custom stop command for projects with a special shutdown workflow.
+- Prepare Marketplace metadata, package contents, installation guidance, and guarded release validation without publishing.
+
 ## 0.0.1 — First public release
 
 ### Keep local projects together
