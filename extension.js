@@ -90,6 +90,12 @@ class SwitchboardViewProvider {
     return ['running', 'active'].includes(this.getProjectStatus(id));
   }
 
+  renderProjectList() {
+    if (this.mode === 'list') {
+      this.render();
+    }
+  }
+
   startStatusMonitoring() {
     this.refreshProjectStatuses();
     const timer = setInterval(() => this.refreshProjectStatuses(), 2000);
@@ -139,7 +145,7 @@ class SwitchboardViewProvider {
         || [...nextStatuses].some(([id, status]) => this.projectStatuses.get(id) !== status);
       this.projectStatuses = nextStatuses;
       if (changed) {
-        this.render();
+        this.renderProjectList();
       }
     } catch (error) {
       vscode.window.showErrorMessage(`Could not refresh Switchboard status: ${error.message}`);
@@ -305,6 +311,8 @@ class SwitchboardViewProvider {
   }
 
   async saveProject(project) {
+    const projectId = project.id || this.selectedProjectId;
+    const name = String(project.name || '').trim();
     const folder = project.folder?.trim();
     const startCommand = project.startCommand?.trim();
     const stopCommand = project.stopCommand?.trim();
@@ -321,14 +329,15 @@ class SwitchboardViewProvider {
     }
 
     try {
-      const existing = this.selectedProjectId
-        ? this.projects.find((item) => item.id === this.selectedProjectId)
+      const existing = projectId
+        ? this.projects.find((item) => item.id === projectId)
         : undefined;
       const services = appPort === undefined
         ? undefined
         : updatePrimaryService(existing?.services, appPort);
       upsertProject(this.projectsFile, {
-        id: this.selectedProjectId,
+        id: projectId,
+        name,
         folder,
         startCommand,
         stopCommand,
@@ -340,6 +349,7 @@ class SwitchboardViewProvider {
     }
 
     this.mode = 'list';
+    this.searchQuery = '';
     this.draft = {};
     this.selectedProjectId = undefined;
     this.render();
@@ -425,7 +435,7 @@ class SwitchboardViewProvider {
         this.projectStatuses.set(id, 'stopped');
         this.startGraceUntil.delete(id);
         vscode.window.showErrorMessage(`Could not start ${project.name}: ${error.message}`);
-        this.render();
+        this.renderProjectList();
       });
       child.once('exit', (code) => {
         if (this.processes.get(id) === child) {
@@ -438,22 +448,22 @@ class SwitchboardViewProvider {
             vscode.window.showErrorMessage(
               `Could not start ${project.name}: ${detail || `command exited with code ${code}.`}`
             );
-            this.render();
+            this.renderProjectList();
           } else {
             this.startGraceUntil.delete(id);
             this.projectStatuses.set(id, 'running');
-            this.render();
+            this.renderProjectList();
           }
           this.refreshProjectStatuses();
         }
       });
-      this.render();
+      this.renderProjectList();
     } catch (error) {
       this.managedProjectIds.delete(id);
       this.projectStatuses.set(id, 'stopped');
       this.startGraceUntil.delete(id);
       vscode.window.showErrorMessage(`Could not start ${project.name}: ${error.message}`);
-      this.render();
+      this.renderProjectList();
     }
   }
 
@@ -500,7 +510,7 @@ class SwitchboardViewProvider {
         this.managedProjectIds.delete(id);
       }
       this.projectStatuses.set(id, succeeded ? 'stopped' : 'active');
-      this.render();
+      this.renderProjectList();
       setTimeout(() => this.refreshProjectStatuses(), 250);
     };
 
@@ -520,7 +530,7 @@ class SwitchboardViewProvider {
 
     this.processes.get(id)?.kill('SIGTERM');
     this.processes.delete(id);
-    this.render();
+    this.renderProjectList();
   }
 
   render() {
@@ -629,7 +639,7 @@ function activate(context) {
 
   const serverPath = installMcpBridge(context);
   const provider = new SwitchboardViewProvider(context, projectsFile, serverPath);
-  const handleProjectStoreChange = () => provider.render();
+  const handleProjectStoreChange = () => provider.renderProjectList();
   fs.watchFile(projectsFile, { interval: 500 }, handleProjectStoreChange);
 
   const mcpDefinition = new vscode.McpStdioServerDefinition(

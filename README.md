@@ -18,6 +18,7 @@ Switchboard keeps a reusable list of your local projects inside VS Code. Save ea
 
 - Start and stop projects with their saved commands.
 - Search saved projects by name or folder.
+- Give projects a friendly name without renaming their folders.
 - Keep configured service names and ports visible at a glance.
 - When service ports are configured, see project status and open the first local service in your browser.
 - Open any saved project folder in a new VS Code window.
@@ -48,11 +49,12 @@ After installation, select the Switchboard icon in the VS Code Activity Bar.
 ## Add your first project
 
 1. Select the **+** button in the Switchboard sidebar.
-2. Choose the project folder.
-3. Enter the command that starts the project.
-4. Enter the command that stops the project.
-5. If you know it, enter the app's port so Switchboard can verify its status and open it in your browser.
-6. Save it.
+2. Optionally enter a friendly project name. If you leave it blank, Switchboard uses the folder name.
+3. Choose the project folder.
+4. Enter the command that starts the project.
+5. Enter the command that stops the project.
+6. If you know it, enter the app's port so Switchboard can verify its status and open it in your browser.
+7. Save it.
 
 Your project is now ready whenever you need it. Select **Start** to run its saved start command and **Stop** to run its saved stop command.
 
@@ -70,7 +72,7 @@ Switchboard can also let a supported coding agent save a project for you.
 
 Then ask the agent to inspect the project and set it up. For example:
 
-> Inspect this project and add it to Switchboard. Identify the exact start and stop commands, and include the port for every service it runs.
+> Inspect this project and add it to Switchboard with the name My App. Identify the exact start and stop commands, and include the port for every service it runs.
 
 The agent can save or update the project setup. Starting and stopping projects remains a deliberate action in the Switchboard sidebar.
 

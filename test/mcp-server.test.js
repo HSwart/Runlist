@@ -58,15 +58,19 @@ test('serves the setup tool over MCP stdio', async (t) => {
     clientInfo: { name: 'switchboard-test', version: '1.0.0' }
   });
   assert.equal(initialized.result.serverInfo.name, 'switchboard-mcp-server');
+  assert.match(initialized.result.instructions, /custom project name/i);
 
   const listed = await request('tools/list');
   assert.equal(listed.result.tools.length, 1);
   assert.equal(listed.result.tools[0].name, 'switchboard_setup_project');
+  assert.match(listed.result.tools[0].description, /custom name/i);
+  assert.match(listed.result.tools[0].inputSchema.properties.name.description, /friendly project name/i);
   assert.ok(listed.result.tools[0].inputSchema.required.includes('services'));
 
   const called = await request('tools/call', {
     name: 'switchboard_setup_project',
     arguments: {
+      name: 'Agent app',
       folder: projectFolder,
       startCommand: 'npm run dev',
       stopCommand: 'pkill -f vite',
@@ -78,6 +82,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
   });
   assert.equal(called.result.isError, false);
   assert.equal(called.result.structuredContent.action, 'created');
+  assert.equal(called.result.structuredContent.project.name, 'Agent app');
   assert.deepEqual(called.result.structuredContent.project.services, [
     { name: 'web', port: 3000 },
     { name: 'api', port: 4000 }
