@@ -14,6 +14,11 @@ const {
   servicePortStatus
 } = require('./project-status');
 const { openProjectInNewWindow } = require('./project-navigation');
+const {
+  appendProjectOutput,
+  formatProjectOutput,
+  listenToProjectOutput
+} = require('./project-output');
 const { projectSearchText } = require('./project-search');
 const {
   initializeProjectStore,
@@ -36,6 +41,7 @@ class SwitchboardViewProvider {
     this.draft = {};
     this.selectedProjectId = undefined;
     this.processes = new Map();
+    this.projectOutputs = new Map();
     this.managedProjectIds = new Set();
     this.projectStatuses = new Map();
     this.startGraceUntil = new Map();
@@ -171,6 +177,12 @@ class SwitchboardViewProvider {
       case 'showEdit':
         this.showEditProject(message.id);
         break;
+      case 'showOutput':
+        this.showProjectOutput(message.id);
+        break;
+      case 'copyOutput':
+        await this.copyProjectOutput();
+        break;
       case 'pickFolder':
         await this.pickFolder(message.draft);
         break;
@@ -258,6 +270,38 @@ class SwitchboardViewProvider {
     this.selectedProjectId = id;
     this.draft = { ...project };
     this.render();
+  }
+
+  showProjectOutput(id) {
+    const project = this.projects.find((item) => item.id === id);
+    if (!project) {
+      return;
+    }
+
+    this.mode = 'output';
+    this.selectedProjectId = id;
+    this.render();
+  }
+
+  addProjectOutput(id, chunk) {
+    const output = appendProjectOutput(this.projectOutputs.get(id), chunk);
+    this.projectOutputs.set(id, output);
+    if (this.mode === 'output' && this.selectedProjectId === id) {
+      this.view?.webview.postMessage({
+        type: 'projectOutput',
+        entries: formatProjectOutput(output),
+        output
+      });
+    }
+  }
+
+  async copyProjectOutput() {
+    const output = this.projectOutputs.get(this.selectedProjectId) || '';
+    if (!output) {
+      return;
+    }
+    await vscode.env.clipboard.writeText(output);
+    this.view?.webview.postMessage({ type: 'outputCopied' });
   }
 
   async openProject(id) {
@@ -383,6 +427,7 @@ class SwitchboardViewProvider {
     this.projectStatuses.delete(id);
     this.startGraceUntil.delete(id);
     this.stoppingProjectIds.delete(id);
+    this.projectOutputs.delete(id);
     this.mode = 'list';
     this.draft = {};
     this.selectedProjectId = undefined;
@@ -416,15 +461,17 @@ class SwitchboardViewProvider {
       this.managedProjectIds.add(id);
       this.projectStatuses.set(id, 'starting');
       this.startGraceUntil.set(id, Date.now() + STARTING_DISPLAY_MS);
+      this.projectOutputs.set(id, '');
       const child = spawn(project.startCommand, {
         cwd: project.folder,
         shell: true,
-        stdio: ['ignore', 'ignore', 'pipe'],
+        stdio: ['ignore', 'pipe', 'pipe'],
         env: process.env
       });
 
       this.processes.set(id, child);
       let stderr = '';
+      listenToProjectOutput(child, (chunk) => this.addProjectOutput(id, chunk));
       child.stderr?.setEncoding('utf8');
       child.stderr?.on('data', (chunk) => {
         stderr = `${stderr}${chunk}`.slice(-2000);
@@ -434,6 +481,7 @@ class SwitchboardViewProvider {
         this.managedProjectIds.delete(id);
         this.projectStatuses.set(id, 'stopped');
         this.startGraceUntil.delete(id);
+        this.addProjectOutput(id, `Switchboard could not start this project: ${error.message}\n`);
         vscode.window.showErrorMessage(`Could not start ${project.name}: ${error.message}`);
         this.renderProjectList();
       });
@@ -545,12 +593,21 @@ class SwitchboardViewProvider {
       vscode.Uri.joinPath(this.context.extensionUri, 'media', 'main.js')
     );
     const nonce = Math.random().toString(36).slice(2);
+    const projects = this.projects;
+    const outputProject = this.mode === 'output'
+      ? projects.find((project) => project.id === this.selectedProjectId)
+      : undefined;
     const state = {
       agentConnections: this.agentConnections,
       mode: this.mode,
       searchQuery: this.searchQuery,
       draft: this.draft,
-      projects: this.projects.map((project) => ({
+      projectOutput: outputProject ? {
+        entries: formatProjectOutput(this.projectOutputs.get(outputProject.id) || ''),
+        name: outputProject.name,
+        output: this.projectOutputs.get(outputProject.id) || ''
+      } : undefined,
+      projects: projects.map((project) => ({
         ...project,
         status: this.getProjectStatus(project.id),
         searchText: projectSearchText(project)

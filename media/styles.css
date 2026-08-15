@@ -400,7 +400,8 @@ button:active:not(:disabled) {
 }
 
 .add-screen,
-.agent-screen {
+.agent-screen,
+.output-screen {
   padding: 14px;
 }
 
@@ -409,6 +410,12 @@ button:active:not(:disabled) {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.screen-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .screen-header h2 {
@@ -593,6 +600,128 @@ input {
 
 .agent-footnote {
   margin: 14px 0 0;
+}
+
+.output-panel {
+  max-height: calc(100vh - 135px);
+  min-height: 180px;
+  overflow: auto;
+  color: var(--vscode-editor-foreground);
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 3px;
+}
+
+.output-entry {
+  position: relative;
+  padding: 8px 10px 8px 11px;
+  border-bottom: 1px solid var(--vscode-editorGroup-border, var(--vscode-widget-border));
+  border-left: 2px solid transparent;
+  font-family: var(--vscode-editor-font-family);
+  font-size: var(--vscode-editor-font-size, 11px);
+  line-height: 1.5;
+}
+
+.output-entry:last-child {
+  border-bottom: 0;
+}
+
+.output-entry.warning {
+  border-left-color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.output-entry.error {
+  border-left-color: var(--vscode-errorForeground, #f14c4c);
+}
+
+.output-entry.success {
+  border-left-color: var(--vscode-testing-iconPassed, #4caf78);
+}
+
+.output-entry.info {
+  border-left-color: var(--vscode-editorInfo-foreground, #3794ff);
+}
+
+.output-entry.debug {
+  border-left-color: var(--vscode-descriptionForeground);
+}
+
+.output-entry-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 2px;
+  color: var(--vscode-descriptionForeground);
+  font-family: var(--vscode-font-family);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.output-entry.warning .output-entry-meta span {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.output-entry.error .output-entry-meta span {
+  color: var(--vscode-errorForeground, #f14c4c);
+}
+
+.output-entry.success .output-entry-meta span {
+  color: var(--vscode-testing-iconPassed, #4caf78);
+}
+
+.output-message {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.output-url {
+  color: var(--vscode-textLink-foreground);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+
+.output-gap {
+  height: 7px;
+  border-bottom: 1px solid var(--vscode-editorGroup-border, var(--vscode-widget-border));
+}
+
+.output-empty {
+  margin: 0;
+  padding: 12px;
+  color: var(--vscode-descriptionForeground);
+  font-family: var(--vscode-font-family);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.output-copy-button {
+  height: 26px;
+  padding: 0 7px;
+  color: var(--vscode-foreground);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  font-size: 10px;
+}
+
+.output-copy-button:hover:not(:disabled) {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.output-copy-button:disabled {
+  cursor: default;
+  color: var(--vscode-disabledForeground);
+}
+
+.output-hint {
+  margin: 8px 0 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  line-height: 1.45;
 }
 
 .empty-state {
