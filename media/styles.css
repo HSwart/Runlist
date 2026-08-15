@@ -609,11 +609,18 @@ input[aria-invalid='true'] {
 
 .folder-control {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
   gap: 6px;
 }
 
-.browse-button {
+.folder-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.folder-button {
+  min-height: 30px;
+  flex: 1 1 120px;
   padding: 0 10px;
   color: var(--vscode-button-secondaryForeground);
   background: var(--vscode-button-secondaryBackground);
@@ -622,7 +629,7 @@ input[aria-invalid='true'] {
   font-size: 11px;
 }
 
-.browse-button:hover {
+.folder-button:hover {
   background: var(--vscode-button-secondaryHoverBackground);
 }
 
@@ -951,7 +958,7 @@ input[aria-invalid='true'] {
   .more-button,
   .icon-button,
   .action-menu button,
-  .browse-button,
+  .folder-button,
   .secondary-button,
   .primary-button,
   .stop-all-button,

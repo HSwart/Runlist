@@ -43,6 +43,11 @@ const {
 } = require('./project-output');
 const { projectSearchText } = require('./project-search');
 const {
+  canUseCurrentWorkspace,
+  chooseCurrentWorkspaceFolder,
+  hasLocalWorkspaceFolder
+} = require('./workspace-folders');
+const {
   initializeProjectStore,
   readProjects,
   removeProject,
@@ -271,6 +276,9 @@ class SwitchboardViewProvider {
         break;
       case 'pickFolder':
         await this.pickFolder(message.draft);
+        break;
+      case 'useCurrentWorkspace':
+        await this.useCurrentWorkspace(message.draft);
         break;
       case 'saveProject':
         await this.saveProject(message.project);
@@ -523,6 +531,22 @@ class SwitchboardViewProvider {
       this.focusTarget = { type: 'field', id: 'folder' };
       this.render();
     }
+  }
+
+  async useCurrentWorkspace(draft = {}) {
+    this.draft = { ...this.draft, ...draft };
+    const folder = await chooseCurrentWorkspaceFolder(vscode);
+    if (!folder) {
+      if (!hasLocalWorkspaceFolder(vscode.workspace.workspaceFolders)) {
+        vscode.window.showInformationMessage('Open a local folder in VS Code, then try again.');
+      }
+      return;
+    }
+
+    this.draft.folder = folder;
+    this.formErrors = {};
+    this.focusTarget = { type: 'field', id: 'folder' };
+    this.render();
   }
 
   async saveProject(project) {
@@ -905,6 +929,10 @@ class SwitchboardViewProvider {
       draft: this.draft,
       focusTarget: this.focusTarget || this.lastFocusTarget,
       formErrors: this.formErrors,
+      canUseCurrentWorkspace: canUseCurrentWorkspace(
+        this.mode,
+        vscode.workspace.workspaceFolders
+      ),
       reviewRequired: this.mode === 'edit'
         && Boolean(projects.find((project) => project.id === this.selectedProjectId)?.reviewRequired),
       reviewServices: this.mode === 'edit'

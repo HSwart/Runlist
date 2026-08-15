@@ -55,7 +55,7 @@ After installation, select the Switchboard icon in the VS Code Activity Bar.
 
 1. Select the **+** button in the Switchboard sidebar.
 2. Optionally enter a friendly project name. If you leave it blank, Switchboard uses the folder name.
-3. Choose the project folder.
+3. If a local folder is open, choose **Use current workspace**. Select **Browse** to choose another project folder.
 4. Enter the command that starts the project.
 5. Enter the command that stops the project.
 6. If you know it, enter the app's port so Switchboard can verify its status and open it in your browser.
