@@ -10,6 +10,10 @@ coverage/
 *.vsix
 *.tgz
 
+# Keep intentional packaged releases in the repository
+/releases/*
+!/releases/*.vsix
+
 # Tool caches
 .cache/
 .eslintcache

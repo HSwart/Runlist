@@ -3,7 +3,7 @@ const readline = require('readline');
 const { upsertProject } = require('../project-store');
 
 const SERVER_NAME = 'switchboard-mcp-server';
-const SERVER_VERSION = '0.0.2';
+const SERVER_VERSION = '0.0.1';
 const LATEST_PROTOCOL_VERSION = '2025-11-25';
 const SUPPORTED_PROTOCOL_VERSIONS = new Set([
   '2025-11-25',

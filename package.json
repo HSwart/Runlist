@@ -2,7 +2,7 @@
   "name": "switchboard",
   "displayName": "Switchboard",
   "description": "Start and stop local projects from one focused sidebar.",
-  "version": "0.0.2",
+  "version": "0.0.1",
   "publisher": "local",
   "engines": {
     "vscode": "^1.113.0"
@@ -12,7 +12,8 @@
   ],
   "activationEvents": [
     "onView:switchboard.projects",
-    "onCommand:switchboard.addProject"
+    "onCommand:switchboard.addProject",
+    "onCommand:switchboard.showAgentSetup"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -21,6 +22,11 @@
         "command": "switchboard.addProject",
         "title": "Add Project",
         "icon": "$(add)"
+      },
+      {
+        "command": "switchboard.showAgentSetup",
+        "title": "Set Up Agent Connections",
+        "icon": "$(plug)"
       }
     ],
     "mcpServerDefinitionProviders": [
@@ -52,7 +58,18 @@
         {
           "command": "switchboard.addProject",
           "when": "view == switchboard.projects",
-          "group": "navigation"
+          "group": "navigation@1"
+        },
+        {
+          "command": "switchboard.showAgentSetup",
+          "when": "view == switchboard.projects",
+          "group": "navigation@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "switchboard.showAgentSetup",
+          "when": "false"
         }
       ]
     }

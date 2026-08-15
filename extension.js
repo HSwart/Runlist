@@ -2,6 +2,8 @@ const vscode = require('vscode');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { registerWithClaude, registerWithCodex } = require('./agent-registration');
+const { areServicesRunning, primaryServiceUrl } = require('./project-status');
 const {
   initializeProjectStore,
   readProjects,
@@ -12,14 +14,23 @@ const {
 const STORAGE_KEY = 'switchboard.projects';
 
 class SwitchboardViewProvider {
-  constructor(context, projectsFile) {
+  constructor(context, projectsFile, serverPath) {
     this.context = context;
     this.projectsFile = projectsFile;
+    this.serverPath = serverPath;
     this.view = undefined;
     this.mode = 'list';
     this.draft = {};
     this.selectedProjectId = undefined;
     this.processes = new Map();
+    this.runningProjectIds = new Set();
+    this.startGraceUntil = new Map();
+    this.stoppingProjectIds = new Set();
+    this.statusRefreshInFlight = false;
+    this.agentConnections = {
+      claude: { status: 'idle', message: '' },
+      codex: { status: 'idle', message: '' }
+    };
   }
 
   resolveWebviewView(view) {
@@ -41,8 +52,63 @@ class SwitchboardViewProvider {
     this.render();
   }
 
+  showAgentSetup() {
+    this.mode = 'agents';
+    this.draft = {};
+    this.selectedProjectId = undefined;
+    this.view?.show?.(true);
+    this.render();
+  }
+
   get projects() {
     return readProjects(this.projectsFile);
+  }
+
+  isProjectRunning(id) {
+    return !this.stoppingProjectIds.has(id)
+      && (this.runningProjectIds.has(id) || this.processes.has(id));
+  }
+
+  startStatusMonitoring() {
+    this.refreshProjectStatuses();
+    const timer = setInterval(() => this.refreshProjectStatuses(), 2000);
+    return { dispose: () => clearInterval(timer) };
+  }
+
+  async refreshProjectStatuses() {
+    if (this.statusRefreshInFlight) {
+      return;
+    }
+
+    this.statusRefreshInFlight = true;
+    try {
+      const now = Date.now();
+      const checks = await Promise.all(this.projects.map(async (project) => {
+        if (this.stoppingProjectIds.has(project.id)) {
+          return [project.id, false];
+        }
+        if (!project.services?.length) {
+          return [project.id, this.processes.has(project.id)];
+        }
+
+        const portsAreOpen = await areServicesRunning(project.services);
+        if (portsAreOpen) {
+          this.startGraceUntil.delete(project.id);
+        }
+        const isStarting = now < (this.startGraceUntil.get(project.id) || 0);
+        return [project.id, portsAreOpen || (isStarting && this.runningProjectIds.has(project.id))];
+      }));
+
+      const nextRunningIds = new Set(checks.filter(([, running]) => running).map(([id]) => id));
+      const changed = nextRunningIds.size !== this.runningProjectIds.size
+        || [...nextRunningIds].some((id) => !this.runningProjectIds.has(id));
+      this.runningProjectIds = nextRunningIds;
+      if (changed) {
+        this.render();
+      }
+    } finally {
+      this.statusRefreshInFlight = false;
+    }
   }
 
   async handleMessage(message) {
@@ -74,10 +140,59 @@ class SwitchboardViewProvider {
       case 'stopProject':
         this.stopProject(message.id);
         break;
+      case 'openProject':
+        await this.openProject(message.id);
+        break;
       case 'deleteProject':
         await this.deleteProject(message.id);
         break;
+      case 'registerAgent':
+        await this.registerAgent(message.agent);
+        break;
     }
+  }
+
+  async registerAgent(agent) {
+    const registrations = {
+      claude: {
+        label: 'Claude Code',
+        register: registerWithClaude,
+        success: 'Registered for every Claude Code project. Restart Claude Code and use /mcp to confirm.'
+      },
+      codex: {
+        label: 'Codex',
+        register: registerWithCodex,
+        success: 'Registered with Codex. Restart Codex and use /mcp to confirm.'
+      }
+    };
+    const registration = registrations[agent];
+    if (!registration || this.agentConnections[agent].status === 'loading') {
+      return;
+    }
+
+    this.agentConnections[agent] = {
+      status: 'loading',
+      message: `Registering with ${registration.label}…`
+    };
+    this.render();
+
+    try {
+      await registration.register({
+        projectsFile: this.projectsFile,
+        runtimePath: process.execPath,
+        serverPath: this.serverPath
+      });
+      this.agentConnections[agent] = {
+        status: 'success',
+        message: registration.success
+      };
+    } catch (error) {
+      this.agentConnections[agent] = {
+        status: 'error',
+        message: registrationErrorMessage(registration.label, error)
+      };
+    }
+    this.render();
   }
 
   showEditProject(id) {
@@ -90,6 +205,28 @@ class SwitchboardViewProvider {
     this.selectedProjectId = id;
     this.draft = { ...project };
     this.render();
+  }
+
+  async openProject(id) {
+    const project = this.projects.find((item) => item.id === id);
+    if (!project) {
+      return;
+    }
+    if (!this.isProjectRunning(id)) {
+      vscode.window.showInformationMessage(`Start ${project.name} before opening it.`);
+      return;
+    }
+
+    const url = primaryServiceUrl(project.services);
+    if (!url) {
+      vscode.window.showErrorMessage(`${project.name} does not have a service port to open.`);
+      return;
+    }
+
+    const opened = await vscode.env.openExternal(vscode.Uri.parse(url));
+    if (!opened) {
+      vscode.window.showErrorMessage(`Could not open ${project.name} at ${url}.`);
+    }
   }
 
   async pickFolder(draft = {}) {
@@ -166,7 +303,7 @@ class SwitchboardViewProvider {
   }
 
   startProject(id) {
-    if (this.processes.has(id)) {
+    if (this.isProjectRunning(id)) {
       return;
     }
 
@@ -176,6 +313,8 @@ class SwitchboardViewProvider {
     }
 
     try {
+      this.runningProjectIds.add(id);
+      this.startGraceUntil.set(id, Date.now() + 15000);
       const child = spawn(project.startCommand, {
         cwd: project.folder,
         shell: true,
@@ -186,18 +325,29 @@ class SwitchboardViewProvider {
       this.processes.set(id, child);
       child.once('error', (error) => {
         this.processes.delete(id);
+        this.runningProjectIds.delete(id);
+        this.startGraceUntil.delete(id);
         vscode.window.showErrorMessage(`Could not start ${project.name}: ${error.message}`);
         this.render();
       });
-      child.once('exit', () => {
+      child.once('exit', (code) => {
         if (this.processes.get(id) === child) {
           this.processes.delete(id);
-          this.render();
+          if (code !== 0) {
+            this.runningProjectIds.delete(id);
+            this.startGraceUntil.delete(id);
+            vscode.window.showErrorMessage(`Could not start ${project.name}: command exited with code ${code}.`);
+            this.render();
+          }
+          this.refreshProjectStatuses();
         }
       });
       this.render();
     } catch (error) {
+      this.runningProjectIds.delete(id);
+      this.startGraceUntil.delete(id);
       vscode.window.showErrorMessage(`Could not start ${project.name}: ${error.message}`);
+      this.render();
     }
   }
 
@@ -207,6 +357,10 @@ class SwitchboardViewProvider {
       return;
     }
 
+    this.stoppingProjectIds.add(id);
+    this.runningProjectIds.delete(id);
+    this.startGraceUntil.delete(id);
+
     const stopProcess = spawn(project.stopCommand, {
       cwd: project.folder,
       shell: true,
@@ -214,9 +368,21 @@ class SwitchboardViewProvider {
       env: process.env
     });
 
+    let finalized = false;
+    const finalizeStop = () => {
+      if (finalized) {
+        return;
+      }
+      finalized = true;
+      this.stoppingProjectIds.delete(id);
+      setTimeout(() => this.refreshProjectStatuses(), 250);
+    };
+
     stopProcess.once('error', (error) => {
       vscode.window.showErrorMessage(`Could not stop ${project.name}: ${error.message}`);
+      finalizeStop();
     });
+    stopProcess.once('exit', finalizeStop);
 
     this.processes.get(id)?.kill('SIGTERM');
     this.processes.delete(id);
@@ -236,11 +402,12 @@ class SwitchboardViewProvider {
     );
     const nonce = Math.random().toString(36).slice(2);
     const state = {
+      agentConnections: this.agentConnections,
       mode: this.mode,
       draft: this.draft,
       projects: this.projects.map((project) => ({
         ...project,
-        running: this.processes.has(project.id)
+        running: this.isProjectRunning(project.id)
       }))
     };
 
@@ -266,20 +433,36 @@ function safeJson(value) {
   return JSON.stringify(value).replace(/</g, '\\u003c');
 }
 
+function registrationErrorMessage(clientLabel, error) {
+  if (error.code === 'ENOENT') {
+    return `${clientLabel} is not installed or its CLI is unavailable on PATH.`;
+  }
+
+  const lines = String(error.message || 'Registration failed.')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const detail = lines.at(-1) || 'Registration failed.';
+  return detail.length > 240 ? `${detail.slice(0, 237)}…` : detail;
+}
+
 function activate(context) {
   const projectsFile = path.join(context.globalStorageUri.fsPath, 'projects.json');
   initializeProjectStore(projectsFile, context.globalState.get(STORAGE_KEY, []));
 
-  const provider = new SwitchboardViewProvider(context, projectsFile);
+  const serverPath = vscode.Uri.joinPath(context.extensionUri, 'mcp', 'server.js').fsPath;
+  const provider = new SwitchboardViewProvider(context, projectsFile, serverPath);
   const handleProjectStoreChange = () => provider.render();
   fs.watchFile(projectsFile, { interval: 500 }, handleProjectStoreChange);
 
-  const serverPath = vscode.Uri.joinPath(context.extensionUri, 'mcp', 'server.js').fsPath;
   const mcpDefinition = new vscode.McpStdioServerDefinition(
     'Switchboard',
     process.execPath,
     [serverPath],
-    { SWITCHBOARD_PROJECTS_FILE: projectsFile },
+    {
+      ELECTRON_RUN_AS_NODE: '1',
+      SWITCHBOARD_PROJECTS_FILE: projectsFile
+    },
     context.extension.packageJSON.version
   );
   mcpDefinition.cwd = context.extensionUri;
@@ -287,10 +470,12 @@ function activate(context) {
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('switchboard.projects', provider),
     vscode.commands.registerCommand('switchboard.addProject', () => provider.showAddProject()),
+    vscode.commands.registerCommand('switchboard.showAgentSetup', () => provider.showAgentSetup()),
     vscode.lm.registerMcpServerDefinitionProvider('switchboard.projects', {
       provideMcpServerDefinitions: () => [mcpDefinition],
       resolveMcpServerDefinition: (server) => server
     }),
+    provider.startStatusMonitoring(),
     { dispose: () => fs.unwatchFile(projectsFile, handleProjectStoreChange) }
   );
 }
