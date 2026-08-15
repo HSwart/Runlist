@@ -20,6 +20,7 @@ const {
   stoppableProjectIds
 } = require('./project-status');
 const { openProjectInNewWindow } = require('./project-navigation');
+const { terminateTrackedProcess } = require('./project-process');
 const {
   occupiedPortConflict,
   PortReservationStore
@@ -599,7 +600,11 @@ class SwitchboardViewProvider {
     }
 
     if (this.processes.has(id)) {
-      this.stopProject(id);
+      if (project.reviewRequired) {
+        terminateTrackedProcess(this.processes, id);
+      } else {
+        this.stopProject(id);
+      }
     }
 
     removeProject(this.projectsFile, id);
@@ -850,8 +855,7 @@ class SwitchboardViewProvider {
       finalizeStop(code === 0);
     });
 
-    this.processes.get(id)?.kill('SIGTERM');
-    this.processes.delete(id);
+    terminateTrackedProcess(this.processes, id);
     this.renderProjectList();
   }
 
