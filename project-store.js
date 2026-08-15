@@ -127,8 +127,8 @@ function normalizeCommand(value, fieldName) {
 }
 
 function normalizeServices(value) {
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new Error('services must list at least one service and port.');
+  if (!Array.isArray(value)) {
+    throw new Error('services must be a list.');
   }
   if (value.length > 32) {
     throw new Error('services cannot contain more than 32 entries.');

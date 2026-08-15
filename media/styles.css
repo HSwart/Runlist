@@ -530,6 +530,20 @@ label {
   font-weight: 600;
 }
 
+fieldset {
+  min-width: 0;
+  margin: 6px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+legend {
+  padding: 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  font-weight: 600;
+}
+
 .optional-label {
   margin-left: 4px;
   color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
@@ -556,21 +570,81 @@ label {
   display: none;
 }
 
-.review-services {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 5px;
-  margin-top: 2px;
-  color: var(--vscode-descriptionForeground);
+.services-fieldset:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 3px;
+}
+
+.services-fieldset > .field-hint {
+  margin: 4px 0 6px;
+}
+
+.service-list {
+  display: grid;
+  gap: 7px;
+}
+
+.service-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 76px 28px;
+  align-items: start;
+  gap: 6px;
+}
+
+.service-field {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.service-field label {
+  margin: 0;
+  font-size: 9px;
+}
+
+.service-field .field-error {
+  margin: 0;
+}
+
+.service-remove-button {
+  width: 28px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  align-self: end;
+  padding: 0;
+  color: var(--vscode-icon-foreground);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+}
+
+.service-remove-button:hover {
+  color: var(--vscode-testing-iconFailed, #d96c75);
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.add-service-button {
+  min-height: 28px;
+  margin-top: 7px;
+  padding: 0 9px;
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+  border: 1px solid transparent;
+  border-radius: 2px;
   font-size: 10px;
 }
 
-.review-services code {
-  padding: 2px 5px;
-  color: var(--vscode-foreground);
-  background: var(--vscode-textCodeBlock-background);
-  border-radius: 2px;
+.add-service-button:hover:not(:disabled) {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.add-service-button:disabled {
+  cursor: default;
+  color: var(--vscode-disabledForeground);
+  background: transparent;
+  border-color: var(--vscode-widget-border, transparent);
 }
 
 input {

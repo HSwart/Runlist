@@ -107,6 +107,48 @@ test('rejects duplicate service ports', (t) => {
   );
 });
 
+test('persists every edited service and allows the optional list to be cleared', (t) => {
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-store-'));
+  const projectFolder = path.join(temporaryRoot, 'sample-app');
+  const projectsFile = path.join(temporaryRoot, 'projects.json');
+  fs.mkdirSync(projectFolder);
+  t.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
+
+  const created = upsertProject(projectsFile, {
+    folder: projectFolder,
+    startCommand: 'npm run dev',
+    stopCommand: 'npm stop',
+    services: [
+      { name: 'web', port: 3000 },
+      { name: 'api', port: 4000 },
+      { name: 'docs', port: 5000 }
+    ]
+  });
+  const edited = upsertProject(projectsFile, {
+    id: created.project.id,
+    folder: projectFolder,
+    startCommand: 'npm run dev',
+    stopCommand: 'npm stop',
+    services: [
+      { name: 'web', port: 3001 },
+      { name: 'docs', port: 5000 }
+    ]
+  });
+  assert.deepEqual(edited.project.services, [
+    { name: 'web', port: 3001 },
+    { name: 'docs', port: 5000 }
+  ]);
+
+  const cleared = upsertProject(projectsFile, {
+    id: created.project.id,
+    folder: projectFolder,
+    startCommand: 'npm run dev',
+    stopCommand: 'npm stop',
+    services: []
+  });
+  assert.deepEqual(cleared.project.services, []);
+});
+
 test('rejects project folders that do not exist', (t) => {
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-store-'));
   const projectsFile = path.join(temporaryRoot, 'projects.json');

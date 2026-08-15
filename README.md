@@ -58,7 +58,7 @@ After installation, select the Switchboard icon in the VS Code Activity Bar.
 3. Choose the project folder.
 4. Enter the command that starts the project.
 5. Enter the command that stops the project.
-6. If you know it, enter the app's port so Switchboard can verify its status and open it in your browser.
+6. If you know them, add each service name and port so Switchboard can verify its status and open the first service in your browser.
 7. Save it.
 
 Switchboard points out missing or invalid details beside the field that needs attention. If you close the screen after making changes, it asks before discarding them.
@@ -67,7 +67,7 @@ Your project is now ready whenever you need it. Select the **Start** icon to run
 
 If Switchboard is open in more than one VS Code window, starting or stopping a project in one window updates its status in the others automatically.
 
-Projects may save the same app port because they can still run at different times. Switchboard points this out while you add or edit a project. Before starting anything, it checks the port again and blocks the start if another app is already using it.
+Projects may save the same service ports because they can still run at different times. Switchboard points this out while you add or edit a project. Before starting anything, it checks the ports again and blocks the start if another app is already using one.
 
 If another Switchboard project owns the port, Switchboard names it. If a shared port is occupied but its owner cannot be identified safely, both Start and Stop remain unavailable until the port is free. Switchboard never changes ports or stops an unknown process automatically.
 

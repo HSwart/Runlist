@@ -134,4 +134,16 @@ test('serves the setup tool over MCP stdio', async (t) => {
   });
   assert.equal(missingServices.result.isError, true);
   assert.match(missingServices.result.content[0].text, /at least one service and port/);
+
+  const emptyServices = await request('tools/call', {
+    name: 'switchboard_setup_project',
+    arguments: {
+      folder: projectFolder,
+      startCommand: 'npm run dev',
+      stopCommand: 'pkill -f vite',
+      services: []
+    }
+  });
+  assert.equal(emptyServices.result.isError, true);
+  assert.match(emptyServices.result.content[0].text, /at least one service and port/);
 });

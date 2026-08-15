@@ -192,7 +192,7 @@ function callTool(message) {
     if (unsupportedKeys.length) {
       throw new Error(`unsupported argument: ${unsupportedKeys.join(', ')}`);
     }
-    if (!Object.prototype.hasOwnProperty.call(argumentsValue, 'services')) {
+    if (!Array.isArray(argumentsValue.services) || argumentsValue.services.length === 0) {
       throw new Error('services must list at least one service and port.');
     }
 
