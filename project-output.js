@@ -64,7 +64,7 @@ function ansiSequenceAt(output, escapeStart) {
 
   if (']PX^_'.includes(marker)) {
     for (let index = escapeStart + 2; index < output.length; index += 1) {
-      if (output.charCodeAt(index) === 0x07) {
+      if (marker === ']' && output.charCodeAt(index) === 0x07) {
         return { complete: true, end: index + 1 };
       }
       if (output[index] === '\u001b' && output[index + 1] === '\\') {

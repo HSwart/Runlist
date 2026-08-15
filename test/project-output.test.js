@@ -72,6 +72,12 @@ test('keeps an unfinished terminal string active across later escape sequences',
   assert.equal(sanitizeProjectOutput(output), 'VISIBLE');
 });
 
+test('does not terminate non-OSC terminal strings at BEL', () => {
+  const output = '\u001bPprivate\u0007still-private\u001b\\VISIBLE';
+
+  assert.equal(sanitizeProjectOutput(output), 'VISIBLE');
+});
+
 test('keeps a split ANSI sequence bounded and completes it on the next chunk', () => {
   let output = appendProjectOutput('xx', `\u001b[${'3'.repeat(20)}`, 10);
   assert.equal(output.length, 10);
