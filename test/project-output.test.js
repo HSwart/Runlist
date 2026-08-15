@@ -62,6 +62,16 @@ test('hides an incomplete OSC sequence until its remaining chunk arrives', () =>
   assert.equal(sanitizeProjectOutput(output), 'Ready\nLink');
 });
 
+test('keeps an unfinished terminal string active across later escape sequences', () => {
+  let output = appendProjectOutput('', `\u001b]title\u001b[31m${'x'.repeat(100)}`, 20);
+  assert.equal(output.length, 20);
+  assert.equal(sanitizeProjectOutput(output), '');
+
+  output = appendProjectOutput(output, '\u0007VISIBLE', 20);
+  assert.equal(output, 'VISIBLE');
+  assert.equal(sanitizeProjectOutput(output), 'VISIBLE');
+});
+
 test('keeps a split ANSI sequence bounded and completes it on the next chunk', () => {
   let output = appendProjectOutput('xx', `\u001b[${'3'.repeat(20)}`, 10);
   assert.equal(output.length, 10);

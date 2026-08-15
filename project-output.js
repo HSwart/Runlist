@@ -15,20 +15,32 @@ function appendProjectOutput(current, chunk, limit = MAX_PROJECT_OUTPUT_CHARS) {
 
 function trimProjectOutput(output, limit) {
   const requestedStart = output.length - limit;
-  const escapeStart = output.lastIndexOf('\u001b', requestedStart - 1);
-  if (escapeStart < 0) {
-    return output.slice(requestedStart);
-  }
-
-  const sequence = ansiSequenceAt(output, escapeStart);
-  if (!sequence || sequence.end <= requestedStart) {
+  const sequence = ansiSequenceCrossing(output, requestedStart);
+  if (!sequence) {
     return output.slice(requestedStart);
   }
   if (sequence.complete) {
     return output.slice(sequence.end);
   }
 
-  return boundIncompleteAnsi(output.slice(escapeStart), limit);
+  return boundIncompleteAnsi(output.slice(sequence.start), limit);
+}
+
+function ansiSequenceCrossing(output, boundary) {
+  let searchFrom = 0;
+  while (searchFrom < boundary) {
+    const escapeStart = output.indexOf('\u001b', searchFrom);
+    if (escapeStart < 0 || escapeStart >= boundary) {
+      return undefined;
+    }
+
+    const sequence = ansiSequenceAt(output, escapeStart);
+    if (!sequence.complete || sequence.end > boundary) {
+      return { ...sequence, start: escapeStart };
+    }
+    searchFrom = Math.max(sequence.end, escapeStart + 1);
+  }
+  return undefined;
 }
 
 function ansiSequenceAt(output, escapeStart) {
@@ -82,15 +94,58 @@ function boundIncompleteAnsi(sequence, limit) {
 }
 
 function sanitizeProjectOutput(output) {
-  const value = String(output || '');
-  const escapeStart = value.lastIndexOf('\u001b');
-  if (escapeStart >= 0) {
-    const sequence = ansiSequenceAt(value, escapeStart);
-    if (sequence && !sequence.complete) {
-      return stripVTControlCharacters(value.slice(0, escapeStart));
+  const value = stripAnsiStrings(String(output || ''));
+  const incompleteStart = findIncompleteAnsiStart(value);
+  const completeOutput = incompleteStart >= 0
+    ? value.slice(0, incompleteStart)
+    : value;
+  return stripVTControlCharacters(completeOutput);
+}
+
+function stripAnsiStrings(output) {
+  let result = '';
+  let copyFrom = 0;
+  let searchFrom = 0;
+
+  while (searchFrom < output.length) {
+    const escapeStart = output.indexOf('\u001b', searchFrom);
+    if (escapeStart < 0) {
+      break;
     }
+
+    const marker = output[escapeStart + 1];
+    if (!']PX^_'.includes(marker || '')) {
+      searchFrom = escapeStart + 1;
+      continue;
+    }
+
+    const sequence = ansiSequenceAt(output, escapeStart);
+    result += output.slice(copyFrom, escapeStart);
+    if (!sequence.complete) {
+      return result;
+    }
+    copyFrom = sequence.end;
+    searchFrom = sequence.end;
   }
-  return stripVTControlCharacters(value);
+
+  return result + output.slice(copyFrom);
+}
+
+function findIncompleteAnsiStart(output) {
+  let searchFrom = 0;
+  while (searchFrom < output.length) {
+    const escapeStart = output.indexOf('\u001b', searchFrom);
+    if (escapeStart < 0) {
+      return -1;
+    }
+
+    const sequence = ansiSequenceAt(output, escapeStart);
+    if (!sequence.complete) {
+      return escapeStart;
+    }
+    searchFrom = Math.max(sequence.end, escapeStart + 1);
+  }
+  return -1;
 }
 
 function listenToProjectOutput(child, onOutput) {
