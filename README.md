@@ -120,6 +120,10 @@ If Switchboard finds a configured service already running but did not start it i
 
 Switchboard stores its project list in your local VS Code data. Switchboard itself does not upload project folders, commands, or service ports. Any coding agent you connect has its own data and privacy settings.
 
+## Security
+
+Found a possible security issue? Please read the [security policy](SECURITY.md) and report it privately. Do not share sensitive details in a public issue.
+
 Switchboard is available under the [MIT License](LICENSE).
 
 ---
