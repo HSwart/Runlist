@@ -17,10 +17,10 @@ function trimProjectOutput(output, limit) {
   const requestedStart = output.length - limit;
   const sequence = ansiSequenceCrossing(output, requestedStart);
   if (!sequence) {
-    return output.slice(requestedStart);
+    return sliceFromSafeBoundary(output, requestedStart);
   }
   if (sequence.complete) {
-    return output.slice(sequence.end);
+    return sliceFromSafeBoundary(output, sequence.end);
   }
 
   return boundIncompleteAnsi(output.slice(sequence.start), limit);
@@ -29,7 +29,7 @@ function trimProjectOutput(output, limit) {
 function ansiSequenceCrossing(output, boundary) {
   let searchFrom = 0;
   while (searchFrom < boundary) {
-    const escapeStart = output.indexOf('\u001b', searchFrom);
+    const escapeStart = findNextAnsiStart(output, searchFrom, boundary);
     if (escapeStart < 0 || escapeStart >= boundary) {
       return undefined;
     }
@@ -44,82 +44,147 @@ function ansiSequenceCrossing(output, boundary) {
 }
 
 function ansiSequenceAt(output, escapeStart) {
+  const startCode = output.charCodeAt(escapeStart);
+  if (startCode === 0x9b) {
+    return scanCsi(output, escapeStart + 1);
+  }
+
+  const stringMarker = ansiStringMarkerAt(output, escapeStart);
+  if (stringMarker) {
+    const contentStart = startCode === 0x1b ? escapeStart + 2 : escapeStart + 1;
+    return scanAnsiString(output, contentStart, stringMarker);
+  }
+
+  if (startCode !== 0x1b) {
+    return { complete: true, end: escapeStart + 1 };
+  }
+
   const marker = output[escapeStart + 1];
   if (!marker) {
     return { complete: false, end: output.length };
   }
 
   if (marker === '[') {
-    for (let index = escapeStart + 2; index < output.length; index += 1) {
-      const code = output.charCodeAt(index);
-      if (code >= 0x40 && code <= 0x7e) {
-        return { complete: true, end: index + 1 };
-      }
-      if (code < 0x20 || code > 0x3f) {
-        return { complete: true, end: escapeStart + 2 };
-      }
-    }
-    return { complete: false, end: output.length };
-  }
-
-  if (']PX^_'.includes(marker)) {
-    for (let index = escapeStart + 2; index < output.length; index += 1) {
-      if (marker === ']' && output.charCodeAt(index) === 0x07) {
-        return { complete: true, end: index + 1 };
-      }
-      if (output.charCodeAt(index) === 0x9c) {
-        return { complete: true, end: index + 1 };
-      }
-      if (output[index] === '\u001b' && output[index + 1] === '\\') {
-        return { complete: true, end: index + 2 };
-      }
-    }
-    return { complete: false, end: output.length };
+    return scanCsi(output, escapeStart + 2);
   }
 
   for (let index = escapeStart + 1; index < output.length; index += 1) {
     const code = output.charCodeAt(index);
+    if (index > escapeStart + 1 && isAnsiStartCode(code)) {
+      return { complete: true, end: index };
+    }
     if (code >= 0x30 && code <= 0x7e) {
       return { complete: true, end: index + 1 };
     }
     if (code < 0x20 || code > 0x2f) {
-      return { complete: true, end: escapeStart + 1 };
+      return { complete: true, end: index + 1 };
     }
   }
   return { complete: false, end: output.length };
 }
 
+function scanCsi(output, contentStart) {
+  for (let index = contentStart; index < output.length; index += 1) {
+    const code = output.charCodeAt(index);
+    if (isAnsiStartCode(code)) {
+      return { complete: true, end: index };
+    }
+    if (code >= 0x40 && code <= 0x7e) {
+      return { complete: true, end: index + 1 };
+    }
+    if (code < 0x20 || code > 0x3f) {
+      return { complete: true, end: index + 1 };
+    }
+  }
+  return { complete: false, end: output.length };
+}
+
+function scanAnsiString(output, contentStart, marker) {
+  for (let index = contentStart; index < output.length; index += 1) {
+    const code = output.charCodeAt(index);
+    if (code === 0x18 || code === 0x1a) {
+      return { complete: true, end: index + 1 };
+    }
+    if (marker === ']' && code === 0x07) {
+      return { complete: true, end: index + 1 };
+    }
+    if (code === 0x9c) {
+      return { complete: true, end: index + 1 };
+    }
+    if (output[index] === '\u001b' && output[index + 1] === '\\') {
+      return { complete: true, end: index + 2 };
+    }
+  }
+  return { complete: false, end: output.length };
+}
+
+function ansiStringMarkerAt(output, start) {
+  if (output.charCodeAt(start) === 0x1b) {
+    const marker = output[start + 1];
+    return ']PX^_'.includes(marker || '') ? marker : '';
+  }
+  return c1StringMarker(output.charCodeAt(start));
+}
+
+function c1StringMarker(code) {
+  switch (code) {
+    case 0x90: return 'P';
+    case 0x98: return 'X';
+    case 0x9d: return ']';
+    case 0x9e: return '^';
+    case 0x9f: return '_';
+    default: return '';
+  }
+}
+
+function isAnsiStartCode(code) {
+  return code === 0x1b || code === 0x9b || Boolean(c1StringMarker(code));
+}
+
+function findNextAnsiStart(output, searchFrom, stopAt = output.length) {
+  for (let index = searchFrom; index < stopAt; index += 1) {
+    const code = output.charCodeAt(index);
+    if (isAnsiStartCode(code)) {
+      return index;
+    }
+  }
+  return -1;
+}
+
 function boundIncompleteAnsi(sequence, limit) {
-  if (limit <= 2) {
+  const prefixLength = sequence.charCodeAt(0) === 0x1b ? 2 : 1;
+  if (limit <= prefixLength) {
     return sequence.slice(0, limit);
   }
-  return `${sequence.slice(0, 2)}${sequence.slice(-(limit - 2))}`;
+  const tailLength = limit - prefixLength;
+  const tail = sliceFromSafeBoundary(sequence, sequence.length - tailLength);
+  return `${sequence.slice(0, prefixLength)}${tail}`;
+}
+
+function sliceFromSafeBoundary(value, requestedStart) {
+  let start = Math.max(0, requestedStart);
+  const code = value.charCodeAt(start);
+  const previousCode = value.charCodeAt(start - 1);
+  if (code >= 0xdc00 && code <= 0xdfff && previousCode >= 0xd800 && previousCode <= 0xdbff) {
+    start += 1;
+  }
+  return value.slice(start);
 }
 
 function sanitizeProjectOutput(output) {
-  const value = stripAnsiStrings(String(output || ''));
-  const incompleteStart = findIncompleteAnsiStart(value);
-  const completeOutput = incompleteStart >= 0
-    ? value.slice(0, incompleteStart)
-    : value;
-  return stripVTControlCharacters(completeOutput);
+  const value = stripParsedAnsi(String(output || '')).replaceAll('\u009c', '');
+  return stripVTControlCharacters(value);
 }
 
-function stripAnsiStrings(output) {
+function stripParsedAnsi(output) {
   let result = '';
   let copyFrom = 0;
   let searchFrom = 0;
 
   while (searchFrom < output.length) {
-    const escapeStart = output.indexOf('\u001b', searchFrom);
+    const escapeStart = findNextAnsiStart(output, searchFrom);
     if (escapeStart < 0) {
       break;
-    }
-
-    const marker = output[escapeStart + 1];
-    if (!']PX^_'.includes(marker || '')) {
-      searchFrom = escapeStart + 1;
-      continue;
     }
 
     const sequence = ansiSequenceAt(output, escapeStart);
@@ -132,23 +197,6 @@ function stripAnsiStrings(output) {
   }
 
   return result + output.slice(copyFrom);
-}
-
-function findIncompleteAnsiStart(output) {
-  let searchFrom = 0;
-  while (searchFrom < output.length) {
-    const escapeStart = output.indexOf('\u001b', searchFrom);
-    if (escapeStart < 0) {
-      return -1;
-    }
-
-    const sequence = ansiSequenceAt(output, escapeStart);
-    if (!sequence.complete) {
-      return escapeStart;
-    }
-    searchFrom = Math.max(sequence.end, escapeStart + 1);
-  }
-  return -1;
 }
 
 function listenToProjectOutput(child, onOutput) {

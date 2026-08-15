@@ -84,6 +84,51 @@ test('terminates terminal strings at the single-byte ST character', () => {
   assert.equal(sanitizeProjectOutput(output), 'VISIBLE');
 });
 
+test('handles C1 CSI and string introducers', () => {
+  const csiOutput = appendProjectOutput('', '12\u009b31mRED', 6);
+  assert.equal(sanitizeProjectOutput(csiOutput), 'RED');
+
+  assert.equal(sanitizeProjectOutput('\u009dtitle\u009cVISIBLE'), 'VISIBLE');
+  assert.equal(sanitizeProjectOutput('\u0090private\u009cVISIBLE'), 'VISIBLE');
+});
+
+test('keeps output after CAN and SUB cancel a terminal string', () => {
+  assert.equal(sanitizeProjectOutput('\u001b]title\u0018VISIBLE'), 'VISIBLE');
+  assert.equal(sanitizeProjectOutput('\u001bPprivate\u001aVISIBLE'), 'VISIBLE');
+});
+
+test('consumes malformed CSI bytes before trimming visible output', () => {
+  const output = appendProjectOutput('', '12\u001b[31\nmRED', 6);
+
+  assert.equal(output, 'mRED');
+  assert.equal(sanitizeProjectOutput(output), 'mRED');
+});
+
+test('rescans an ANSI sequence that interrupts another sequence', () => {
+  const escOutput = appendProjectOutput('', '12\u001b[31\u001b[32mRED', 6);
+  const c1Output = appendProjectOutput('', '12\u001b[31\u009b32mRED', 6);
+  const standardOutput = appendProjectOutput('', '12\u001b(\u001b[32mRED', 6);
+
+  assert.equal(sanitizeProjectOutput(escOutput), 'RED');
+  assert.equal(sanitizeProjectOutput(c1Output), 'RED');
+  assert.equal(sanitizeProjectOutput(standardOutput), 'RED');
+});
+
+test('removes a standalone C1 ST control character', () => {
+  assert.equal(sanitizeProjectOutput('A\u009cB'), 'AB');
+});
+
+test('does not split an emoji at a plain-text rollover boundary', () => {
+  assert.equal(appendProjectOutput('', '12😀XYZ', 4), 'XYZ');
+});
+
+test('does not split an emoji while bounding an incomplete terminal string', () => {
+  const output = appendProjectOutput('', '\u001b]12😀XYZ', 6);
+
+  assert.equal(output, '\u001b]XYZ');
+  assert.equal(output.length, 5);
+});
+
 test('keeps a split ANSI sequence bounded and completes it on the next chunk', () => {
   let output = appendProjectOutput('xx', `\u001b[${'3'.repeat(20)}`, 10);
   assert.equal(output.length, 10);
@@ -99,6 +144,18 @@ test('keeps incomplete ANSI state bounded at very small limits', () => {
 
   assert.equal(output, '\u001b[');
   assert.equal(output.length, 2);
+});
+
+test('keeps high-volume plain-text rollover responsive', () => {
+  let output = '';
+  const started = Date.now();
+
+  for (let index = 0; index < 10000; index += 1) {
+    output = appendProjectOutput(output, 'line\n');
+  }
+
+  assert.equal(output.length, 20000);
+  assert.ok(Date.now() - started < 2500);
 });
 
 test('listens to both stdout and stderr from a project process', () => {
