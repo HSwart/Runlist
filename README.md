@@ -4,7 +4,7 @@
   <p><strong>Start and stop your local development projects from one simple VS Code sidebar.</strong></p>
   <p>No more hunting through old notes or trying to remember how each project starts.</p>
   <p>
-    <a href="https://github.com/HSwart/Switchboard/releases/download/v0.0.1/switchboard-0.0.1.vsix">
+    <a href="https://github.com/HSwart/Switchboard/releases/download/v0.0.1/switchboard.vsix">
       <img src="https://img.shields.io/badge/Download-Switchboard%200.0.1-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="Download Switchboard 0.0.1">
     </a>
   </p>
@@ -39,14 +39,14 @@ Switchboard is tested on Windows, macOS, and Linux.
 
 Download version 0.0.1 here:
 
-**[Download Switchboard 0.0.1](https://github.com/HSwart/Switchboard/releases/download/v0.0.1/switchboard-0.0.1.vsix)**
+**[Download Switchboard 0.0.1](https://github.com/HSwart/Switchboard/releases/download/v0.0.1/switchboard.vsix)**
 
 ### 2. Install it in VS Code
 
 1. Open the **Extensions** view in VS Code.
 2. Select the **…** menu at the top of the Extensions view.
 3. Choose **Install from VSIX…**.
-4. Select the `switchboard-0.0.1.vsix` file you downloaded.
+4. Select the `switchboard.vsix` file you downloaded.
 5. Reload VS Code when prompted.
 
 After installation, select the Switchboard icon in the VS Code Activity Bar.
@@ -130,5 +130,5 @@ Switchboard is available under the [MIT License](LICENSE).
 
 <div align="center">
   <p><strong>Spend less time remembering commands. Spend more time building.</strong></p>
-  <p><a href="https://github.com/HSwart/Switchboard/releases/download/v0.0.1/switchboard-0.0.1.vsix">Download Switchboard 0.0.1</a></p>
+  <p><a href="https://github.com/HSwart/Switchboard/releases/download/v0.0.1/switchboard.vsix">Download Switchboard 0.0.1</a></p>
 </div>

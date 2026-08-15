@@ -97,7 +97,7 @@
   },
   "scripts": {
     "test": "node --test",
-    "package": "vsce package --no-dependencies --out releases/switchboard-0.0.1.vsix"
+    "package": "vsce package --no-dependencies --out releases/switchboard.vsix"
   },
   "devDependencies": {
     "@vscode/vsce": "3.9.2"
