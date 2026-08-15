@@ -175,8 +175,8 @@ function renderList() {
           <article class="project-row" data-project-id="${projectId}" aria-labelledby="project-${projectId}">
             <div class="project-topline">
               <div class="project-heading">
-                <h2 id="project-${projectId}">${projectName}</h2>
-                <div class="project-status"${statusTitle ? ` title="${statusTitle}"` : ''}>${transitioning ? productIcon('loading', 'status-progress') : `<span class="status-dot ${active ? 'running' : conflicted ? 'conflict' : ''}"></span>`}${statusLabels[projectStatus]}</div>
+                <h2 id="project-${projectId}" class="auto-scroll" title="${projectName}"><span class="auto-scroll-content">${projectName}</span></h2>
+                <div class="project-status status-${projectStatus}"${statusTitle ? ` title="${statusTitle}"` : ''}>${transitioning ? productIcon('loading', 'status-progress') : ''}<span class="auto-scroll"><span class="auto-scroll-content">${statusLabels[projectStatus]}</span></span></div>
               </div>
               <div class="project-actions">
                 <button class="run-button ${blocked ? 'blocked' : stopsProject || projectStatus === 'stopping' ? 'stop' : 'start'}" data-action="${action}" data-id="${projectId}" aria-label="${actionTitle}" title="${actionTitle}" ${actionDisabled ? 'disabled' : ''}>
@@ -205,7 +205,7 @@ function renderList() {
             </div>
             <div class="project-details">
               <div class="detail-row" title="${escapeHtml(project.folder)}">
-                ${icon('folder', 'detail-icon')}<span>${escapeHtml(project.folder)}</span>
+                ${icon('folder', 'detail-icon')}<span class="auto-scroll"><span class="auto-scroll-content">${escapeHtml(project.folder)}</span></span>
               </div>
             </div>
             ${project.services?.length ? `
@@ -266,7 +266,35 @@ function applyProjectFilter(query) {
       ? `${matchingIds.size} ${matchingIds.size === 1 ? 'project' : 'projects'} found`
       : '';
   }
+  scheduleAutoScrollUpdate();
 }
+
+function updateAutoScroll() {
+  document.querySelectorAll('.auto-scroll').forEach((container) => {
+    const content = container.querySelector('.auto-scroll-content');
+    container.classList.remove('is-overflowing');
+    container.style.removeProperty('--auto-scroll-distance');
+    container.style.removeProperty('--auto-scroll-duration');
+    if (!content || container.closest('[hidden]')) {
+      return;
+    }
+    const distance = Math.ceil(content.scrollWidth - container.clientWidth);
+    if (distance <= 2) {
+      return;
+    }
+    container.style.setProperty('--auto-scroll-distance', `${distance}px`);
+    container.style.setProperty('--auto-scroll-duration', `${Math.max(8, 5 + distance / 22)}s`);
+    container.classList.add('is-overflowing');
+  });
+}
+
+let autoScrollFrame;
+function scheduleAutoScrollUpdate() {
+  cancelAnimationFrame(autoScrollFrame);
+  autoScrollFrame = requestAnimationFrame(updateAutoScroll);
+}
+
+window.addEventListener('resize', scheduleAutoScrollUpdate);
 
 function sharedPortWarningText(draft) {
   const port = Number(draft?.appPort ?? draft?.services?.[0]?.port);
@@ -747,6 +775,7 @@ function applyInitialFocus() {
 if (state.mode === 'list') {
   renderList();
   document.getElementById('project-search')?.addEventListener('input', handleSearchInput);
+  scheduleAutoScrollUpdate();
 } else if (state.mode === 'agents') {
   renderAgentSetup();
 } else if (state.mode === 'output') {

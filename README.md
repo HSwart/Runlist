@@ -100,6 +100,7 @@ Switchboard keeps the everyday controls simple:
 | Control | What it does |
 | --- | --- |
 | **Search** | Filters your saved projects by project name or folder. |
+| **Project status** | Shows the written state in a clear status capsule, including running, stopped, transitions, and port conflicts. Long names, status details, and folder paths scroll automatically when they do not fit. |
 | **Start icon** | Runs the saved start command inside the project folder. |
 | **Stop icon** | Runs the saved stop command inside the project folder. |
 | **Stop all running** | Appears when two or more projects are running and stops them together. |
