@@ -58,7 +58,7 @@ After installation, select the Switchboard icon in the VS Code Activity Bar.
 3. If a local folder is already open in VS Code, choose **Use current workspace**, or select **Browse**. In a multi-root workspace, Switchboard asks which local workspace folder to use.
 4. Enter the command that starts the project.
 5. If the project needs a special shutdown workflow, optionally enter a custom stop command. Most projects should leave this blank.
-6. If you know it, enter the app's port so Switchboard can verify its status and open it in your browser.
+6. If you know them, add each service name and port so Switchboard can verify its status and open the first service in your browser.
 7. Save it.
 
 Switchboard points out missing or invalid details beside the field that needs attention. If you close the screen after making changes, it asks before discarding them.
@@ -67,9 +67,9 @@ Your project is now ready whenever you need it. Select the **Start** icon to run
 
 If Switchboard is open in more than one VS Code window, starting or stopping a project in one window updates its status in the others automatically.
 
-Configured ports are lightweight service details, not a port-management system. Projects may save the same app port because they can still run at different times. Switchboard points this out while you add or edit a project, checks the port again before starting, and blocks the start if another app is already using it.
+Configured service ports are lightweight details, not a port-management system. Projects may save the same service ports because they can still run at different times. Switchboard points this out while you add or edit a project, checks every configured port again before starting, and blocks the start if another app is already using one.
 
-If another Switchboard project owns the port, Switchboard names it. If a shared port is occupied but its owner cannot be identified safely, both Start and Stop remain unavailable until the port is free. Switchboard never changes ports or stops an unknown process automatically.
+If another Switchboard project owns a port, Switchboard names it. If a shared port is occupied but its owner cannot be identified safely, both Start and Stop remain unavailable until that port is free. Switchboard never changes ports or stops an unknown process automatically.
 
 You can set up every project yourself. If you prefer, the optional coding-agent setup below can inspect a project and propose its commands and service ports for your approval.
 

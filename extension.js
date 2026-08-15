@@ -35,6 +35,7 @@ const {
 } = require('./port-gate');
 const {
   projectFormChanged,
+  projectFormServices,
   projectFormValues,
   projectSaveError,
   validateProjectForm
@@ -560,23 +561,16 @@ class SwitchboardViewProvider {
     const folder = validation.values.folder.trim();
     const startCommand = validation.values.startCommand.trim();
     const stopCommand = validation.values.stopCommand.trim();
-    const appPortText = validation.values.appPort.trim();
-    const appPort = appPortText ? Number(appPortText) : undefined;
+    const services = projectFormServices(validation.values);
 
     try {
-      const existing = projectId
-        ? this.projects.find((item) => item.id === projectId)
-        : undefined;
-      const services = appPort === undefined
-        ? undefined
-        : updatePrimaryService(existing?.services, appPort);
       const saved = upsertProject(this.projectsFile, {
         id: projectId,
         name,
         folder,
         startCommand,
         stopCommand,
-        ...(services ? { services } : {})
+        services
       }, { reviewRequired: false });
       projectId = saved.project.id;
     } catch (error) {
@@ -957,9 +951,6 @@ class SwitchboardViewProvider {
       formErrors: this.formErrors,
       reviewRequired: this.mode === 'edit'
         && Boolean(projects.find((project) => project.id === this.selectedProjectId)?.reviewRequired),
-      reviewServices: this.mode === 'edit'
-        ? projects.find((project) => project.id === this.selectedProjectId)?.services || []
-        : [],
       projectOutput: outputProject ? {
         entries: formatProjectOutput(rawProjectOutput),
         name: outputProject.name,
@@ -1102,13 +1093,6 @@ function lastUsefulLine(value) {
     .map((line) => line.trim())
     .filter(Boolean)
     .at(-1);
-}
-
-function updatePrimaryService(existingServices, port) {
-  if (!existingServices?.length) {
-    return [{ name: 'app', port }];
-  }
-  return existingServices.map((service, index) => index === 0 ? { ...service, port } : service);
 }
 
 function installMcpBridge(context) {

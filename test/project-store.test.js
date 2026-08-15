@@ -75,6 +75,14 @@ test('creates, updates, and removes projects in the shared store', (t) => {
   });
   assert.equal(updatedWithoutName.project.name, 'Sample web app');
 
+  const clearedServices = upsertProject(projectsFile, {
+    folder: projectFolder,
+    startCommand: 'pnpm dev',
+    stopCommand: 'pkill -f vite',
+    services: []
+  });
+  assert.deepEqual(clearedServices.project.services, []);
+
   const resetName = upsertProject(projectsFile, {
     name: '  ',
     folder: projectFolder,

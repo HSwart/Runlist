@@ -312,8 +312,8 @@ function scheduleAutoScrollUpdate() {
 
 window.addEventListener('resize', scheduleAutoScrollUpdate);
 
-function sharedPortWarningText(draft) {
-  const port = Number(draft?.appPort ?? draft?.services?.[0]?.port);
+function sharedPortWarningText(draft, serviceIndex) {
+  const port = Number(draft?.services?.[serviceIndex]?.port);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     return '';
   }
@@ -329,12 +329,10 @@ function sharedPortWarningText(draft) {
 }
 
 function updateSharedPortWarning(draft = currentDraft()) {
-  const warning = document.getElementById('shared-port-warning');
-  if (!warning) {
-    return;
-  }
-  warning.textContent = sharedPortWarningText(draft);
-  warning.hidden = !warning.textContent;
+  document.querySelectorAll('[data-service-warning]').forEach((warning) => {
+    warning.textContent = sharedPortWarningText(draft, Number(warning.dataset.serviceWarning));
+    warning.hidden = !warning.textContent;
+  });
 }
 
 function renderProjectForm(mode) {
@@ -347,14 +345,37 @@ function renderProjectForm(mode) {
   const fieldError = (field) => errors[field]
     ? `<p id="${field}-error" class="field-error" role="alert">${escapeHtml(errors[field])}</p>`
     : '';
-  const sharedPortWarning = sharedPortWarningText(state.draft);
+  const services = state.draft.services || [];
+  const serviceRows = services.map((service, index) => {
+    const nameField = `service-name-${index}`;
+    const portField = `service-port-${index}`;
+    const warning = sharedPortWarningText(state.draft, index);
+    const removeLabel = String(service.name || '').trim()
+      ? `Remove ${String(service.name).trim()} service`
+      : `Remove service ${index + 1}`;
+    return `
+      <div class="service-row" data-service-index="${index}">
+        <div class="service-field">
+          <label class="visually-hidden" for="${nameField}">Service ${index + 1} name</label>
+          <input id="${nameField}" class="service-input" name="serviceName" value="${escapeHtml(String(service.name ?? ''))}" placeholder="web" maxlength="64" ${errorAttributes(nameField)}>
+          ${fieldError(nameField)}
+        </div>
+        <div class="service-field">
+          <label class="visually-hidden" for="${portField}">Service ${index + 1} port</label>
+          <input id="${portField}" class="service-input" name="servicePort" type="number" min="1" max="65535" step="1" inputmode="numeric" value="${escapeHtml(String(service.port ?? ''))}" placeholder="3000" ${errorAttributes(portField)}>
+          ${fieldError(portField)}
+        </div>
+        <button class="service-remove-button" type="button" data-action="remove-service" data-service-index="${index}" aria-label="${escapeHtml(removeLabel)}" title="Remove service">${icon('trash')}</button>
+        <p class="shared-port-warning service-warning" data-service-warning="${index}" role="status" ${warning ? '' : 'hidden'}>${escapeHtml(warning)}</p>
+      </div>`;
+  }).join('');
   app.innerHTML = `
     <section class="add-screen">
       <header class="screen-header">
         <h2>${reviewing ? 'Review project setup' : editing ? 'Edit project' : 'Add project'}</h2>
         <button class="icon-button" data-action="close-screen" aria-label="Close ${reviewing ? 'review' : editing ? 'edit' : 'add'} project screen">${icon('close')}</button>
       </header>
-      <p class="screen-copy">${reviewing ? 'A coding agent added or updated this setup. Check the folder and commands before approving them.' : editing ? `Update ${escapeHtml(state.draft.name || 'this project')} and its saved commands.` : 'Choose a folder and save its commands once.'}</p>
+      <p class="screen-copy">${reviewing ? 'A coding agent added or updated this setup. Check its folder, commands, and services before approving.' : editing ? `Update ${escapeHtml(state.draft.name || 'this project')} and its saved setup.` : 'Choose a folder and save its commands and services once.'}</p>
       <form id="project-form" novalidate>
         ${errors.form ? `<p id="form-error-summary" class="form-error-summary" role="alert" tabindex="-1">${escapeHtml(errors.form)}</p>` : ''}
         <label for="project-name">Project name <span class="optional-label">Optional</span></label>
@@ -378,17 +399,16 @@ function renderProjectForm(mode) {
         ${fieldError('stop-command')}
         <p class="field-hint">Leave blank to stop only the process tree Switchboard starts.</p>
 
-        <label for="app-port">App port <span class="optional-label">Optional</span></label>
-        <input id="app-port" name="appPort" type="number" min="1" max="65535" step="1" inputmode="numeric" value="${escapeHtml(String(state.draft.appPort ?? state.draft.services?.[0]?.port ?? ''))}" placeholder="3000" ${errorAttributes('app-port')}>
-        ${fieldError('app-port')}
-        <p class="field-hint">Used to confirm the app is running and enable Open app.</p>
-        <p id="shared-port-warning" class="shared-port-warning" role="status" ${sharedPortWarning ? '' : 'hidden'}>${escapeHtml(sharedPortWarning)}</p>
-
-        ${reviewing && state.reviewServices?.length ? `
-          <div class="review-services">
-            <span>Configured services</span>
-            ${state.reviewServices.map((service) => `<code>${escapeHtml(service.name)} :${escapeHtml(String(service.port))}</code>`).join('')}
-          </div>` : ''}
+        <fieldset id="services" class="service-editor" ${errors.services ? 'aria-invalid="true" aria-describedby="services-hint services-error" tabindex="-1"' : 'aria-describedby="services-hint"'}>
+          <legend>Services <span class="optional-label">Optional</span></legend>
+          <p id="services-hint" class="field-hint">Service names and ports confirm what is running and enable Open app. Up to 32 services.</p>
+          ${errors.services ? `<p id="services-error" class="field-error" role="alert">${escapeHtml(errors.services)}</p>` : ''}
+          <div class="service-list-header" aria-hidden="true"><span>Name</span><span>Port</span></div>
+          <div class="service-list">
+            ${serviceRows || '<p class="empty-services">No services configured.</p>'}
+          </div>
+          <button class="service-add-button" type="button" data-action="add-service" ${services.length >= 32 ? 'disabled' : ''}>Add service</button>
+        </fieldset>
 
         <button class="primary-button save-button" type="submit">${reviewing ? 'Approve setup' : editing ? 'Save changes' : 'Save project'}</button>
         <p class="form-hint">${reviewing ? 'Approving makes Start and Stop available for this project.' : editing ? 'Changes apply the next time you start this project.' : 'Commands run inside the selected folder.'}</p>
@@ -513,8 +533,27 @@ function currentDraft(form = document.getElementById('project-form')) {
     folder: fieldValue('folder'),
     startCommand: fieldValue('startCommand'),
     stopCommand: fieldValue('stopCommand'),
-    appPort: fieldValue('appPort')
+    services: [...(form?.querySelectorAll('.service-row') || [])].map((row) => ({
+      name: row.querySelector('[name="serviceName"]')?.value || '',
+      port: row.querySelector('[name="servicePort"]')?.value || ''
+    }))
   };
+}
+
+function clearServiceErrors() {
+  for (const field of Object.keys(state.formErrors || {})) {
+    if (field === 'services' || field.startsWith('service-')) {
+      delete state.formErrors[field];
+    }
+  }
+}
+
+function updateServiceDraft(services, focusId) {
+  state.draft = { ...currentDraft(), services };
+  clearServiceErrors();
+  vscode.postMessage({ type: 'updateDraft', draft: state.draft });
+  renderProjectForm(state.mode);
+  requestAnimationFrame(() => document.getElementById(focusId)?.focus());
 }
 
 app.addEventListener('click', (event) => {
@@ -536,6 +575,24 @@ app.addEventListener('click', (event) => {
     }),
     'pick-folder': () => vscode.postMessage({ type: 'pickFolder', draft: currentDraft() }),
     'use-current-workspace': () => vscode.postMessage({ type: 'useCurrentWorkspace', draft: currentDraft() }),
+    'add-service': () => {
+      const services = currentDraft().services;
+      if (services.length < 32) {
+        const index = services.length;
+        updateServiceDraft([...services, { name: '', port: '' }], `service-name-${index}`);
+      }
+    },
+    'remove-service': () => {
+      const index = Number(button.dataset.serviceIndex);
+      const services = currentDraft().services.filter((service, serviceIndex) => serviceIndex !== index);
+      const focusId = services.length
+        ? `service-name-${Math.min(index, services.length - 1)}`
+        : undefined;
+      updateServiceDraft(services, focusId);
+      if (!focusId) {
+        requestAnimationFrame(() => document.querySelector('[data-action="add-service"]')?.focus());
+      }
+    },
     'register-agent': () => vscode.postMessage({ type: 'registerAgent', agent: button.dataset.agent }),
     'toggle-menu': () => toggleMenu(button),
     open: () => {
@@ -661,10 +718,20 @@ app.addEventListener('input', (event) => {
     return;
   }
   const field = event.target.id;
-  delete state.formErrors?.[field];
-  event.target.setAttribute('aria-invalid', 'false');
-  event.target.removeAttribute('aria-describedby');
-  document.getElementById(`${field}-error`)?.remove();
+  if (event.target.classList.contains('service-input')) {
+    clearServiceErrors();
+    document.querySelectorAll('.service-input').forEach((input) => {
+      input.setAttribute('aria-invalid', 'false');
+      input.removeAttribute('aria-describedby');
+    });
+    document.querySelectorAll('.service-field .field-error').forEach((error) => error.remove());
+    document.getElementById('services-error')?.remove();
+  } else {
+    delete state.formErrors?.[field];
+    event.target.setAttribute('aria-invalid', 'false');
+    event.target.removeAttribute('aria-describedby');
+    document.getElementById(`${field}-error`)?.remove();
+  }
   const draft = currentDraft();
   updateSharedPortWarning(draft);
   vscode.postMessage({ type: 'updateDraft', draft });
