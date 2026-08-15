@@ -96,7 +96,8 @@ function primaryServiceUrl(services) {
 
 function stoppableProjectIds(projects) {
   return (projects || [])
-    .filter((project) => ['running', 'starting', 'active'].includes(project.status))
+    .filter((project) => !project.reviewRequired
+      && ['running', 'starting', 'active'].includes(project.status))
     .map((project) => project.id);
 }
 

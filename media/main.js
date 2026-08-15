@@ -89,13 +89,20 @@ function productIcon(name, className = 'product-icon') {
 }
 
 function statusSummaryHtml(projects) {
-  const runningCount = projects.filter((project) => ['running', 'active'].includes(project.status)).length;
-  const startingCount = projects.filter((project) => project.status === 'starting').length;
-  const stoppingCount = projects.filter((project) => project.status === 'stopping').length;
-  const stoppedCount = projects.filter((project) => project.status === 'stopped').length;
+  const reviewCount = projects.filter((project) => project.reviewRequired).length;
+  const runningCount = projects
+    .filter((project) => !project.reviewRequired
+      && ['running', 'active'].includes(project.status)).length;
+  const startingCount = projects
+    .filter((project) => !project.reviewRequired && project.status === 'starting').length;
+  const stoppingCount = projects
+    .filter((project) => !project.reviewRequired && project.status === 'stopping').length;
+  const stoppedCount = projects
+    .filter((project) => !project.reviewRequired && project.status === 'stopped').length;
   const conflictCount = projects
-    .filter((project) => ['port-in-use', 'port-in-use-unknown'].includes(project.status)).length;
-  return `<span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running${startingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${startingCount} starting` : ''}${stoppingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${stoppingCount} stopping` : ''} <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped${conflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${conflictCount} unavailable` : ''}`;
+    .filter((project) => !project.reviewRequired
+      && ['port-in-use', 'port-in-use-unknown'].includes(project.status)).length;
+  return `<span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running${startingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${startingCount} starting` : ''}${stoppingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${stoppingCount} stopping` : ''} <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped${reviewCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${reviewCount} to review` : ''}${conflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${conflictCount} unavailable` : ''}`;
 }
 
 function renderList() {
@@ -132,6 +139,8 @@ function renderList() {
         const projectId = escapeHtml(project.id);
         const projectName = escapeHtml(project.name);
         const projectStatus = project.status || 'stopped';
+        const reviewRequired = Boolean(project.reviewRequired);
+        const displayStatus = reviewRequired ? 'review-required' : projectStatus;
         const conflict = project.portConflict;
         const conflictOwnerName = escapeHtml(conflict?.ownerName || 'Another app');
         const conflictProjectNames = (conflict?.projectNames || []).map(escapeHtml).join(', ');
@@ -142,6 +151,7 @@ function renderList() {
           active: 'Detected running',
           'port-in-use': conflict?.ownerName ? `Port in use by ${conflictOwnerName}` : 'Port in use',
           'port-in-use-unknown': 'Port in use — owner unknown',
+          'review-required': 'Review setup',
           stopped: 'Stopped'
         };
         const active = ['running', 'active'].includes(projectStatus);
@@ -150,20 +160,26 @@ function renderList() {
         const canOpen = ['running', 'active'].includes(projectStatus) && project.services?.length;
         const stopsProject = ['running', 'starting', 'active'].includes(projectStatus);
         const blocked = conflicted;
-        const action = stopsProject ? 'stop' : 'start';
-        const actionLabel = blocked
+        const action = reviewRequired ? 'edit' : stopsProject ? 'stop' : 'start';
+        const actionLabel = reviewRequired
+          ? 'Review setup'
+          : blocked
           ? 'Unavailable'
           : projectStatus === 'stopping'
           ? 'Stopping…'
           : stopsProject
             ? 'Stop'
             : 'Start';
-        const actionTitle = projectStatus === 'port-in-use-unknown'
+        const actionTitle = reviewRequired
+          ? `Review setup for ${projectName}`
+          : projectStatus === 'port-in-use-unknown'
           ? `Port :${conflict?.port || 'unknown'} owner is unknown — cannot safely start or stop ${projectName}`
           : blocked
             ? `${conflictOwnerName} is using port :${conflict?.port || 'unknown'} — cannot start ${projectName}`
           : `${actionLabel} ${projectName}`;
-        const statusTitle = projectStatus === 'active'
+        const statusTitle = reviewRequired
+          ? 'A coding agent added or updated this setup. Review its folder and commands before running it.'
+          : projectStatus === 'active'
           ? 'Detected through a configured service port; Switchboard did not start this process.'
           : projectStatus === 'port-in-use-unknown'
             ? `Port :${conflict?.port || 'unknown'} is shared with ${conflictProjectNames}. Switchboard cannot identify the running owner.`
@@ -176,11 +192,11 @@ function renderList() {
             <div class="project-topline">
               <div class="project-heading">
                 <h2 id="project-${projectId}" class="auto-scroll" title="${projectName}"><span class="auto-scroll-content">${projectName}</span></h2>
-                <div class="project-status status-${projectStatus}"${statusTitle ? ` title="${statusTitle}"` : ''}>${transitioning ? productIcon('loading', 'status-progress') : ''}<span class="auto-scroll"><span class="auto-scroll-content">${statusLabels[projectStatus]}</span></span></div>
+                <div class="project-status status-${displayStatus}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : ''}<span class="auto-scroll"><span class="auto-scroll-content">${statusLabels[displayStatus]}</span></span></div>
               </div>
               <div class="project-actions">
-                <button class="run-button ${blocked ? 'blocked' : stopsProject || projectStatus === 'stopping' ? 'stop' : 'start'}" data-action="${action}" data-id="${projectId}" aria-label="${actionTitle}" title="${actionTitle}" ${actionDisabled ? 'disabled' : ''}>
-                  ${productIcon(stopsProject || projectStatus === 'stopping' ? 'stop' : 'play')}
+                <button class="run-button ${reviewRequired ? 'review' : blocked ? 'blocked' : stopsProject || projectStatus === 'stopping' ? 'stop' : 'start'}" data-action="${action}" data-id="${projectId}" aria-label="${actionTitle}" title="${actionTitle}" ${actionDisabled && !reviewRequired ? 'disabled' : ''}>
+                  ${reviewRequired ? icon('edit') : productIcon(stopsProject || projectStatus === 'stopping' ? 'stop' : 'play')}
                 </button>
                 <button class="more-button" data-action="toggle-menu" data-id="${projectId}" aria-label="More actions for ${projectName}" aria-haspopup="menu" aria-expanded="false">${icon('more')}</button>
                 <div class="action-menu" data-menu-id="${projectId}" role="menu" aria-label="Actions for ${projectName}" hidden>
@@ -194,7 +210,7 @@ function renderList() {
                     ${icon('terminal', 'menu-icon')}<span>View output</span>
                   </button>
                   <button data-action="edit" data-id="${projectId}" role="menuitem">
-                    ${icon('edit', 'menu-icon')}<span>Edit project</span>
+                    ${icon('edit', 'menu-icon')}<span>${reviewRequired ? 'Review setup' : 'Edit project'}</span>
                   </button>
                   <div class="menu-divider" role="separator"></div>
                   <button class="danger" data-action="delete" data-id="${projectId}" role="menuitem">
@@ -323,6 +339,7 @@ function updateSharedPortWarning(draft = currentDraft()) {
 
 function renderProjectForm(mode) {
   const editing = mode === 'edit';
+  const reviewing = editing && state.reviewRequired;
   const errors = state.formErrors || {};
   const errorAttributes = (field) => errors[field]
     ? `aria-invalid="true" aria-describedby="${field}-error"`
@@ -334,10 +351,10 @@ function renderProjectForm(mode) {
   app.innerHTML = `
     <section class="add-screen">
       <header class="screen-header">
-        <h2>${editing ? 'Edit project' : 'Add project'}</h2>
-        <button class="icon-button" data-action="close-screen" aria-label="Close ${editing ? 'edit' : 'add'} project screen">${icon('close')}</button>
+        <h2>${reviewing ? 'Review project setup' : editing ? 'Edit project' : 'Add project'}</h2>
+        <button class="icon-button" data-action="close-screen" aria-label="Close ${reviewing ? 'review' : editing ? 'edit' : 'add'} project screen">${icon('close')}</button>
       </header>
-      <p class="screen-copy">${editing ? `Update ${escapeHtml(state.draft.name || 'this project')} and its saved commands.` : 'Choose a folder and save its commands once.'}</p>
+      <p class="screen-copy">${reviewing ? 'A coding agent added or updated this setup. Check the folder and commands before approving them.' : editing ? `Update ${escapeHtml(state.draft.name || 'this project')} and its saved commands.` : 'Choose a folder and save its commands once.'}</p>
       <form id="project-form" novalidate>
         ${errors.form ? `<p id="form-error-summary" class="form-error-summary" role="alert" tabindex="-1">${escapeHtml(errors.form)}</p>` : ''}
         <label for="project-name">Project name <span class="optional-label">Optional</span></label>
@@ -365,8 +382,14 @@ function renderProjectForm(mode) {
         <p class="field-hint">Used to confirm the app is running and enable Open app.</p>
         <p id="shared-port-warning" class="shared-port-warning" role="status" ${sharedPortWarning ? '' : 'hidden'}>${escapeHtml(sharedPortWarning)}</p>
 
-        <button class="primary-button save-button" type="submit">${editing ? 'Save changes' : 'Save project'}</button>
-        <p class="form-hint">${editing ? 'Changes apply the next time you start this project.' : 'Commands run inside the selected folder.'}</p>
+        ${reviewing && state.reviewServices?.length ? `
+          <div class="review-services">
+            <span>Configured services</span>
+            ${state.reviewServices.map((service) => `<code>${escapeHtml(service.name)} :${escapeHtml(String(service.port))}</code>`).join('')}
+          </div>` : ''}
+
+        <button class="primary-button save-button" type="submit">${reviewing ? 'Approve setup' : editing ? 'Save changes' : 'Save project'}</button>
+        <p class="form-hint">${reviewing ? 'Approving makes Start and Stop available for this project.' : editing ? 'Changes apply the next time you start this project.' : 'Commands run inside the selected folder.'}</p>
       </form>
     </section>`;
 }

@@ -82,6 +82,7 @@ test('selects only projects that can be stopped together', () => {
     { id: 'running', status: 'running' },
     { id: 'starting', status: 'starting' },
     { id: 'active', status: 'active' },
+    { id: 'pending-review', status: 'running', reviewRequired: true },
     { id: 'stopping', status: 'stopping' },
     { id: 'stopped', status: 'stopped' },
     { id: 'conflict', status: 'port-in-use' },

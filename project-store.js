@@ -29,7 +29,7 @@ function writeProjects(filePath, projects) {
   fs.renameSync(temporaryPath, filePath);
 }
 
-function upsertProject(filePath, input) {
+function upsertProject(filePath, input, options = {}) {
   const folder = normalizeFolder(input.folder);
   const startCommand = normalizeCommand(input.startCommand, 'startCommand');
   const stopCommand = normalizeCommand(input.stopCommand, 'stopCommand');
@@ -55,7 +55,10 @@ function upsertProject(filePath, input) {
     folder,
     startCommand,
     stopCommand,
-    services: providedServices || existing?.services || []
+    services: providedServices || existing?.services || [],
+    reviewRequired: options.reviewRequired === undefined
+      ? Boolean(existing?.reviewRequired)
+      : Boolean(options.reviewRequired)
   };
 
   if (existing) {

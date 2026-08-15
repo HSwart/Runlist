@@ -64,6 +64,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.equal(listed.result.tools.length, 1);
   assert.equal(listed.result.tools[0].name, 'switchboard_setup_project');
   assert.match(listed.result.tools[0].description, /custom name/i);
+  assert.match(listed.result.tools[0].description, /reviews and approves/i);
   assert.match(listed.result.tools[0].inputSchema.properties.name.description, /friendly project name/i);
   assert.ok(listed.result.tools[0].inputSchema.required.includes('services'));
 
@@ -83,11 +84,33 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.equal(called.result.isError, false);
   assert.equal(called.result.structuredContent.action, 'created');
   assert.equal(called.result.structuredContent.project.name, 'Agent app');
+  assert.equal(called.result.structuredContent.project.reviewRequired, true);
+  assert.match(called.result.content[0].text, /must review and approve/i);
   assert.deepEqual(called.result.structuredContent.project.services, [
     { name: 'web', port: 3000 },
     { name: 'api', port: 4000 }
   ]);
-  assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).length, 1);
+  const storedProjects = JSON.parse(fs.readFileSync(projectsFile, 'utf8'));
+  assert.equal(storedProjects.length, 1);
+  assert.equal(storedProjects[0].reviewRequired, true);
+
+  storedProjects[0].reviewRequired = false;
+  fs.writeFileSync(projectsFile, `${JSON.stringify(storedProjects, null, 2)}\n`);
+  const updated = await request('tools/call', {
+    name: 'switchboard_setup_project',
+    arguments: {
+      name: 'Agent app',
+      folder: projectFolder,
+      startCommand: 'npm run dev -- --host',
+      stopCommand: 'pkill -f vite',
+      services: [
+        { name: 'web', port: 3000 },
+        { name: 'api', port: 4000 }
+      ]
+    }
+  });
+  assert.equal(updated.result.structuredContent.action, 'updated');
+  assert.equal(updated.result.structuredContent.project.reviewRequired, true);
 
   const invalid = await request('tools/call', {
     name: 'switchboard_setup_project',
