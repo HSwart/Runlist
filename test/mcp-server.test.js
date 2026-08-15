@@ -1,0 +1,77 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const readline = require('node:readline');
+const { spawn } = require('node:child_process');
+const test = require('node:test');
+
+test('serves the setup tool over MCP stdio', async (t) => {
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'porter-mcp-'));
+  const projectFolder = path.join(temporaryRoot, 'agent-app');
+  const projectsFile = path.join(temporaryRoot, 'projects.json');
+  fs.mkdirSync(projectFolder);
+  t.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
+
+  const server = spawn(process.execPath, [path.join(__dirname, '..', 'mcp', 'server.js')], {
+    env: { ...process.env, PORTER_PROJECTS_FILE: projectsFile },
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+  t.after(() => server.kill());
+
+  const pending = new Map();
+  const output = readline.createInterface({ input: server.stdout });
+  output.on('line', (line) => {
+    const message = JSON.parse(line);
+    pending.get(message.id)?.(message);
+    pending.delete(message.id);
+  });
+
+  let requestId = 0;
+  const request = (method, params = {}) => new Promise((resolve, reject) => {
+    const id = ++requestId;
+    const timeout = setTimeout(() => {
+      pending.delete(id);
+      reject(new Error(`Timed out waiting for ${method}`));
+    }, 3000);
+    pending.set(id, (message) => {
+      clearTimeout(timeout);
+      resolve(message);
+    });
+    server.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
+  });
+
+  const initialized = await request('initialize', {
+    protocolVersion: '2025-11-25',
+    capabilities: {},
+    clientInfo: { name: 'porter-test', version: '1.0.0' }
+  });
+  assert.equal(initialized.result.serverInfo.name, 'porter-mcp-server');
+
+  const listed = await request('tools/list');
+  assert.equal(listed.result.tools.length, 1);
+  assert.equal(listed.result.tools[0].name, 'porter_setup_project');
+
+  const called = await request('tools/call', {
+    name: 'porter_setup_project',
+    arguments: {
+      folder: projectFolder,
+      startCommand: 'npm run dev',
+      stopCommand: 'pkill -f vite'
+    }
+  });
+  assert.equal(called.result.isError, false);
+  assert.equal(called.result.structuredContent.action, 'created');
+  assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).length, 1);
+
+  const invalid = await request('tools/call', {
+    name: 'porter_setup_project',
+    arguments: {
+      folder: 'relative/path',
+      startCommand: 'npm run dev',
+      stopCommand: 'pkill -f vite'
+    }
+  });
+  assert.equal(invalid.result.isError, true);
+  assert.match(invalid.result.content[0].text, /absolute path/);
+});

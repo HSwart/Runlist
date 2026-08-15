@@ -5,7 +5,7 @@
   "version": "0.0.1",
   "publisher": "local",
   "engines": {
-    "vscode": "^1.90.0"
+    "vscode": "^1.113.0"
   },
   "categories": [
     "Other"
@@ -21,6 +21,12 @@
         "command": "porter.addProject",
         "title": "Add Project",
         "icon": "$(add)"
+      }
+    ],
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "porter.projects",
+        "label": "Porter"
       }
     ],
     "viewsContainers": {
@@ -50,5 +56,8 @@
         }
       ]
     }
+  },
+  "scripts": {
+    "test": "node --test"
   }
 }

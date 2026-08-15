@@ -1,12 +1,20 @@
 const vscode = require('vscode');
+const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const {
+  initializeProjectStore,
+  readProjects,
+  removeProject,
+  upsertProject
+} = require('./project-store');
 
 const STORAGE_KEY = 'porter.projects';
 
 class PorterViewProvider {
-  constructor(context) {
+  constructor(context, projectsFile) {
     this.context = context;
+    this.projectsFile = projectsFile;
     this.view = undefined;
     this.mode = 'list';
     this.draft = {};
@@ -34,7 +42,7 @@ class PorterViewProvider {
   }
 
   get projects() {
-    return this.context.globalState.get(STORAGE_KEY, []);
+    return readProjects(this.projectsFile);
   }
 
   async handleMessage(message) {
@@ -109,26 +117,18 @@ class PorterViewProvider {
       return;
     }
 
-    const projects = this.projects;
-    const savedProject = {
-      id: this.selectedProjectId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      name: path.basename(folder),
-      folder,
-      startCommand,
-      stopCommand
-    };
-
-    if (this.selectedProjectId) {
-      const index = projects.findIndex((item) => item.id === this.selectedProjectId);
-      if (index === -1) {
-        return;
-      }
-      projects[index] = savedProject;
-    } else {
-      projects.push(savedProject);
+    try {
+      upsertProject(this.projectsFile, {
+        id: this.selectedProjectId,
+        folder,
+        startCommand,
+        stopCommand
+      });
+    } catch (error) {
+      vscode.window.showErrorMessage(`Could not save the project: ${error.message}`);
+      return;
     }
 
-    await this.context.globalState.update(STORAGE_KEY, projects);
     this.mode = 'list';
     this.draft = {};
     this.selectedProjectId = undefined;
@@ -158,10 +158,7 @@ class PorterViewProvider {
       this.stopProject(id);
     }
 
-    await this.context.globalState.update(
-      STORAGE_KEY,
-      this.projects.filter((item) => item.id !== id)
-    );
+    removeProject(this.projectsFile, id);
     this.mode = 'list';
     this.draft = {};
     this.selectedProjectId = undefined;
@@ -270,10 +267,31 @@ function safeJson(value) {
 }
 
 function activate(context) {
-  const provider = new PorterViewProvider(context);
+  const projectsFile = path.join(context.globalStorageUri.fsPath, 'projects.json');
+  initializeProjectStore(projectsFile, context.globalState.get(STORAGE_KEY, []));
+
+  const provider = new PorterViewProvider(context, projectsFile);
+  const handleProjectStoreChange = () => provider.render();
+  fs.watchFile(projectsFile, { interval: 500 }, handleProjectStoreChange);
+
+  const serverPath = vscode.Uri.joinPath(context.extensionUri, 'mcp', 'server.js').fsPath;
+  const mcpDefinition = new vscode.McpStdioServerDefinition(
+    'Porter',
+    process.execPath,
+    [serverPath],
+    { PORTER_PROJECTS_FILE: projectsFile },
+    context.extension.packageJSON.version
+  );
+  mcpDefinition.cwd = context.extensionUri;
+
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('porter.projects', provider),
-    vscode.commands.registerCommand('porter.addProject', () => provider.showAddProject())
+    vscode.commands.registerCommand('porter.addProject', () => provider.showAddProject()),
+    vscode.lm.registerMcpServerDefinitionProvider('porter.projects', {
+      provideMcpServerDefinitions: () => [mcpDefinition],
+      resolveMcpServerDefinition: (server) => server
+    }),
+    { dispose: () => fs.unwatchFile(projectsFile, handleProjectStoreChange) }
   );
 }
 
