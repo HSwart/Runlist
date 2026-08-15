@@ -1,3 +1,7 @@
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+
 function servicePorts(project) {
   return [...new Set((project?.services || [])
     .map((service) => service.port)
@@ -56,6 +60,48 @@ class PortReservationStore {
     }
   }
 
+  releaseShared(projectId) {
+    for (const filename of this.lockFiles()) {
+      const lockPath = path.join(this.directory, filename);
+      const lock = readLock(lockPath);
+      if (lock?.projectId === projectId) {
+        tryUnlink(lockPath);
+      }
+    }
+    for (const [port, lock] of this.locks) {
+      if (lock.projectId === projectId) {
+        this.locks.delete(port);
+      }
+    }
+  }
+
+  setState(projectId, state) {
+    for (const filename of this.lockFiles()) {
+      const lockPath = path.join(this.directory, filename);
+      const lock = readLock(lockPath);
+      if (lock?.projectId === projectId) {
+        fs.writeFileSync(lockPath, JSON.stringify({ ...lock, state }), { mode: 0o600 });
+      }
+    }
+  }
+
+  snapshot() {
+    const projects = new Map();
+    for (const filename of this.lockFiles()) {
+      const lockPath = path.join(this.directory, filename);
+      const lock = readLock(lockPath);
+      if (!lock) {
+        continue;
+      }
+      if (!lock.projectId || !lock.pid || !this.isProcessAlive(lock.pid)) {
+        tryUnlink(lockPath);
+        continue;
+      }
+      projects.set(lock.projectId, lock.state || 'running');
+    }
+    return projects;
+  }
+
   dispose() {
     for (const port of [...this.locks.keys()]) {
       this.releasePort(port);
@@ -68,7 +114,12 @@ class PortReservationStore {
     let descriptor;
     try {
       descriptor = fs.openSync(lockPath, 'wx');
-      fs.writeFileSync(descriptor, JSON.stringify({ pid: this.pid, projectId, token }));
+      fs.writeFileSync(descriptor, JSON.stringify({
+        pid: this.pid,
+        projectId,
+        state: 'starting',
+        token
+      }));
     } catch (error) {
       if (descriptor !== undefined) {
         fs.closeSync(descriptor);
@@ -98,17 +149,18 @@ class PortReservationStore {
   }
 
   removeStaleLocks() {
-    for (const filename of fs.readdirSync(this.directory)) {
-      if (!/^port-\d+\.lock$/.test(filename)) {
-        continue;
-      }
+    for (const filename of this.lockFiles()) {
       const lockPath = path.join(this.directory, filename);
       const lock = readLock(lockPath);
-      if (lock?.pid && this.isProcessAlive(lock.pid)) {
+      if (!lock || (lock.pid && this.isProcessAlive(lock.pid))) {
         continue;
       }
       tryUnlink(lockPath);
     }
+  }
+
+  lockFiles() {
+    return fs.readdirSync(this.directory).filter((filename) => /^port-\d+\.lock$/.test(filename));
   }
 
   lockPath(port) {
@@ -182,6 +234,3 @@ module.exports = {
   reserveProjectPorts,
   servicePorts
 };
-const fs = require('fs');
-const path = require('path');
-const crypto = require('crypto');
