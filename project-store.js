@@ -32,7 +32,7 @@ function writeProjects(filePath, projects) {
 function upsertProject(filePath, input, options = {}) {
   const folder = normalizeFolder(input.folder);
   const startCommand = normalizeCommand(input.startCommand, 'startCommand');
-  const stopCommand = normalizeCommand(input.stopCommand, 'stopCommand');
+  const stopCommand = normalizeOptionalCommand(input.stopCommand, 'stopCommand');
   const providedServices = input.services === undefined
     ? undefined
     : normalizeServices(input.services);
@@ -54,7 +54,7 @@ function upsertProject(filePath, input, options = {}) {
     name,
     folder,
     startCommand,
-    stopCommand,
+    ...(stopCommand ? { stopCommand } : {}),
     services: providedServices || existing?.services || [],
     reviewRequired: options.reviewRequired === undefined
       ? Boolean(existing?.reviewRequired)
@@ -119,6 +119,22 @@ function normalizeFolder(value) {
 function normalizeCommand(value, fieldName) {
   if (typeof value !== 'string' || !value.trim()) {
     throw new Error(`${fieldName} must be a non-empty command.`);
+  }
+  if (value.length > 4096) {
+    throw new Error(`${fieldName} is too long.`);
+  }
+  return value.trim();
+}
+
+function normalizeOptionalCommand(value, fieldName) {
+  if (value === undefined || value === '') {
+    return undefined;
+  }
+  if (typeof value !== 'string') {
+    throw new Error(`${fieldName} must be text.`);
+  }
+  if (!value.trim()) {
+    return undefined;
   }
   if (value.length > 4096) {
     throw new Error(`${fieldName} is too long.`);

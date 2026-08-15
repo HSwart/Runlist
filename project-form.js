@@ -23,9 +23,6 @@ function validateProjectForm(input) {
   if (!values.startCommand.trim()) {
     errors['start-command'] = 'Enter a start command.';
   }
-  if (!values.stopCommand.trim()) {
-    errors['stop-command'] = 'Enter a stop command.';
-  }
   if (values.appPort.trim()) {
     const port = Number(values.appPort);
     if (!Number.isInteger(port) || port < 1 || port > 65535) {

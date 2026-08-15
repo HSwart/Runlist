@@ -21,13 +21,13 @@ test('creates, updates, and removes projects in the shared store', (t) => {
   const created = upsertProject(projectsFile, {
     folder: projectFolder,
     startCommand: 'npm run dev',
-    stopCommand: 'pkill -f vite',
     services: [{ name: 'web', port: 3000 }]
   });
 
   assert.equal(created.action, 'created');
   assert.equal(created.project.name, 'sample-app');
   assert.equal(created.project.reviewRequired, false);
+  assert.equal(Object.hasOwn(created.project, 'stopCommand'), false);
   assert.deepEqual(created.project.services, [{ name: 'web', port: 3000 }]);
   assert.equal(readProjects(projectsFile).length, 1);
 
@@ -35,7 +35,7 @@ test('creates, updates, and removes projects in the shared store', (t) => {
     name: 'Sample web app',
     folder: projectFolder,
     startCommand: 'pnpm dev',
-    stopCommand: 'pkill -f vite',
+    stopCommand: 'npm stop',
     services: [{ name: 'web', port: 3001 }]
   });
 
@@ -43,12 +43,12 @@ test('creates, updates, and removes projects in the shared store', (t) => {
   assert.equal(updated.project.id, created.project.id);
   assert.equal(updated.project.name, 'Sample web app');
   assert.equal(readProjects(projectsFile)[0].startCommand, 'pnpm dev');
+  assert.equal(readProjects(projectsFile)[0].stopCommand, 'npm stop');
   assert.equal(readProjects(projectsFile)[0].services[0].port, 3001);
 
   const updatedByAgent = upsertProject(projectsFile, {
     folder: projectFolder,
     startCommand: 'pnpm dev',
-    stopCommand: 'pkill -f vite',
     services: [{ name: 'web', port: 3001 }]
   }, { reviewRequired: true });
   assert.equal(updatedByAgent.project.reviewRequired, true);
@@ -56,7 +56,7 @@ test('creates, updates, and removes projects in the shared store', (t) => {
   const updatedWithoutReviewOption = upsertProject(projectsFile, {
     folder: projectFolder,
     startCommand: 'pnpm dev --host',
-    stopCommand: 'pkill -f vite'
+    stopCommand: ''
   });
   assert.equal(updatedWithoutReviewOption.project.reviewRequired, true);
 
@@ -64,14 +64,14 @@ test('creates, updates, and removes projects in the shared store', (t) => {
     id: created.project.id,
     folder: projectFolder,
     startCommand: 'pnpm dev',
-    stopCommand: 'pkill -f vite'
+    stopCommand: ''
   }, { reviewRequired: false });
   assert.equal(approved.project.reviewRequired, false);
 
   const updatedWithoutName = upsertProject(projectsFile, {
     folder: projectFolder,
     startCommand: 'pnpm dev',
-    stopCommand: 'pkill -f vite'
+    stopCommand: ''
   });
   assert.equal(updatedWithoutName.project.name, 'Sample web app');
 
@@ -79,7 +79,7 @@ test('creates, updates, and removes projects in the shared store', (t) => {
     name: '  ',
     folder: projectFolder,
     startCommand: 'pnpm dev',
-    stopCommand: 'pkill -f vite'
+    stopCommand: ''
   });
   assert.equal(resetName.project.name, 'sample-app');
   assert.equal(removeProject(projectsFile, created.project.id), true);
@@ -97,7 +97,6 @@ test('rejects duplicate service ports', (t) => {
     () => upsertProject(projectsFile, {
       folder: projectFolder,
       startCommand: 'npm run dev',
-      stopCommand: 'pkill -f vite',
       services: [
         { name: 'web', port: 3000 },
         { name: 'api', port: 3000 }
@@ -116,7 +115,7 @@ test('rejects project folders that do not exist', (t) => {
     () => upsertProject(projectsFile, {
       folder: path.join(temporaryRoot, 'missing'),
       startCommand: 'npm run dev',
-      stopCommand: 'pkill -f vite'
+      stopCommand: ''
     }),
     /does not exist/
   );

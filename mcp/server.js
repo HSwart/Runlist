@@ -35,7 +35,7 @@ const tool = {
       },
       stopCommand: {
         type: 'string',
-        description: 'Shell command Switchboard should execute to stop this project.'
+        description: 'Optional custom shell command for detached services, containers, or other advanced shutdown needs. Omit it to stop only the process tree Switchboard launches.'
       },
       services: {
         type: 'array',
@@ -63,7 +63,7 @@ const tool = {
         }
       }
     },
-    required: ['folder', 'startCommand', 'stopCommand', 'services'],
+    required: ['folder', 'startCommand', 'services'],
     additionalProperties: false
   },
   outputSchema: {
@@ -92,7 +92,7 @@ const tool = {
             }
           }
         },
-        required: ['id', 'name', 'folder', 'startCommand', 'stopCommand', 'services', 'reviewRequired'],
+        required: ['id', 'name', 'folder', 'startCommand', 'services', 'reviewRequired'],
         additionalProperties: false
       }
     },
@@ -154,7 +154,7 @@ function handleRequest(message) {
           version: SERVER_VERSION,
           description: 'Adds local projects to the Switchboard VS Code extension.'
         },
-        instructions: 'Use switchboard_setup_project when the user asks to save a local project in Switchboard. Inspect the project first, identify every service it starts, and provide the absolute folder path, exact start and stop commands, and an explicit unique port for each service. You may also provide a friendly custom project name when the user requests one. Tell the user that Switchboard will require them to review and approve the saved setup before its commands can run.'
+        instructions: 'Use switchboard_setup_project when the user asks to save a local project in Switchboard. Inspect the project first, identify every service it starts, and provide the absolute folder path, exact start command, and an explicit unique port for each service. Provide a custom stop command only when the project needs an advanced shutdown workflow, such as a detached service or container. You may also provide a friendly custom project name when the user requests one. Tell the user that Switchboard will require them to review and approve the saved setup before its commands can run.'
       });
       break;
     case 'ping':

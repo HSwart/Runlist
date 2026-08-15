@@ -22,6 +22,7 @@ const {
 const { openProjectInNewWindow } = require('./project-navigation');
 const {
   cleanupTrackedProcessForDeletion,
+  ownedProcessSpawnOptions,
   terminateTrackedProcess
 } = require('./project-process');
 const {
@@ -176,8 +177,7 @@ class SwitchboardViewProvider {
       const sharedRuntime = this.portReservations.snapshot();
       for (const id of [...this.managedProjectIds]) {
         if (!sharedRuntime.has(id)) {
-          this.processes.get(id)?.kill('SIGTERM');
-          this.processes.delete(id);
+          terminateTrackedProcess(this.processes, id).catch(() => {});
           this.managedProjectIds.delete(id);
           this.portReservations.release(id);
           this.startGraceUntil.delete(id);
@@ -603,12 +603,17 @@ class SwitchboardViewProvider {
     }
 
     const latestProject = this.projects.find((item) => item.id === id);
-    cleanupTrackedProcessForDeletion(
-      this.processes,
-      id,
-      latestProject,
-      (approvedProject) => this.stopProject(id, approvedProject)
-    );
+    try {
+      await cleanupTrackedProcessForDeletion(
+        this.processes,
+        id,
+        latestProject,
+        (approvedProject) => this.stopProject(id, approvedProject)
+      );
+    } catch (error) {
+      vscode.window.showErrorMessage(`Could not stop ${project.name}: ${error.message}`);
+      return;
+    }
 
     removeProject(this.projectsFile, id);
     const remainingProjects = projects.filter((item) => item.id !== id);
@@ -715,7 +720,8 @@ class SwitchboardViewProvider {
         cwd: project.folder,
         shell: true,
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: process.env
+        env: process.env,
+        ...ownedProcessSpawnOptions()
       });
 
       this.processes.set(id, child);
@@ -806,30 +812,12 @@ class SwitchboardViewProvider {
     this.projectStatuses.set(id, 'stopping');
     this.startGraceUntil.delete(id);
 
-    const stopProcess = spawn(project.stopCommand, {
-      cwd: project.folder,
-      shell: true,
-      stdio: ['ignore', 'ignore', 'pipe'],
-      env: process.env
-    });
-
     let finalized = false;
-    let stderr = '';
-    stopProcess.stderr?.setEncoding('utf8');
-    stopProcess.stderr?.on('data', (chunk) => {
-      stderr = `${stderr}${chunk}`.slice(-2000);
-    });
-    const stopTimeout = setTimeout(() => {
-      stopProcess.kill();
-      vscode.window.showErrorMessage(`Could not stop ${project.name}: the stop command did not finish.`);
-      finalizeStop(false);
-    }, 15000);
     const finalizeStop = (succeeded) => {
       if (finalized) {
         return;
       }
       finalized = true;
-      clearTimeout(stopTimeout);
       this.stoppingProjectIds.delete(id);
       this.statusRevision += 1;
       if (succeeded) {
@@ -844,9 +832,49 @@ class SwitchboardViewProvider {
       setTimeout(() => this.refreshProjectStatuses(), 250);
     };
 
+    if (!project.stopCommand) {
+      if (!this.processes.has(id)) {
+        vscode.window.showErrorMessage(
+          `Could not stop ${project.name}: Switchboard does not have the process handle from the VS Code window that started it. No process was stopped. Add a custom stop command if the project detaches from its launcher.`
+        );
+        finalizeStop(false);
+        return;
+      }
+      terminateTrackedProcess(this.processes, id).then(
+        () => finalizeStop(true),
+        (error) => {
+          vscode.window.showErrorMessage(`Could not stop ${project.name}: ${error.message}`);
+          finalizeStop(false);
+        }
+      );
+      return;
+    }
+
+    const stopProcess = spawn(project.stopCommand, {
+      cwd: project.folder,
+      shell: true,
+      stdio: ['ignore', 'ignore', 'pipe'],
+      env: process.env
+    });
+
+    let stderr = '';
+    stopProcess.stderr?.setEncoding('utf8');
+    stopProcess.stderr?.on('data', (chunk) => {
+      stderr = `${stderr}${chunk}`.slice(-2000);
+    });
+    const stopTimeout = setTimeout(() => {
+      stopProcess.kill();
+      vscode.window.showErrorMessage(`Could not stop ${project.name}: the stop command did not finish.`);
+      finalizeStop(false);
+    }, 15000);
+    const finalizeCustomStop = (succeeded) => {
+      clearTimeout(stopTimeout);
+      finalizeStop(succeeded);
+    };
+
     stopProcess.once('error', (error) => {
       vscode.window.showErrorMessage(`Could not stop ${project.name}: ${error.message}`);
-      finalizeStop(false);
+      finalizeCustomStop(false);
     });
     stopProcess.once('exit', (code) => {
       if (code !== 0) {
@@ -855,10 +883,10 @@ class SwitchboardViewProvider {
           `Could not stop ${project.name}: ${detail || `command exited with code ${code}.`}`
         );
       }
-      finalizeStop(code === 0);
+      finalizeCustomStop(code === 0);
     });
 
-    terminateTrackedProcess(this.processes, id);
+    terminateTrackedProcess(this.processes, id).catch(() => {});
     this.renderProjectList();
   }
 

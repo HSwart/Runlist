@@ -67,6 +67,8 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.match(listed.result.tools[0].description, /reviews and approves/i);
   assert.match(listed.result.tools[0].inputSchema.properties.name.description, /friendly project name/i);
   assert.ok(listed.result.tools[0].inputSchema.required.includes('services'));
+  assert.equal(listed.result.tools[0].inputSchema.required.includes('stopCommand'), false);
+  assert.match(listed.result.tools[0].inputSchema.properties.stopCommand.description, /optional custom/i);
 
   const called = await request('tools/call', {
     name: 'switchboard_setup_project',
@@ -74,7 +76,6 @@ test('serves the setup tool over MCP stdio', async (t) => {
       name: 'Agent app',
       folder: projectFolder,
       startCommand: 'npm run dev',
-      stopCommand: 'pkill -f vite',
       services: [
         { name: 'web', port: 3000 },
         { name: 'api', port: 4000 }
@@ -85,6 +86,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.equal(called.result.structuredContent.action, 'created');
   assert.equal(called.result.structuredContent.project.name, 'Agent app');
   assert.equal(called.result.structuredContent.project.reviewRequired, true);
+  assert.equal(Object.hasOwn(called.result.structuredContent.project, 'stopCommand'), false);
   assert.match(called.result.content[0].text, /must review and approve/i);
   assert.deepEqual(called.result.structuredContent.project.services, [
     { name: 'web', port: 3000 },
@@ -102,7 +104,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
       name: 'Agent app',
       folder: projectFolder,
       startCommand: 'npm run dev -- --host',
-      stopCommand: 'pkill -f vite',
+      stopCommand: 'npm stop',
       services: [
         { name: 'web', port: 3000 },
         { name: 'api', port: 4000 }
@@ -110,6 +112,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
     }
   });
   assert.equal(updated.result.structuredContent.action, 'updated');
+  assert.equal(updated.result.structuredContent.project.stopCommand, 'npm stop');
   assert.equal(updated.result.structuredContent.project.reviewRequired, true);
 
   const invalid = await request('tools/call', {
@@ -117,7 +120,6 @@ test('serves the setup tool over MCP stdio', async (t) => {
     arguments: {
       folder: 'relative/path',
       startCommand: 'npm run dev',
-      stopCommand: 'pkill -f vite',
       services: [{ name: 'web', port: 3000 }]
     }
   });
@@ -128,8 +130,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
     name: 'switchboard_setup_project',
     arguments: {
       folder: projectFolder,
-      startCommand: 'npm run dev',
-      stopCommand: 'pkill -f vite'
+      startCommand: 'npm run dev'
     }
   });
   assert.equal(missingServices.result.isError, true);

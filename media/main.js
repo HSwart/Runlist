@@ -372,9 +372,10 @@ function renderProjectForm(mode) {
         <input id="start-command" name="startCommand" value="${escapeHtml(state.draft.startCommand || '')}" placeholder="npm run dev" ${errorAttributes('start-command')}>
         ${fieldError('start-command')}
 
-        <label for="stop-command">Stop command</label>
-        <input id="stop-command" name="stopCommand" value="${escapeHtml(state.draft.stopCommand || '')}" placeholder="pkill -f vite" ${errorAttributes('stop-command')}>
+        <label for="stop-command">Stop command <span class="optional-label">Optional</span></label>
+        <input id="stop-command" name="stopCommand" value="${escapeHtml(state.draft.stopCommand || '')}" placeholder="For detached services" ${errorAttributes('stop-command')}>
         ${fieldError('stop-command')}
+        <p class="field-hint">Leave blank to stop only the process tree Switchboard starts.</p>
 
         <label for="app-port">App port <span class="optional-label">Optional</span></label>
         <input id="app-port" name="appPort" type="number" min="1" max="65535" step="1" inputmode="numeric" value="${escapeHtml(String(state.draft.appPort ?? state.draft.services?.[0]?.port ?? ''))}" placeholder="3000" ${errorAttributes('app-port')}>

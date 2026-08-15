@@ -13,14 +13,12 @@ test('validates project fields and selects the first invalid control', () => {
   assert.deepEqual(Object.keys(invalid.errors), [
     'folder',
     'start-command',
-    'stop-command',
     'app-port'
   ]);
 
   const valid = validateProjectForm({
     folder: '/tmp/project',
     startCommand: 'npm start',
-    stopCommand: 'npm stop',
     appPort: '3000'
   });
   assert.deepEqual(valid.errors, {});

@@ -18,9 +18,9 @@
 
 ## Everything you are working on, in one place
 
-Switchboard keeps a reusable list of your local projects inside VS Code. Save each project’s folder and commands once, then use **Start** and **Stop** whenever you return to it.
+Switchboard keeps a reusable list of your local projects inside VS Code. Save each project’s folder and start command once, then use **Start** and **Stop** whenever you return to it.
 
-- Start and stop projects with their saved commands.
+- Start projects with their saved commands and safely stop the process trees Switchboard launched.
 - Search saved projects by name or folder.
 - Give projects a friendly name without renaming their folders.
 - Keep configured service names and ports visible at a glance.
@@ -57,13 +57,13 @@ After installation, select the Switchboard icon in the VS Code Activity Bar.
 2. Optionally enter a friendly project name. If you leave it blank, Switchboard uses the folder name.
 3. Choose the project folder.
 4. Enter the command that starts the project.
-5. Enter the command that stops the project.
+5. If the project needs a special shutdown workflow, optionally enter a custom stop command. Most projects should leave this blank.
 6. If you know it, enter the app's port so Switchboard can verify its status and open it in your browser.
 7. Save it.
 
 Switchboard points out missing or invalid details beside the field that needs attention. If you close the screen after making changes, it asks before discarding them.
 
-Your project is now ready whenever you need it. Select the **Start** icon to run its saved start command and the **Stop** icon to run its saved stop command. While a command is being handled, the project clearly shows **Starting…** or **Stopping…**.
+Your project is now ready whenever you need it. Select the **Start** icon to run its saved start command and the **Stop** icon to stop the process tree Switchboard launched. Projects with an explicit custom stop command use that command instead. While a command is being handled, the project clearly shows **Starting…** or **Stopping…**.
 
 If Switchboard is open in more than one VS Code window, starting or stopping a project in one window updates its status in the others automatically.
 
@@ -91,7 +91,7 @@ Then open the project with your agent and use its Switchboard skill:
 
 You can also describe what you want naturally. For example:
 
-> Inspect this project and add it to Switchboard with the name My App. Identify the exact start and stop commands, and include the port for every service it runs.
+> Inspect this project and add it to Switchboard with the name My App. Identify the exact start command and the port for every service it runs. Include a custom stop command only if it needs a special shutdown workflow.
 
 The agent can save a new project or update one already in Switchboard. The project then shows **Review setup** in the sidebar. Check its folder and exact commands, then select **Approve setup** before Start or Stop becomes available.
 
@@ -106,7 +106,7 @@ Switchboard keeps the everyday controls simple:
 | **Search** | Filters your saved projects by project name or folder. |
 | **Project status** | Shows the written state in a clear status capsule, including running, stopped, transitions, and port conflicts. Long names, status details, and folder paths scroll automatically when they do not fit. |
 | **Start icon** | Runs the saved start command inside the project folder. |
-| **Stop icon** | Runs the saved stop command inside the project folder. |
+| **Stop icon** | Stops the process tree Switchboard launched, or runs an explicitly configured custom stop command. |
 | **Stop all running** | Appears when two or more projects are running and stops them together. |
 | **Port in use** | Prevents conflicting projects from starting and identifies the owning project when possible. |
 | **View output** | Highlights common log levels, opens web links, and lets you copy output from the latest run. If you scroll up, Switchboard keeps your place and offers a **Latest** button when new output arrives. |
