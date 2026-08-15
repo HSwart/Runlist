@@ -3,8 +3,11 @@ const { stripVTControlCharacters } = require('util');
 const MAX_PROJECT_OUTPUT_CHARS = 20000;
 
 function appendProjectOutput(current, chunk, limit = MAX_PROJECT_OUTPUT_CHARS) {
-  const cleanChunk = stripVTControlCharacters(String(chunk || ''));
-  return `${current || ''}${cleanChunk}`.slice(-limit);
+  return `${current || ''}${String(chunk || '')}`.slice(-limit);
+}
+
+function sanitizeProjectOutput(output) {
+  return stripVTControlCharacters(String(output || ''));
 }
 
 function listenToProjectOutput(child, onOutput) {
@@ -18,7 +21,34 @@ function formatProjectOutput(output) {
   if (!output) {
     return [];
   }
-  return String(output).split(/\r?\n/).map(formatOutputLine);
+  return sanitizeProjectOutput(output).split(/\r?\n/).map(formatOutputLine);
+}
+
+function createOutputUpdateScheduler(onUpdate, delay = 100) {
+  let timer;
+  let latestValue;
+
+  return {
+    schedule(value) {
+      latestValue = value;
+      if (timer) {
+        return;
+      }
+      timer = setTimeout(() => {
+        timer = undefined;
+        const valueToSend = latestValue;
+        latestValue = undefined;
+        onUpdate(valueToSend);
+      }, delay);
+    },
+    cancel() {
+      if (timer) {
+        clearTimeout(timer);
+      }
+      timer = undefined;
+      latestValue = undefined;
+    }
+  };
 }
 
 function formatOutputLine(line) {
@@ -111,6 +141,8 @@ function shortTime(value) {
 module.exports = {
   MAX_PROJECT_OUTPUT_CHARS,
   appendProjectOutput,
+  createOutputUpdateScheduler,
   formatProjectOutput,
-  listenToProjectOutput
+  listenToProjectOutput,
+  sanitizeProjectOutput
 };

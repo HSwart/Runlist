@@ -3,13 +3,23 @@ const { PassThrough } = require('node:stream');
 const test = require('node:test');
 const {
   appendProjectOutput,
+  createOutputUpdateScheduler,
   formatProjectOutput,
-  listenToProjectOutput
+  listenToProjectOutput,
+  sanitizeProjectOutput
 } = require('../project-output');
 
 test('combines project output and removes terminal color codes', () => {
   const output = appendProjectOutput('Ready\n', '\u001b[31mFailed\u001b[0m\n');
-  assert.equal(output, 'Ready\nFailed\n');
+  assert.equal(sanitizeProjectOutput(output), 'Ready\nFailed\n');
+});
+
+test('preserves split terminal color codes until the complete output is sanitized', () => {
+  const output = ['\u001b[3', '1mred\u001b[', '0m']
+    .reduce((current, chunk) => appendProjectOutput(current, chunk), '');
+
+  assert.equal(sanitizeProjectOutput(output), 'red');
+  assert.deepEqual(formatProjectOutput(output), [{ kind: 'raw', message: 'red' }]);
 });
 
 test('keeps only the newest output within the configured limit', () => {
@@ -25,6 +35,18 @@ test('listens to both stdout and stderr from a project process', () => {
   child.stderr.write('warning\n');
 
   assert.deepEqual(chunks, ['server ready\n', 'warning\n']);
+});
+
+test('coalesces rapid output refreshes and sends the latest value', async () => {
+  const updates = [];
+  const scheduler = createOutputUpdateScheduler((value) => updates.push(value), 5);
+
+  scheduler.schedule('first');
+  scheduler.schedule('second');
+  scheduler.schedule('latest');
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.deepEqual(updates, ['latest']);
 });
 
 test('formats common structured log lines and preserves raw output', () => {

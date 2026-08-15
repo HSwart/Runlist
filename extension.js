@@ -16,8 +16,10 @@ const {
 const { openProjectInNewWindow } = require('./project-navigation');
 const {
   appendProjectOutput,
+  createOutputUpdateScheduler,
   formatProjectOutput,
-  listenToProjectOutput
+  listenToProjectOutput,
+  sanitizeProjectOutput
 } = require('./project-output');
 const { projectSearchText } = require('./project-search');
 const {
@@ -42,6 +44,7 @@ class SwitchboardViewProvider {
     this.selectedProjectId = undefined;
     this.processes = new Map();
     this.projectOutputs = new Map();
+    this.outputUpdateScheduler = createOutputUpdateScheduler((id) => this.sendProjectOutput(id));
     this.managedProjectIds = new Set();
     this.projectStatuses = new Map();
     this.startGraceUntil = new Map();
@@ -287,16 +290,24 @@ class SwitchboardViewProvider {
     const output = appendProjectOutput(this.projectOutputs.get(id), chunk);
     this.projectOutputs.set(id, output);
     if (this.mode === 'output' && this.selectedProjectId === id) {
-      this.view?.webview.postMessage({
-        type: 'projectOutput',
-        entries: formatProjectOutput(output),
-        output
-      });
+      this.outputUpdateScheduler.schedule(id);
     }
   }
 
+  sendProjectOutput(id) {
+    if (this.mode !== 'output' || this.selectedProjectId !== id) {
+      return;
+    }
+    const rawOutput = this.projectOutputs.get(id) || '';
+    this.view?.webview.postMessage({
+      type: 'projectOutput',
+      entries: formatProjectOutput(rawOutput),
+      output: sanitizeProjectOutput(rawOutput)
+    });
+  }
+
   async copyProjectOutput() {
-    const output = this.projectOutputs.get(this.selectedProjectId) || '';
+    const output = sanitizeProjectOutput(this.projectOutputs.get(this.selectedProjectId) || '');
     if (!output) {
       return;
     }
@@ -428,6 +439,9 @@ class SwitchboardViewProvider {
     this.startGraceUntil.delete(id);
     this.stoppingProjectIds.delete(id);
     this.projectOutputs.delete(id);
+    if (this.selectedProjectId === id) {
+      this.outputUpdateScheduler.cancel();
+    }
     this.mode = 'list';
     this.draft = {};
     this.selectedProjectId = undefined;
@@ -597,15 +611,19 @@ class SwitchboardViewProvider {
     const outputProject = this.mode === 'output'
       ? projects.find((project) => project.id === this.selectedProjectId)
       : undefined;
+    const rawProjectOutput = outputProject
+      ? this.projectOutputs.get(outputProject.id) || ''
+      : '';
+    const cleanProjectOutput = sanitizeProjectOutput(rawProjectOutput);
     const state = {
       agentConnections: this.agentConnections,
       mode: this.mode,
       searchQuery: this.searchQuery,
       draft: this.draft,
       projectOutput: outputProject ? {
-        entries: formatProjectOutput(this.projectOutputs.get(outputProject.id) || ''),
+        entries: formatProjectOutput(rawProjectOutput),
         name: outputProject.name,
-        output: this.projectOutputs.get(outputProject.id) || ''
+        output: cleanProjectOutput
       } : undefined,
       projects: projects.map((project) => ({
         ...project,
