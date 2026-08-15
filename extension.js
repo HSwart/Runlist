@@ -13,6 +13,7 @@ const {
   projectStatus,
   servicePortStatus
 } = require('./project-status');
+const { openProjectInNewWindow } = require('./project-navigation');
 const {
   initializeProjectStore,
   readProjects,
@@ -177,6 +178,9 @@ class SwitchboardViewProvider {
       case 'openProject':
         await this.openProject(message.id);
         break;
+      case 'openProjectFolder':
+        await this.openProjectFolder(message.id);
+        break;
       case 'deleteProject':
         await this.deleteProject(message.id);
         break;
@@ -264,6 +268,19 @@ class SwitchboardViewProvider {
     const opened = await vscode.env.openExternal(vscode.Uri.parse(url));
     if (!opened) {
       vscode.window.showErrorMessage(`Could not open ${project.name} at ${url}.`);
+    }
+  }
+
+  async openProjectFolder(id) {
+    const project = this.projects.find((item) => item.id === id);
+    if (!project) {
+      return;
+    }
+
+    try {
+      await openProjectInNewWindow(vscode, project.folder);
+    } catch (error) {
+      vscode.window.showErrorMessage(`Could not open ${project.name} in VS Code: ${error.message}`);
     }
   }
 

@@ -87,6 +87,9 @@ function renderList() {
                   <button data-action="open" data-id="${projectId}" role="menuitem" ${canOpen ? '' : 'disabled'} title="${canOpen ? `Open ${projectName} in your browser` : projectStatus === 'port-in-use' ? 'This port may belong to another app' : `Start ${projectName} before opening it`}">
                     ${icon('external', 'menu-icon')}<span>Open app</span>
                   </button>
+                  <button data-action="open-vscode" data-id="${projectId}" role="menuitem" title="Open ${projectName} in a new VS Code window">
+                    ${icon('folder', 'menu-icon')}<span>Open in VS Code</span>
+                  </button>
                   <button data-action="edit" data-id="${projectId}" role="menuitem">
                     ${icon('edit', 'menu-icon')}<span>Edit project</span>
                   </button>
@@ -213,6 +216,10 @@ app.addEventListener('click', (event) => {
     open: () => {
       closeMenus();
       vscode.postMessage({ type: 'openProject', id: button.dataset.id });
+    },
+    'open-vscode': () => {
+      closeMenus();
+      vscode.postMessage({ type: 'openProjectFolder', id: button.dataset.id });
     },
     edit: () => vscode.postMessage({ type: 'showEdit', id: button.dataset.id }),
     delete: () => vscode.postMessage({ type: 'deleteProject', id: button.dataset.id }),
