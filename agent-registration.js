@@ -3,29 +3,116 @@ const { spawn } = require('child_process');
 
 const SERVER_NAME = 'switchboard';
 const MACOS_CODEX_CLI = '/Applications/Codex.app/Contents/Resources/codex';
+const WINDOWS_SHELL_EXTENSIONS = /\.(?:bat|cmd)$/i;
+const WINDOWS_SHELL_META_CHARACTERS = /([()\][%!^"`<>&|;, *?])/g;
 
-function codexCommandCandidates(platform = process.platform) {
-  return platform === 'darwin'
-    ? ['codex', MACOS_CODEX_CLI]
-    : ['codex'];
+function codexBundledCliPath(extensionPath, platform = process.platform, arch = process.arch) {
+  if (!extensionPath) {
+    return undefined;
+  }
+
+  const platformDirectory = {
+    darwin: 'macos',
+    linux: 'linux',
+    win32: 'windows'
+  }[platform];
+  const architecture = {
+    arm64: 'aarch64',
+    x64: 'x86_64'
+  }[arch];
+  if (!platformDirectory || !architecture) {
+    return undefined;
+  }
+
+  const pathForPlatform = platform === 'win32' ? path.win32 : path.posix;
+  return pathForPlatform.join(
+    extensionPath,
+    'bin',
+    `${platformDirectory}-${architecture}`,
+    platform === 'win32' ? 'codex.exe' : 'codex'
+  );
+}
+
+function claudeBundledCliPaths(extensionPath, platform = process.platform, arch = process.arch) {
+  if (!extensionPath) {
+    return [];
+  }
+
+  const pathForPlatform = platform === 'win32' ? path.win32 : path.posix;
+  const executable = platform === 'win32' ? 'claude.exe' : 'claude';
+  const candidates = [pathForPlatform.join(
+    extensionPath,
+    'resources',
+    'native-binaries',
+    `${platform}-${arch}`,
+    executable
+  )];
+  if (platform === 'win32' && arch === 'arm64') {
+    candidates.push(path.win32.join(
+      extensionPath,
+      'resources',
+      'native-binaries',
+      'win32-x64',
+      executable
+    ));
+  }
+  candidates.push(pathForPlatform.join(
+    extensionPath,
+    'resources',
+    'native-binary',
+    executable
+  ));
+  return uniqueCandidates(candidates);
+}
+
+function codexCommandCandidates(
+  platform = process.platform,
+  environment = process.env,
+  bundledCliPath
+) {
+  if (platform === 'darwin') {
+    return uniqueCandidates(['codex', bundledCliPath, MACOS_CODEX_CLI]);
+  }
+  if (platform !== 'win32') {
+    return uniqueCandidates(['codex', bundledCliPath]);
+  }
+
+  const npmShim = environment.APPDATA
+    ? path.win32.join(environment.APPDATA, 'npm', 'codex.cmd')
+    : undefined;
+  return uniqueCandidates(['codex.exe', bundledCliPath, npmShim, 'codex.cmd']);
 }
 
 function claudeCommandCandidates(
   platform = process.platform,
-  environment = process.env
+  environment = process.env,
+  bundledCliPaths = []
 ) {
-  const candidates = ['claude'];
   const userDirectory = environment.USERPROFILE || environment.HOME;
-  if (userDirectory) {
-    const pathForPlatform = platform === 'win32' ? path.win32 : path.posix;
-    candidates.push(pathForPlatform.join(
-      userDirectory,
-      '.local',
-      'bin',
-      platform === 'win32' ? 'claude.exe' : 'claude'
-    ));
+  if (platform === 'win32') {
+    const nativeCli = userDirectory
+      ? path.win32.join(userDirectory, '.local', 'bin', 'claude.exe')
+      : undefined;
+    const npmShim = environment.APPDATA
+      ? path.win32.join(environment.APPDATA, 'npm', 'claude.cmd')
+      : undefined;
+    return uniqueCandidates([
+      'claude.exe',
+      nativeCli,
+      ...bundledCliPaths,
+      npmShim,
+      'claude.cmd'
+    ]);
   }
-  return [...new Set(candidates)];
+
+  const nativeCli = userDirectory
+    ? path.posix.join(userDirectory, '.local', 'bin', 'claude')
+    : undefined;
+  return uniqueCandidates(['claude', nativeCli]);
+}
+
+function uniqueCandidates(candidates) {
+  return [...new Set(candidates.filter(Boolean))];
 }
 
 function serverEnvironmentArguments(projectsFile) {
@@ -65,11 +152,53 @@ function buildClaudeAddArguments({ projectsFile, runtimePath, serverPath }) {
   ];
 }
 
-function runProcess(command, args) {
+function escapeWindowsCommand(value) {
+  return String(value).replace(WINDOWS_SHELL_META_CHARACTERS, '^$1');
+}
+
+function escapeWindowsArgument(value, doubleEscapeMetaCharacters = false) {
+  let argument = String(value);
+  argument = argument.replace(/(?=(\\+?)?)\1"/g, '$1$1\\"');
+  argument = argument.replace(/(?=(\\+?)?)\1$/, '$1$1');
+  argument = `"${argument}"`.replace(WINDOWS_SHELL_META_CHARACTERS, '^$1');
+  return doubleEscapeMetaCharacters
+    ? argument.replace(WINDOWS_SHELL_META_CHARACTERS, '^$1')
+    : argument;
+}
+
+function processInvocation(
+  command,
+  args,
+  platform = process.platform,
+  environment = process.env
+) {
+  if (platform !== 'win32' || !WINDOWS_SHELL_EXTENSIONS.test(command)) {
+    return { command, args, windowsVerbatimArguments: false };
+  }
+
+  const doubleEscape = /node_modules[\\/]+\.bin[\\/]+[^\\/]+\.cmd$/i.test(command);
+  const commandLine = [
+    escapeWindowsCommand(path.win32.normalize(command)),
+    ...args.map((argument) => escapeWindowsArgument(argument, doubleEscape))
+  ].join(' ');
+  return {
+    command: environment.ComSpec || environment.COMSPEC || environment.comspec || 'cmd.exe',
+    args: ['/d', '/s', '/c', `"${commandLine}"`],
+    windowsVerbatimArguments: true
+  };
+}
+
+function runProcess(command, args, options = {}) {
+  const platform = options.platform || process.platform;
+  const environment = options.environment || process.env;
+  const invocation = processInvocation(command, args, platform, environment);
+
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const child = spawn(invocation.command, invocation.args, {
+      env: environment,
       shell: false,
       windowsHide: true,
+      windowsVerbatimArguments: invocation.windowsVerbatimArguments,
       stdio: ['ignore', 'pipe', 'pipe']
     });
     let stdout = '';
@@ -89,6 +218,11 @@ function runProcess(command, args) {
       const detail = (stderr || stdout).trim();
       const error = new Error(detail || `${command} exited with code ${code}.`);
       error.exitCode = code;
+      if (platform === 'win32'
+        && WINDOWS_SHELL_EXTENSIONS.test(command)
+        && /is not recognized as an internal or external command/i.test(detail)) {
+        error.code = 'ENOENT';
+      }
       reject(error);
     });
   });
@@ -121,26 +255,35 @@ async function refreshRegistration({
   addArguments,
   candidates,
   clientLabel,
+  environment,
+  platform,
   removeArguments
 }, run = runProcess) {
-  const command = await findCommand(candidates, clientLabel, run);
+  const execute = (command, args) => run(command, args, { environment, platform });
+  const command = await findCommand(candidates, clientLabel, execute);
 
   try {
-    await run(command, removeArguments);
+    await execute(command, removeArguments);
   } catch (error) {
     if (!isMissingServerError(error)) {
       throw error;
     }
   }
 
-  await run(command, addArguments);
+  await execute(command, addArguments);
 }
 
 async function registerWithCodex(options, run = runProcess) {
   return refreshRegistration({
     addArguments: buildCodexAddArguments(options),
-    candidates: codexCommandCandidates(options.platform),
+    candidates: codexCommandCandidates(
+      options.platform,
+      options.environment,
+      options.bundledCliPath
+    ),
     clientLabel: 'Codex',
+    environment: options.environment,
+    platform: options.platform,
     removeArguments: ['mcp', 'remove', SERVER_NAME]
   }, run);
 }
@@ -148,8 +291,14 @@ async function registerWithCodex(options, run = runProcess) {
 async function registerWithClaude(options, run = runProcess) {
   return refreshRegistration({
     addArguments: buildClaudeAddArguments(options),
-    candidates: claudeCommandCandidates(options.platform, options.environment),
+    candidates: claudeCommandCandidates(
+      options.platform,
+      options.environment,
+      options.bundledCliPaths
+    ),
     clientLabel: 'Claude Code',
+    environment: options.environment,
+    platform: options.platform,
     removeArguments: ['mcp', 'remove', '--scope', 'user', SERVER_NAME]
   }, run);
 }
@@ -157,9 +306,12 @@ async function registerWithClaude(options, run = runProcess) {
 module.exports = {
   buildClaudeAddArguments,
   buildCodexAddArguments,
+  claudeBundledCliPaths,
   claudeCommandCandidates,
+  codexBundledCliPath,
   codexCommandCandidates,
   findCommand,
+  processInvocation,
   registerWithClaude,
   registerWithCodex,
   runProcess

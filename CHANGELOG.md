@@ -7,3 +7,4 @@
 - Save project commands and an optional app port.
 - Open a configured local app in the browser.
 - Add projects manually or with a supported coding agent.
+- Register Codex and Claude Code from the sidebar on macOS and Windows.

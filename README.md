@@ -25,6 +25,8 @@ Switchboard keeps a reusable list of your local projects inside VS Code. Save ea
 
 ## Download and install
 
+Switchboard is tested on Windows, macOS, and Linux.
+
 ### 1. Download Switchboard
 
 Download version 0.0.1 here:

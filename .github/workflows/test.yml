@@ -12,7 +12,7 @@ jobs:
   test:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -20,3 +20,18 @@ jobs:
         with:
           node-version: 22
       - run: npm test
+
+  windows-compatibility:
+    name: Windows compatibility
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test extension and Windows MCP registration
+        shell: pwsh
+        run: npm test
+      - name: Build the extension package on Windows
+        shell: pwsh
+        run: npx --yes @vscode/vsce@3.9.2 package --no-dependencies --out switchboard-windows-ci.vsix

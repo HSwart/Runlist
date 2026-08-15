@@ -3,8 +3,11 @@ const assert = require('node:assert/strict');
 const {
   buildClaudeAddArguments,
   buildCodexAddArguments,
+  claudeBundledCliPaths,
   claudeCommandCandidates,
+  codexBundledCliPath,
   codexCommandCandidates,
+  processInvocation,
   registerWithClaude,
   registerWithCodex
 } = require('../agent-registration');
@@ -63,10 +66,137 @@ test('uses bundled Codex and native Claude CLI fallbacks on macOS', () => {
 
 test('builds the Claude fallback with Windows path separators', () => {
   assert.deepEqual(claudeCommandCandidates('win32', {
+    APPDATA: 'C:\\Users\\example\\AppData\\Roaming',
     USERPROFILE: 'C:\\Users\\example'
   }), [
-    'claude',
-    'C:\\Users\\example\\.local\\bin\\claude.exe'
+    'claude.exe',
+    'C:\\Users\\example\\.local\\bin\\claude.exe',
+    'C:\\Users\\example\\AppData\\Roaming\\npm\\claude.cmd',
+    'claude.cmd'
+  ]);
+});
+
+test('finds the Claude Code CLI bundled with its Windows extension', () => {
+  const extensionPath = 'C:\\Users\\example\\.vscode\\extensions\\anthropic.claude-code';
+  const bundledPaths = claudeBundledCliPaths(extensionPath, 'win32', 'arm64');
+  assert.deepEqual(bundledPaths, [
+    `${extensionPath}\\resources\\native-binaries\\win32-arm64\\claude.exe`,
+    `${extensionPath}\\resources\\native-binaries\\win32-x64\\claude.exe`,
+    `${extensionPath}\\resources\\native-binary\\claude.exe`
+  ]);
+  assert.deepEqual(claudeCommandCandidates('win32', {}, bundledPaths), [
+    'claude.exe',
+    ...bundledPaths,
+    'claude.cmd'
+  ]);
+});
+
+test('finds Windows Codex executables from VS Code and npm', () => {
+  assert.equal(
+    codexBundledCliPath('C:\\Users\\example\\.vscode\\extensions\\openai.chatgpt', 'win32', 'x64'),
+    'C:\\Users\\example\\.vscode\\extensions\\openai.chatgpt\\bin\\windows-x86_64\\codex.exe'
+  );
+  assert.deepEqual(codexCommandCandidates(
+    'win32',
+    { APPDATA: 'C:\\Users\\example\\AppData\\Roaming' },
+    'D:\\VS Code\\extensions\\openai.chatgpt\\bin\\windows-x86_64\\codex.exe'
+  ), [
+    'codex.exe',
+    'D:\\VS Code\\extensions\\openai.chatgpt\\bin\\windows-x86_64\\codex.exe',
+    'C:\\Users\\example\\AppData\\Roaming\\npm\\codex.cmd',
+    'codex.cmd'
+  ]);
+});
+
+test('builds the platform-specific bundled Codex paths', () => {
+  assert.equal(
+    codexBundledCliPath('/Users/example/.vscode/extensions/openai.chatgpt', 'darwin', 'arm64'),
+    '/Users/example/.vscode/extensions/openai.chatgpt/bin/macos-aarch64/codex'
+  );
+  assert.equal(codexBundledCliPath('/extension', 'linux', 'x64'),
+    '/extension/bin/linux-x86_64/codex');
+  assert.equal(codexBundledCliPath('/extension', 'freebsd', 'x64'), undefined);
+});
+
+test('runs Windows cmd shims through cmd.exe without changing native executables', () => {
+  const environment = { ComSpec: 'C:\\Windows\\System32\\cmd.exe' };
+  const shim = processInvocation(
+    'C:\\Users\\Example User\\AppData\\Roaming\\npm\\codex.cmd',
+    ['mcp', 'add', '--', 'C:\\Program Files\\Microsoft VS Code\\Code.exe'],
+    'win32',
+    environment
+  );
+  assert.equal(shim.command, environment.ComSpec);
+  assert.deepEqual(shim.args.slice(0, 3), ['/d', '/s', '/c']);
+  assert.equal(shim.windowsVerbatimArguments, true);
+  assert.match(shim.args[3], /codex\.cmd/);
+  assert.match(shim.args[3], /Code\.exe/);
+
+  assert.deepEqual(processInvocation(
+    'C:\\Program Files\\Codex\\codex.exe',
+    ['--version'],
+    'win32',
+    environment
+  ), {
+    command: 'C:\\Program Files\\Codex\\codex.exe',
+    args: ['--version'],
+    windowsVerbatimArguments: false
+  });
+});
+
+test('uses the Codex executable bundled with the VS Code extension on Windows', async () => {
+  const bundledCliPath = 'C:\\VS Code\\extensions\\openai.chatgpt\\bin\\windows-x86_64\\codex.exe';
+  const calls = [];
+  const run = async (command, args) => {
+    calls.push([command, args]);
+    if (command === 'codex.exe') {
+      const error = new Error('missing');
+      error.code = 'ENOENT';
+      throw error;
+    }
+    return { stdout: '', stderr: '' };
+  };
+
+  await registerWithCodex({
+    ...options,
+    bundledCliPath,
+    environment: {},
+    platform: 'win32'
+  }, run);
+
+  assert.deepEqual(calls.slice(0, 3), [
+    ['codex.exe', ['--version']],
+    [bundledCliPath, ['--version']],
+    [bundledCliPath, ['mcp', 'remove', 'switchboard']]
+  ]);
+  assert.deepEqual(calls[3], [bundledCliPath, buildCodexAddArguments(options)]);
+});
+
+test('uses the Claude executable bundled with the VS Code extension on Windows', async () => {
+  const bundledCliPath = 'C:\\VS Code\\extensions\\anthropic.claude-code\\resources\\native-binary\\claude.exe';
+  const calls = [];
+  const run = async (command, args) => {
+    calls.push([command, args]);
+    if (command !== bundledCliPath) {
+      const error = new Error('missing');
+      error.code = 'ENOENT';
+      throw error;
+    }
+    return { stdout: '', stderr: '' };
+  };
+
+  await registerWithClaude({
+    ...options,
+    bundledCliPaths: [bundledCliPath],
+    environment: {},
+    platform: 'win32'
+  }, run);
+
+  assert.deepEqual(calls.slice(0, 4), [
+    ['claude.exe', ['--version']],
+    [bundledCliPath, ['--version']],
+    [bundledCliPath, ['mcp', 'remove', '--scope', 'user', 'switchboard']],
+    [bundledCliPath, buildClaudeAddArguments(options)]
   ]);
 });
 

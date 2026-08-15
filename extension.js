@@ -2,7 +2,12 @@ const vscode = require('vscode');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const { registerWithClaude, registerWithCodex } = require('./agent-registration');
+const {
+  claudeBundledCliPaths,
+  codexBundledCliPath,
+  registerWithClaude,
+  registerWithCodex
+} = require('./agent-registration');
 const {
   primaryServiceUrl,
   projectStatus,
@@ -207,6 +212,10 @@ class SwitchboardViewProvider {
 
     try {
       await registration.register({
+        bundledCliPaths: installedClaudeCliPaths(),
+        bundledCliPath: installedCodexCliPath(),
+        environment: process.env,
+        platform: process.platform,
         projectsFile: this.projectsFile,
         runtimePath: process.execPath,
         serverPath: this.serverPath
@@ -536,9 +545,19 @@ function safeJson(value) {
   return JSON.stringify(value).replace(/</g, '\\u003c');
 }
 
+function installedCodexCliPath() {
+  const extension = vscode.extensions.getExtension('openai.chatgpt');
+  return codexBundledCliPath(extension?.extensionPath);
+}
+
+function installedClaudeCliPaths() {
+  const extension = vscode.extensions.getExtension('Anthropic.claude-code');
+  return claudeBundledCliPaths(extension?.extensionPath);
+}
+
 function registrationErrorMessage(clientLabel, error) {
   if (error.code === 'ENOENT') {
-    return `${clientLabel} is not installed or its CLI is unavailable on PATH.`;
+    return `${clientLabel} could not be found. Make sure it is installed, then try again.`;
   }
 
   const lines = String(error.message || 'Registration failed.')
