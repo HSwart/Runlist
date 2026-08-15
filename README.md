@@ -3,6 +3,7 @@
   <h1>Switchboard</h1>
   <p><strong>Every local app, across every repository, in one focused VS Code control panel.</strong></p>
   <p>Save each project's folder and commands once, then start, stop, inspect, and open it from the sidebar.</p>
+  <p>Set projects up yourself—or optionally let a supported coding agent propose the setup for your approval. Switchboard checks configured ports before start and never stops an unknown process to free one.</p>
   <p>
     <a href="https://github.com/HSwart/Switchboard/releases/download/v0.0.1/switchboard.vsix">
       <img src="https://img.shields.io/badge/Download-Switchboard%200.0.1-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="Download Switchboard 0.0.1">
