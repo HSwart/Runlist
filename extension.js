@@ -493,7 +493,7 @@ class SwitchboardViewProvider {
 
     const url = primaryServiceUrl(project.services);
     if (!url) {
-      vscode.window.showErrorMessage(`${project.name} does not have a service port to open.`);
+      vscode.window.showErrorMessage(`${project.name} does not have a valid service URL to open.`);
       return;
     }
 
@@ -1107,6 +1107,10 @@ function installMcpBridge(context) {
   fs.copyFileSync(
     vscode.Uri.joinPath(context.extensionUri, 'project-store.js').fsPath,
     path.join(storageRoot, 'project-store.js')
+  );
+  fs.copyFileSync(
+    vscode.Uri.joinPath(context.extensionUri, 'external-url.js').fsPath,
+    path.join(storageRoot, 'external-url.js')
   );
   return serverPath;
 }

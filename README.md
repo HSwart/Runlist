@@ -24,7 +24,7 @@ Switchboard keeps a reusable list of local projects from different repositories 
 - Search saved projects by name or folder.
 - Give projects a friendly name without renaming their folders.
 - Keep configured service names and ports visible at a glance.
-- When service ports are configured, see project status and open the first local service in your browser.
+- When service ports are configured, see project status and open the first service at its localhost address or optional HTTP/HTTPS URL.
 - Open any saved project folder in a new VS Code window.
 - View readable recent output from the latest run, follow new lines, and open web links without leaving the sidebar.
 - Edit or remove a saved project without touching its files.
@@ -58,7 +58,7 @@ After installation, select the Switchboard icon in the VS Code Activity Bar.
 3. If a local folder is already open in VS Code, choose **Use current workspace**, or select **Browse**. In a multi-root workspace, Switchboard asks which local workspace folder to use.
 4. Enter the command that starts the project.
 5. If the project needs a special shutdown workflow, optionally enter a custom stop command. Most projects should leave this blank.
-6. If you know them, add each service name and port so Switchboard can verify its status and open the first service in your browser.
+6. If you know them, add each service name and port so Switchboard can verify its status. You can optionally add an HTTP or HTTPS URL to open instead of the service's localhost address.
 7. Save it.
 
 Switchboard points out missing or invalid details beside the field that needs attention. If you close the screen after making changes, it asks before discarding them.
@@ -71,11 +71,11 @@ Configured service ports are lightweight details, not a port-management system. 
 
 If another Switchboard project owns a port, Switchboard names it. If a shared port is occupied but its owner cannot be identified safely, both Start and Stop remain unavailable until that port is free. Switchboard never changes ports or stops an unknown process automatically.
 
-You can set up every project yourself. If you prefer, the optional coding-agent setup below can inspect a project and propose its commands and service ports for your approval.
+You can set up every project yourself. If you prefer, the optional coding-agent setup below can inspect a project and propose its commands, service ports, and explicitly documented browser URLs for your approval.
 
 ## Optional: set up a project with your coding agent
 
-Switchboard can also give a supported coding agent a guided setup skill. The agent inspects the project, finds its existing commands and service ports, and saves the result through Switchboard.
+Switchboard can also give a supported coding agent a guided setup skill. The agent inspects the project, finds its existing commands, service ports, and explicit browser URLs, and saves the result through Switchboard.
 
 1. Select the **plug** button beside the **+** button to open **Agent connections**.
 2. Select **Set up** beside the agent you use.
@@ -91,7 +91,7 @@ Then open the project with your agent and use its Switchboard skill:
 
 You can also describe what you want naturally. For example:
 
-> Inspect this project and add it to Switchboard with the name My App. Identify the exact start command and the port for every service it runs. Include a custom stop command only if it needs a special shutdown workflow.
+> Inspect this project and add it to Switchboard with the name My App. Identify the exact start command and the port for every service it runs. Preserve any explicit HTTP or HTTPS browser URLs, and include a custom stop command only if it needs a special shutdown workflow.
 
 The agent can propose a new project or an update to one already in Switchboard. The project then shows **Review setup** in the sidebar. Check its folder and exact commands, then select **Approve setup** before Start or Stop becomes available. Agent-proposed commands never run without this approval.
 
@@ -118,7 +118,7 @@ If Switchboard finds a configured service already running but did not start it i
 
 ## Your projects stay local
 
-Switchboard stores its project list in your local VS Code data. Switchboard itself does not upload project folders, commands, or service ports. Any coding agent you connect has its own data and privacy settings.
+Switchboard stores its project list in your local VS Code data. Switchboard itself does not upload project folders, commands, service ports, or URL overrides. Any coding agent you connect has its own data and privacy settings.
 
 ## Security
 

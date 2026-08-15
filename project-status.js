@@ -1,4 +1,5 @@
 const net = require('net');
+const { safeServiceUrl } = require('./external-url');
 
 function isPortOpen(port, options = {}) {
   const host = options.host || '127.0.0.1';
@@ -87,7 +88,12 @@ function projectStatus({
 }
 
 function primaryServiceUrl(services) {
-  const port = services?.[0]?.port;
+  const service = services?.[0];
+  const override = typeof service?.url === 'string' ? service.url.trim() : '';
+  if (override) {
+    return safeServiceUrl(override);
+  }
+  const port = service?.port;
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     return undefined;
   }

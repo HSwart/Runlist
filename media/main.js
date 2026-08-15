@@ -349,6 +349,7 @@ function renderProjectForm(mode) {
   const serviceRows = services.map((service, index) => {
     const nameField = `service-name-${index}`;
     const portField = `service-port-${index}`;
+    const urlField = `service-url-${index}`;
     const warning = sharedPortWarningText(state.draft, index);
     const removeLabel = String(service.name || '').trim()
       ? `Remove ${String(service.name).trim()} service`
@@ -366,6 +367,11 @@ function renderProjectForm(mode) {
           ${fieldError(portField)}
         </div>
         <button class="service-remove-button" type="button" data-action="remove-service" data-service-index="${index}" aria-label="${escapeHtml(removeLabel)}" title="Remove service">${icon('trash')}</button>
+        <div class="service-field service-url-field">
+          <label class="service-url-label" for="${urlField}">Open URL <span class="optional-label">Optional</span></label>
+          <input id="${urlField}" class="service-input" name="serviceUrl" type="url" inputmode="url" value="${escapeHtml(String(service.url ?? ''))}" placeholder="https://app.local/dashboard" maxlength="2048" autocomplete="off" spellcheck="false" aria-label="Service ${index + 1} open URL, optional" ${errorAttributes(urlField)}>
+          ${fieldError(urlField)}
+        </div>
         <p class="shared-port-warning service-warning" data-service-warning="${index}" role="status" ${warning ? '' : 'hidden'}>${escapeHtml(warning)}</p>
       </div>`;
   }).join('');
@@ -401,7 +407,7 @@ function renderProjectForm(mode) {
 
         <fieldset id="services" class="service-editor" ${errors.services ? 'aria-invalid="true" aria-describedby="services-hint services-error" tabindex="-1"' : 'aria-describedby="services-hint"'}>
           <legend>Services <span class="optional-label">Optional</span></legend>
-          <p id="services-hint" class="field-hint">Service names and ports confirm what is running and enable Open app. Up to 32 services.</p>
+          <p id="services-hint" class="field-hint">Names and ports confirm what is running. An optional HTTP or HTTPS URL changes where Open app goes. Up to 32 services.</p>
           ${errors.services ? `<p id="services-error" class="field-error" role="alert">${escapeHtml(errors.services)}</p>` : ''}
           <div class="service-list-header" aria-hidden="true"><span>Name</span><span>Port</span></div>
           <div class="service-list">
@@ -535,7 +541,8 @@ function currentDraft(form = document.getElementById('project-form')) {
     stopCommand: fieldValue('stopCommand'),
     services: [...(form?.querySelectorAll('.service-row') || [])].map((row) => ({
       name: row.querySelector('[name="serviceName"]')?.value || '',
-      port: row.querySelector('[name="servicePort"]')?.value || ''
+      port: row.querySelector('[name="servicePort"]')?.value || '',
+      url: row.querySelector('[name="serviceUrl"]')?.value || ''
     }))
   };
 }
@@ -579,7 +586,7 @@ app.addEventListener('click', (event) => {
       const services = currentDraft().services;
       if (services.length < 32) {
         const index = services.length;
-        updateServiceDraft([...services, { name: '', port: '' }], `service-name-${index}`);
+        updateServiceDraft([...services, { name: '', port: '', url: '' }], `service-name-${index}`);
       }
     },
     'remove-service': () => {

@@ -22,6 +22,10 @@ test('serves the setup tool over MCP stdio', async (t) => {
     path.join(__dirname, '..', 'project-store.js'),
     path.join(installedRoot, 'project-store.js')
   );
+  fs.copyFileSync(
+    path.join(__dirname, '..', 'external-url.js'),
+    path.join(installedRoot, 'external-url.js')
+  );
   t.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
 
   const server = spawn(process.execPath, [path.join(installedMcpRoot, 'server.js')], {
@@ -66,6 +70,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.match(listed.result.tools[0].description, /custom name/i);
   assert.match(listed.result.tools[0].description, /reviews and approves/i);
   assert.match(listed.result.tools[0].inputSchema.properties.name.description, /friendly project name/i);
+  assert.match(listed.result.tools[0].inputSchema.properties.services.items.properties.url.description, /optional.*HTTP or HTTPS/i);
   assert.ok(listed.result.tools[0].inputSchema.required.includes('services'));
   assert.equal(listed.result.tools[0].inputSchema.required.includes('stopCommand'), false);
   assert.match(listed.result.tools[0].inputSchema.properties.stopCommand.description, /optional custom/i);
@@ -77,7 +82,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
       folder: projectFolder,
       startCommand: 'npm run dev',
       services: [
-        { name: 'web', port: 3000 },
+        { name: 'web', port: 3000, url: 'https://app.local/dashboard' },
         { name: 'api', port: 4000 }
       ]
     }
@@ -89,7 +94,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.equal(Object.hasOwn(called.result.structuredContent.project, 'stopCommand'), false);
   assert.match(called.result.content[0].text, /must review and approve/i);
   assert.deepEqual(called.result.structuredContent.project.services, [
-    { name: 'web', port: 3000 },
+    { name: 'web', port: 3000, url: 'https://app.local/dashboard' },
     { name: 'api', port: 4000 }
   ]);
   const storedProjects = JSON.parse(fs.readFileSync(projectsFile, 'utf8'));
@@ -147,4 +152,16 @@ test('serves the setup tool over MCP stdio', async (t) => {
   });
   assert.equal(emptyServices.result.isError, true);
   assert.match(emptyServices.result.content[0].text, /at least one service and port/);
+
+  const unsafeUrl = await request('tools/call', {
+    name: 'switchboard_setup_project',
+    arguments: {
+      folder: projectFolder,
+      startCommand: 'npm run dev',
+      stopCommand: 'pkill -f vite',
+      services: [{ name: 'web', port: 3000, url: 'javascript:alert(1)' }]
+    }
+  });
+  assert.equal(unsafeUrl.result.isError, true);
+  assert.match(unsafeUrl.result.content[0].text, /valid HTTP or HTTPS URL/);
 });

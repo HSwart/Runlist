@@ -1,6 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { safeServiceUrl } = require('./external-url');
 
 function initializeProjectStore(filePath, legacyProjects = []) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -156,7 +157,7 @@ function normalizeServices(value) {
     if (!service || typeof service !== 'object' || Array.isArray(service)) {
       throw new Error(`services[${index}] must be an object.`);
     }
-    const unsupportedKeys = Object.keys(service).filter((key) => !['name', 'port'].includes(key));
+    const unsupportedKeys = Object.keys(service).filter((key) => !['name', 'port', 'url'].includes(key));
     if (unsupportedKeys.length) {
       throw new Error(`services[${index}] has unsupported field: ${unsupportedKeys.join(', ')}`);
     }
@@ -168,6 +169,10 @@ function normalizeServices(value) {
     if (!Number.isInteger(service.port) || service.port < 1 || service.port > 65535) {
       throw new Error(`services[${index}].port must be an integer from 1 to 65535.`);
     }
+    const url = service.url === undefined ? '' : typeof service.url === 'string' ? service.url.trim() : undefined;
+    if (url === undefined || (url && !safeServiceUrl(url))) {
+      throw new Error(`services[${index}].url must be a valid HTTP or HTTPS URL without credentials.`);
+    }
     if (names.has(name.toLowerCase())) {
       throw new Error(`service names must be unique: ${name}.`);
     }
@@ -177,7 +182,7 @@ function normalizeServices(value) {
 
     names.add(name.toLowerCase());
     ports.add(service.port);
-    return { name, port: service.port };
+    return { name, port: service.port, ...(url ? { url } : {}) };
   });
 }
 

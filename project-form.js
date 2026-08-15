@@ -1,5 +1,6 @@
 const FIELD_ORDER = ['project-name', 'folder', 'start-command', 'stop-command'];
 const MAX_SERVICES = 32;
+const { safeServiceUrl } = require('./external-url');
 
 function projectFormValues(input = {}) {
   const sourceServices = Array.isArray(input.services)
@@ -15,7 +16,8 @@ function projectFormValues(input = {}) {
     stopCommand: String(input.stopCommand || ''),
     services: sourceServices.map((service) => ({
       name: String(service?.name ?? ''),
-      port: String(service?.port ?? '')
+      port: String(service?.port ?? ''),
+      url: String(service?.url ?? '')
     }))
   };
 }
@@ -41,7 +43,8 @@ function validateProjectForm(input) {
   values.services.forEach((service, index) => {
     const name = service.name.trim();
     const portText = service.port.trim();
-    if (!name && !portText) {
+    const url = service.url.trim();
+    if (!name && !portText && !url) {
       return;
     }
     if (!name) {
@@ -71,11 +74,15 @@ function validateProjectForm(input) {
     } else {
       ports.set(port, index);
     }
+    if (url && !safeServiceUrl(url)) {
+      errors[`service-url-${index}`] = 'Enter a valid HTTP or HTTPS URL without sign-in details.';
+    }
   });
 
   const serviceFields = values.services.flatMap((service, index) => [
     `service-name-${index}`,
-    `service-port-${index}`
+    `service-port-${index}`,
+    `service-url-${index}`
   ]);
   return {
     errors,
@@ -86,10 +93,11 @@ function validateProjectForm(input) {
 
 function projectFormServices(values) {
   return projectFormValues(values).services
-    .filter((service) => service.name.trim() || service.port.trim())
+    .filter((service) => service.name.trim() || service.port.trim() || service.url.trim())
     .map((service) => ({
       name: service.name.trim(),
-      port: Number(service.port.trim())
+      port: Number(service.port.trim()),
+      ...(service.url.trim() ? { url: service.url.trim() } : {})
     }));
 }
 
@@ -101,7 +109,7 @@ function projectFormChanged(input, baseline) {
 
 function projectSaveError(error) {
   const message = String(error?.message || 'Could not save this project.');
-  const serviceField = message.match(/services\[(\d+)\]\.(name|port)/);
+  const serviceField = message.match(/services\[(\d+)\]\.(name|port|url)/);
   if (serviceField) {
     return { field: `service-${serviceField[2]}-${serviceField[1]}`, message };
   }

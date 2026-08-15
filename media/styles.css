@@ -639,6 +639,15 @@ input[aria-invalid='true'] {
   margin: 3px 0 0;
 }
 
+.service-url-field {
+  grid-column: 1 / 3;
+}
+
+.service-url-label {
+  display: block;
+  margin: 0 0 3px;
+}
+
 .service-remove-button {
   width: 28px;
   height: 34px;

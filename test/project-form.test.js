@@ -41,13 +41,13 @@ test('normalizes and compares every stored service', () => {
     stopCommand: 'npm stop',
     services: [
       { name: 'web', port: 3000 },
-      { name: 'api', port: 4000 }
+      { name: 'api', port: 4000, url: 'https://api.local/docs' }
     ]
   };
   const form = projectFormValues(stored);
   assert.deepEqual(form.services, [
-    { name: 'web', port: '3000' },
-    { name: 'api', port: '4000' }
+    { name: 'web', port: '3000', url: '' },
+    { name: 'api', port: '4000', url: 'https://api.local/docs' }
   ]);
   assert.equal(projectFormChanged(form, stored), false);
   assert.equal(projectFormChanged({ ...form, name: 'Renamed' }, stored), true);
@@ -66,7 +66,8 @@ test('explains duplicate and invalid values beside the relevant services', () =>
     services: [
       { name: 'web', port: '3000' },
       { name: 'api', port: '3000' },
-      { name: '', port: '70000' }
+      { name: '', port: '70000' },
+      { name: 'docs', port: '5000', url: 'javascript:alert(1)' }
     ]
   });
 
@@ -74,6 +75,7 @@ test('explains duplicate and invalid values beside the relevant services', () =>
   assert.equal(validation.errors['service-port-1'], 'Use a unique port.');
   assert.equal(validation.errors['service-name-2'], 'Enter a service name.');
   assert.match(validation.errors['service-port-2'], /1 to 65535/);
+  assert.match(validation.errors['service-url-3'], /HTTP or HTTPS/);
   assert.equal(validation.firstField, 'service-port-0');
 });
 
@@ -99,6 +101,7 @@ test('allows no manual services and retains the service-count limit', () => {
 test('maps storage errors to the related form control', () => {
   assert.equal(projectSaveError(new Error('folder does not exist')).field, 'folder');
   assert.equal(projectSaveError(new Error('services[2].port must be valid')).field, 'service-port-2');
+  assert.equal(projectSaveError(new Error('services[1].url must be valid')).field, 'service-url-1');
   assert.equal(projectSaveError(new Error('service names must be unique')).field, 'services');
   assert.equal(projectSaveError(new Error('The project no longer exists.')).field, 'form');
 });

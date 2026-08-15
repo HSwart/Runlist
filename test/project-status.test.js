@@ -92,8 +92,14 @@ test('reports known and ambiguous port conflicts from refresh-shaped status', ()
   }), 'port-in-use-unknown');
 });
 
-test('builds the primary local service URL from the first configured port', () => {
+test('uses a safe primary service URL override or derives localhost from its port', () => {
+  assert.equal(primaryServiceUrl([{
+    name: 'web',
+    port: 8787,
+    url: 'https://app.local/dashboard?view=all'
+  }]), 'https://app.local/dashboard?view=all');
   assert.equal(primaryServiceUrl([{ name: 'web', port: 8787 }]), 'http://127.0.0.1:8787');
+  assert.equal(primaryServiceUrl([{ name: 'web', port: 8787, url: 'file:///tmp/app' }]), undefined);
   assert.equal(primaryServiceUrl([]), undefined);
 });
 
