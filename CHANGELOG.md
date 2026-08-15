@@ -35,9 +35,11 @@
 - Connect GitHub Copilot, Codex, or Claude Code from the Agent connections screen.
 - Install the guided Switchboard skill for the selected agent with no additional dependencies.
 - Let the agent inspect exact project commands and service ports, then save or update the project through Switchboard.
+- Review and approve the exact folder, start command, stop command, and services inside Switchboard before agent-created commands can run.
 - Preserve any user-created skill that already uses the Switchboard name.
 
 ### Platform and privacy
 
 - Tested on Windows, macOS, and Linux.
 - Store the Switchboard project list in local VS Code data.
+- Publish a clear security policy and private vulnerability-reporting guidance.
