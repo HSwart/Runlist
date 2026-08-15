@@ -67,6 +67,9 @@ function ansiSequenceAt(output, escapeStart) {
       if (marker === ']' && output.charCodeAt(index) === 0x07) {
         return { complete: true, end: index + 1 };
       }
+      if (output.charCodeAt(index) === 0x9c) {
+        return { complete: true, end: index + 1 };
+      }
       if (output[index] === '\u001b' && output[index + 1] === '\\') {
         return { complete: true, end: index + 2 };
       }

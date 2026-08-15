@@ -78,6 +78,12 @@ test('does not terminate non-OSC terminal strings at BEL', () => {
   assert.equal(sanitizeProjectOutput(output), 'VISIBLE');
 });
 
+test('terminates terminal strings at the single-byte ST character', () => {
+  const output = '\u001bPprivate\u009cVISIBLE';
+
+  assert.equal(sanitizeProjectOutput(output), 'VISIBLE');
+});
+
 test('keeps a split ANSI sequence bounded and completes it on the next chunk', () => {
   let output = appendProjectOutput('xx', `\u001b[${'3'.repeat(20)}`, 10);
   assert.equal(output.length, 10);
