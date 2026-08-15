@@ -195,6 +195,7 @@ button:active:not(:disabled) {
 }
 
 .project-heading {
+  flex: 1 1 auto;
   min-width: 0;
   padding-top: 1px;
 }
@@ -203,23 +204,53 @@ button:active:not(:disabled) {
 .screen-header h2,
 .empty-state h2 {
   margin: 0;
-  overflow: hidden;
   color: var(--vscode-foreground);
   font-size: 13px;
   font-weight: 600;
   line-height: 1.35;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.screen-header h2,
+.empty-state h2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .project-status {
-  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 20px;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 3px;
-  color: var(--vscode-descriptionForeground);
-  font-size: 10px;
+  gap: 5px;
+  margin-top: 5px;
+  padding: 1px 7px;
+  color: var(--vscode-foreground);
+  background: var(
+    --vscode-list-inactiveSelectionBackground,
+    var(--vscode-sideBarSectionHeader-background)
+  );
+  border: 1px solid var(--vscode-contrastBorder, var(--vscode-widget-border, transparent));
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px var(--vscode-contrastBorder, transparent);
+  font-size: 11px;
+  font-weight: 600;
   line-height: 1.4;
+}
+
+.project-status > .auto-scroll {
+  flex: 1 1 auto;
+}
+
+.project-status.status-running,
+.project-status.status-active {
+  border-color: var(--vscode-testing-iconPassed, var(--vscode-contrastBorder, transparent));
+}
+
+.project-status.status-port-in-use,
+.project-status.status-port-in-use-unknown {
+  border-color: var(--vscode-editorWarning-foreground, var(--vscode-contrastBorder, transparent));
 }
 
 .status-progress {
@@ -384,12 +415,32 @@ button:active:not(:disabled) {
   opacity: 0.72;
 }
 
-.detail-row span,
+.detail-row > span,
 .detail-row code {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.auto-scroll {
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.auto-scroll-content {
+  width: max-content;
+  min-width: 100%;
+  display: inline-block;
+  transform: translateX(0);
+}
+
+.auto-scroll.is-overflowing .auto-scroll-content {
+  animation: auto-scroll var(--auto-scroll-duration) ease-in-out infinite alternate;
+}
+
+.auto-scroll.is-overflowing:hover .auto-scroll-content {
+  animation-play-state: paused;
 }
 
 .project-services {
@@ -905,6 +956,29 @@ input[aria-invalid='true'] {
 
   .status-progress {
     animation: status-spin 900ms linear infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auto-scroll.is-overflowing {
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .auto-scroll.is-overflowing .auto-scroll-content {
+    animation: none;
+  }
+}
+
+@keyframes auto-scroll {
+  0%,
+  16% {
+    transform: translateX(0);
+  }
+
+  84%,
+  100% {
+    transform: translateX(calc(-1 * var(--auto-scroll-distance)));
   }
 }
 
