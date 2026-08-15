@@ -1,0 +1,54 @@
+{
+  "name": "porter",
+  "displayName": "Porter",
+  "description": "Start and stop local projects from one focused sidebar.",
+  "version": "0.0.1",
+  "publisher": "local",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:porter.projects",
+    "onCommand:porter.addProject"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "porter.addProject",
+        "title": "Add Project",
+        "icon": "$(add)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "porter",
+          "title": "Porter",
+          "icon": "media/porter.svg"
+        }
+      ]
+    },
+    "views": {
+      "porter": [
+        {
+          "type": "webview",
+          "id": "porter.projects",
+          "name": "Porter"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "porter.addProject",
+          "when": "view == porter.projects",
+          "group": "navigation"
+        }
+      ]
+    }
+  }
+}
