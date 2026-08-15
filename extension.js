@@ -21,6 +21,10 @@ const {
 } = require('./project-status');
 const { openProjectInNewWindow } = require('./project-navigation');
 const {
+  cleanupTrackedProcessForDeletion,
+  terminateTrackedProcess
+} = require('./project-process');
+const {
   occupiedPortConflict,
   PortReservationStore
 } = require('./port-gate');
@@ -598,9 +602,13 @@ class SwitchboardViewProvider {
       return;
     }
 
-    if (this.processes.has(id)) {
-      this.stopProject(id);
-    }
+    const latestProject = this.projects.find((item) => item.id === id);
+    cleanupTrackedProcessForDeletion(
+      this.processes,
+      id,
+      latestProject,
+      (approvedProject) => this.stopProject(id, approvedProject)
+    );
 
     removeProject(this.projectsFile, id);
     const remainingProjects = projects.filter((item) => item.id !== id);
@@ -768,8 +776,8 @@ class SwitchboardViewProvider {
     }
   }
 
-  stopProject(id) {
-    const project = this.projects.find((item) => item.id === id);
+  stopProject(id, projectSnapshot) {
+    const project = projectSnapshot || this.projects.find((item) => item.id === id);
     if (!project) {
       return;
     }
@@ -850,8 +858,7 @@ class SwitchboardViewProvider {
       finalizeStop(code === 0);
     });
 
-    this.processes.get(id)?.kill('SIGTERM');
-    this.processes.delete(id);
+    terminateTrackedProcess(this.processes, id);
     this.renderProjectList();
   }
 
