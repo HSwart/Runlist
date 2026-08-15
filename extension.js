@@ -2,6 +2,7 @@ const vscode = require('vscode');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { safeHttpUrl } = require('./external-url');
 const {
   claudeBundledCliPaths,
   codexBundledCliPath,
@@ -15,6 +16,12 @@ const {
   stoppableProjectIds
 } = require('./project-status');
 const { openProjectInNewWindow } = require('./project-navigation');
+const {
+  projectFormChanged,
+  projectFormValues,
+  projectSaveError,
+  validateProjectForm
+} = require('./project-form');
 const {
   appendProjectOutput,
   createOutputUpdateScheduler,
@@ -42,6 +49,11 @@ class SwitchboardViewProvider {
     this.mode = 'list';
     this.searchQuery = '';
     this.draft = {};
+    this.formBaseline = {};
+    this.formErrors = {};
+    this.focusTarget = undefined;
+    this.lastFocusTarget = undefined;
+    this.returnFocus = undefined;
     this.selectedProjectId = undefined;
     this.processes = new Map();
     this.projectOutputs = new Map();
@@ -68,17 +80,29 @@ class SwitchboardViewProvider {
     this.render();
   }
 
-  showAddProject() {
+  async showAddProject(returnFocus) {
+    if (!await this.confirmDiscardProjectChanges()) {
+      return;
+    }
     this.mode = 'add';
     this.draft = {};
+    this.formBaseline = projectFormValues({});
+    this.formErrors = {};
+    this.focusTarget = { type: 'field', id: 'project-name' };
+    this.returnFocus = returnFocus || this.defaultListFocusTarget();
     this.selectedProjectId = undefined;
     this.view?.show?.(true);
     this.render();
   }
 
-  showAgentSetup() {
+  async showAgentSetup() {
+    if (!await this.confirmDiscardProjectChanges()) {
+      return;
+    }
     this.mode = 'agents';
     this.draft = {};
+    this.focusTarget = { type: 'action', action: 'close-screen' };
+    this.returnFocus = this.defaultListFocusTarget();
     this.selectedProjectId = undefined;
     this.view?.show?.(true);
     this.render();
@@ -86,6 +110,12 @@ class SwitchboardViewProvider {
 
   get projects() {
     return readProjects(this.projectsFile);
+  }
+
+  defaultListFocusTarget() {
+    return this.projects.length
+      ? { type: 'field', id: 'project-search' }
+      : { type: 'action', action: 'show-add' };
   }
 
   getProjectStatus(id) {
@@ -167,16 +197,10 @@ class SwitchboardViewProvider {
   async handleMessage(message) {
     switch (message.type) {
       case 'showAdd':
-        this.mode = 'add';
-        this.draft = {};
-        this.selectedProjectId = undefined;
-        this.render();
+        await this.showAddProject({ type: 'action', action: 'show-add' });
         break;
       case 'closeScreen':
-        this.mode = 'list';
-        this.draft = {};
-        this.selectedProjectId = undefined;
-        this.render();
+        await this.closeScreen(message.draft);
         break;
       case 'showEdit':
         this.showEditProject(message.id);
@@ -186,6 +210,9 @@ class SwitchboardViewProvider {
         break;
       case 'copyOutput':
         await this.copyProjectOutput();
+        break;
+      case 'openOutputUrl':
+        await this.openOutputUrl(message.url);
         break;
       case 'pickFolder':
         await this.pickFolder(message.draft);
@@ -210,6 +237,14 @@ class SwitchboardViewProvider {
         break;
       case 'setSearchQuery':
         this.searchQuery = String(message.query || '');
+        break;
+      case 'setFocusTarget':
+        this.lastFocusTarget = validFocusTarget(message.target);
+        break;
+      case 'updateDraft':
+        if (['add', 'edit'].includes(this.mode)) {
+          this.draft = projectFormValues(message.draft);
+        }
         break;
       case 'deleteProject':
         await this.deleteProject(message.id);
@@ -276,6 +311,10 @@ class SwitchboardViewProvider {
     this.mode = 'edit';
     this.selectedProjectId = id;
     this.draft = { ...project };
+    this.formBaseline = projectFormValues(project);
+    this.formErrors = {};
+    this.focusTarget = { type: 'field', id: 'project-name' };
+    this.returnFocus = { type: 'project-menu', id };
     this.render();
   }
 
@@ -287,7 +326,44 @@ class SwitchboardViewProvider {
 
     this.mode = 'output';
     this.selectedProjectId = id;
+    this.focusTarget = { type: 'action', action: 'close-screen' };
+    this.returnFocus = { type: 'project-menu', id };
     this.render();
+  }
+
+  async closeScreen(draft) {
+    if (draft && ['add', 'edit'].includes(this.mode)) {
+      this.draft = projectFormValues(draft);
+    }
+    if (!await this.confirmDiscardProjectChanges()) {
+      return;
+    }
+
+    const returnFocus = this.returnFocus;
+    this.mode = 'list';
+    this.draft = {};
+    this.formBaseline = {};
+    this.formErrors = {};
+    this.selectedProjectId = undefined;
+    this.returnFocus = undefined;
+    this.focusTarget = returnFocus;
+    this.render();
+  }
+
+  async confirmDiscardProjectChanges() {
+    if (!['add', 'edit'].includes(this.mode)
+      || !projectFormChanged(this.draft, this.formBaseline)) {
+      return true;
+    }
+    const choice = await vscode.window.showWarningMessage(
+      'Discard unsaved project changes?',
+      {
+        modal: true,
+        detail: 'Your project has not been saved. Leaving this screen will discard the changes.'
+      },
+      'Discard changes'
+    );
+    return choice === 'Discard changes';
   }
 
   addProjectOutput(id, chunk) {
@@ -317,6 +393,17 @@ class SwitchboardViewProvider {
     }
     await vscode.env.clipboard.writeText(output);
     this.view?.webview.postMessage({ type: 'outputCopied' });
+  }
+
+  async openOutputUrl(value) {
+    const url = safeHttpUrl(value);
+    if (!url) {
+      return;
+    }
+    const opened = await vscode.env.openExternal(vscode.Uri.parse(url));
+    if (!opened) {
+      vscode.window.showErrorMessage(`Could not open ${url}.`);
+    }
   }
 
   async openProject(id) {
@@ -365,27 +452,29 @@ class SwitchboardViewProvider {
 
     if (selection?.[0]) {
       this.draft.folder = selection[0].fsPath;
+      this.formErrors = {};
+      this.focusTarget = { type: 'field', id: 'folder' };
       this.render();
     }
   }
 
   async saveProject(project) {
-    const projectId = project.id || this.selectedProjectId;
-    const name = String(project.name || '').trim();
-    const folder = project.folder?.trim();
-    const startCommand = project.startCommand?.trim();
-    const stopCommand = project.stopCommand?.trim();
-    const appPortText = String(project.appPort || '').trim();
+    const validation = validateProjectForm(project);
+    this.draft = validation.values;
+    if (validation.firstField) {
+      this.formErrors = validation.errors;
+      this.focusTarget = { type: 'field', id: validation.firstField };
+      this.render();
+      return;
+    }
 
-    if (!folder || !startCommand || !stopCommand) {
-      vscode.window.showErrorMessage('Choose a project folder and enter both commands.');
-      return;
-    }
+    let projectId = validation.values.id || this.selectedProjectId;
+    const name = validation.values.name.trim();
+    const folder = validation.values.folder.trim();
+    const startCommand = validation.values.startCommand.trim();
+    const stopCommand = validation.values.stopCommand.trim();
+    const appPortText = validation.values.appPort.trim();
     const appPort = appPortText ? Number(appPortText) : undefined;
-    if (appPort !== undefined && (!Number.isInteger(appPort) || appPort < 1 || appPort > 65535)) {
-      vscode.window.showErrorMessage('App port must be a whole number from 1 to 65535.');
-      return;
-    }
 
     try {
       const existing = projectId
@@ -394,7 +483,7 @@ class SwitchboardViewProvider {
       const services = appPort === undefined
         ? undefined
         : updatePrimaryService(existing?.services, appPort);
-      upsertProject(this.projectsFile, {
+      const saved = upsertProject(this.projectsFile, {
         id: projectId,
         name,
         folder,
@@ -402,20 +491,32 @@ class SwitchboardViewProvider {
         stopCommand,
         ...(services ? { services } : {})
       });
+      projectId = saved.project.id;
     } catch (error) {
-      vscode.window.showErrorMessage(`Could not save the project: ${error.message}`);
+      const formError = projectSaveError(error);
+      this.formErrors = { [formError.field]: formError.message };
+      this.focusTarget = formError.field === 'form'
+        ? { type: 'field', id: 'form-error-summary' }
+        : { type: 'field', id: formError.field };
+      this.render();
       return;
     }
 
     this.mode = 'list';
     this.searchQuery = '';
     this.draft = {};
+    this.formBaseline = {};
+    this.formErrors = {};
+    this.focusTarget = { type: 'project-menu', id: projectId };
+    this.returnFocus = undefined;
     this.selectedProjectId = undefined;
     this.render();
   }
 
   async deleteProject(id) {
-    const project = this.projects.find((item) => item.id === id);
+    const projects = this.projects;
+    const projectIndex = projects.findIndex((item) => item.id === id);
+    const project = projects[projectIndex];
     if (!project) {
       return;
     }
@@ -430,6 +531,7 @@ class SwitchboardViewProvider {
     );
 
     if (choice !== 'Delete project') {
+      this.view?.webview.postMessage({ type: 'restoreProjectMenuFocus', id });
       return;
     }
 
@@ -438,6 +540,8 @@ class SwitchboardViewProvider {
     }
 
     removeProject(this.projectsFile, id);
+    const remainingProjects = projects.filter((item) => item.id !== id);
+    const adjacentProject = remainingProjects[projectIndex] || remainingProjects[projectIndex - 1];
     this.managedProjectIds.delete(id);
     this.projectStatuses.delete(id);
     this.startGraceUntil.delete(id);
@@ -448,6 +552,11 @@ class SwitchboardViewProvider {
     }
     this.mode = 'list';
     this.draft = {};
+    this.formBaseline = {};
+    this.formErrors = {};
+    this.focusTarget = adjacentProject
+      ? { type: 'project-menu', id: adjacentProject.id }
+      : { type: 'action', action: 'show-add' };
     this.selectedProjectId = undefined;
     this.render();
   }
@@ -639,6 +748,8 @@ class SwitchboardViewProvider {
       mode: this.mode,
       searchQuery: this.searchQuery,
       draft: this.draft,
+      focusTarget: this.focusTarget || this.lastFocusTarget,
+      formErrors: this.formErrors,
       projectOutput: outputProject ? {
         entries: formatProjectOutput(rawProjectOutput),
         name: outputProject.name,
@@ -663,11 +774,25 @@ class SwitchboardViewProvider {
           <script nonce="${nonce}" src="${scriptUri}"></script>
         </body>
       </html>`;
+    this.focusTarget = undefined;
   }
 }
 
 function safeJson(value) {
   return JSON.stringify(value).replace(/</g, '\\u003c');
+}
+
+function validFocusTarget(target) {
+  if (!target || !['field', 'project-menu', 'project-control', 'action'].includes(target.type)) {
+    return undefined;
+  }
+  const clean = { type: target.type };
+  for (const key of ['id', 'action', 'agent']) {
+    if (typeof target[key] === 'string' && target[key].length <= 200) {
+      clean[key] = target[key];
+    }
+  }
+  return clean;
 }
 
 function installedCodexCliPath() {

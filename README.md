@@ -22,7 +22,7 @@ Switchboard keeps a reusable list of your local projects inside VS Code. Save ea
 - Keep configured service names and ports visible at a glance.
 - When service ports are configured, see project status and open the first local service in your browser.
 - Open any saved project folder in a new VS Code window.
-- View readable recent output from the latest run without leaving the sidebar.
+- View readable recent output from the latest run, follow new lines, and open web links without leaving the sidebar.
 - Edit or remove a saved project without touching its files.
 
 > Switchboard remembers the setup. You stay in control of when a project runs.
@@ -57,7 +57,9 @@ After installation, select the Switchboard icon in the VS Code Activity Bar.
 6. If you know it, enter the app's port so Switchboard can verify its status and open it in your browser.
 7. Save it.
 
-Your project is now ready whenever you need it. Select **Start** to run its saved start command and **Stop** to run its saved stop command.
+Switchboard points out missing or invalid details beside the field that needs attention. If you close the screen after making changes, it asks before discarding them.
+
+Your project is now ready whenever you need it. Select the **Start** icon to run its saved start command and the **Stop** icon to run its saved stop command. While a command is being handled, the project clearly shows **Starting…** or **Stopping…**.
 
 When two saved projects use the same app port, Switchboard identifies the conflict so you can stop the running project first.
 
@@ -84,13 +86,15 @@ Switchboard keeps the everyday controls simple:
 | Control | What it does |
 | --- | --- |
 | **Search** | Filters your saved projects by project name or folder. |
-| **Start** | Runs the saved start command inside the project folder. |
-| **Stop** | Runs the saved stop command inside the project folder. |
+| **Start icon** | Runs the saved start command inside the project folder. |
+| **Stop icon** | Runs the saved stop command inside the project folder. |
 | **Stop all running** | Appears when two or more projects are running and stops them together. |
-| **View output** | Highlights common log levels and lets you copy output from the latest run. |
+| **View output** | Highlights common log levels, opens web links, and lets you copy output from the latest run. If you scroll up, Switchboard keeps your place and offers a **Latest** button when new output arrives. |
 | **…** | Opens the app, project folder, recent output, edit screen, or remove action. |
 
 Removing a project from Switchboard does **not** delete the project or any of its files.
+
+If Switchboard finds a configured service already running but did not start it itself, the project is labelled **Detected running** so its state is clear.
 
 ## Your projects stay local
 
