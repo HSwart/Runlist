@@ -11,7 +11,8 @@ const {
 const {
   primaryServiceUrl,
   projectStatus,
-  servicePortStatus
+  servicePortStatus,
+  stoppableProjectIds
 } = require('./project-status');
 const { openProjectInNewWindow } = require('./project-navigation');
 const {
@@ -197,6 +198,9 @@ class SwitchboardViewProvider {
         break;
       case 'stopProject':
         this.stopProject(message.id);
+        break;
+      case 'stopAllProjects':
+        this.stopAllProjects();
         break;
       case 'openProject':
         await this.openProject(message.id);
@@ -595,6 +599,16 @@ class SwitchboardViewProvider {
     this.renderProjectList();
   }
 
+  stopAllProjects() {
+    const projects = this.projects.map((project) => ({
+      ...project,
+      status: this.getProjectStatus(project.id)
+    }));
+    for (const id of stoppableProjectIds(projects)) {
+      this.stopProject(id);
+    }
+  }
+
   render() {
     if (!this.view) {
       return;
@@ -615,6 +629,11 @@ class SwitchboardViewProvider {
       ? this.projectOutputs.get(outputProject.id) || ''
       : '';
     const cleanProjectOutput = sanitizeProjectOutput(rawProjectOutput);
+    const stateProjects = projects.map((project) => ({
+      ...project,
+      status: this.getProjectStatus(project.id),
+      searchText: projectSearchText(project)
+    }));
     const state = {
       agentConnections: this.agentConnections,
       mode: this.mode,
@@ -625,11 +644,8 @@ class SwitchboardViewProvider {
         name: outputProject.name,
         output: cleanProjectOutput
       } : undefined,
-      projects: projects.map((project) => ({
-        ...project,
-        status: this.getProjectStatus(project.id),
-        searchText: projectSearchText(project)
-      }))
+      projects: stateProjects,
+      stopAllCount: stoppableProjectIds(stateProjects).length
     };
 
     this.view.webview.html = `<!doctype html>

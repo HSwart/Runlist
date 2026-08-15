@@ -86,6 +86,7 @@ Switchboard keeps the everyday controls simple:
 | **Search** | Filters your saved projects by project name or folder. |
 | **Start** | Runs the saved start command inside the project folder. |
 | **Stop** | Runs the saved stop command inside the project folder. |
+| **Stop all running** | Appears when two or more projects are running and stops them together. |
 | **View output** | Highlights common log levels and lets you copy output from the latest run. |
 | **…** | Opens the app, project folder, recent output, edit screen, or remove action. |
 
