@@ -73,6 +73,45 @@ button:active:not(:disabled) {
   white-space: nowrap;
 }
 
+.project-search {
+  position: relative;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-widget-border));
+}
+
+.project-search input {
+  height: 30px;
+  padding-left: 30px;
+  font-family: var(--vscode-font-family);
+}
+
+.project-search input:focus-visible {
+  border-color: var(--vscode-focusBorder);
+  outline: none;
+}
+
+.search-icon {
+  position: absolute;
+  z-index: 1;
+  top: 14px;
+  left: 20px;
+  width: 16px;
+  height: 16px;
+  color: var(--vscode-input-placeholderForeground, var(--vscode-descriptionForeground));
+  pointer-events: none;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .summary-separator {
   color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
 }
@@ -561,6 +600,29 @@ input {
   justify-items: start;
   gap: 8px;
   padding: 28px 18px;
+}
+
+.search-empty {
+  padding: 24px 18px;
+}
+
+.search-empty h2 {
+  margin: 0;
+  color: var(--vscode-foreground);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.search-empty p {
+  margin: 5px 0 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.project-row[hidden],
+.search-empty[hidden] {
+  display: none;
 }
 
 .empty-state p {
