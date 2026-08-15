@@ -33,6 +33,9 @@ function upsertProject(filePath, input) {
   const folder = normalizeFolder(input.folder);
   const startCommand = normalizeCommand(input.startCommand, 'startCommand');
   const stopCommand = normalizeCommand(input.stopCommand, 'stopCommand');
+  const providedServices = input.services === undefined
+    ? undefined
+    : normalizeServices(input.services);
   const projects = readProjects(filePath);
   const index = input.id
     ? projects.findIndex((project) => project.id === input.id)
@@ -48,7 +51,8 @@ function upsertProject(filePath, input) {
     name: path.basename(folder),
     folder,
     startCommand,
-    stopCommand
+    stopCommand,
+    services: providedServices || existing?.services || []
   };
 
   if (existing) {
@@ -100,6 +104,45 @@ function normalizeCommand(value, fieldName) {
     throw new Error(`${fieldName} is too long.`);
   }
   return value.trim();
+}
+
+function normalizeServices(value) {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error('services must list at least one service and port.');
+  }
+  if (value.length > 32) {
+    throw new Error('services cannot contain more than 32 entries.');
+  }
+
+  const names = new Set();
+  const ports = new Set();
+  return value.map((service, index) => {
+    if (!service || typeof service !== 'object' || Array.isArray(service)) {
+      throw new Error(`services[${index}] must be an object.`);
+    }
+    const unsupportedKeys = Object.keys(service).filter((key) => !['name', 'port'].includes(key));
+    if (unsupportedKeys.length) {
+      throw new Error(`services[${index}] has unsupported field: ${unsupportedKeys.join(', ')}`);
+    }
+
+    const name = typeof service.name === 'string' ? service.name.trim() : '';
+    if (!name || name.length > 64) {
+      throw new Error(`services[${index}].name must contain 1 to 64 characters.`);
+    }
+    if (!Number.isInteger(service.port) || service.port < 1 || service.port > 65535) {
+      throw new Error(`services[${index}].port must be an integer from 1 to 65535.`);
+    }
+    if (names.has(name.toLowerCase())) {
+      throw new Error(`service names must be unique: ${name}.`);
+    }
+    if (ports.has(service.port)) {
+      throw new Error(`service ports must be unique: ${service.port}.`);
+    }
+
+    names.add(name.toLowerCase());
+    ports.add(service.port);
+    return { name, port: service.port };
+  });
 }
 
 function normalizeForComparison(value) {

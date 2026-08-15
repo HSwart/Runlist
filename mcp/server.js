@@ -3,7 +3,7 @@ const readline = require('readline');
 const { upsertProject } = require('../project-store');
 
 const SERVER_NAME = 'porter-mcp-server';
-const SERVER_VERSION = '0.0.1';
+const SERVER_VERSION = '0.0.2';
 const LATEST_PROTOCOL_VERSION = '2025-11-25';
 const SUPPORTED_PROTOCOL_VERSIONS = new Set([
   '2025-11-25',
@@ -16,7 +16,7 @@ const PROJECTS_FILE = process.env.PORTER_PROJECTS_FILE;
 const tool = {
   name: 'porter_setup_project',
   title: 'Set up a Porter project',
-  description: 'Add a local project to Porter, or update the existing entry for the same folder. Stores the start and stop commands that Porter may execute later when the user clicks Start or Stop.',
+  description: 'Add a local project to Porter, or update the existing entry for the same folder. Before calling, identify every service the project starts and provide its explicit port. Stores commands that Porter may execute later when the user clicks Start or Stop.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -31,9 +31,34 @@ const tool = {
       stopCommand: {
         type: 'string',
         description: 'Shell command Porter should execute to stop this project.'
+      },
+      services: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 32,
+        description: 'Complete list of services started by this project. Every service must have an explicit unique port.',
+        items: {
+          type: 'object',
+          properties: {
+            name: {
+              type: 'string',
+              minLength: 1,
+              maxLength: 64,
+              description: 'Short service name, for example web, api, or storybook.'
+            },
+            port: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 65535,
+              description: 'TCP port used by this service.'
+            }
+          },
+          required: ['name', 'port'],
+          additionalProperties: false
+        }
       }
     },
-    required: ['folder', 'startCommand', 'stopCommand'],
+    required: ['folder', 'startCommand', 'stopCommand', 'services'],
     additionalProperties: false
   },
   outputSchema: {
@@ -47,9 +72,21 @@ const tool = {
           name: { type: 'string' },
           folder: { type: 'string' },
           startCommand: { type: 'string' },
-          stopCommand: { type: 'string' }
+          stopCommand: { type: 'string' },
+          services: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                port: { type: 'integer' }
+              },
+              required: ['name', 'port'],
+              additionalProperties: false
+            }
+          }
         },
-        required: ['id', 'name', 'folder', 'startCommand', 'stopCommand'],
+        required: ['id', 'name', 'folder', 'startCommand', 'stopCommand', 'services'],
         additionalProperties: false
       }
     },
@@ -111,7 +148,7 @@ function handleRequest(message) {
           version: SERVER_VERSION,
           description: 'Adds local projects to the Porter VS Code extension.'
         },
-        instructions: 'Use porter_setup_project when the user asks to save a local project in Porter. Provide the absolute folder path and the exact start and stop commands.'
+        instructions: 'Use porter_setup_project when the user asks to save a local project in Porter. Inspect the project first, identify every service it starts, and provide the absolute folder path, exact start and stop commands, and an explicit unique port for each service.'
       });
       break;
     case 'ping':
@@ -144,10 +181,13 @@ function callTool(message) {
     if (!argumentsValue || typeof argumentsValue !== 'object' || Array.isArray(argumentsValue)) {
       throw new Error('arguments must be an object.');
     }
-    const allowedKeys = new Set(['folder', 'startCommand', 'stopCommand']);
+    const allowedKeys = new Set(['folder', 'startCommand', 'stopCommand', 'services']);
     const unsupportedKeys = Object.keys(argumentsValue).filter((key) => !allowedKeys.has(key));
     if (unsupportedKeys.length) {
       throw new Error(`unsupported argument: ${unsupportedKeys.join(', ')}`);
+    }
+    if (!Object.prototype.hasOwnProperty.call(argumentsValue, 'services')) {
+      throw new Error('services must list at least one service and port.');
     }
 
     const saved = upsertProject(PROJECTS_FILE, argumentsValue);

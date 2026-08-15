@@ -226,6 +226,27 @@ input:focus-visible {
   font-weight: 500;
 }
 
+.project-services {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.project-services span {
+  padding: 2px 5px;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-badge-background);
+  border-radius: 3px;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 9px;
+}
+
+.project-services strong {
+  color: var(--vscode-badge-foreground);
+  font-weight: 600;
+}
+
 .add-screen {
   padding: 14px;
 }

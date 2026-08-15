@@ -21,24 +21,49 @@ test('creates, updates, and removes projects in the shared store', (t) => {
   const created = upsertProject(projectsFile, {
     folder: projectFolder,
     startCommand: 'npm run dev',
-    stopCommand: 'pkill -f vite'
+    stopCommand: 'pkill -f vite',
+    services: [{ name: 'web', port: 3000 }]
   });
 
   assert.equal(created.action, 'created');
   assert.equal(created.project.name, 'sample-app');
+  assert.deepEqual(created.project.services, [{ name: 'web', port: 3000 }]);
   assert.equal(readProjects(projectsFile).length, 1);
 
   const updated = upsertProject(projectsFile, {
     folder: projectFolder,
     startCommand: 'pnpm dev',
-    stopCommand: 'pkill -f vite'
+    stopCommand: 'pkill -f vite',
+    services: [{ name: 'web', port: 3001 }]
   });
 
   assert.equal(updated.action, 'updated');
   assert.equal(updated.project.id, created.project.id);
   assert.equal(readProjects(projectsFile)[0].startCommand, 'pnpm dev');
+  assert.equal(readProjects(projectsFile)[0].services[0].port, 3001);
   assert.equal(removeProject(projectsFile, created.project.id), true);
   assert.deepEqual(readProjects(projectsFile), []);
+});
+
+test('rejects duplicate service ports', (t) => {
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'porter-store-'));
+  const projectFolder = path.join(temporaryRoot, 'sample-app');
+  const projectsFile = path.join(temporaryRoot, 'projects.json');
+  fs.mkdirSync(projectFolder);
+  t.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
+
+  assert.throws(
+    () => upsertProject(projectsFile, {
+      folder: projectFolder,
+      startCommand: 'npm run dev',
+      stopCommand: 'pkill -f vite',
+      services: [
+        { name: 'web', port: 3000 },
+        { name: 'api', port: 3000 }
+      ]
+    }),
+    /ports must be unique/
+  );
 });
 
 test('rejects project folders that do not exist', (t) => {

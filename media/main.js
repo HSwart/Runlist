@@ -53,6 +53,10 @@ function renderList() {
             <span title="${escapeHtml(project.folder)}">${escapeHtml(project.folder)}</span>
             <strong>${escapeHtml(project.startCommand)}</strong>
           </div>
+          ${project.services?.length ? `
+            <div class="project-services" aria-label="Service ports">
+              ${project.services.map((service) => `<span>${escapeHtml(service.name)} <strong>:${escapeHtml(String(service.port))}</strong></span>`).join('')}
+            </div>` : ''}
         </article>`).join('')}
     </section>`;
 }

@@ -51,17 +51,26 @@ test('serves the setup tool over MCP stdio', async (t) => {
   const listed = await request('tools/list');
   assert.equal(listed.result.tools.length, 1);
   assert.equal(listed.result.tools[0].name, 'porter_setup_project');
+  assert.ok(listed.result.tools[0].inputSchema.required.includes('services'));
 
   const called = await request('tools/call', {
     name: 'porter_setup_project',
     arguments: {
       folder: projectFolder,
       startCommand: 'npm run dev',
-      stopCommand: 'pkill -f vite'
+      stopCommand: 'pkill -f vite',
+      services: [
+        { name: 'web', port: 3000 },
+        { name: 'api', port: 4000 }
+      ]
     }
   });
   assert.equal(called.result.isError, false);
   assert.equal(called.result.structuredContent.action, 'created');
+  assert.deepEqual(called.result.structuredContent.project.services, [
+    { name: 'web', port: 3000 },
+    { name: 'api', port: 4000 }
+  ]);
   assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).length, 1);
 
   const invalid = await request('tools/call', {
@@ -69,9 +78,21 @@ test('serves the setup tool over MCP stdio', async (t) => {
     arguments: {
       folder: 'relative/path',
       startCommand: 'npm run dev',
-      stopCommand: 'pkill -f vite'
+      stopCommand: 'pkill -f vite',
+      services: [{ name: 'web', port: 3000 }]
     }
   });
   assert.equal(invalid.result.isError, true);
   assert.match(invalid.result.content[0].text, /absolute path/);
+
+  const missingServices = await request('tools/call', {
+    name: 'porter_setup_project',
+    arguments: {
+      folder: projectFolder,
+      startCommand: 'npm run dev',
+      stopCommand: 'pkill -f vite'
+    }
+  });
+  assert.equal(missingServices.result.isError, true);
+  assert.match(missingServices.result.content[0].text, /at least one service and port/);
 });

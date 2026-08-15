@@ -2,7 +2,7 @@
   "name": "porter",
   "displayName": "Porter",
   "description": "Start and stop local projects from one focused sidebar.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "local",
   "engines": {
     "vscode": "^1.113.0"
