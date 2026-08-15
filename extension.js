@@ -376,7 +376,7 @@ class SwitchboardViewProvider {
     this.draft = { ...project };
     this.formBaseline = projectFormValues(project);
     this.formErrors = {};
-    this.focusTarget = { type: 'field', id: 'project-name' };
+    this.focusTarget = { type: 'field', id: project.reviewRequired ? 'start-command' : 'project-name' };
     this.returnFocus = { type: 'project-menu', id };
     this.render();
   }
@@ -553,7 +553,7 @@ class SwitchboardViewProvider {
         startCommand,
         stopCommand,
         ...(services ? { services } : {})
-      });
+      }, { reviewRequired: false });
       projectId = saved.project.id;
     } catch (error) {
       const formError = projectSaveError(error);
@@ -634,17 +634,22 @@ class SwitchboardViewProvider {
   }
 
   async startProject(id) {
+    const projects = this.projects;
+    const project = projects.find((item) => item.id === id);
+    if (!project) {
+      return;
+    }
+    if (project.reviewRequired) {
+      vscode.window.showWarningMessage(`Review and approve ${project.name}'s setup before running its commands.`);
+      this.showEditProject(id);
+      return;
+    }
+
     const currentStatus = this.getProjectStatus(id);
     if (currentStatus !== 'stopped') {
       if (['port-in-use', 'port-in-use-unknown'].includes(currentStatus)) {
         vscode.window.showWarningMessage('A configured app port is already in use. Stop the running app before starting this project.');
       }
-      return;
-    }
-
-    const projects = this.projects;
-    const project = projects.find((item) => item.id === id);
-    if (!project) {
       return;
     }
 
@@ -768,6 +773,11 @@ class SwitchboardViewProvider {
     if (!project) {
       return;
     }
+    if (project.reviewRequired) {
+      vscode.window.showWarningMessage(`Review and approve ${project.name}'s setup before running its commands.`);
+      this.showEditProject(id);
+      return;
+    }
 
     if (this.startAttempts.has(id)) {
       this.statusRevision += 1;
@@ -888,6 +898,11 @@ class SwitchboardViewProvider {
       draft: this.draft,
       focusTarget: this.focusTarget || this.lastFocusTarget,
       formErrors: this.formErrors,
+      reviewRequired: this.mode === 'edit'
+        && Boolean(projects.find((project) => project.id === this.selectedProjectId)?.reviewRequired),
+      reviewServices: this.mode === 'edit'
+        ? projects.find((project) => project.id === this.selectedProjectId)?.services || []
+        : [],
       projectOutput: outputProject ? {
         entries: formatProjectOutput(rawProjectOutput),
         name: outputProject.name,

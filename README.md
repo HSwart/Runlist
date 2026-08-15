@@ -93,7 +93,7 @@ You can also describe what you want naturally. For example:
 
 > Inspect this project and add it to Switchboard with the name My App. Identify the exact start and stop commands, and include the port for every service it runs.
 
-The agent can save a new project or update one already in Switchboard. Starting and stopping projects remains a deliberate action in the Switchboard sidebar.
+The agent can save a new project or update one already in Switchboard. The project then shows **Review setup** in the sidebar. Check its folder and exact commands, then select **Approve setup** before Start or Stop becomes available.
 
 After updating Switchboard, return to **Agent connections** and select **Refresh setup** so the agent uses the current connection and skill. Switchboard will not replace a different skill you created with the same name.
 

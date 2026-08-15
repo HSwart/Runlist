@@ -16,7 +16,7 @@ const PROJECTS_FILE = process.env.SWITCHBOARD_PROJECTS_FILE;
 const tool = {
   name: 'switchboard_setup_project',
   title: 'Set up a Switchboard project',
-  description: 'Add a local project to Switchboard, or update the existing entry for the same folder. You may give the project a friendly custom name. Before calling, identify every service the project starts and provide its explicit port. Stores commands that Switchboard may execute later when the user clicks Start or Stop.',
+  description: 'Add a local project to Switchboard, or update the existing entry for the same folder. You may give the project a friendly custom name. Before calling, identify every service the project starts and provide its explicit port. The saved commands remain blocked until the user reviews and approves them in Switchboard.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -78,6 +78,7 @@ const tool = {
           folder: { type: 'string' },
           startCommand: { type: 'string' },
           stopCommand: { type: 'string' },
+          reviewRequired: { type: 'boolean' },
           services: {
             type: 'array',
             items: {
@@ -91,7 +92,7 @@ const tool = {
             }
           }
         },
-        required: ['id', 'name', 'folder', 'startCommand', 'stopCommand', 'services'],
+        required: ['id', 'name', 'folder', 'startCommand', 'stopCommand', 'services', 'reviewRequired'],
         additionalProperties: false
       }
     },
@@ -153,7 +154,7 @@ function handleRequest(message) {
           version: SERVER_VERSION,
           description: 'Adds local projects to the Switchboard VS Code extension.'
         },
-        instructions: 'Use switchboard_setup_project when the user asks to save a local project in Switchboard. Inspect the project first, identify every service it starts, and provide the absolute folder path, exact start and stop commands, and an explicit unique port for each service. You may also provide a friendly custom project name when the user requests one.'
+        instructions: 'Use switchboard_setup_project when the user asks to save a local project in Switchboard. Inspect the project first, identify every service it starts, and provide the absolute folder path, exact start and stop commands, and an explicit unique port for each service. You may also provide a friendly custom project name when the user requests one. Tell the user that Switchboard will require them to review and approve the saved setup before its commands can run.'
       });
       break;
     case 'ping':
@@ -195,13 +196,16 @@ function callTool(message) {
       throw new Error('services must list at least one service and port.');
     }
 
-    const saved = upsertProject(PROJECTS_FILE, argumentsValue);
+    const saved = upsertProject(PROJECTS_FILE, argumentsValue, { reviewRequired: true });
     const structuredContent = {
       action: saved.action,
       project: saved.project
     };
     result(message.id, {
-      content: [{ type: 'text', text: JSON.stringify(structuredContent) }],
+      content: [{
+        type: 'text',
+        text: `${saved.project.name} was ${saved.action} in Switchboard. The user must review and approve its folder and commands in the Switchboard sidebar before Start or Stop is available.\n${JSON.stringify(structuredContent)}`
+      }],
       structuredContent,
       isError: false
     });

@@ -13,6 +13,6 @@ description: Set up or update a local development project in Switchboard by insp
 4. Use the user's preferred project name when provided. Otherwise, use the project's existing human-readable name or let Switchboard derive it from the folder.
 5. If any command, service, or port remains ambiguous, ask one concise question before saving. Do not ask for confirmation when the configuration is already clear.
 6. Call the `switchboard_setup_project` MCP tool with the absolute folder, exact start command, exact stop command, complete service list, and optional friendly name.
-7. Report the saved project name, commands, and service ports succinctly.
+7. Report the saved project name, commands, and service ports succinctly. Tell the user to review and approve the setup in the Switchboard sidebar before running it.
 
 If the Switchboard MCP tool is unavailable, tell the user to open **Switchboard → Agent connections** in VS Code and select **Set up** for this agent. Do not edit Switchboard's storage file directly.

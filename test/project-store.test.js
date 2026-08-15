@@ -27,6 +27,7 @@ test('creates, updates, and removes projects in the shared store', (t) => {
 
   assert.equal(created.action, 'created');
   assert.equal(created.project.name, 'sample-app');
+  assert.equal(created.project.reviewRequired, false);
   assert.deepEqual(created.project.services, [{ name: 'web', port: 3000 }]);
   assert.equal(readProjects(projectsFile).length, 1);
 
@@ -43,6 +44,29 @@ test('creates, updates, and removes projects in the shared store', (t) => {
   assert.equal(updated.project.name, 'Sample web app');
   assert.equal(readProjects(projectsFile)[0].startCommand, 'pnpm dev');
   assert.equal(readProjects(projectsFile)[0].services[0].port, 3001);
+
+  const updatedByAgent = upsertProject(projectsFile, {
+    folder: projectFolder,
+    startCommand: 'pnpm dev',
+    stopCommand: 'pkill -f vite',
+    services: [{ name: 'web', port: 3001 }]
+  }, { reviewRequired: true });
+  assert.equal(updatedByAgent.project.reviewRequired, true);
+
+  const updatedWithoutReviewOption = upsertProject(projectsFile, {
+    folder: projectFolder,
+    startCommand: 'pnpm dev --host',
+    stopCommand: 'pkill -f vite'
+  });
+  assert.equal(updatedWithoutReviewOption.project.reviewRequired, true);
+
+  const approved = upsertProject(projectsFile, {
+    id: created.project.id,
+    folder: projectFolder,
+    startCommand: 'pnpm dev',
+    stopCommand: 'pkill -f vite'
+  }, { reviewRequired: false });
+  assert.equal(approved.project.reviewRequired, false);
 
   const updatedWithoutName = upsertProject(projectsFile, {
     folder: projectFolder,

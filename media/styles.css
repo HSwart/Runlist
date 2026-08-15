@@ -249,7 +249,8 @@ button:active:not(:disabled) {
 }
 
 .project-status.status-port-in-use,
-.project-status.status-port-in-use-unknown {
+.project-status.status-port-in-use-unknown,
+.project-status.status-review-required {
   border-color: var(--vscode-editorWarning-foreground, var(--vscode-contrastBorder, transparent));
 }
 
@@ -553,6 +554,23 @@ label {
 
 .shared-port-warning[hidden] {
   display: none;
+}
+
+.review-services {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+}
+
+.review-services code {
+  padding: 2px 5px;
+  color: var(--vscode-foreground);
+  background: var(--vscode-textCodeBlock-background);
+  border-radius: 2px;
 }
 
 input {
