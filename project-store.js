@@ -50,6 +50,9 @@ function upsertProject(filePath, input, options = {}) {
   const name = input.name === undefined
     ? existing?.name || path.basename(folder)
     : normalizeProjectName(input.name, path.basename(folder));
+  const pinned = input.pinned === undefined
+    ? existing?.pinned === true
+    : input.pinned === true;
   const project = {
     id: existing?.id || createId(),
     name,
@@ -57,6 +60,7 @@ function upsertProject(filePath, input, options = {}) {
     startCommand,
     ...(stopCommand ? { stopCommand } : {}),
     services: providedServices || existing?.services || [],
+    ...(pinned ? { pinned: true } : {}),
     reviewRequired: options.reviewRequired === undefined
       ? Boolean(existing?.reviewRequired)
       : Boolean(options.reviewRequired)
@@ -90,6 +94,32 @@ function removeProject(filePath, id) {
   }
   writeProjects(filePath, nextProjects);
   return true;
+}
+
+function toggleProjectPinned(filePath, id) {
+  const projects = readProjects(filePath);
+  const index = projects.findIndex((project) => project.id === id);
+  if (index === -1) {
+    return undefined;
+  }
+
+  const pinned = projects[index].pinned !== true;
+  projects[index] = {
+    ...projects[index],
+    ...(pinned ? { pinned: true } : {})
+  };
+  if (!pinned) {
+    delete projects[index].pinned;
+  }
+  writeProjects(filePath, projects);
+  return projects[index];
+}
+
+function pinnedProjectsFirst(projects) {
+  return [
+    ...projects.filter((project) => project.pinned === true),
+    ...projects.filter((project) => project.pinned !== true)
+  ];
 }
 
 function normalizeProjectName(value, fallback) {
@@ -208,8 +238,10 @@ function createId() {
 module.exports = {
   findProjectByFolder,
   initializeProjectStore,
+  pinnedProjectsFirst,
   readProjects,
   removeProject,
+  toggleProjectPinned,
   upsertProject,
   writeProjects
 };
