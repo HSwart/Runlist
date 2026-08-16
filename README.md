@@ -18,6 +18,7 @@ Runlist keeps a reusable list of local projects from different repositories insi
 
 - Start projects with their saved commands and safely stop the process trees Runlist launched.
 - Search saved projects by name or folder.
+- Pin important projects so they stay at the top of the list.
 - Give projects a friendly name without renaming their folders.
 - Keep configured service names and ports visible at a glance.
 - When service ports are configured, see project status and open the first service at its localhost address or optional HTTP/HTTPS URL.
@@ -95,6 +96,7 @@ Runlist keeps the everyday controls simple:
 | Control | What it does |
 | --- | --- |
 | **Search** | Filters your saved projects by project name or folder. |
+| **Pin to top** | In a project's More actions menu, keeps that project above unpinned projects until you unpin it. |
 | **Project status** | Shows the written state in a clear status capsule, including running, stopped, transitions, and port conflicts. Long names, status details, and folder paths scroll automatically when they do not fit. |
 | **Start icon** | Runs the saved start command inside the project folder. |
 | **Stop icon** | Stops the process tree Runlist launched, or runs the optional custom stop command when one is configured. |

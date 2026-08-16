@@ -56,8 +56,10 @@ const {
 const { projectSearchText } = require('./project-search');
 const {
   initializeProjectStore,
+  pinnedProjectsFirst,
   readProjects,
   removeProject,
+  toggleProjectPinned,
   upsertProject
 } = require('./project-store');
 
@@ -153,7 +155,7 @@ class RunlistViewProvider {
   }
 
   get projects() {
-    return readProjects(this.projectsFile);
+    return pinnedProjectsFirst(readProjects(this.projectsFile));
   }
 
   defaultListFocusTarget() {
@@ -364,6 +366,9 @@ class RunlistViewProvider {
         break;
       case 'openProjectFolder':
         await this.openProjectFolder(message.id);
+        break;
+      case 'toggleProjectPin':
+        this.toggleProjectPin(message.id);
         break;
       case 'setSearchQuery':
         this.searchQuery = String(message.query || '');
@@ -613,6 +618,19 @@ class RunlistViewProvider {
       await openProjectInNewWindow(vscode, project.folder);
     } catch (error) {
       vscode.window.showErrorMessage(`Could not open ${project.name} in VS Code: ${error.message}`);
+    }
+  }
+
+  toggleProjectPin(id) {
+    try {
+      const project = toggleProjectPinned(this.projectsFile, id);
+      if (!project) {
+        return;
+      }
+      this.focusTarget = { type: 'project-menu', id };
+      this.renderProjectList();
+    } catch (error) {
+      vscode.window.showErrorMessage(`Could not update this project: ${error.message}`);
     }
   }
 
@@ -1256,6 +1274,7 @@ class RunlistViewProvider {
       const openPorts = this.projectOpenPorts.get(project.id) || [];
       return {
         ...project,
+        pinned: project.pinned === true,
         openPorts,
         portConflict: this.projectPortConflicts.get(project.id),
         primaryServiceOpen: isPrimaryServiceOpen(project.services, openPorts),

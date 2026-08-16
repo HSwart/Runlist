@@ -212,6 +212,25 @@ button:active:not(:disabled) {
   white-space: nowrap;
 }
 
+.project-heading h2 {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.project-heading h2 > .auto-scroll {
+  flex: 1 1 auto;
+}
+
+.pinned-icon {
+  width: 12px;
+  height: 12px;
+  display: block;
+  flex: 0 0 auto;
+  color: var(--vscode-icon-foreground);
+}
+
 .screen-header h2,
 .empty-state h2 {
   overflow: hidden;
