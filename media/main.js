@@ -612,7 +612,7 @@ function renderProjectOutput() {
           <div id="project-output">${outputEntriesHtml(projectOutput.entries)}</div>
         </div>
         <button class="output-jump-button" data-action="jump-latest" hidden>
-          ${icon('arrow-down', 'jump-icon')}Latest
+          ${icon('chevron-down', 'jump-icon')}Latest
         </button>
       </div>
       <span id="output-update-status" class="visually-hidden" aria-live="polite"></span>

@@ -1,4 +1,6 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { PassThrough } = require('node:stream');
 const test = require('node:test');
 const {
@@ -217,4 +219,11 @@ test('parses escaped quoted fields without excessive backtracking', { timeout: 1
 
   const malformed = `level="${'\\!'.repeat(5000)}`;
   assert.equal(formatProjectOutput(malformed).length, 1);
+});
+
+test('renders the recent output screen with a supported Latest icon', () => {
+  const webview = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
+
+  assert.match(webview, /icon\('chevron-down', 'jump-icon'\)/);
+  assert.doesNotMatch(webview, /icon\('arrow-down'/);
 });
