@@ -117,8 +117,8 @@ test('wires one accessible handoff action through the guarded stop and start pat
   assert.match(webview, /const handoffLabel = `Stop \$\{conflictOwnerName\} and start \$\{projectName\}`/);
   assert.match(webview, /class="handoff-button" data-action="handoff"[\s\S]*aria-label="\$\{handoffLabel\}"/);
   assert.match(webview, /handoff: \(\) => \{[\s\S]*type: 'handoffProject'/);
+  assert.match(webview, /const indicator = conflicted[\s\S]*\? 'conflict'[\s\S]*: webNotResponding/);
   assert.match(extension, /handoffProjectSafely\(this\.handoffProjectIds, id/);
   assert.match(extension, /stop: \(conflict\) => this\.stopProject\(conflict\.owner\.id[\s\S]*expectedOwnershipToken/);
   assert.match(extension, /start: \(\) => this\.startProject\(id,[\s\S]*ownershipReserved: true/);
 });
-

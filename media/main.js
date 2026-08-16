@@ -440,15 +440,16 @@ function renderList() {
                   const canCopyUrl = project.serviceUrls?.some((entry) => entry.port === service.port)
                     && !reviewRequired
                     && !conflicted;
-                  const webNotResponding = portOpen
+                  const webNotResponding = !conflicted
+                    && portOpen
                     && project.webPorts?.includes(service.port)
                     && !project.respondingPorts?.includes(service.port);
-                  const indicator = webNotResponding
-                    ? 'not-responding'
-                    : portOpen
-                      ? 'running'
-                      : conflicted
-                        ? 'conflict'
+                  const indicator = conflicted
+                    ? 'conflict'
+                    : webNotResponding
+                      ? 'not-responding'
+                      : portOpen
+                        ? 'running'
                         : '';
                   const title = webNotResponding
                     ? ` title="${escapeHtml(service.name)} port is open, but its web service is not responding"`
