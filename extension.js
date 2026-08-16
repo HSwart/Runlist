@@ -56,7 +56,8 @@ const {
   createOutputUpdateScheduler,
   formatProjectOutput,
   listenToProjectOutput,
-  sanitizeProjectOutput
+  sanitizeProjectOutput,
+  startFailureSummary
 } = require('./project-output');
 const { projectSearchText } = require('./project-search');
 const {
@@ -102,6 +103,8 @@ class RunlistViewProvider {
     this.resourceSampleProjectId = undefined;
     this.resourceSampleGeneration = 0;
     this.projectOutputs = new Map();
+    this.projectFailureSummaries = new Map();
+    this.projectFailureDetails = new Map();
     this.outputUpdateScheduler = createOutputUpdateScheduler((id) => this.sendProjectOutput(id));
     this.managedProjectIds = new Set();
     this.portReservations = new PortReservationStore(
@@ -569,6 +572,10 @@ class RunlistViewProvider {
   addProjectOutput(id, chunk) {
     const output = appendProjectOutput(this.projectOutputs.get(id), chunk);
     this.projectOutputs.set(id, output);
+    const failureDetails = this.projectFailureDetails.get(id);
+    if (failureDetails) {
+      this.projectFailureSummaries.set(id, startFailureSummary(output, failureDetails));
+    }
     if (this.mode === 'output' && this.selectedProjectId === id) {
       this.outputUpdateScheduler.schedule(id);
     }
@@ -610,10 +617,16 @@ class RunlistViewProvider {
     });
   }
 
-  showStartFailure(project, detail) {
-    this.addProjectOutput(project.id, `Runlist: start failed — ${detail}\n`);
+  showStartFailure(project, details = {}) {
+    const normalizedDetails = typeof details === 'string' ? { detail: details } : details;
+    const summary = startFailureSummary(this.projectOutputs.get(project.id), normalizedDetails);
+    this.projectFailureDetails.set(project.id, normalizedDetails);
+    this.projectFailureSummaries.set(project.id, summary);
+    if (this.mode === 'output' && this.selectedProjectId === project.id) {
+      this.outputUpdateScheduler.schedule(project.id);
+    }
     void vscode.window.showErrorMessage(
-      `Could not start ${project.name}: ${detail}`,
+      `Could not start ${project.name}: ${summary.message}`,
       'View output'
     ).then((choice) => {
       if (choice === 'View output') {
@@ -631,6 +644,7 @@ class RunlistViewProvider {
       type: 'projectOutput',
       messageToken: this.webviewMessageToken,
       entries: formatProjectOutput(rawOutput),
+      failureSummary: this.projectFailureSummaries.get(id),
       output: sanitizeProjectOutput(rawOutput)
     });
   }
@@ -1035,6 +1049,8 @@ class RunlistViewProvider {
       this.stoppingProjectIds.delete(id);
       this.remoteStopRequests.delete(id);
       this.projectOutputs.delete(id);
+      this.projectFailureSummaries.delete(id);
+      this.projectFailureDetails.delete(id);
       if (this.selectedProjectId === id) {
         this.outputUpdateScheduler.cancel();
       }
@@ -1171,6 +1187,8 @@ class RunlistViewProvider {
         this.startReadinessDeadlines.set(id, readinessDeadline);
       }
       this.projectOutputs.set(id, '');
+      this.projectFailureSummaries.delete(id);
+      this.projectFailureDetails.delete(id);
       const child = spawn(project.startCommand, {
         cwd: project.folder,
         shell: true,
@@ -1189,12 +1207,7 @@ class RunlistViewProvider {
       this.startAttempts.delete(id);
       this.portReservations.setState(id, hasServices ? 'starting' : 'running');
       this.statusRevision += 1;
-      let stderr = '';
       listenToProjectOutput(child, (chunk) => this.addProjectOutput(id, chunk));
-      child.stderr?.setEncoding('utf8');
-      child.stderr?.on('data', (chunk) => {
-        stderr = `${stderr}${chunk}`.slice(-2000);
-      });
       child.once('error', (error) => {
         this.statusRevision += 1;
         this.processes.delete(id);
@@ -1224,10 +1237,9 @@ class RunlistViewProvider {
             this.startReadinessDeadlines.delete(id);
             this.readinessWarnings.delete(id);
             if (!stoppedIntentionally) {
-              const detail = lastUsefulLine(stderr);
               this.showStartFailure(
                 project,
-                detail || (signal ? `command was terminated by ${signal}.` : `command exited with code ${code}.`)
+                { code, signal }
               );
             }
             this.renderProjectList();
@@ -1571,6 +1583,7 @@ class RunlistViewProvider {
           .includes(this.getProjectStatus(this.selectedProjectId)),
       projectOutput: outputProject ? {
         entries: formatProjectOutput(rawProjectOutput),
+        failureSummary: this.projectFailureSummaries.get(outputProject.id),
         name: outputProject.name,
         output: cleanProjectOutput
       } : undefined,

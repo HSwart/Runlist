@@ -1,6 +1,7 @@
 const { stripVTControlCharacters } = require('util');
 
 const MAX_PROJECT_OUTPUT_CHARS = 20000;
+const MAX_FAILURE_MESSAGE_CHARS = 500;
 
 function appendProjectOutput(current, chunk, limit = MAX_PROJECT_OUTPUT_CHARS) {
   const output = `${current || ''}${String(chunk || '')}`;
@@ -213,6 +214,73 @@ function formatProjectOutput(output) {
   return sanitizeProjectOutput(output).split(/\r?\n/).map(formatOutputLine);
 }
 
+function startFailureSummary(output, details = {}) {
+  const boundedOutput = appendProjectOutput('', output, MAX_PROJECT_OUTPUT_CHARS);
+  const lines = sanitizeProjectOutput(boundedOutput)
+    .split(/\r?\n/)
+    .map(cleanFailureLine)
+    .filter(Boolean);
+  let selected;
+  let selectedScore = 0;
+  for (const line of lines) {
+    const score = failureLineScore(line);
+    if (score >= selectedScore && score > 0) {
+      selected = line;
+      selectedScore = score;
+    }
+  }
+
+  const explicitDetail = cleanFailureLine(details.detail);
+  const outcome = failureOutcome(details.code, details.signal);
+  return {
+    title: 'Start failed',
+    message: selected || explicitDetail || outcome || 'The start command stopped unexpectedly.',
+    outcome: (selected || explicitDetail) ? outcome : ''
+  };
+}
+
+function cleanFailureLine(value) {
+  const line = String(value || '').trim();
+  if (!line) {
+    return '';
+  }
+  return line.length > MAX_FAILURE_MESSAGE_CHARS
+    ? `${line.slice(0, MAX_FAILURE_MESSAGE_CHARS - 1)}…`
+    : line;
+}
+
+function failureLineScore(line) {
+  if (/^\s*(?:\$|>\s+\S+@)/.test(line) || /^Runlist:/i.test(line)) {
+    return 0;
+  }
+  if (/not recognized as an internal or external command|command not found|no such file or directory|permission denied/i.test(line)) {
+    return 100;
+  }
+  if (/\b(?:EADDRINUSE|ENOENT|EACCES|ERR_[A-Z0-9_]+)\b|cannot find (?:module|package)/i.test(line)) {
+    return 90;
+  }
+  if (/(?:^|[^a-z])(?:fatal|exception|traceback|error)(?:[^a-z]|$)/i.test(line)) {
+    return 80;
+  }
+  if (/(?:failed|failure|ELIFECYCLE)/i.test(line)) {
+    return 60;
+  }
+  if (/exited with code|exit status|command failed/i.test(line)) {
+    return 40;
+  }
+  return 0;
+}
+
+function failureOutcome(code, signal) {
+  if (code !== undefined && code !== null) {
+    return `Process exited with code ${code}.`;
+  }
+  if (signal) {
+    return `Process was terminated by ${signal}.`;
+  }
+  return '';
+}
+
 function createOutputUpdateScheduler(onUpdate, delay = 100) {
   let timer;
   let latestValue;
@@ -333,5 +401,6 @@ module.exports = {
   createOutputUpdateScheduler,
   formatProjectOutput,
   listenToProjectOutput,
-  sanitizeProjectOutput
+  sanitizeProjectOutput,
+  startFailureSummary
 };

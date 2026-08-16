@@ -8,7 +8,8 @@ const {
   createOutputUpdateScheduler,
   formatProjectOutput,
   listenToProjectOutput,
-  sanitizeProjectOutput
+  sanitizeProjectOutput,
+  startFailureSummary
 } = require('../project-output');
 
 test('combines project output and removes terminal color codes', () => {
@@ -221,9 +222,66 @@ test('parses escaped quoted fields without excessive backtracking', { timeout: 1
   assert.equal(formatProjectOutput(malformed).length, 1);
 });
 
-test('renders the recent output screen with a supported Latest icon', () => {
+test('surfaces a useful Windows failure ahead of process-manager wrapper output', () => {
+  const output = [
+    '[web] VITE ready',
+    "[api] [node] 'sh' is not recognized as an internal or external command,",
+    '[api] [ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] command failed',
+    '$ concurrently -k -n web,api "pnpm dev:web" "pnpm dev:api"'
+  ].join('\r\n');
+
+  assert.deepEqual(startFailureSummary(output, { code: 1 }), {
+    title: 'Start failed',
+    message: "[api] [node] 'sh' is not recognized as an internal or external command,",
+    outcome: 'Process exited with code 1.'
+  });
+});
+
+test('surfaces useful Unix failures from combined project output', () => {
+  assert.deepEqual(startFailureSummary([
+    'starting server',
+    '/bin/sh: vite: command not found'
+  ].join('\n'), { code: 127 }), {
+    title: 'Start failed',
+    message: '/bin/sh: vite: command not found',
+    outcome: 'Process exited with code 127.'
+  });
+});
+
+test('falls back safely to an exit code, signal, or explicit spawn error', () => {
+  assert.deepEqual(startFailureSummary('ordinary output', { code: 1 }), {
+    title: 'Start failed',
+    message: 'Process exited with code 1.',
+    outcome: ''
+  });
+  assert.deepEqual(startFailureSummary('', { signal: 'SIGTERM' }), {
+    title: 'Start failed',
+    message: 'Process was terminated by SIGTERM.',
+    outcome: ''
+  });
+  assert.deepEqual(startFailureSummary('', { detail: 'spawn ENOENT' }), {
+    title: 'Start failed',
+    message: 'spawn ENOENT',
+    outcome: ''
+  });
+});
+
+test('keeps failure selection bounded for verbose and unsafe output', { timeout: 1000 }, () => {
+  const unsafe = '<img src=x onerror=alert(1)> fatal error';
+  const output = `${'noise\n'.repeat(100000)}${unsafe}`;
+
+  assert.equal(startFailureSummary(output, { code: 1 }).message, unsafe);
+});
+
+test('renders an escaped accessible failure summary with a supported Latest icon', () => {
   const webview = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
+  const styles = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.css'), 'utf8');
 
   assert.match(webview, /icon\('chevron-down', 'jump-icon'\)/);
   assert.doesNotMatch(webview, /icon\('arrow-down'/);
+  assert.match(webview, /outputFailureSummaryHtml[\s\S]*escapeHtml\(summary\.message\)/);
+  assert.match(webview, /class="output-failure-summary" role="status" aria-live="polite"/);
+  assert.match(webview, /failure\.innerHTML = outputFailureSummaryHtml\(event\.data\.failureSummary\)/);
+  assert.match(webview, /failureSummary[\s\S]*No command output was captured\./);
+  assert.match(styles, /\.output-failure-summary \{[\s\S]*--vscode-inputValidation-errorBackground/);
 });

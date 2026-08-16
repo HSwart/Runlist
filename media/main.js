@@ -85,9 +85,11 @@ function outputMessageHtml(value) {
   return html + escapeHtml(String(value || '').slice(previousIndex));
 }
 
-function outputEntriesHtml(entries) {
+function outputEntriesHtml(entries, failureSummary) {
   if (!entries?.length) {
-    return '<p class="output-empty">No output yet. Start this project to see its output here.</p>';
+    return failureSummary
+      ? '<p class="output-empty">No command output was captured.</p>'
+      : '<p class="output-empty">No output yet. Start this project to see its output here.</p>';
   }
   return entries.map((entry) => {
     if (entry.kind === 'blank') {
@@ -103,6 +105,18 @@ function outputEntriesHtml(entries) {
     }
     return `<div class="output-entry raw"><div class="output-message">${outputMessageHtml(entry.message)}</div></div>`;
   }).join('');
+}
+
+function outputFailureSummaryHtml(summary) {
+  if (!summary?.message) {
+    return '';
+  }
+  return `
+    <section class="output-failure-summary" role="status" aria-live="polite">
+      <strong>${escapeHtml(summary.title || 'Start failed')}</strong>
+      <span>${escapeHtml(summary.message)}</span>
+      ${summary.outcome ? `<small>${escapeHtml(summary.outcome)}</small>` : ''}
+    </section>`;
 }
 
 function icon(name, className = 'icon') {
@@ -607,9 +621,10 @@ function renderProjectOutput() {
         </div>
       </header>
       <p class="screen-copy">${escapeHtml(projectOutput.name)}</p>
+      <div id="project-output-failure">${outputFailureSummaryHtml(projectOutput.failureSummary)}</div>
       <div class="output-panel-wrap">
         <div class="output-panel" data-empty="${projectOutput.output ? 'false' : 'true'}" tabindex="0" aria-label="Recent output for ${escapeHtml(projectOutput.name)}">
-          <div id="project-output">${outputEntriesHtml(projectOutput.entries)}</div>
+          <div id="project-output">${outputEntriesHtml(projectOutput.entries, projectOutput.failureSummary)}</div>
         </div>
         <button class="output-jump-button" data-action="jump-latest" hidden>
           ${icon('chevron-down', 'jump-icon')}Latest
@@ -856,8 +871,12 @@ window.addEventListener('message', (event) => {
   const shouldFollow = outputFollowLatest || outputIsNearBottom(outputPanel);
   const previousScrollTop = outputPanel.scrollTop;
   const focusedLink = focusedOutputLink(output);
+  const failure = document.getElementById('project-output-failure');
+  if (failure) {
+    failure.innerHTML = outputFailureSummaryHtml(event.data.failureSummary);
+  }
   outputPanel.dataset.empty = String(!event.data.output);
-  output.innerHTML = outputEntriesHtml(event.data.entries);
+  output.innerHTML = outputEntriesHtml(event.data.entries, event.data.failureSummary);
   const copyButton = document.querySelector('.output-copy-button');
   if (copyButton) {
     copyButton.disabled = !event.data.output;
