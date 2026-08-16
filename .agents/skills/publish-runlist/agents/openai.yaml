@@ -1,0 +1,4 @@
+interface:
+  display_name: "Publish Runlist"
+  short_description: "Safely publish Runlist to the Marketplace"
+  default_prompt: "Use $publish-runlist to validate and publish the reviewed Runlist VSIX to the VS Code Marketplace."

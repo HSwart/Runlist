@@ -109,7 +109,9 @@
     "test": "node --test",
     "validate:marketplace": "node scripts/validate-marketplace.js --preparation",
     "validate:marketplace:publish": "node scripts/validate-marketplace.js",
-    "package": "npm run validate:marketplace:publish && vsce package --no-dependencies --out releases/runlist.vsix"
+    "validate:marketplace:vsix": "node scripts/validate-vsix.js",
+    "package": "npm run validate:marketplace:publish && vsce package --no-dependencies --out releases/runlist.vsix",
+    "publish:marketplace": "npm run validate:marketplace:publish && npm run validate:marketplace:vsix && vsce publish --azure-credential --packagePath releases/runlist.vsix"
   },
   "devDependencies": {
     "@vscode/vsce": "3.9.2"

@@ -17,9 +17,11 @@ The strict `npm run validate:marketplace:publish` command must pass before publi
 
 ## Secure publication
 
-Use Microsoft Entra ID workload identity federation or a managed identity. Publish the exact reviewed package with `vsce publish --azure-credential --packagePath releases/runlist.vsix`; do not use a publish command that repackages the source. Keep tenant configuration and publisher membership outside this repository. Do not commit access tokens, client secrets, `.env` files, CLI login state, or generated credentials.
+Use your Microsoft Entra identity. Install the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli), run `az login --allow-no-subscriptions` once, and confirm the active account with `az account show`. Azure CLI keeps the local sign-in and refreshes it when possible; repeat the login only when Microsoft requires authentication again. An Azure subscription is not required.
 
-Only publish from the reviewed release commit after its tests and package checks pass. The publishing job should be limited to protected release tags and the selected Marketplace publisher.
+Publish the exact reviewed package with `npm run publish:marketplace`. The command runs strict validation, confirms the VSIX identity and version match `package.json`, and then executes `vsce publish --azure-credential --packagePath releases/runlist.vsix`; it does not repackage the source. Keep identity configuration and publisher membership outside this repository. Do not commit access tokens, client secrets, `.env` files, CLI login state, or generated credentials.
+
+Only publish from the reviewed release commit on `main` after its tests and package checks pass.
 
 Official guidance:
 
