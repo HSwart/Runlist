@@ -191,6 +191,8 @@ test('allows remote custom stops enough time for owner polling', () => {
 
   assert.match(source, /const STATUS_POLL_INTERVAL_MS = 2000;/);
   assert.match(source, /const CUSTOM_STOP_TIMEOUT_MS = 15000;/);
-  assert.match(source, /const REMOTE_STOP_TIMEOUT_MS = CUSTOM_STOP_TIMEOUT_MS \+ STATUS_POLL_INTERVAL_MS \+ 1000;/);
+  assert.match(source, /const CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS = 20000;/);
+  assert.match(source, /const REMOTE_STOP_TIMEOUT_MS = STATUS_POLL_INTERVAL_MS[\s\S]*\+ CUSTOM_STOP_TIMEOUT_MS[\s\S]*\+ CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS[\s\S]*\+ 1000;/);
   assert.match(source, /setInterval\(\(\) => this\.refreshProjectStatuses\(\), STATUS_POLL_INTERVAL_MS\)/);
+  assert.match(source, /waitForProjectStopCompletion\(id, CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS\)/);
 });

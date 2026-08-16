@@ -65,7 +65,11 @@ const STORAGE_KEY = 'switchboard.projects';
 const START_READINESS_TIMEOUT_MS = 30000;
 const STATUS_POLL_INTERVAL_MS = 2000;
 const CUSTOM_STOP_TIMEOUT_MS = 15000;
-const REMOTE_STOP_TIMEOUT_MS = CUSTOM_STOP_TIMEOUT_MS + STATUS_POLL_INTERVAL_MS + 1000;
+const CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS = 20000;
+const REMOTE_STOP_TIMEOUT_MS = STATUS_POLL_INTERVAL_MS
+  + CUSTOM_STOP_TIMEOUT_MS
+  + CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS
+  + 1000;
 
 class SwitchboardViewProvider {
   constructor(context, projectsFile, serverPath) {
@@ -812,8 +816,8 @@ class SwitchboardViewProvider {
     }
   }
 
-  async waitForProjectStopCompletion(id) {
-    const deadline = Date.now() + REMOTE_STOP_TIMEOUT_MS + 1000;
+  async waitForProjectStopCompletion(id, timeoutMs = REMOTE_STOP_TIMEOUT_MS + 1000) {
+    const deadline = Date.now() + timeoutMs;
     while (this.processOwnership.snapshot().has(id) || this.portReservations.snapshot().has(id)) {
       if (Date.now() >= deadline) {
         return false;
@@ -1049,7 +1053,7 @@ class SwitchboardViewProvider {
         return false;
       }
       const stillOwned = this.processes.has(id) || this.processOwnership.snapshot().has(id);
-      if (stillOwned && !await this.waitForProjectStopCompletion(id)) {
+      if (stillOwned && !await this.waitForProjectStopCompletion(id, CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS)) {
         vscode.window.showErrorMessage(
           `Could not stop ${project.name}: the custom stop command finished, but the launched process is still running.`
         );
