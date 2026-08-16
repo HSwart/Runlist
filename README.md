@@ -21,7 +21,7 @@ Runlist keeps a reusable list of local projects from different repositories insi
 - Pin important projects so they stay at the top of the list.
 - Give projects a friendly name without renaming their folders.
 - Keep configured service names and ports visible at a glance.
-- When service ports are configured, see project status and open the first service at its localhost address or optional HTTP/HTTPS URL.
+- When service ports are configured, see project status and open the first service at its localhost address or optional HTTP/HTTPS URL. Services with an Open URL are also checked for an HTTP response.
 - Open any saved project folder in a new VS Code window.
 - View readable recent output from the latest run, follow new lines, and open web links without leaving the sidebar.
 - Edit or remove a saved project without touching its files.
@@ -50,12 +50,12 @@ After installation, select the Runlist icon in the VS Code Activity Bar.
 3. If a local folder is already open in VS Code, choose **Use current workspace**, or select **Browse**. In a multi-root workspace, Runlist asks which local workspace folder to use.
 4. Enter the command that starts the project.
 5. If the project needs a special shutdown workflow, optionally enter a custom stop command. Most projects should leave this blank.
-6. If you know them, add each service name and port so Runlist can verify its status. You can optionally add an HTTP or HTTPS URL to open instead of the service's localhost address.
+6. If you know them, add each service name and port so Runlist can verify its status. You can optionally add an HTTP or HTTPS URL to open instead of the service's localhost address. Adding this Open URL also lets Runlist check whether the web service is responding.
 7. Save it.
 
 Runlist points out missing or invalid details beside the field that needs attention. If you close the screen after making changes, it asks before discarding them.
 
-Your project is now ready whenever you need it. Select the **Start** icon to run its saved start command. Projects with configured services stay **Starting…** until every saved TCP port is accepting connections. If they are not ready within 30 seconds, Runlist shows **Service not ready** and keeps recent output available. Projects without configured services use the launched process state. Select **Stop** to stop only the process tree Runlist launched. When an explicit custom stop command is configured, Runlist runs it instead.
+Your project is now ready whenever you need it. Select the **Start** icon to run its saved start command. Projects with configured services stay **Starting…** until every saved TCP port is accepting connections. A service with an Open URL also waits for its web page to respond; redirects, sign-in responses, and error pages still count as a response. If its port opens but the page does not respond within 30 seconds, Runlist shows **Web service not responding** while leaving the process running. Services without an Open URL keep using port-based checks. Projects without configured services use the launched process state. Select **Stop** to stop only the process tree Runlist launched. When an explicit custom stop command is configured, Runlist runs it instead.
 
 If Runlist is open in more than one VS Code window, starting or stopping a project in one window updates its status in the others automatically.
 
@@ -97,7 +97,7 @@ Runlist keeps the everyday controls simple:
 | --- | --- |
 | **Search** | Filters your saved projects by project name or folder. |
 | **Pin to top** | In a project's More actions menu, keeps that project above unpinned projects until you unpin it. |
-| **Project status** | Shows the written state in a clear status capsule, including running, stopped, transitions, and port conflicts. Long names, status details, and folder paths scroll automatically when they do not fit. |
+| **Project status** | Shows the written state in a clear status capsule, including running, stopped, transitions, a web service that is not responding, and port conflicts. Long names, status details, and folder paths scroll automatically when they do not fit. |
 | **Start icon** | Runs the saved start command inside the project folder. |
 | **Stop icon** | Stops the process tree Runlist launched, or runs the optional custom stop command when one is configured. |
 | **Restart** | In a project's More actions menu, safely stops that project before starting it again and checking service readiness. |
