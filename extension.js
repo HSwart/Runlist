@@ -66,6 +66,11 @@ const {
   sanitizeProjectOutput,
   startFailureSummary
 } = require('./project-output');
+const {
+  clearProjectDiagnostics,
+  readProjectDiagnostics,
+  writeProjectDiagnostics
+} = require('./project-diagnostics');
 const { projectSearchText } = require('./project-search');
 const {
   initializeProjectStore,
@@ -424,6 +429,15 @@ class RunlistViewProvider {
       case 'openOutputUrl':
         await this.openOutputUrl(message.url);
         break;
+      case 'showDiagnosis':
+        this.showProjectDiagnosis(message.id);
+        break;
+      case 'copyDiagnosisRequest':
+        await this.copyDiagnosisRequest();
+        break;
+      case 'showAgentSetup':
+        await this.showAgentSetup();
+        break;
       case 'pickFolder':
         await this.pickFolder(message.draft);
         break;
@@ -574,6 +588,19 @@ class RunlistViewProvider {
     this.render();
   }
 
+  showProjectDiagnosis(id) {
+    const project = this.projects.find((item) => item.id === id);
+    if (!project || !readProjectDiagnostics(this.projectsFile, id)) {
+      return;
+    }
+
+    this.mode = 'diagnosis';
+    this.selectedProjectId = id;
+    this.focusTarget = { type: 'action', action: 'copy-diagnosis-request' };
+    this.returnFocus = { type: 'project-menu', id };
+    this.render();
+  }
+
   async closeScreen(draft) {
     if (draft && ['add', 'edit'].includes(this.mode)) {
       this.draft = projectFormValues(draft);
@@ -614,7 +641,12 @@ class RunlistViewProvider {
     this.projectOutputs.set(id, output);
     const failureDetails = this.projectFailureDetails.get(id);
     if (failureDetails) {
-      this.projectFailureSummaries.set(id, startFailureSummary(output, failureDetails));
+      const summary = startFailureSummary(output, failureDetails);
+      this.projectFailureSummaries.set(id, summary);
+      const project = this.projects.find((item) => item.id === id);
+      if (project) {
+        this.persistStartFailure(project, failureDetails, summary);
+      }
     }
     if ((this.mode === 'output' && this.selectedProjectId === id)
       || (this.mode === 'list' && this.expandedPreviewProjectId === id)) {
@@ -690,6 +722,7 @@ class RunlistViewProvider {
     const summary = startFailureSummary(this.projectOutputs.get(project.id), normalizedDetails);
     this.projectFailureDetails.set(project.id, normalizedDetails);
     this.projectFailureSummaries.set(project.id, summary);
+    this.persistStartFailure(project, normalizedDetails, summary);
     if (this.mode === 'output' && this.selectedProjectId === project.id) {
       this.outputUpdateScheduler.schedule(project.id);
     }
@@ -700,6 +733,38 @@ class RunlistViewProvider {
       if (choice === 'View output') {
         this.showProjectOutput(project.id);
       }
+    });
+  }
+
+  persistStartFailure(project, details, summary) {
+    try {
+      writeProjectDiagnostics(this.projectsFile, project.id, {
+        output: this.projectOutputs.get(project.id),
+        lifecycleState: this.getProjectStatus(project.id),
+        exitCode: details.code,
+        signal: details.signal,
+        summary,
+        failedAt: this.projectTimelineFailures.get(project.id)?.failedAt
+      });
+    } catch {
+      // Recent output remains available in this VS Code window if diagnostics cannot be retained.
+    }
+  }
+
+  async copyDiagnosisRequest() {
+    const project = this.projects.find((item) => item.id === this.selectedProjectId);
+    if (!project || !readProjectDiagnostics(this.projectsFile, project.id)) {
+      return;
+    }
+    const request = [
+      `Use the Runlist MCP tool runlist_get_project_diagnostics with projectId "${project.id}" to inspect ${project.name}'s latest failed start.`,
+      'Explain the likely cause and the smallest safe fix.',
+      'Do not change the saved Runlist setup unless you propose the change for my review and approval.'
+    ].join(' ');
+    await vscode.env.clipboard.writeText(request);
+    this.view?.webview.postMessage({
+      type: 'diagnosisRequestCopied',
+      messageToken: this.webviewMessageToken
     });
   }
 
@@ -1078,6 +1143,7 @@ class RunlistViewProvider {
         services
       }, { reviewRequired: false });
       projectId = saved.project.id;
+      clearProjectDiagnostics(this.projectsFile, projectId);
     } catch (error) {
       const formError = projectSaveError(error);
       this.formErrors = { [formError.field]: formError.message };
@@ -1197,6 +1263,7 @@ class RunlistViewProvider {
       this.projectOutputs.delete(id);
       this.projectFailureSummaries.delete(id);
       this.projectFailureDetails.delete(id);
+      clearProjectDiagnostics(this.projectsFile, id);
       if (this.selectedProjectId === id) {
         this.outputUpdateScheduler.cancel();
       }
@@ -1338,6 +1405,7 @@ class RunlistViewProvider {
       if (readinessDeadline) {
         this.startReadinessDeadlines.set(id, readinessDeadline);
       }
+      clearProjectDiagnostics(this.projectsFile, id);
       this.projectOutputs.set(id, '');
       this.projectFailureSummaries.delete(id);
       this.projectFailureDetails.delete(id);
@@ -1674,9 +1742,18 @@ class RunlistViewProvider {
     const outputProject = this.mode === 'output'
       ? projects.find((project) => project.id === this.selectedProjectId)
       : undefined;
+    const diagnosisProject = this.mode === 'diagnosis'
+      ? projects.find((project) => project.id === this.selectedProjectId)
+      : undefined;
+    const diagnosisRecord = diagnosisProject
+      ? readProjectDiagnostics(this.projectsFile, diagnosisProject.id)
+      : undefined;
     const rawProjectOutput = outputProject
       ? this.projectOutputs.get(outputProject.id) || ''
       : '';
+    const outputDiagnostics = outputProject
+      ? readProjectDiagnostics(this.projectsFile, outputProject.id)
+      : undefined;
     const cleanProjectOutput = sanitizeProjectOutput(rawProjectOutput);
     const stateProjects = projects.map((project) => {
       const openPorts = this.projectOpenPorts.get(project.id) || [];
@@ -1787,10 +1864,21 @@ class RunlistViewProvider {
         && ['running', 'starting', 'not-ready', 'not-responding', 'stopping', 'active']
           .includes(this.getProjectStatus(this.selectedProjectId)),
       projectOutput: outputProject ? {
+        canAskAgent: Boolean(outputDiagnostics),
         entries: formatProjectOutput(rawProjectOutput),
-        failureSummary: this.projectFailureSummaries.get(outputProject.id),
+        failureSummary: this.projectFailureSummaries.get(outputProject.id)
+          || outputDiagnostics?.failureSummary,
         name: outputProject.name,
-        output: cleanProjectOutput
+        output: cleanProjectOutput,
+        projectId: outputProject.id
+      } : undefined,
+      diagnosis: diagnosisProject && diagnosisRecord ? {
+        agentReady: Object.values(this.agentConnections)
+          .some((connection) => connection.status === 'success'),
+        name: diagnosisProject.name,
+        outputAvailable: Boolean(diagnosisRecord.retainedOutput),
+        outputTruncated: diagnosisRecord.outputTruncated === true,
+        projectId: diagnosisProject.id
       } : undefined,
       projects: stateProjects,
       stopAllCount: stoppableProjectIds(stateProjects).length
@@ -1966,6 +2054,14 @@ function installMcpBridge(context) {
   fs.copyFileSync(
     vscode.Uri.joinPath(context.extensionUri, 'project-process.js').fsPath,
     path.join(storageRoot, 'project-process.js')
+  );
+  fs.copyFileSync(
+    vscode.Uri.joinPath(context.extensionUri, 'project-output.js').fsPath,
+    path.join(storageRoot, 'project-output.js')
+  );
+  fs.copyFileSync(
+    vscode.Uri.joinPath(context.extensionUri, 'project-diagnostics.js').fsPath,
+    path.join(storageRoot, 'project-diagnostics.js')
   );
   fs.copyFileSync(
     vscode.Uri.joinPath(context.extensionUri, 'package.json').fsPath,

@@ -866,6 +866,7 @@ button:active:not(:disabled) {
 
 .add-screen,
 .agent-screen,
+.diagnosis-screen,
 .output-screen {
   padding: 14px;
 }
@@ -1226,6 +1227,88 @@ input[aria-invalid='true'] {
 
 .agent-footnote {
   margin: 14px 0 0;
+}
+
+.diagnosis-open-button {
+  width: 100%;
+  min-height: 30px;
+  margin: 0 0 10px;
+  padding: 0 10px;
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+  border: 1px solid transparent;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.diagnosis-open-button:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.diagnosis-notice,
+.diagnosis-setup {
+  padding: 9px 10px;
+  background: var(--vscode-textBlockQuote-background, var(--vscode-list-inactiveSelectionBackground));
+  border: 1px solid var(--vscode-widget-border, transparent);
+  border-radius: 3px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.diagnosis-notice p,
+.diagnosis-setup p {
+  margin: 3px 0 0;
+  color: var(--vscode-descriptionForeground);
+}
+
+.diagnosis-heading {
+  margin: 15px 0 6px;
+  font-size: 11px;
+}
+
+.diagnosis-context {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.diagnosis-exclusion,
+.diagnosis-review-note,
+.diagnosis-copy-status {
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.diagnosis-exclusion {
+  margin: 10px 0 14px;
+}
+
+.diagnosis-copy-button {
+  width: 100%;
+  padding: 0 10px;
+}
+
+.diagnosis-copy-status {
+  min-height: 15px;
+  margin: 6px 0 0;
+}
+
+.diagnosis-setup {
+  margin-top: 13px;
+}
+
+.diagnosis-setup .secondary-button {
+  margin-top: 8px;
+}
+
+.diagnosis-review-note {
+  margin: 12px 0 0;
 }
 
 .output-panel-wrap {

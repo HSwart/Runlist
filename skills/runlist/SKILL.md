@@ -1,6 +1,6 @@
 ---
 name: runlist
-description: Set up or update a local development project in Runlist by inspecting its exact start workflow, any necessary custom stop workflow, every explicit service port, and any explicit browser URLs, then calling runlist_setup_project. Use when the user asks to add, configure, save, or register a repository or local app in Runlist, including direct $runlist or /runlist requests.
+description: Set up or update a local development project in Runlist, or diagnose a retained failed start when the user provides a Runlist project ID. Use for Runlist setup requests and copied Runlist diagnosis requests.
 ---
 
 <!-- Managed by the Runlist VS Code extension. -->
@@ -17,3 +17,14 @@ description: Set up or update a local development project in Runlist by inspecti
 8. Report the saved project name, start command, any custom stop command, service ports, and included URL overrides succinctly. Tell the user to review and approve the setup in the Runlist sidebar before running it.
 
 If the Runlist MCP tool is unavailable, tell the user to open **Runlist → Agent connections** in VS Code and select **Set up** for this agent. Do not edit Runlist's storage file directly.
+
+# Diagnose a failed Runlist start
+
+When the user pastes a Runlist diagnosis request containing a project ID:
+
+1. Call `runlist_get_project_diagnostics` with that exact project ID. Do not substitute a name or folder and do not request diagnostics for other projects.
+2. Diagnose only the returned saved setup, platform, lifecycle result, failure summary, and sanitized retained output. Explain the likely cause and the smallest safe next step.
+3. Do not run commands, install dependencies, edit files, rerun the project, or change its Runlist setup unless the user separately asks you to do so.
+4. If a Runlist command or service change is appropriate, propose it clearly. Save it only through `runlist_setup_project`; Runlist will keep the update blocked until the user reviews and approves it.
+
+If no retained failure is available, tell the user to start the project from Runlist again and use **View output → Ask your agent** after the failure.
