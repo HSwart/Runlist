@@ -33,6 +33,7 @@ const {
 } = require('./project-navigation');
 const { previewFrameSource, projectPreviewService } = require('./preview-security');
 const { OwnedProcessMetrics } = require('./process-metrics');
+const { RuntimePulseHistory } = require('./runtime-pulse');
 const {
   canUseCurrentWorkspace,
   selectCurrentWorkspaceFolder
@@ -115,6 +116,7 @@ class RunlistViewProvider {
     this.processes = new Map();
     this.ownedProcessMetrics = new OwnedProcessMetrics();
     this.projectMetrics = new Map();
+    this.runtimePulseHistory = new RuntimePulseHistory();
     this.resourceSampleTimer = undefined;
     this.resourceSampleProjectId = undefined;
     this.resourceSampleGeneration = 0;
@@ -983,25 +985,32 @@ class RunlistViewProvider {
   }
 
   stopResourceSampling() {
+    const projectId = this.resourceSampleProjectId;
     clearInterval(this.resourceSampleTimer);
     this.resourceSampleTimer = undefined;
     this.resourceSampleProjectId = undefined;
     this.resourceSampleGeneration += 1;
+    if (projectId) {
+      this.runtimePulseHistory.clear(projectId);
+    }
   }
 
   publishProjectMetrics(id, metrics) {
     this.projectMetrics.set(id, metrics);
+    const runtimePulse = this.runtimePulseHistory.append(id, metrics);
     void this.view?.webview.postMessage({
       type: 'projectMetrics',
       messageToken: this.webviewMessageToken,
       id,
-      metrics
+      metrics,
+      runtimePulse
     });
   }
 
   forgetProjectMetrics(id) {
     this.ownedProcessMetrics.untrack(id);
     this.projectMetrics.delete(id);
+    this.runtimePulseHistory.clear(id);
     if (this.resourceSampleProjectId === id) {
       this.stopResourceSampling();
     }
@@ -1989,6 +1998,9 @@ class RunlistViewProvider {
                 available: false,
                 message: 'Resource use is available in the VS Code window that started this project.'
               })
+          : undefined,
+        runtimePulse: previewExpanded
+          ? this.runtimePulseHistory.get(project.id)
           : undefined,
         webPorts,
         httpUnresponsive: webPorts.some((port) => openPorts.includes(port)

@@ -9,6 +9,7 @@ const {
   readOwnedProcessTree,
   windowsProcessScript
 } = require('../process-metrics');
+const { RuntimePulseHistory } = require('../runtime-pulse');
 
 function row(pid, identity, cpuSeconds, memoryBytes) {
   return { pid, identity, cpuSeconds, memoryBytes };
@@ -91,6 +92,25 @@ test('reports unavailable metrics when an owned process exits or the platform ca
   });
 });
 
+test('keeps a bounded in-memory pulse and clears it when metrics are unavailable', () => {
+  const pulse = new RuntimePulseHistory(3);
+  for (let index = 0; index < 5; index += 1) {
+    pulse.append('project', {
+      available: true,
+      cpuPercent: index * 10,
+      memoryBytes: (index + 1) * 1024
+    });
+  }
+
+  assert.deepEqual(pulse.get('project'), [
+    { cpuPercent: 20, memoryBytes: 3072 },
+    { cpuPercent: 30, memoryBytes: 4096 },
+    { cpuPercent: 40, memoryBytes: 5120 }
+  ]);
+  assert.deepEqual(pulse.append('project', { available: false }), []);
+  assert.deepEqual(pulse.get('project'), []);
+});
+
 test('uses exact POSIX process-group queries and ignores rows outside that group', async () => {
   const calls = [];
   const rows = await readOwnedProcessTree(41, 'darwin', {
@@ -143,9 +163,12 @@ test('renders accessible metrics only inside the expanded preview and stops samp
   assert.match(extension, /this\.processOwnership\.owns\(id, child\.pid\)/);
   assert.match(extension, /RESOURCE_SAMPLE_INTERVAL_MS = 5000/);
   assert.match(extension, /this\.syncResourceSampling\(expandedPreview\?\.id\)/);
+  assert.match(extension, /const projectId = this\.resourceSampleProjectId;[\s\S]*this\.runtimePulseHistory\.clear\(projectId\)/);
   assert.match(extension, /stopResourceSampling\(\)[\s\S]*clearInterval\(this\.resourceSampleTimer\)/);
   assert.match(webview, /data-resource-metrics[\s\S]*role="group"[\s\S]*aria-label=/);
   assert.match(webview, /project\.previewExpanded \? `[\s\S]*resource-metrics/);
+  assert.match(webview, /class="runtime-pulse[\s\S]*aria-hidden="true"[\s\S]*focusable="false"/);
+  assert.match(webview, /resourceMetricsContent\(event\.data\.metrics, event\.data\.runtimePulse\)/);
   assert.match(extension, /messageToken: this\.webviewMessageToken/);
   assert.match(webview, /event\.data\?\.messageToken !== state\.messageToken/);
 });

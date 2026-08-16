@@ -904,7 +904,13 @@ button:active:not(:disabled) {
   font-variant-numeric: tabular-nums;
 }
 
-.resource-metrics > span:not(.resource-unavailable) {
+.resource-reading {
+  min-width: 112px;
+  flex: 1 1 112px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
   white-space: nowrap;
 }
 
@@ -917,6 +923,37 @@ button:active:not(:disabled) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.runtime-pulse {
+  width: 48px;
+  height: 12px;
+  flex: 0 0 48px;
+  overflow: visible;
+}
+
+.runtime-pulse-line {
+  fill: none;
+  stroke: var(--vscode-charts-blue, var(--vscode-progressBar-background));
+  stroke-width: 1.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  animation: runtime-pulse-arrive 160ms ease-out;
+}
+
+.runtime-pulse.memory .runtime-pulse-line {
+  stroke: var(--vscode-charts-purple, var(--vscode-charts-blue, var(--vscode-progressBar-background)));
+}
+
+@keyframes runtime-pulse-arrive {
+  from { opacity: 0.45; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .runtime-pulse-line {
+    animation: none;
+  }
 }
 
 .preview-frame-wrap {
