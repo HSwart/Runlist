@@ -1283,7 +1283,12 @@ class RunlistViewProvider {
     }
 
     const sharedOwnership = this.processOwnership.snapshot().get(id);
-    if (project.stopCommand && sharedOwnership && !this.processes.has(id)) {
+    const locallyOwnedWithoutHandle = sharedOwnership
+      && this.processOwnership.owns(id, sharedOwnership.childPid);
+    if (project.stopCommand
+      && sharedOwnership
+      && !this.processes.has(id)
+      && !locallyOwnedWithoutHandle) {
       return this.stopOwnedProjectProcess(id, project);
     }
 
@@ -1292,7 +1297,8 @@ class RunlistViewProvider {
       if (!customStopSucceeded) {
         return false;
       }
-      const stillOwned = this.processes.has(id) || this.processOwnership.snapshot().has(id);
+      const remainingOwnership = this.processOwnership.snapshot().get(id);
+      const stillOwned = this.processes.has(id) || Boolean(remainingOwnership?.processActive);
       if (stillOwned && !await this.waitForProjectStopCompletion(id, CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS)) {
         vscode.window.showErrorMessage(
           `Could not stop ${project.name}: the custom stop command finished, but the launched process is still running.`
@@ -1393,10 +1399,19 @@ class RunlistViewProvider {
       return true;
     }
     if (request.kind === 'local') {
-      vscode.window.showErrorMessage(
-        `Could not stop ${project.name}: Runlist lost its tracked process details. The process was left running.`
-      );
-      return false;
+      this.beginStopping(id);
+      try {
+        const stopped = await this.processOwnership.terminateOwnedProcess(id);
+        if (!stopped) {
+          throw new Error('Runlist could not verify the persisted process ownership details.');
+        }
+        this.finishStopping(id, true);
+        return true;
+      } catch (error) {
+        vscode.window.showErrorMessage(`Could not stop ${project.name}: ${error.message}`);
+        this.finishStopping(id, false);
+        return false;
+      }
     }
     if (request.kind === 'uncertain') {
       vscode.window.showErrorMessage(

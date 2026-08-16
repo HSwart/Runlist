@@ -235,6 +235,96 @@ test('coordinates owned process stopping across VS Code hosts without sharing ki
   assert.equal(otherWindow.snapshot().has('project-1'), false);
 });
 
+test('recovers an exact owned process tree from persisted ownership details', async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-process-recovery-'));
+  const alive = new Set([101, 303]);
+  const signals = [];
+  const owner = new ProcessOwnershipStore(directory, {
+    pid: 101,
+    platform: 'linux',
+    isProcessAlive: (pid) => alive.has(pid)
+  });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  owner.reserve('project-1');
+  owner.setProcess('project-1', 303);
+
+  const stopped = await owner.terminateOwnedProcess('project-1', {
+    kill: (pid, signal) => {
+      signals.push([pid, signal]);
+      if (signal === 0 && alive.has(Math.abs(pid))) {
+        return;
+      }
+      if (signal === 'SIGTERM') {
+        alive.delete(Math.abs(pid));
+        return;
+      }
+      const error = new Error('missing');
+      error.code = 'ESRCH';
+      throw error;
+    },
+    pollIntervalMs: 1
+  });
+
+  assert.equal(stopped, true);
+  assert.deepEqual(signals[0], [-303, 'SIGTERM']);
+  assert.equal(owner.release('project-1'), true);
+});
+
+test('does not recover a process tree owned by another VS Code host', async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-process-recovery-other-'));
+  const alive = new Set([101, 202, 303]);
+  const isProcessAlive = (pid) => alive.has(pid);
+  const owner = new ProcessOwnershipStore(directory, { pid: 101, platform: 'linux', isProcessAlive });
+  const otherWindow = new ProcessOwnershipStore(directory, { pid: 202, platform: 'linux', isProcessAlive });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  owner.reserve('project-1');
+  owner.setProcess('project-1', 303);
+
+  assert.equal(await otherWindow.terminateOwnedProcess('project-1'), false);
+  assert.equal(alive.has(303), true);
+});
+
+test('recovers the persisted owned process tree with taskkill on Windows', async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-process-recovery-win-'));
+  const alive = new Set([101, 303]);
+  const calls = [];
+  const owner = new ProcessOwnershipStore(directory, {
+    pid: 101,
+    platform: 'win32',
+    isProcessAlive: (pid) => alive.has(pid)
+  });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  owner.reserve('project-1');
+  owner.setProcess('project-1', 303);
+
+  const stopped = await owner.terminateOwnedProcess('project-1', {
+    spawnProcess: (command, args, options) => {
+      calls.push({ command, args, options });
+      const child = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.stderr.setEncoding = () => {};
+      process.nextTick(() => {
+        alive.delete(303);
+        child.emit('exit', 0);
+      });
+      return child;
+    }
+  });
+
+  assert.equal(stopped, true);
+  assert.deepEqual(calls[0], {
+    command: 'taskkill.exe',
+    args: ['/PID', '303', '/T', '/F'],
+    options: {
+      stdio: ['ignore', 'ignore', 'pipe'],
+      windowsHide: true
+    }
+  });
+});
+
 test('fails safely when the launching host is gone but its child may still be running', (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-process-uncertain-'));
   const alive = new Set([101, 202, 303]);

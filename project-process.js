@@ -229,6 +229,36 @@ class ProcessOwnershipStore {
       && current.childPid === childPid;
   }
 
+  async terminateOwnedProcess(projectId, options = {}) {
+    const owned = this.owned.get(projectId);
+    if (!owned) {
+      return false;
+    }
+    const current = readJson(owned.ownershipPath);
+    if (current?.token !== owned.token
+      || current.hostPid !== this.pid
+      || !Number.isInteger(current.childPid)
+      || current.childPid <= 0) {
+      return false;
+    }
+    if (!this.isProcessAlive(current.childPid)) {
+      return true;
+    }
+
+    try {
+      await terminateProcessTree(current.childPid, {
+        platform: this.platform,
+        ...options
+      });
+    } catch (error) {
+      if (!this.isProcessAlive(current.childPid)) {
+        return true;
+      }
+      throw error;
+    }
+    return true;
+  }
+
   release(projectId) {
     const owned = this.owned.get(projectId);
     if (!owned) {
