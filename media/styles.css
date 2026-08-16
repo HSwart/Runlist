@@ -598,6 +598,33 @@ button:active:not(:disabled) {
   background: var(--vscode-toolbar-hoverBackground);
 }
 
+.resource-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  min-height: 24px;
+  align-items: center;
+  margin-bottom: 6px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.resource-metrics > span:not(.resource-unavailable) {
+  white-space: nowrap;
+}
+
+.resource-metrics strong {
+  color: var(--vscode-foreground);
+  font-weight: 600;
+}
+
+.resource-unavailable {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .preview-frame-wrap {
   position: relative;
   width: 100%;
