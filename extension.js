@@ -21,6 +21,10 @@ const {
 } = require('./project-status');
 const { openProjectInNewWindow } = require('./project-navigation');
 const {
+  canUseCurrentWorkspace,
+  selectCurrentWorkspaceFolder
+} = require('./project-workspace');
+const {
   cleanupTrackedProcessForDeletion,
   ownedProcessSpawnOptions,
   terminateTrackedProcess
@@ -271,6 +275,9 @@ class SwitchboardViewProvider {
         break;
       case 'pickFolder':
         await this.pickFolder(message.draft);
+        break;
+      case 'useCurrentWorkspace':
+        await this.useCurrentWorkspace(message.draft);
         break;
       case 'saveProject':
         await this.saveProject(message.project);
@@ -523,6 +530,19 @@ class SwitchboardViewProvider {
       this.focusTarget = { type: 'field', id: 'folder' };
       this.render();
     }
+  }
+
+  async useCurrentWorkspace(draft = {}) {
+    this.draft = { ...this.draft, ...draft };
+    const folder = await selectCurrentWorkspaceFolder(vscode);
+    if (!folder) {
+      return;
+    }
+
+    this.draft.folder = folder;
+    this.formErrors = {};
+    this.focusTarget = { type: 'field', id: 'folder' };
+    this.render();
   }
 
   async saveProject(project) {
@@ -931,6 +951,8 @@ class SwitchboardViewProvider {
       mode: this.mode,
       searchQuery: this.searchQuery,
       draft: this.draft,
+      canUseCurrentWorkspace: this.mode === 'add'
+        && canUseCurrentWorkspace(vscode.workspace.workspaceFolders),
       focusTarget: this.focusTarget || this.lastFocusTarget,
       formErrors: this.formErrors,
       reviewRequired: this.mode === 'edit'

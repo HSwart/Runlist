@@ -366,6 +366,7 @@ function renderProjectForm(mode) {
           <input id="folder" name="folder" value="${escapeHtml(state.draft.folder || '')}" placeholder="Choose a folder" ${errorAttributes('folder')}>
           <button class="browse-button" type="button" data-action="pick-folder">Browse</button>
         </div>
+        ${state.canUseCurrentWorkspace ? '<button class="workspace-button" type="button" data-action="use-current-workspace">Use current workspace</button>' : ''}
         ${fieldError('folder')}
 
         <label for="start-command">Start command</label>
@@ -534,6 +535,7 @@ app.addEventListener('click', (event) => {
       draft: document.getElementById('project-form') ? currentDraft() : undefined
     }),
     'pick-folder': () => vscode.postMessage({ type: 'pickFolder', draft: currentDraft() }),
+    'use-current-workspace': () => vscode.postMessage({ type: 'useCurrentWorkspace', draft: currentDraft() }),
     'register-agent': () => vscode.postMessage({ type: 'registerAgent', agent: button.dataset.agent }),
     'toggle-menu': () => toggleMenu(button),
     open: () => {

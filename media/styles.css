@@ -626,6 +626,20 @@ input[aria-invalid='true'] {
   background: var(--vscode-button-secondaryHoverBackground);
 }
 
+.workspace-button {
+  min-height: 30px;
+  padding: 0 10px;
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+  border: 1px solid transparent;
+  border-radius: 2px;
+  font-size: 11px;
+}
+
+.workspace-button:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
 .primary-button {
   min-height: 34px;
   border-radius: 3px;
