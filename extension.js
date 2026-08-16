@@ -1460,8 +1460,8 @@ function activate(context) {
   const projectsFile = path.join(context.globalStorageUri.fsPath, 'projects.json');
   const globalStorageRoot = path.dirname(context.globalStorageUri.fsPath);
   migrateProjectStore(projectsFile, [
-    path.join(globalStorageRoot, 'hankoswart.switchboard', 'projects.json'),
-    path.join(globalStorageRoot, 'local.switchboard', 'projects.json')
+    path.join(globalStorageRoot, 'local.switchboard', 'projects.json'),
+    path.join(globalStorageRoot, 'hankoswart.switchboard', 'projects.json')
   ]);
   initializeProjectStore(projectsFile, context.globalState.get(STORAGE_KEY, []));
 
