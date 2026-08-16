@@ -9,6 +9,7 @@ test('validates Marketplace metadata for the selected publisher and release', ()
   const manifest = require('../package.json');
   const result = validateMarketplace(root, { preparation: true });
 
+  assert.equal(manifest.name, 'switchboard-projects');
   assert.equal(manifest.publisher, 'hankoswart');
   assert.deepEqual(result.errors, []);
   assert.deepEqual(result.warnings, []);

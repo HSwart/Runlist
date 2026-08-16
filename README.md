@@ -37,7 +37,7 @@ When the Switchboard listing is visible in the VS Code Marketplace:
 
 1. Open the **Extensions** view in VS Code.
 2. Search for **Switchboard**.
-3. Confirm that the publisher is **Hanko Swart** and the extension ID is `hankoswart.switchboard`.
+3. Confirm that the publisher is **Hanko Swart** and the extension ID is `hankoswart.switchboard-projects`.
 4. Select **Install**.
 
 After installation, select the Switchboard icon in the VS Code Activity Bar.
