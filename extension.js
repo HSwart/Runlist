@@ -35,6 +35,12 @@ const { previewFrameSource, projectPreviewService } = require('./preview-securit
 const { OwnedProcessMetrics } = require('./process-metrics');
 const { RuntimePulseHistory } = require('./runtime-pulse');
 const {
+  appendStartupHistory,
+  clearStartupHistory,
+  readStartupHistory,
+  startupHistoryEntry
+} = require('./startup-history');
+const {
   canUseCurrentWorkspace,
   selectCurrentWorkspaceFolder
 } = require('./project-workspace');
@@ -359,13 +365,16 @@ class RunlistViewProvider {
           this.startReadinessDeadlines.delete(id);
           this.readinessWarnings.delete(id);
           if (this.managedProjectIds.has(id)) {
+            const readyAt = processRuntime.get(id)?.readyAt || Date.now();
+            this.recordStartupOutcome(id, 'ready', readyAt);
             this.processOwnership.setState(id, 'running', {
-              readyAt: processRuntime.get(id)?.readyAt || Date.now()
+              readyAt
             });
             this.portReservations.setState(id, 'running');
           }
         } else if (['not-ready', 'not-responding'].includes(status)
           && this.managedProjectIds.has(id)) {
+          this.recordStartupOutcome(id, 'timed-out');
           this.processOwnership.setState(id, status);
           this.portReservations.setState(id, status);
           this.notifyServiceNotReady(projectsById.get(id), status, readinessDetails);
@@ -699,6 +708,23 @@ class RunlistViewProvider {
     });
   }
 
+  recordStartupOutcome(id, outcome, completedAt = Date.now()) {
+    const metadata = this.projectAttemptMetadata.get(id);
+    if (!metadata || metadata.historyRecorded) {
+      return;
+    }
+    const entry = startupHistoryEntry(outcome, metadata.launchedAt, completedAt);
+    if (!entry) {
+      return;
+    }
+    metadata.historyRecorded = true;
+    try {
+      appendStartupHistory(this.projectsFile, id, entry);
+    } catch {
+      // Startup history is optional and must never affect project lifecycle actions.
+    }
+  }
+
   notifyServiceNotReady(project, status = 'not-ready', readinessDetails = {}) {
     if (this.readinessWarnings.has(project.id)) {
       return;
@@ -741,6 +767,7 @@ class RunlistViewProvider {
 
   showStartFailure(project, details = {}) {
     const normalizedDetails = typeof details === 'string' ? { detail: details } : details;
+    this.recordStartupOutcome(project.id, 'failed');
     this.recordTimelineFailure(project.id, normalizedDetails);
     const summary = startFailureSummary(this.projectOutputs.get(project.id), normalizedDetails);
     this.projectFailureDetails.set(project.id, normalizedDetails);
@@ -919,7 +946,8 @@ class RunlistViewProvider {
       this.projectPortConflicts.has(id)
     );
     const hasTimeline = this.projectHasLiveTimeline(id, project, status);
-    if (!previewService && !hasTimeline) {
+    const hasHistory = readStartupHistory(this.projectsFile, id).length > 0;
+    if (!previewService && !hasTimeline && !hasHistory) {
       return;
     }
 
@@ -1308,6 +1336,7 @@ class RunlistViewProvider {
       this.projectFailureSummaries.delete(id);
       this.projectFailureDetails.delete(id);
       clearProjectDiagnostics(this.projectsFile, id);
+      clearStartupHistory(this.projectsFile, id);
       if (this.selectedProjectId === id) {
         this.outputUpdateScheduler.cancel();
       }
@@ -1482,6 +1511,8 @@ class RunlistViewProvider {
       this.projectOutputs.set(id, '');
       this.projectFailureSummaries.delete(id);
       this.projectFailureDetails.delete(id);
+      const launchedAt = Date.now();
+      this.projectAttemptMetadata.set(id, { launchedAt });
       const child = spawn(project.startCommand, {
         cwd: project.folder,
         shell: true,
@@ -1490,12 +1521,10 @@ class RunlistViewProvider {
         ...projectProcessSpawnOptions()
       });
 
-      const launchedAt = Date.now();
       this.processes.set(id, child);
-      this.projectAttemptMetadata.set(id, {
-        launchedAt,
-        ...(hasServices ? {} : { readyAt: launchedAt })
-      });
+      if (!hasServices) {
+        this.projectAttemptMetadata.get(id).readyAt = launchedAt;
+      }
       this.projectMetrics.delete(id);
       this.ownedProcessMetrics.track(id, child.pid);
       this.processOwnership.setProcess(id, child.pid, {
@@ -1510,6 +1539,7 @@ class RunlistViewProvider {
       this.statusRevision += 1;
       listenToProjectOutput(child, (chunk) => this.addProjectOutput(id, chunk));
       child.once('error', (error) => {
+        this.recordStartupOutcome(id, 'failed');
         this.statusRevision += 1;
         this.processes.delete(id);
         this.forgetProjectMetrics(id);
@@ -1527,6 +1557,10 @@ class RunlistViewProvider {
       child.once('exit', (code, signal) => {
         if (this.processes.get(id) === child) {
           const stoppedIntentionally = this.stoppingProjectIds.has(id);
+          const startFailed = startExitFailed({ code, hasServices, stoppedIntentionally });
+          if (startFailed) {
+            this.recordStartupOutcome(id, 'failed');
+          }
           this.statusRevision += 1;
           this.processes.delete(id);
           this.forgetProjectMetrics(id);
@@ -1538,7 +1572,7 @@ class RunlistViewProvider {
           this.projectStatuses.set(id, 'stopped');
           this.startReadinessDeadlines.delete(id);
           this.readinessWarnings.delete(id);
-          if (startExitFailed({ code, hasServices, stoppedIntentionally })) {
+          if (startFailed) {
             this.showStartFailure(project, { code, signal });
           } else {
             this.projectAttemptMetadata.delete(id);
@@ -1551,6 +1585,7 @@ class RunlistViewProvider {
       this.renderProjectList();
       return true;
     } catch (error) {
+      this.recordStartupOutcome(id, 'failed');
       this.statusRevision += 1;
       this.managedProjectIds.delete(id);
       this.processOwnership.release(id);
@@ -1985,6 +2020,7 @@ class RunlistViewProvider {
           || this.processes.has(project.id)
           || this.projectRuntime.has(project.id));
       const locallyOwned = this.processes.has(project.id);
+      const startupHistory = readStartupHistory(this.projectsFile, project.id);
       return {
         ...project,
         pinned: project.pinned === true,
@@ -2010,6 +2046,7 @@ class RunlistViewProvider {
         previewPort: previewService?.port,
         previewUrl: previewService?.url,
         previewMode: previewExpanded ? this.previewMode : undefined,
+        startupHistory,
         resourceMetrics: previewExpanded
           ? this.projectMetrics.get(project.id) || (locallyOwned
             ? { available: true, measuring: true }

@@ -801,6 +801,12 @@ button:active:not(:disabled) {
   margin-top: 8px;
 }
 
+.project-details-toggle-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
 .project-services > span {
   min-height: 22px;
   display: inline-flex;
@@ -817,6 +823,70 @@ button:active:not(:disabled) {
   font-family: var(--vscode-editor-font-family);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
+}
+
+.startup-history {
+  margin-top: 10px;
+}
+
+.startup-history > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+}
+
+.startup-history > header strong {
+  color: var(--vscode-foreground);
+  font-weight: 600;
+}
+
+.startup-history-ribbon {
+  display: grid;
+  grid-template-columns: repeat(var(--startup-count), minmax(0, 1fr));
+  gap: 3px;
+}
+
+.startup-history-entry {
+  min-width: 0;
+  min-height: 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 2px;
+  overflow: hidden;
+  color: var(--vscode-foreground);
+  background: var(--vscode-sideBarSectionHeader-background, var(--vscode-input-background));
+  border: 1px solid var(--vscode-widget-border, transparent);
+  border-top-color: var(--vscode-testing-iconPassed, #73c991);
+  border-radius: 3px;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.startup-history-entry strong {
+  font-size: 7px;
+  letter-spacing: 0.04em;
+}
+
+.startup-history-entry.failed {
+  border-top-color: var(--vscode-testing-iconFailed, #f48771);
+}
+
+.startup-history-entry.timed-out {
+  border-top-color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.startup-history-entry > span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .project-services strong {

@@ -83,7 +83,7 @@ test('renders one lazy, sandboxed, accessible expandable preview', () => {
   assert.match(extension, /frame-src \$\{frameSource\}/);
   assert.match(extension, /this\.focusTarget = \{ type: 'project-control', id: previousId \}/);
   assert.match(webview, /data-action="toggle-preview"[^>]*aria-expanded="\$\{project\.detailsExpanded\}"[^>]*aria-controls="details-/);
-  assert.match(webview, /title="\$\{project\.detailsExpanded \? 'Collapse' : 'Expand'\} \$\{project\.timeline \? 'live project details' : 'app preview'\}">\$\{icon\('chevron-down'\)\}/);
+  assert.match(webview, /title="\$\{project\.detailsExpanded \? 'Collapse' : 'Expand'\} \$\{project\.timeline \|\| project\.startupHistory\?\.length \? 'project details' : 'app preview'\}">\$\{icon\('chevron-down'\)\}/);
   assert.match(webview, /id="details-\$\{projectId\}" class="project-live-details" \$\{project\.detailsExpanded \? '' : 'hidden'\}/);
   assert.match(webview, /data-timeline-elapsed data-started-at=/);
   assert.doesNotMatch(webview, /data-timeline-elapsed[^>]*aria-live/);
