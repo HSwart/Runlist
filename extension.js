@@ -17,6 +17,7 @@ const {
   isPrimaryServiceResponding,
   primaryServiceUrl,
   projectStatus,
+  reachableServiceUrls,
   serviceHttpStatus,
   serviceReadinessTimedOut,
   servicePortStatus,
@@ -103,6 +104,7 @@ class RunlistViewProvider {
     this.projectPortConflicts = new Map();
     this.projectOpenPorts = new Map();
     this.projectRespondingPorts = new Map();
+    this.projectServiceUrls = new Map();
     this.projectWebPorts = new Map();
     this.projectStatuses = new Map();
     this.startReadinessDeadlines = new Map();
@@ -243,11 +245,16 @@ class RunlistViewProvider {
         const portStatus = hasServices
           ? await servicePortStatus(project.services)
           : { allOpen: false, anyOpen: false, openPorts: [] };
-        const httpStatus = hasServices
-          ? await serviceHttpStatus(project.services, portStatus.openPorts, {
-              resolveUrl: (url) => this.externalServiceUrl(url)
-            })
-          : { allResponding: true, respondingPorts: [], unresponsivePorts: [], webPorts: [] };
+        const [httpStatus, reachableUrls] = hasServices
+          ? await Promise.all([
+              serviceHttpStatus(project.services, portStatus.openPorts, {
+                resolveUrl: (url) => this.externalServiceUrl(url)
+              }),
+              reachableServiceUrls(project.services, portStatus.openPorts, {
+                resolveUrl: (url) => this.externalServiceUrl(url)
+              })
+            ])
+          : [{ allResponding: true, respondingPorts: [], unresponsivePorts: [], webPorts: [] }, []];
         const ownership = processRuntime.get(project.id);
         const sharedState = sharedRuntime.get(project.id);
         const readinessDeadline = ownership?.readinessDeadline
@@ -281,7 +288,8 @@ class RunlistViewProvider {
           portConflictSummary(conflict),
           portStatus.openPorts,
           httpStatus.respondingPorts,
-          httpStatus.webPorts
+          httpStatus.webPorts,
+          reachableUrls
         ];
       }));
 
@@ -320,6 +328,8 @@ class RunlistViewProvider {
         .map(([id, , , , respondingPorts]) => [id, respondingPorts]));
       const nextWebPorts = new Map(checks
         .map(([id, , , , , webPorts]) => [id, webPorts]));
+      const nextServiceUrls = new Map(checks
+        .map(([id, , , , , , serviceUrls]) => [id, serviceUrls]));
       const changed = nextStatuses.size !== this.projectStatuses.size
         || [...nextStatuses].some(([id, status]) => this.projectStatuses.get(id) !== status)
         || portConflictMapsDiffer(nextConflicts, this.projectPortConflicts)
@@ -328,11 +338,14 @@ class RunlistViewProvider {
         || [...nextRespondingPorts]
           .some(([id, ports]) => String(this.projectRespondingPorts.get(id)) !== String(ports))
         || [...nextWebPorts]
-          .some(([id, ports]) => String(this.projectWebPorts.get(id)) !== String(ports));
+          .some(([id, ports]) => String(this.projectWebPorts.get(id)) !== String(ports))
+        || [...nextServiceUrls]
+          .some(([id, urls]) => JSON.stringify(this.projectServiceUrls.get(id)) !== JSON.stringify(urls));
       this.projectStatuses = nextStatuses;
       this.projectPortConflicts = nextConflicts;
       this.projectOpenPorts = nextOpenPorts;
       this.projectRespondingPorts = nextRespondingPorts;
+      this.projectServiceUrls = nextServiceUrls;
       this.projectWebPorts = nextWebPorts;
       if (changed) {
         this.renderProjectList();
@@ -390,6 +403,9 @@ class RunlistViewProvider {
         break;
       case 'openProjectFolder':
         await this.openProjectFolder(message.id);
+        break;
+      case 'copyServiceUrl':
+        await this.copyServiceUrl(message.id, Number(message.port));
         break;
       case 'toggleProjectPin':
         this.toggleProjectPin(message.id);
@@ -670,6 +686,27 @@ class RunlistViewProvider {
     }
   }
 
+  async copyServiceUrl(id, port) {
+    const project = this.projects.find((item) => item.id === id);
+    const service = project?.services?.find((item) => item.port === port);
+    if (!project || !service) {
+      return;
+    }
+
+    const portStatus = await servicePortStatus([service]);
+    const [reachable] = await reachableServiceUrls([service], portStatus.openPorts, {
+      resolveUrl: (url) => this.externalServiceUrl(url)
+    });
+    if (!reachable) {
+      vscode.window.showInformationMessage(`${service.name} is not responding as a web service.`);
+      await this.refreshProjectStatuses();
+      return;
+    }
+
+    await vscode.env.clipboard.writeText(reachable.url);
+    vscode.window.showInformationMessage(`Copied ${service.name} URL.`);
+  }
+
   async openProjectFolder(id) {
     const project = this.projects.find((item) => item.id === id);
     if (!project) {
@@ -876,6 +913,7 @@ class RunlistViewProvider {
       this.projectPortConflicts.delete(id);
       this.projectOpenPorts.delete(id);
       this.projectRespondingPorts.delete(id);
+      this.projectServiceUrls.delete(id);
       this.projectWebPorts.delete(id);
       this.startReadinessDeadlines.delete(id);
       this.readinessWarnings.delete(id);
@@ -1338,6 +1376,7 @@ class RunlistViewProvider {
     const stateProjects = projects.map((project) => {
       const openPorts = this.projectOpenPorts.get(project.id) || [];
       const respondingPorts = this.projectRespondingPorts.get(project.id) || [];
+      const serviceUrls = this.projectServiceUrls.get(project.id) || [];
       const webPorts = this.projectWebPorts.get(project.id) || [];
       return {
         ...project,
@@ -1346,6 +1385,7 @@ class RunlistViewProvider {
         portConflict: this.projectPortConflicts.get(project.id),
         primaryServiceOpen: isPrimaryServiceResponding(project.services, openPorts, respondingPorts),
         respondingPorts,
+        serviceUrls,
         status: this.getProjectStatus(project.id),
         webPorts,
         httpUnresponsive: webPorts.some((port) => openPorts.includes(port)

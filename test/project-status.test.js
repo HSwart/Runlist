@@ -13,6 +13,8 @@ const {
   primaryServiceUrl,
   probeHttpService,
   projectStatus,
+  reachableServiceUrls,
+  serviceUrl,
   serviceHttpStatus,
   serviceReadinessTimedOut,
   servicePortStatus,
@@ -113,6 +115,50 @@ test('reports an open web port that does not return HTTP', async () => {
     port: 443,
     url: 'https://localhost/health'
   }), 'https://localhost/health');
+});
+
+test('finds safe reachable URLs for individual open services', async () => {
+  const seen = [];
+  const reachable = await reachableServiceUrls([
+    { name: 'web', port: 4310 },
+    { name: 'admin', port: 4311, url: 'https://admin.local/dashboard' },
+    { name: 'database', port: 5432 },
+    { name: 'unsafe', port: 4312, url: 'file:///tmp/app' }
+  ], [4310, 4311, 5432, 4312], {
+    resolveUrl: async (url) => url.replace('127.0.0.1', 'localhost'),
+    probe: async (url) => {
+      seen.push(url);
+      return !url.includes('5432');
+    }
+  });
+
+  assert.deepEqual(seen, [
+    'http://localhost:4310',
+    'https://admin.local/dashboard'
+  ]);
+  assert.deepEqual(reachable, [
+    { port: 4310, url: 'http://localhost:4310/' },
+    { port: 4311, url: 'https://admin.local/dashboard' }
+  ]);
+  assert.equal(serviceUrl({ name: 'web', port: 4310 }), 'http://127.0.0.1:4310');
+  assert.equal(serviceUrl({ name: 'unsafe', port: 4312, url: 'javascript:alert(1)' }), undefined);
+});
+
+test('bounds service URL forwarding and reachability checks', async () => {
+  const service = [{ name: 'web', port: 4310 }];
+  const startedAt = Date.now();
+  const unresolvedForward = await reachableServiceUrls(service, [4310], {
+    resolveUrl: () => new Promise(() => {}),
+    timeout: 30
+  });
+  const unresolvedProbe = await reachableServiceUrls(service, [4310], {
+    probe: () => new Promise(() => {}),
+    timeout: 30
+  });
+
+  assert.deepEqual(unresolvedForward, []);
+  assert.deepEqual(unresolvedProbe, []);
+  assert.ok(Date.now() - startedAt < 250);
 });
 
 test('bounds URI forwarding and custom probe work within one timeout', async () => {
