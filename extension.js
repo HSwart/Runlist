@@ -193,7 +193,7 @@ class SwitchboardViewProvider {
     try {
       for (const id of this.processOwnership.consumeStopRequests()) {
         const project = this.projects.find((candidate) => candidate.id === id);
-        void this.stopOwnedProjectProcess(id, project || { id, name: 'this project' });
+        void this.stopProject(id, project || { id, name: 'this project' });
       }
       const now = Date.now();
       const projects = this.projects;
@@ -1031,6 +1031,11 @@ class SwitchboardViewProvider {
 
     if (this.getProjectStatus(id) === 'stopping') {
       return false;
+    }
+
+    const sharedOwnership = this.processOwnership.snapshot().get(id);
+    if (project.stopCommand && sharedOwnership && !this.processes.has(id)) {
+      return this.stopOwnedProjectProcess(id, project);
     }
 
     if (project.stopCommand) {
