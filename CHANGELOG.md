@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.0.4 — Clearer starts and quicker access
+
+- Show a concise, useful failure summary when a project cannot start while keeping its complete recent output available.
+- Keep slow projects in a clear **Taking longer…** state while Runlist continues checking every configured service.
+- Preview the first configured web service that responds, even while another service is still starting.
+- Open a VS Code terminal directly in a project's saved folder.
+- Copy a project's exact saved folder path from its More actions menu.
+- Publish Runlist as a stable Marketplace extension rather than a Preview extension.
+
 ## 0.0.3 — Project visibility
 
 - Pin important projects so they stay above unpinned projects.
