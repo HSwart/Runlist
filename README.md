@@ -5,8 +5,11 @@
   <p>Save each project's folder and commands once, then start, stop, inspect, and open it from the sidebar.</p>
   <p>Set projects up yourself—or optionally let a supported coding agent propose the setup for your approval. Switchboard checks configured ports before start and never stops an unknown process to free one.</p>
   <p>
-    <a href="https://github.com/HSwart/Switchboard/releases/download/v0.0.1/switchboard.vsix">
-      <img src="https://img.shields.io/badge/Download-Switchboard%200.0.1-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="Download Switchboard 0.0.1">
+    <a href="https://marketplace.visualstudio.com/items?itemName=hankoswart.switchboard">
+      <img src="https://img.shields.io/badge/Install-VS%20Code%20Marketplace-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="Install Switchboard from the VS Code Marketplace">
+    </a>
+    <a href="https://github.com/HSwart/Switchboard/releases/download/v0.0.2/switchboard.vsix">
+      <img src="https://img.shields.io/badge/Download-VSIX-24292F?style=for-the-badge&logo=github&logoColor=white" alt="Download the Switchboard 0.0.2 VSIX from GitHub">
     </a>
   </p>
 </div>
@@ -36,24 +39,20 @@ Switchboard keeps a reusable list of local projects from different repositories 
 
 Switchboard is tested on Windows, macOS, and Linux.
 
-### From the VS Code Marketplace after publication
-
-Switchboard is not listed in the VS Code Marketplace yet. The permanent publisher identifier still needs to be selected before the first listing can be created.
-
-After an official Marketplace link is added here:
+### From the VS Code Marketplace
 
 1. Open the **Extensions** view in VS Code.
 2. Search for **Switchboard**.
-3. Confirm that the publisher matches the publisher shown in this README.
+3. Confirm that the publisher is **Hanko Swart** and the extension ID is `hankoswart.switchboard`.
 4. Select **Install**.
 
-Marketplace installations receive updates through VS Code. Until the official listing is available, use the GitHub release below.
+You can also open the **[official Switchboard Marketplace listing](https://marketplace.visualstudio.com/items?itemName=hankoswart.switchboard)** directly. Marketplace installations receive updates through VS Code.
 
 ### From the GitHub release
 
-Download version 0.0.1 here:
+Download version 0.0.2 here:
 
-**[Download Switchboard 0.0.1](https://github.com/HSwart/Switchboard/releases/download/v0.0.1/switchboard.vsix)**
+**[Download Switchboard 0.0.2](https://github.com/HSwart/Switchboard/releases/download/v0.0.2/switchboard.vsix)**
 
 Then install the downloaded VSIX:
 
@@ -145,5 +144,5 @@ Switchboard is available under the [MIT License](LICENSE).
 
 <div align="center">
   <p><strong>Spend less time remembering commands. Spend more time building.</strong></p>
-  <p><a href="https://github.com/HSwart/Switchboard/releases/download/v0.0.1/switchboard.vsix">Download Switchboard 0.0.1</a></p>
+  <p><a href="https://marketplace.visualstudio.com/items?itemName=hankoswart.switchboard">Install from the VS Code Marketplace</a> · <a href="https://github.com/HSwart/Switchboard/releases/download/v0.0.2/switchboard.vsix">Download the 0.0.2 VSIX</a></p>
 </div>
