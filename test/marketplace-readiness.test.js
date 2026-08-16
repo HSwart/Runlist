@@ -30,6 +30,8 @@ test('does not ship stale product branding', () => {
     'media/main.js',
     'media/runlist-readme.svg',
     'package.json',
+    'project-diagnostics.js',
+    'project-output.js',
     'project-process.js',
     'project-store.js',
     'skill-installation.js',

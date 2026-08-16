@@ -737,6 +737,7 @@ function renderProjectOutput() {
       </header>
       <p class="screen-copy">${escapeHtml(projectOutput.name)}</p>
       <div id="project-output-failure">${outputFailureSummaryHtml(projectOutput.failureSummary)}</div>
+      ${projectOutput.canAskAgent ? `<button class="diagnosis-open-button" data-action="ask-agent" data-id="${escapeHtml(projectOutput.projectId)}">Ask your agent</button>` : ''}
       <div class="output-panel-wrap">
         <div class="output-panel" data-empty="${projectOutput.output ? 'false' : 'true'}" tabindex="0" aria-label="Recent output for ${escapeHtml(projectOutput.name)}">
           <div id="project-output">${outputEntriesHtml(projectOutput.entries, projectOutput.failureSummary)}</div>
@@ -756,6 +757,45 @@ function renderProjectOutput() {
       outputPanel.addEventListener('scroll', handleOutputScroll, { passive: true });
     }
   });
+}
+
+function renderProjectDiagnosis() {
+  const diagnosis = state.diagnosis;
+  if (!diagnosis) {
+    app.innerHTML = '<section class="diagnosis-screen"><p class="screen-copy">These diagnostics are no longer available.</p></section>';
+    return;
+  }
+  app.innerHTML = `
+    <section class="diagnosis-screen">
+      <header class="screen-header">
+        <h2>Ask your agent</h2>
+        <button class="icon-button" data-action="close-screen" aria-label="Close agent diagnosis">${icon('close')}</button>
+      </header>
+      <p class="screen-copy">Prepare ${escapeHtml(diagnosis.name)}'s latest failed start for diagnosis.</p>
+      <div class="diagnosis-notice">
+        <strong>Nothing is sent automatically</strong>
+        <p>Runlist copies a short request for you to paste into your agent. The agent can then retrieve only this project's retained failure through Runlist.</p>
+      </div>
+      <h3 class="diagnosis-heading">Context available</h3>
+      <ul class="diagnosis-context">
+        <li>Project name and saved folder</li>
+        <li>Saved start command, with credential-like values redacted</li>
+        <li>Configured service names and ports</li>
+        <li>Platform, last observed state, and exit result</li>
+        <li>Concise failure summary</li>
+        <li>Sanitized recent output${diagnosis.outputAvailable ? diagnosis.outputTruncated ? ' (latest portion)' : '' : ' (no command output was captured)'}</li>
+      </ul>
+      <p class="diagnosis-exclusion">Runlist does not provide environment variables, source files, shell history, process environments, or unconfigured network data.</p>
+      <button class="primary-button diagnosis-copy-button" data-action="copy-diagnosis-request">Copy diagnosis request</button>
+      <p id="diagnosis-copy-status" class="diagnosis-copy-status" aria-live="polite">Copy the request, then paste it into your agent chat.</p>
+      ${diagnosis.agentReady ? '' : `
+        <div class="diagnosis-setup">
+          <strong>Need to connect an agent?</strong>
+          <p>Use Runlist's existing Agent connections screen for Copilot, Codex, or Claude.</p>
+          <button class="secondary-button" data-action="show-agent-connections">Open Agent connections</button>
+        </div>`}
+      <p class="diagnosis-review-note">Any command or service change proposed by an agent still requires your review and approval in Runlist.</p>
+    </section>`;
 }
 
 function outputIsNearBottom(panel) {
@@ -866,6 +906,7 @@ app.addEventListener('click', (event) => {
       }
     },
     'register-agent': () => vscode.postMessage({ type: 'registerAgent', agent: button.dataset.agent }),
+    'show-agent-connections': () => vscode.postMessage({ type: 'showAgentSetup' }),
     'toggle-menu': () => toggleMenu(button),
     open: () => {
       closeMenus();
@@ -897,6 +938,8 @@ app.addEventListener('click', (event) => {
       closeMenus();
       vscode.postMessage({ type: 'showOutput', id: button.dataset.id });
     },
+    'ask-agent': () => vscode.postMessage({ type: 'showDiagnosis', id: button.dataset.id }),
+    'copy-diagnosis-request': () => vscode.postMessage({ type: 'copyDiagnosisRequest' }),
     'open-output-url': () => {
       event.preventDefault();
       vscode.postMessage({ type: 'openOutputUrl', url: button.dataset.url });
@@ -1019,6 +1062,13 @@ window.addEventListener('message', (event) => {
   }
   if (event.data?.type === 'projectOutputPeek') {
     updateProjectOutputPeek(event.data.id, event.data.entries);
+    return;
+  }
+  if (event.data?.type === 'diagnosisRequestCopied') {
+    const status = document.getElementById('diagnosis-copy-status');
+    if (status) {
+      status.textContent = 'Diagnosis request copied. Paste it into your agent chat.';
+    }
     return;
   }
   if (event.data?.type !== 'projectOutput') {
@@ -1311,6 +1361,8 @@ if (state.mode === 'list') {
   renderAgentSetup();
 } else if (state.mode === 'output') {
   renderProjectOutput();
+} else if (state.mode === 'diagnosis') {
+  renderProjectDiagnosis();
 } else {
   renderProjectForm(state.mode);
 }
