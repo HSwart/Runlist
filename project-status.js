@@ -50,6 +50,18 @@ function httpServiceUrl(service) {
   return override ? safeServiceUrl(override) : undefined;
 }
 
+function serviceUrl(service) {
+  const override = typeof service?.url === 'string' ? service.url.trim() : '';
+  if (override) {
+    return safeServiceUrl(override);
+  }
+  const port = service?.port;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return undefined;
+  }
+  return `http://127.0.0.1:${port}`;
+}
+
 function probeHttpService(url, options = {}) {
   const safeUrl = safeServiceUrl(url);
   if (!safeUrl) {
@@ -145,6 +157,45 @@ async function serviceHttpStatus(services, openPorts, options = {}) {
   };
 }
 
+async function reachableServiceUrls(services, openPorts, options = {}) {
+  const open = new Set(openPorts || []);
+  const configured = (services || [])
+    .map((service, index) => ({
+      service,
+      url: serviceUrl(service),
+      webCandidate: index === 0 || Boolean(httpServiceUrl(service))
+    }))
+    .filter(({ service, webCandidate }) => open.has(service.port) && webCandidate)
+    .filter(({ url }) => Boolean(url));
+  const resolveUrl = options.resolveUrl || (async (url) => url);
+  const probe = options.probe || probeHttpService;
+  const timeout = Number.isFinite(options.timeout)
+    ? Math.max(1, options.timeout)
+    : HTTP_PROBE_TIMEOUT_MS;
+
+  const results = await Promise.all(configured.map(async ({ service, url }) => {
+    try {
+      const deadline = Date.now() + timeout;
+      const resolvedUrl = await valueWithin(() => resolveUrl(url, service), timeout);
+      if (resolvedUrl === TIMED_OUT || !safeServiceUrl(resolvedUrl)) {
+        return undefined;
+      }
+      const remaining = Math.max(1, deadline - Date.now());
+      const responding = await valueWithin(
+        () => probe(resolvedUrl, { timeout: remaining }),
+        remaining
+      );
+      return responding !== TIMED_OUT && responding
+        ? { port: service.port, url: safeServiceUrl(resolvedUrl) }
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }));
+
+  return results.filter(Boolean);
+}
+
 async function valueWithin(factory, timeout) {
   let timer;
   try {
@@ -225,16 +276,7 @@ function projectStatus({
 }
 
 function primaryServiceUrl(services) {
-  const service = services?.[0];
-  const override = typeof service?.url === 'string' ? service.url.trim() : '';
-  if (override) {
-    return safeServiceUrl(override);
-  }
-  const port = service?.port;
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    return undefined;
-  }
-  return `http://127.0.0.1:${port}`;
+  return serviceUrl(services?.[0]);
 }
 
 function stoppableProjectIds(projects) {
@@ -254,6 +296,8 @@ module.exports = {
   primaryServiceUrl,
   probeHttpService,
   projectStatus,
+  reachableServiceUrls,
+  serviceUrl,
   serviceHttpStatus,
   serviceReadinessTimedOut,
   servicePortStatus,

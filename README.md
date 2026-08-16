@@ -21,7 +21,7 @@ Runlist keeps a reusable list of local projects from different repositories insi
 - Pin important projects so they stay at the top of the list.
 - Give projects a friendly name without renaming their folders.
 - Keep configured service names and ports visible at a glance.
-- When service ports are configured, see project status and open the first service at its localhost address or optional HTTP/HTTPS URL. Services with an Open URL are also checked for an HTTP response.
+- When service ports are configured, see project status, copy a responding web service's URL, and open the first service at its localhost address or optional HTTP/HTTPS URL. Services with an Open URL are also checked for an HTTP response.
 - Open any saved project folder in a new VS Code window.
 - View readable recent output from the latest run, follow new lines, and open web links without leaving the sidebar.
 - Edit or remove a saved project without touching its files.
@@ -103,6 +103,7 @@ Runlist keeps the everyday controls simple:
 | **Restart** | In a project's More actions menu, safely stops that project before starting it again and checking service readiness. |
 | **Stop all running** | Appears when two or more projects are running and stops them together. |
 | **Port in use** | Prevents conflicting projects from starting and identifies the owning project when possible. |
+| **Copy URL** | Appears beside the responding first service, and beside other responding services with an Open URL. It copies the same safe URL Runlist would open. |
 | **View output** | Highlights common log levels, opens web links, and lets you copy output from the latest run. If you scroll up, Runlist keeps your place and offers a **Latest** button when new output arrives. |
 | **…** | Opens the app, project folder, recent output, edit screen, or remove action. |
 
