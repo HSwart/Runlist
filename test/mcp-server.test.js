@@ -5,6 +5,7 @@ const path = require('node:path');
 const readline = require('node:readline');
 const { spawn } = require('node:child_process');
 const test = require('node:test');
+const { ProcessOwnershipStore } = require('../project-process');
 
 test('serves the setup tool over MCP stdio', async (t) => {
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-mcp-'));
@@ -25,6 +26,10 @@ test('serves the setup tool over MCP stdio', async (t) => {
   fs.copyFileSync(
     path.join(__dirname, '..', 'external-url.js'),
     path.join(installedRoot, 'external-url.js')
+  );
+  fs.copyFileSync(
+    path.join(__dirname, '..', 'project-process.js'),
+    path.join(installedRoot, 'project-process.js')
   );
   t.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
 
@@ -104,6 +109,24 @@ test('serves the setup tool over MCP stdio', async (t) => {
 
   storedProjects[0].reviewRequired = false;
   fs.writeFileSync(projectsFile, `${JSON.stringify(storedProjects, null, 2)}\n`);
+  const processOwnership = new ProcessOwnershipStore(
+    path.join(temporaryRoot, 'process-ownership')
+  );
+  assert.equal(processOwnership.reserve(storedProjects[0].id), undefined);
+  processOwnership.setProcess(storedProjects[0].id, process.pid);
+  const blockedUpdate = await request('tools/call', {
+    name: 'switchboard_setup_project',
+    arguments: {
+      name: 'Agent app',
+      folder: projectFolder,
+      startCommand: 'npm run dev -- --host',
+      services: [{ name: 'web', port: 3000 }]
+    }
+  });
+  assert.equal(blockedUpdate.result.isError, true);
+  assert.match(blockedUpdate.result.content[0].text, /Stop Agent app before.*update/i);
+  processOwnership.release(storedProjects[0].id);
+
   const updated = await request('tools/call', {
     name: 'switchboard_setup_project',
     arguments: {

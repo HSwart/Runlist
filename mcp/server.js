@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 const readline = require('readline');
-const { upsertProject } = require('../project-store');
+const path = require('path');
+const { ProcessOwnershipStore } = require('../project-process');
+const { findProjectByFolder, upsertProject } = require('../project-store');
 
 const SERVER_NAME = 'switchboard-mcp-server';
 const SERVER_VERSION = '0.0.1';
@@ -12,6 +14,9 @@ const SUPPORTED_PROTOCOL_VERSIONS = new Set([
   '2024-11-05'
 ]);
 const PROJECTS_FILE = process.env.SWITCHBOARD_PROJECTS_FILE;
+const processOwnership = PROJECTS_FILE
+  ? new ProcessOwnershipStore(path.join(path.dirname(PROJECTS_FILE), 'process-ownership'))
+  : undefined;
 
 const tool = {
   name: 'switchboard_setup_project',
@@ -202,7 +207,24 @@ function callTool(message) {
       throw new Error('services must list at least one service and port.');
     }
 
-    const saved = upsertProject(PROJECTS_FILE, argumentsValue, { reviewRequired: true });
+    const existingProject = findProjectByFolder(PROJECTS_FILE, argumentsValue.folder);
+    let updateReserved = false;
+    if (existingProject) {
+      const ownershipConflict = processOwnership.reserve(existingProject.id);
+      if (ownershipConflict) {
+        throw new Error(`Stop ${existingProject.name} before asking an agent to update its setup.`);
+      }
+      updateReserved = true;
+    }
+
+    let saved;
+    try {
+      saved = upsertProject(PROJECTS_FILE, argumentsValue, { reviewRequired: true });
+    } finally {
+      if (updateReserved) {
+        processOwnership.release(existingProject.id);
+      }
+    }
     const structuredContent = {
       action: saved.action,
       project: saved.project

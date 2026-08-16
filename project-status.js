@@ -44,6 +44,11 @@ function serviceReadinessTimedOut(deadline, allReady, now = Date.now()) {
   return Number.isFinite(deadline) && now >= deadline && !allReady;
 }
 
+function isPrimaryServiceOpen(services, openPorts) {
+  const primaryPort = services?.[0]?.port;
+  return Number.isInteger(primaryPort) && (openPorts || []).includes(primaryPort);
+}
+
 function projectStatus({
   ambiguousConflict = false,
   allOpen = false,
@@ -109,6 +114,7 @@ function stoppableProjectIds(projects) {
 module.exports = {
   areServicesRunning,
   isPortOpen,
+  isPrimaryServiceOpen,
   primaryServiceUrl,
   projectStatus,
   serviceReadinessTimedOut,

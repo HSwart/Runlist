@@ -4,6 +4,7 @@ const test = require('node:test');
 const {
   areServicesRunning,
   isPortOpen,
+  isPrimaryServiceOpen,
   primaryServiceUrl,
   projectStatus,
   serviceReadinessTimedOut,
@@ -123,6 +124,16 @@ test('uses a safe primary service URL override or derives localhost from its por
   assert.equal(primaryServiceUrl([{ name: 'web', port: 8787 }]), 'http://127.0.0.1:8787');
   assert.equal(primaryServiceUrl([{ name: 'web', port: 8787, url: 'file:///tmp/app' }]), undefined);
   assert.equal(primaryServiceUrl([]), undefined);
+});
+
+test('opens the primary service only when its own port is ready', () => {
+  const services = [
+    { name: 'web', port: 8787 },
+    { name: 'api', port: 8788 }
+  ];
+  assert.equal(isPrimaryServiceOpen(services, [8788]), false);
+  assert.equal(isPrimaryServiceOpen(services, [8787, 8788]), true);
+  assert.equal(isPrimaryServiceOpen([], [8787]), false);
 });
 
 test('selects only projects that can be stopped together', () => {

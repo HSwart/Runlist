@@ -14,6 +14,7 @@ const {
   installAgentSkill
 } = require('./skill-installation');
 const {
+  isPrimaryServiceOpen,
   primaryServiceUrl,
   projectStatus,
   serviceReadinessTimedOut,
@@ -91,6 +92,7 @@ class SwitchboardViewProvider {
     );
     this.startAttempts = new Map();
     this.projectPortConflicts = new Map();
+    this.projectOpenPorts = new Map();
     this.projectStatuses = new Map();
     this.startReadinessDeadlines = new Map();
     this.readinessWarnings = new Set();
@@ -266,7 +268,12 @@ class SwitchboardViewProvider {
           readinessTimedOut,
           stopping: this.stoppingProjectIds.has(project.id) || sharedState === 'stopping',
         });
-        return [project.id, status, portConflictSummary(conflict)];
+        return [
+          project.id,
+          status,
+          portConflictSummary(conflict),
+          portStatus.openPorts
+        ];
       }));
 
       if (revision !== this.statusRevision) {
@@ -285,11 +292,16 @@ class SwitchboardViewProvider {
       const nextConflicts = new Map(checks
         .filter(([, , conflict]) => conflict)
         .map(([id, , conflict]) => [id, conflict]));
+      const nextOpenPorts = new Map(checks
+        .map(([id, , , openPorts]) => [id, openPorts]));
       const changed = nextStatuses.size !== this.projectStatuses.size
         || [...nextStatuses].some(([id, status]) => this.projectStatuses.get(id) !== status)
-        || portConflictMapsDiffer(nextConflicts, this.projectPortConflicts);
+        || portConflictMapsDiffer(nextConflicts, this.projectPortConflicts)
+        || [...nextOpenPorts]
+          .some(([id, openPorts]) => String(this.projectOpenPorts.get(id)) !== String(openPorts));
       this.projectStatuses = nextStatuses;
       this.projectPortConflicts = nextConflicts;
+      this.projectOpenPorts = nextOpenPorts;
       if (changed) {
         this.renderProjectList();
       }
@@ -645,13 +657,27 @@ class SwitchboardViewProvider {
     const stopCommand = validation.values.stopCommand.trim();
     const services = projectFormServices(validation.values);
     const existingProject = this.projects.find((item) => item.id === projectId);
+    const servicesChanged = Boolean(existingProject)
+      && projectServicesChanged(validation.values, existingProject);
     const servicesLocked = existingProject
       && ['running', 'starting', 'not-ready', 'stopping', 'active'].includes(this.getProjectStatus(projectId));
-    if (servicesLocked && projectServicesChanged(validation.values, existingProject)) {
+    if (servicesLocked && servicesChanged) {
       this.formErrors = { services: 'Stop this project before changing its services.' };
       this.focusTarget = { type: 'field', id: 'services' };
       this.render();
       return;
+    }
+
+    let servicesReservation = false;
+    if (servicesChanged) {
+      const ownershipConflict = this.processOwnership.reserve(projectId);
+      if (ownershipConflict) {
+        this.formErrors = { services: 'Stop this project before changing its services.' };
+        this.focusTarget = { type: 'field', id: 'services' };
+        this.render();
+        return;
+      }
+      servicesReservation = true;
     }
 
     try {
@@ -672,6 +698,10 @@ class SwitchboardViewProvider {
         : { type: 'field', id: formError.field };
       this.render();
       return;
+    } finally {
+      if (servicesReservation) {
+        this.processOwnership.release(projectId);
+      }
     }
 
     this.mode = 'list';
@@ -725,6 +755,7 @@ class SwitchboardViewProvider {
         if (!stopped) {
           return;
         }
+        this.processOwnership.release(id);
       } else if (latestSharedOwnership) {
         const stopRequested = await this.stopProject(id, latestProject);
         if (!stopRequested || !await this.waitForProjectStopCompletion(id)) {
@@ -756,6 +787,7 @@ class SwitchboardViewProvider {
       this.releaseStartReservation(id);
       this.projectStatuses.delete(id);
       this.projectPortConflicts.delete(id);
+      this.projectOpenPorts.delete(id);
       this.startReadinessDeadlines.delete(id);
       this.readinessWarnings.delete(id);
       this.stoppingProjectIds.delete(id);
@@ -799,8 +831,8 @@ class SwitchboardViewProvider {
   }
 
   async startProject(id) {
-    const projects = this.projects;
-    const project = projects.find((item) => item.id === id);
+    let projects = this.projects;
+    let project = projects.find((item) => item.id === id);
     if (!project) {
       return;
     }
@@ -823,6 +855,19 @@ class SwitchboardViewProvider {
       vscode.window.showWarningMessage(ownershipConflict.kind === 'uncertain'
         ? `Switchboard cannot safely verify who owns ${project.name}'s previous process. Close it manually before starting again.`
         : `${project.name} is already running in another VS Code window.`);
+      return;
+    }
+
+    projects = this.projects;
+    project = projects.find((item) => item.id === id);
+    if (!project) {
+      this.processOwnership.release(id);
+      return;
+    }
+    if (project.reviewRequired) {
+      this.processOwnership.release(id);
+      vscode.window.showWarningMessage(`Review and approve ${project.name}'s setup before running its commands.`);
+      this.showEditProject(id);
       return;
     }
 
@@ -993,9 +1038,21 @@ class SwitchboardViewProvider {
       if (!customStopSucceeded) {
         return false;
       }
+      const stillOwned = this.processes.has(id) || this.processOwnership.snapshot().has(id);
+      if (stillOwned && !await this.waitForProjectStopCompletion(id)) {
+        vscode.window.showErrorMessage(
+          `Could not stop ${project.name}: the custom stop command finished, but the launched process is still running.`
+        );
+        this.finishStopping(id, false);
+        return false;
+      }
+      if (!stillOwned) {
+        this.finishStopping(id, true);
+      }
+      return true;
     }
 
-    return this.stopOwnedProjectProcess(id, project, { allowMissing: Boolean(project.stopCommand) });
+    return this.stopOwnedProjectProcess(id, project);
   }
 
   async restartProject(id) {
@@ -1181,12 +1238,17 @@ class SwitchboardViewProvider {
       ? this.projectOutputs.get(outputProject.id) || ''
       : '';
     const cleanProjectOutput = sanitizeProjectOutput(rawProjectOutput);
-    const stateProjects = projects.map((project) => ({
-      ...project,
-      portConflict: this.projectPortConflicts.get(project.id),
-      status: this.getProjectStatus(project.id),
-      searchText: projectSearchText(project)
-    }));
+    const stateProjects = projects.map((project) => {
+      const openPorts = this.projectOpenPorts.get(project.id) || [];
+      return {
+        ...project,
+        openPorts,
+        portConflict: this.projectPortConflicts.get(project.id),
+        primaryServiceOpen: isPrimaryServiceOpen(project.services, openPorts),
+        status: this.getProjectStatus(project.id),
+        searchText: projectSearchText(project)
+      };
+    });
     const state = {
       agentConnections: this.agentConnections,
       mode: this.mode,
@@ -1367,6 +1429,10 @@ function installMcpBridge(context) {
   fs.copyFileSync(
     vscode.Uri.joinPath(context.extensionUri, 'external-url.js').fsPath,
     path.join(storageRoot, 'external-url.js')
+  );
+  fs.copyFileSync(
+    vscode.Uri.joinPath(context.extensionUri, 'project-process.js').fsPath,
+    path.join(storageRoot, 'project-process.js')
   );
   return serverPath;
 }

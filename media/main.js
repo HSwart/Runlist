@@ -157,10 +157,11 @@ function renderList() {
           'review-required': 'Review setup',
           stopped: 'Stopped'
         };
-        const active = ['running', 'active'].includes(projectStatus);
         const conflicted = ['port-in-use', 'port-in-use-unknown'].includes(projectStatus);
         const transitioning = ['starting', 'stopping'].includes(projectStatus);
-        const canOpen = ['running', 'active'].includes(projectStatus) && project.services?.length;
+        const canOpen = ['running', 'active'].includes(projectStatus)
+          && project.services?.length
+          && project.primaryServiceOpen;
         const detectedWithoutStop = projectStatus === 'active' && !project.stopCommand;
         const stopState = ['running', 'starting', 'not-ready', 'active'].includes(projectStatus);
         const canRestart = !reviewRequired
@@ -243,7 +244,7 @@ function renderList() {
             </div>
             ${project.services?.length ? `
               <div class="project-services" aria-label="Service ports">
-                ${project.services.map((service) => `<span><span class="service-indicator ${active ? 'running' : conflicted ? 'conflict' : ''}" aria-hidden="true"></span>${escapeHtml(service.name)} <strong>:${escapeHtml(String(service.port))}</strong></span>`).join('')}
+                ${project.services.map((service) => `<span><span class="service-indicator ${project.openPorts?.includes(service.port) ? 'running' : conflicted ? 'conflict' : ''}" aria-hidden="true"></span>${escapeHtml(service.name)} <strong>:${escapeHtml(String(service.port))}</strong></span>`).join('')}
               </div>` : ''}
           </article>`;
       }).join('')}

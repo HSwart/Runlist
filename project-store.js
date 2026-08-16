@@ -75,6 +75,13 @@ function upsertProject(filePath, input, options = {}) {
   };
 }
 
+function findProjectByFolder(filePath, folder) {
+  const normalizedFolder = normalizeFolder(folder);
+  return readProjects(filePath).find((project) => (
+    normalizeForComparison(project.folder) === normalizedFolder
+  ));
+}
+
 function removeProject(filePath, id) {
   const projects = readProjects(filePath);
   const nextProjects = projects.filter((project) => project.id !== id);
@@ -199,6 +206,7 @@ function createId() {
 }
 
 module.exports = {
+  findProjectByFolder,
   initializeProjectStore,
   readProjects,
   removeProject,
