@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.0.3 — Project visibility
+
+- Pin important projects so they stay above unpinned projects.
+- Check configured web services for an HTTP response and clearly distinguish a service that is reachable but not responding.
+- Copy a responding local service URL directly from its service badge.
+- Expand a running web service from the chevron at the right of its service row to see a compact live app preview.
+- Refresh the preview, copy its URL, or open it in the browser without leaving the sidebar.
+- Show current CPU and memory use for the process tree Runlist started while its preview is expanded.
+- Use VS Code-style disclosure and restart icons, with warning styling for nonresponding web services.
+
 ## 0.0.2 — Marketplace release
 
 - Rebrand the extension, Marketplace identity, agent connection, and guided setup skill as Runlist.

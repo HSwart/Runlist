@@ -11,6 +11,7 @@ test('exposes an accessible single-project Restart overflow action', () => {
   assert.match(script, /const detectedWithoutStop = projectStatus === 'active' && !project\.stopCommand/);
   assert.match(script, /\['running', 'not-ready', 'not-responding', 'active'\]\.includes\(projectStatus\)[\s\S]*&& !detectedWithoutStop/);
   assert.match(script, /\$\{canRestart \? '' : 'disabled'\}/);
+  assert.match(script, /data-action="restart"[\s\S]*\$\{icon\('refresh', 'menu-icon'\)\}<span>Restart<\/span>/);
   assert.match(script, /restart: \(\) => vscode\.postMessage\(\{ type: 'restartProject', id: button\.dataset\.id \}\)/);
 });
 

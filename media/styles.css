@@ -205,7 +205,6 @@ button:active:not(:disabled) {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 3px;
 }
 
 .project-title-line h2 {
@@ -213,22 +212,20 @@ button:active:not(:disabled) {
 }
 
 .preview-toggle {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   display: grid;
   flex: 0 0 auto;
   place-items: center;
-  margin-left: -4px;
-  padding: 2px;
+  margin-left: auto;
+  padding: 3px;
   color: var(--vscode-icon-foreground);
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: 3px;
+  border: 0;
 }
 
-.preview-toggle:hover,
-.preview-toggle[aria-expanded='true'] {
-  background: var(--vscode-toolbar-hoverBackground);
+.preview-toggle:hover {
+  color: var(--vscode-foreground);
 }
 
 .preview-toggle[aria-expanded='false'] .icon {
@@ -502,8 +499,16 @@ button:active:not(:disabled) {
 
 .project-services {
   display: flex;
+  flex: 1 1 auto;
   flex-wrap: wrap;
   gap: 5px;
+  min-width: 0;
+}
+
+.project-services-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
   margin-top: 8px;
 }
 

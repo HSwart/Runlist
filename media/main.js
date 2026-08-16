@@ -108,7 +108,7 @@ function outputEntriesHtml(entries) {
 function icon(name, className = 'icon') {
   // Official VS Code Codicon paths: https://github.com/microsoft/vscode-codicons
   const icons = {
-    'arrow-down': { viewBox: '0 0 16 16', body: '<path d="M13.854 8.146C13.659 7.951 13.342 7.951 13.147 8.146L9.00096 12.292V2.5C9.00096 2.224 8.77696 2 8.50096 2C8.22496 2 8.00096 2.224 8.00096 2.5V12.293L3.85496 8.147C3.65996 7.952 3.34296 7.952 3.14796 8.147C2.95296 8.342 2.95296 8.659 3.14796 8.854L8.14796 13.854C8.24596 13.952 8.37396 14 8.50196 14C8.62996 14 8.75796 13.951 8.85596 13.854L13.856 8.854C14.051 8.659 14.051 8.342 13.856 8.147L13.854 8.146Z"/>' },
+    'chevron-down': { viewBox: '0 0 16 16', body: '<path d="M3.646 5.646a.5.5 0 0 1 .708 0L8 9.293l3.646-3.647a.5.5 0 0 1 .708.708l-4 4a.5.5 0 0 1-.708 0l-4-4a.5.5 0 0 1 0-.708Z"/>' },
     close: { viewBox: '0 0 16 16', body: '<path d="M8.70701 8.00001L12.353 4.35401C12.548 4.15901 12.548 3.84201 12.353 3.64701C12.158 3.45201 11.841 3.45201 11.646 3.64701L8.00001 7.29301L4.35401 3.64701C4.15901 3.45201 3.84201 3.45201 3.64701 3.64701C3.45201 3.84201 3.45201 4.15901 3.64701 4.35401L7.29301 8.00001L3.64701 11.646C3.45201 11.841 3.45201 12.158 3.64701 12.353C3.74501 12.451 3.87301 12.499 4.00101 12.499C4.12901 12.499 4.25701 12.45 4.35501 12.353L8.00101 8.70701L11.647 12.353C11.745 12.451 11.873 12.499 12.001 12.499C12.129 12.499 12.257 12.45 12.355 12.353C12.55 12.158 12.55 11.841 12.355 11.646L8.70901 8.00001H8.70701Z"/>' },
     copy: { viewBox: '0 0 16 16', body: '<path d="M4 4.5C4 3.672 4.672 3 5.5 3h6c.828 0 1.5.672 1.5 1.5v7c0 .828-.672 1.5-1.5 1.5h-6c-.828 0-1.5-.672-1.5-1.5v-7ZM5.5 4a.5.5 0 0 0-.5.5v7a.5.5 0 0 0 .5.5h6a.5.5 0 0 0 .5-.5v-7a.5.5 0 0 0-.5-.5h-6Z"/><path d="M2 3.5C2 2.672 2.672 2 3.5 2H10v1H3.5a.5.5 0 0 0-.5.5V11H2V3.5Z"/>' },
     edit: { viewBox: '0 0 16 16', body: '<path d="M14.236 1.76386C13.2123 0.740172 11.5525 0.740171 10.5289 1.76386L2.65722 9.63549C2.28304 10.0097 2.01623 10.4775 1.88467 10.99L1.01571 14.3755C0.971767 14.5467 1.02148 14.7284 1.14646 14.8534C1.27144 14.9783 1.45312 15.028 1.62432 14.9841L5.00978 14.1151C5.52234 13.9836 5.99015 13.7168 6.36433 13.3426L14.236 5.47097C15.2596 4.44728 15.2596 2.78755 14.236 1.76386ZM11.236 2.47097C11.8691 1.8378 12.8957 1.8378 13.5288 2.47097C14.162 3.10413 14.162 4.1307 13.5288 4.76386L12.75 5.54269L10.4571 3.24979L11.236 2.47097ZM9.75002 3.9569L12.0429 6.24979L5.65722 12.6355C5.40969 12.883 5.10023 13.0595 4.76117 13.1465L2.19447 13.8053L2.85327 11.2386C2.9403 10.8996 3.1168 10.5901 3.36433 10.3426L9.75002 3.9569Z"/>' },
@@ -193,6 +193,9 @@ function renderList() {
         const projectStatus = project.status || 'stopped';
         const reviewRequired = Boolean(project.reviewRequired);
         const displayStatus = reviewRequired ? 'review-required' : projectStatus;
+        const statusClass = projectStatus === 'active' && project.httpUnresponsive
+          ? 'not-responding'
+          : displayStatus;
         const conflict = project.portConflict;
         const conflictOwnerName = escapeHtml(conflict?.ownerName || 'Another app');
         const conflictProjectNames = (conflict?.projectNames || []).map(escapeHtml).join(', ');
@@ -262,13 +265,12 @@ function renderList() {
             <div class="project-topline">
               <div class="project-heading">
                 <div class="project-title-line">
-                  ${project.previewUrl ? `<button class="preview-toggle" data-action="toggle-preview" data-id="${projectId}" aria-label="${project.previewExpanded ? 'Collapse' : 'Preview'} ${projectName}" aria-expanded="${project.previewExpanded}" aria-controls="preview-${projectId}" title="${project.previewExpanded ? 'Collapse preview' : 'Preview app'}">${icon('arrow-down')}</button>` : ''}
                   <h2 id="project-${projectId}" title="${project.pinned ? `Pinned: ${projectName}` : projectName}" aria-label="${project.pinned ? `Pinned project: ${projectName}` : projectName}">
                     ${project.pinned ? icon('pinned', 'pinned-icon') : ''}
                     <span class="auto-scroll"><span class="auto-scroll-content">${projectName}</span></span>
                   </h2>
                 </div>
-                <div class="project-status status-${displayStatus}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : ''}<span class="auto-scroll"><span class="auto-scroll-content">${statusLabels[displayStatus]}</span></span></div>
+                <div class="project-status status-${statusClass}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : ''}<span class="auto-scroll"><span class="auto-scroll-content">${statusLabels[displayStatus]}</span></span></div>
               </div>
               <div class="project-actions">
                 <button class="run-button ${reviewRequired ? 'review' : blocked ? 'blocked' : stopState || projectStatus === 'stopping' ? 'stop' : 'start'}" data-action="${action}" data-id="${projectId}" aria-label="${actionTitle}" title="${actionTitle}" ${actionDisabled && !reviewRequired ? 'disabled' : ''}>
@@ -286,7 +288,7 @@ function renderList() {
                     ${icon('terminal', 'menu-icon')}<span>View output</span>
                   </button>
                   <button data-action="restart" data-id="${projectId}" role="menuitem" aria-label="Restart ${projectName}" ${canRestart ? '' : 'disabled'}>
-                    ${productIcon('loading', 'menu-icon')}<span>Restart</span>
+                    ${icon('refresh', 'menu-icon')}<span>Restart</span>
                   </button>
                   <button data-action="edit" data-id="${projectId}" role="menuitem">
                     ${icon('edit', 'menu-icon')}<span>${reviewRequired ? 'Review setup' : 'Edit project'}</span>
@@ -307,8 +309,9 @@ function renderList() {
               </div>
             </div>
             ${project.services?.length ? `
-              <div class="project-services" aria-label="Service ports">
-                ${project.services.map((service) => {
+              <div class="project-services-row">
+                <div class="project-services" aria-label="Service ports">
+                  ${project.services.map((service) => {
                   const portOpen = project.openPorts?.includes(service.port);
                   const canCopyUrl = project.serviceUrls?.some((entry) => entry.port === service.port)
                     && !reviewRequired
@@ -331,7 +334,9 @@ function renderList() {
                     : '';
                   const copyLabel = `Copy ${escapeHtml(service.name)} URL`;
                   return `<span${title}${ariaLabel}><span class="service-indicator ${indicator}" aria-hidden="true"></span>${escapeHtml(service.name)} <strong>:${escapeHtml(String(service.port))}</strong>${canCopyUrl ? `<button class="copy-url-button" data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(String(service.port))}" aria-label="${copyLabel}" title="${copyLabel}">${icon('copy')}</button>` : ''}</span>`;
-                }).join('')}
+                  }).join('')}
+                </div>
+                ${project.previewUrl ? `<button class="preview-toggle" data-action="toggle-preview" data-id="${projectId}" aria-label="${project.previewExpanded ? 'Collapse' : 'Expand'} preview for ${projectName}" aria-expanded="${project.previewExpanded}" aria-controls="preview-${projectId}" title="${project.previewExpanded ? 'Collapse' : 'Expand'} app preview">${icon('chevron-down')}</button>` : ''}
               </div>` : ''}
             ${project.previewUrl ? `
               <section id="preview-${projectId}" class="project-preview" aria-label="Preview of ${projectName}" ${project.previewExpanded ? '' : 'hidden'}>
