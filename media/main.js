@@ -213,9 +213,7 @@ function renderList() {
         };
         const conflicted = ['port-in-use', 'port-in-use-unknown'].includes(projectStatus);
         const transitioning = ['starting', 'stopping'].includes(projectStatus);
-        const canOpen = ['running', 'active'].includes(projectStatus)
-          && project.services?.length
-          && project.primaryServiceOpen;
+        const canOpen = Boolean(project.previewUrl);
         const detectedWithoutStop = projectStatus === 'active' && !project.stopCommand;
         const stopState = ['running', 'starting', 'not-ready', 'not-responding', 'active'].includes(projectStatus);
         const canRestart = !reviewRequired
@@ -244,6 +242,13 @@ function renderList() {
           : blocked
             ? `${conflictOwnerName} is using port :${conflict?.port || 'unknown'} — cannot start ${projectName}`
           : `${actionLabel} ${projectName}`;
+        const openTitle = canOpen
+          ? `Open ${projectName} in your browser`
+          : conflicted
+            ? 'This port may belong to another app'
+            : stopState
+              ? `${projectName} does not have a responding web service yet`
+              : `Start ${projectName} before opening it`;
         const statusTitle = reviewRequired
           ? 'A coding agent added or updated this setup. Review its folder and commands before running it.'
           : projectStatus === 'active'
@@ -278,7 +283,7 @@ function renderList() {
                 </button>
                 <button class="more-button" data-action="toggle-menu" data-id="${projectId}" aria-label="More actions for ${projectName}" aria-haspopup="menu" aria-expanded="false">${icon('more')}</button>
                 <div class="action-menu" data-menu-id="${projectId}" role="menu" aria-label="Actions for ${projectName}" hidden>
-                  <button data-action="open" data-id="${projectId}" role="menuitem" ${canOpen ? '' : 'disabled'} title="${canOpen ? `Open ${projectName} in your browser` : conflicted ? 'This port may belong to another app' : `Start ${projectName} before opening it`}">
+                  <button data-action="open" data-id="${projectId}" role="menuitem" ${canOpen ? '' : 'disabled'} title="${openTitle}">
                     ${icon('external', 'menu-icon')}<span>Open app</span>
                   </button>
                   <button data-action="open-vscode" data-id="${projectId}" role="menuitem" title="Open ${projectName} in a new VS Code window">
@@ -345,7 +350,7 @@ function renderList() {
                   <span>Preview</span>
                   <div class="preview-actions">
                     <button data-action="refresh-preview" data-id="${projectId}" aria-label="Refresh ${projectName} preview" title="Refresh preview">${icon('refresh')}</button>
-                    <button data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(String(project.services[0].port))}" aria-label="Copy ${projectName} URL" title="Copy URL">${icon('copy')}</button>
+                    <button data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(String(project.previewPort))}" aria-label="Copy ${projectName} URL" title="Copy URL">${icon('copy')}</button>
                     <button data-action="open" data-id="${projectId}" aria-label="Open ${projectName} in browser" title="Open in browser">${icon('external')}</button>
                   </div>
                 </header>

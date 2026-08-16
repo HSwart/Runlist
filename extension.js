@@ -15,8 +15,6 @@ const {
   installAgentSkill
 } = require('./skill-installation');
 const {
-  isPrimaryServiceResponding,
-  primaryServiceUrl,
   projectStatus,
   reachableServiceUrls,
   serviceHttpStatus,
@@ -25,7 +23,7 @@ const {
   stoppableProjectIds
 } = require('./project-status');
 const { openProjectInNewWindow } = require('./project-navigation');
-const { previewFrameSource, projectPreviewUrl } = require('./preview-security');
+const { previewFrameSource, projectPreviewService } = require('./preview-security');
 const { OwnedProcessMetrics } = require('./process-metrics');
 const {
   canUseCurrentWorkspace,
@@ -95,6 +93,7 @@ class RunlistViewProvider {
     this.returnFocus = undefined;
     this.selectedProjectId = undefined;
     this.expandedPreviewProjectId = undefined;
+    this.expandedPreviewServicePort = undefined;
     this.processes = new Map();
     this.ownedProcessMetrics = new OwnedProcessMetrics();
     this.projectMetrics = new Map();
@@ -677,29 +676,33 @@ class RunlistViewProvider {
       return;
     }
     const status = this.getProjectStatus(id);
-    if (status === 'not-responding') {
-      vscode.window.showInformationMessage(`${project.name} is running, but its web service is not responding.`);
-      return;
-    }
-    if (!this.isProjectRunning(id)) {
+    const previewService = projectPreviewService(
+      project,
+      status,
+      this.projectServiceUrls.get(id),
+      this.projectPortConflicts.has(id)
+    );
+    if (!previewService) {
+      if (['running', 'starting', 'not-ready', 'not-responding', 'active'].includes(status)) {
+        vscode.window.showInformationMessage(`${project.name} does not have a responding web service to open.`);
+        return;
+      }
       vscode.window.showInformationMessage(`Start ${project.name} before opening it.`);
       return;
     }
-
-    const url = primaryServiceUrl(project.services);
-    if (!url) {
-      vscode.window.showErrorMessage(`${project.name} does not have a valid service URL to open.`);
+    const service = project.services.find((item) => item.port === previewService.port);
+    const portStatus = await servicePortStatus([service]);
+    const [reachable] = await reachableServiceUrls([service], portStatus.openPorts, {
+      resolveUrl: (url) => this.externalServiceUrl(url)
+    });
+    if (!reachable) {
+      vscode.window.showInformationMessage(`${service.name} is not responding as a web service.`);
+      await this.refreshProjectStatuses();
       return;
     }
-
-    const externalUrl = await this.externalServiceUrl(url);
-    if (!externalUrl) {
-      vscode.window.showErrorMessage(`${project.name} does not have a valid service URL to open.`);
-      return;
-    }
-    const opened = await vscode.env.openExternal(vscode.Uri.parse(externalUrl));
+    const opened = await vscode.env.openExternal(vscode.Uri.parse(reachable.url));
     if (!opened) {
-      vscode.window.showErrorMessage(`Could not open ${project.name} at ${externalUrl}.`);
+      vscode.window.showErrorMessage(`Could not open ${project.name} at ${reachable.url}.`);
     }
   }
 
@@ -726,17 +729,24 @@ class RunlistViewProvider {
 
   toggleProjectPreview(id) {
     const project = this.projects.find((item) => item.id === id);
-    const previewUrl = projectPreviewUrl(
+    const previewService = projectPreviewService(
       project,
       this.getProjectStatus(id),
       this.projectServiceUrls.get(id),
       this.projectPortConflicts.has(id)
     );
-    if (!previewUrl) {
+    if (!previewService) {
       return;
     }
 
-    this.expandedPreviewProjectId = this.expandedPreviewProjectId === id ? undefined : id;
+    if (this.expandedPreviewProjectId === id
+      && this.expandedPreviewServicePort === previewService.port) {
+      this.expandedPreviewProjectId = undefined;
+      this.expandedPreviewServicePort = undefined;
+    } else {
+      this.expandedPreviewProjectId = id;
+      this.expandedPreviewServicePort = previewService.port;
+    }
     this.focusTarget = { type: 'action', action: 'toggle-preview', id };
     this.renderProjectList();
   }
@@ -1029,6 +1039,7 @@ class RunlistViewProvider {
       this.projectWebPorts.delete(id);
       if (this.expandedPreviewProjectId === id) {
         this.expandedPreviewProjectId = undefined;
+        this.expandedPreviewServicePort = undefined;
       }
       this.startReadinessDeadlines.delete(id);
       this.readinessWarnings.delete(id);
@@ -1127,6 +1138,10 @@ class RunlistViewProvider {
     this.statusRevision += 1;
     this.startAttempts.set(id, attempt);
     this.projectPortConflicts.delete(id);
+    this.projectOpenPorts.delete(id);
+    this.projectRespondingPorts.delete(id);
+    this.projectServiceUrls.delete(id);
+    this.projectWebPorts.delete(id);
     this.projectStatuses.set(id, 'starting');
     this.renderProjectList();
 
@@ -1514,26 +1529,28 @@ class RunlistViewProvider {
       const serviceUrls = this.projectServiceUrls.get(project.id) || [];
       const webPorts = this.projectWebPorts.get(project.id) || [];
       const status = this.getProjectStatus(project.id);
-      const primaryUrl = projectPreviewUrl(
+      const previewService = projectPreviewService(
         project,
         status,
         serviceUrls,
         this.projectPortConflicts.has(project.id)
       );
-      const canPreview = Boolean(primaryUrl);
-      const previewExpanded = canPreview && this.expandedPreviewProjectId === project.id;
+      const canPreview = Boolean(previewService);
+      const previewExpanded = canPreview
+        && this.expandedPreviewProjectId === project.id
+        && this.expandedPreviewServicePort === previewService.port;
       const locallyOwned = this.processes.has(project.id);
       return {
         ...project,
         pinned: project.pinned === true,
         openPorts,
         portConflict: this.projectPortConflicts.get(project.id),
-        primaryServiceOpen: isPrimaryServiceResponding(project.services, openPorts, respondingPorts),
         respondingPorts,
         serviceUrls,
         status,
         previewExpanded,
-        previewUrl: canPreview ? primaryUrl : undefined,
+        previewPort: previewService?.port,
+        previewUrl: previewService?.url,
         resourceMetrics: previewExpanded
           ? this.projectMetrics.get(project.id) || (locallyOwned
             ? { available: true, measuring: true }
@@ -1552,6 +1569,7 @@ class RunlistViewProvider {
       && !stateProjects.some((project) => project.previewExpanded)) {
       const previousId = this.expandedPreviewProjectId;
       this.expandedPreviewProjectId = undefined;
+      this.expandedPreviewServicePort = undefined;
       this.focusTarget = { type: 'project-control', id: previousId };
     }
     const state = {
