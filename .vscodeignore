@@ -5,6 +5,8 @@
 .vscode-test/**
 .env*
 AGENTS.md
+.agents/**
+FUTURE_FEATURE_IDEAS.local.md
 docs/**
 node_modules/**
 scripts/**
