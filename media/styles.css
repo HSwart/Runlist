@@ -114,6 +114,81 @@ button:active:not(:disabled) {
   flex: 0 0 auto;
 }
 
+.running-app-navigator {
+  position: sticky;
+  z-index: 4;
+  top: 0;
+  min-width: 0;
+  min-height: 34px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 8px 4px 12px;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-sideBar-background);
+  border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-widget-border));
+  box-shadow: 0 1px 2px var(--vscode-widget-shadow, transparent);
+}
+
+.running-app-navigator[hidden] {
+  display: none;
+}
+
+.running-app-current {
+  min-width: 0;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  overflow: hidden;
+  color: var(--vscode-foreground);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  font-weight: 600;
+}
+
+.running-app-current:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.running-app-current .auto-scroll {
+  width: 100%;
+}
+
+.running-app-position {
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.running-app-navigation {
+  display: flex;
+  align-items: center;
+}
+
+.running-app-navigation button {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  color: var(--vscode-icon-foreground);
+  background: transparent;
+  border: 0;
+}
+
+.running-app-navigation button:hover {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.running-app-previous .icon {
+  transform: rotate(180deg);
+}
+
 .project-search {
   position: relative;
   padding: 8px 12px;
@@ -185,6 +260,11 @@ button:active:not(:disabled) {
 
 .project-row:hover {
   background: var(--vscode-list-hoverBackground);
+}
+
+.project-row:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
 }
 
 .project-topline {

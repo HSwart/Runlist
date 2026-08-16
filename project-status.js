@@ -374,6 +374,14 @@ function stoppableProjectIds(projects) {
     .map((project) => project.id);
 }
 
+function runningAppProjectIds(projects) {
+  return (projects || [])
+    .filter((project) => !project.reviewRequired
+      && (project.status === 'running'
+        || (project.status === 'active' && !project.httpUnresponsive)))
+    .map((project) => project.id);
+}
+
 module.exports = {
   areServicesRunning,
   httpServiceUrl,
@@ -384,6 +392,7 @@ module.exports = {
   probeHttpService,
   projectStatus,
   reachableServiceUrls,
+  runningAppProjectIds,
   serviceUrl,
   serviceHttpStatus,
   serviceReadinessDetails,

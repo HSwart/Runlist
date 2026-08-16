@@ -103,6 +103,7 @@ Runlist keeps the everyday controls simple:
 | Control | What it does |
 | --- | --- |
 | **Search** | Filters your saved projects by project name or folder. |
+| **Running app navigator** | When multiple running project cards do not fit in the visible sidebar, a compact navigator lets you move between them. It stays hidden for short lists and never starts, stops, or opens anything. |
 | **Pin to top** | In a project's More actions menu, keeps that project above unpinned projects until you unpin it. |
 | **Project status** | Shows the written state in a clear status capsule, including running, stopped, transitions, a slow-starting service, a web service that is not responding, and port conflicts. When startup takes longer, Runlist names the services that are ready and the ones it is still checking. Long names, status details, and folder paths scroll automatically when they do not fit. |
 | **Start icon** | Runs the saved start command inside the project folder. |
