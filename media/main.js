@@ -32,14 +32,46 @@ function formatMemory(value) {
     : `${Math.max(0, Math.round(megabytes))} MB`;
 }
 
-function resourceMetricsContent(metrics) {
+function runtimePulsePoints(samples, key) {
+  const values = (samples || []).map((sample, index) => ({
+    index,
+    value: Number(sample?.[key])
+  })).filter((sample) => Number.isFinite(sample.value));
+  if (values.length < 2) {
+    return '';
+  }
+
+  const width = 48;
+  const height = 12;
+  const minimum = Math.min(...values.map((sample) => sample.value));
+  const maximum = Math.max(...values.map((sample) => sample.value));
+  const range = maximum - minimum;
+  const sampleCount = Math.max(2, (samples || []).length);
+  return values.map((sample) => {
+    const x = (sample.index / (sampleCount - 1)) * width;
+    const y = range === 0
+      ? height / 2
+      : height - (((sample.value - minimum) / range) * (height - 2)) - 1;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+}
+
+function runtimePulseSvg(samples, key) {
+  const points = runtimePulsePoints(samples, key);
+  if (!points) {
+    return '';
+  }
+  return `<svg class="runtime-pulse ${key === 'cpuPercent' ? 'cpu' : 'memory'}" viewBox="0 0 48 12" preserveAspectRatio="none" aria-hidden="true" focusable="false"><polyline class="runtime-pulse-line" points="${points}" vector-effect="non-scaling-stroke"></polyline></svg>`;
+}
+
+function resourceMetricsContent(metrics, runtimePulse = []) {
   if (!metrics?.available) {
     const message = escapeHtml(metrics?.message || 'Resource use is unavailable.');
     return `<span class="resource-unavailable" title="${message}">Resource use unavailable</span>`;
   }
   const cpu = metrics.measuring ? 'Measuring…' : formatCpuPercent(metrics.cpuPercent);
   const memory = metrics.measuring ? 'Measuring…' : formatMemory(metrics.memoryBytes);
-  return `<span><strong>CPU</strong> <span data-resource-cpu>${escapeHtml(cpu)}</span></span><span><strong>Memory</strong> <span data-resource-memory>${escapeHtml(memory)}</span></span>`;
+  return `<span class="resource-reading"><span><strong>CPU</strong> <span data-resource-cpu>${escapeHtml(cpu)}</span></span>${runtimePulseSvg(runtimePulse, 'cpuPercent')}</span><span class="resource-reading"><span><strong>Memory</strong> <span data-resource-memory>${escapeHtml(memory)}</span></span>${runtimePulseSvg(runtimePulse, 'memoryBytes')}</span>`;
 }
 
 function resourceMetricsLabel(metrics) {
@@ -494,7 +526,7 @@ function renderList() {
                   </div>
                 </header>
                 <div class="resource-metrics" data-resource-metrics data-project-id="${projectId}" role="group" aria-label="${escapeHtml(resourceMetricsLabel(project.resourceMetrics))}">
-                  ${resourceMetricsContent(project.resourceMetrics)}
+                  ${resourceMetricsContent(project.resourceMetrics, project.runtimePulse)}
                 </div>
                 <div class="preview-frame-wrap">
                   <iframe class="preview-frame" data-preview-frame data-src="${escapeHtml(project.previewUrl)}" title="${projectName} app preview" sandbox="allow-forms allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
@@ -1175,7 +1207,7 @@ window.addEventListener('message', (event) => {
   if (event.data?.type === 'projectMetrics') {
     const metrics = document.querySelector(`[data-resource-metrics][data-project-id="${CSS.escape(String(event.data.id || ''))}"]`);
     if (metrics) {
-      metrics.innerHTML = resourceMetricsContent(event.data.metrics);
+      metrics.innerHTML = resourceMetricsContent(event.data.metrics, event.data.runtimePulse);
       metrics.setAttribute('aria-label', resourceMetricsLabel(event.data.metrics));
     }
     return;
