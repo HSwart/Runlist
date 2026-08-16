@@ -85,9 +85,11 @@ function outputMessageHtml(value) {
   return html + escapeHtml(String(value || '').slice(previousIndex));
 }
 
-function outputEntriesHtml(entries) {
+function outputEntriesHtml(entries, failureSummary) {
   if (!entries?.length) {
-    return '<p class="output-empty">No output yet. Start this project to see its output here.</p>';
+    return failureSummary
+      ? '<p class="output-empty">No command output was captured.</p>'
+      : '<p class="output-empty">No output yet. Start this project to see its output here.</p>';
   }
   return entries.map((entry) => {
     if (entry.kind === 'blank') {
@@ -103,6 +105,18 @@ function outputEntriesHtml(entries) {
     }
     return `<div class="output-entry raw"><div class="output-message">${outputMessageHtml(entry.message)}</div></div>`;
   }).join('');
+}
+
+function outputFailureSummaryHtml(summary) {
+  if (!summary?.message) {
+    return '';
+  }
+  return `
+    <section class="output-failure-summary" role="status" aria-live="polite">
+      <strong>${escapeHtml(summary.title || 'Start failed')}</strong>
+      <span>${escapeHtml(summary.message)}</span>
+      ${summary.outcome ? `<small>${escapeHtml(summary.outcome)}</small>` : ''}
+    </section>`;
 }
 
 function icon(name, className = 'icon') {
@@ -133,6 +147,31 @@ function productIcon(name, className = 'product-icon') {
   return icon(name, className);
 }
 
+function readinessServiceList(services) {
+  return (services || [])
+    .map((service) => `${escapeHtml(String(service.name))} <strong>:${escapeHtml(String(service.port))}</strong>`)
+    .join(', ');
+}
+
+function readinessDetailsHtml(project, status) {
+  if (!['not-ready', 'not-responding'].includes(status)) {
+    return '';
+  }
+
+  const details = project.serviceReadiness || {};
+  const rows = [];
+  if (details.ready?.length) {
+    rows.push(`<span><strong>Ready:</strong> ${readinessServiceList(details.ready)}</span>`);
+  }
+  if (details.waiting?.length) {
+    rows.push(`<span><strong>Still checking:</strong> ${readinessServiceList(details.waiting)}</span>`);
+  }
+  if (details.notResponding?.length) {
+    rows.push(`<span><strong>Waiting for web response:</strong> ${readinessServiceList(details.notResponding)}</span>`);
+  }
+  return rows.length ? `<div class="project-readiness-detail">${rows.join('')}</div>` : '';
+}
+
 function statusSummaryHtml(projects) {
   const reviewCount = projects.filter((project) => project.reviewRequired).length;
   const runningCount = projects
@@ -154,7 +193,7 @@ function statusSummaryHtml(projects) {
   const conflictCount = projects
     .filter((project) => !project.reviewRequired
       && ['port-in-use', 'port-in-use-unknown'].includes(project.status)).length;
-  return `<span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running${startingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${startingCount} starting` : ''}${notReadyCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notReadyCount} not ready` : ''}${notRespondingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notRespondingCount} not responding` : ''}${stoppingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${stoppingCount} stopping` : ''} <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped${reviewCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${reviewCount} to review` : ''}${conflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${conflictCount} unavailable` : ''}`;
+  return `<span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running${startingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${startingCount} starting` : ''}${notReadyCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notReadyCount} taking longer` : ''}${notRespondingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notRespondingCount} not responding` : ''}${stoppingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${stoppingCount} stopping` : ''} <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped${reviewCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${reviewCount} to review` : ''}${conflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${conflictCount} unavailable` : ''}`;
 }
 
 function renderList() {
@@ -202,7 +241,7 @@ function renderList() {
         const statusLabels = {
           running: 'Running',
           starting: 'Starting…',
-          'not-ready': 'Service not ready',
+          'not-ready': 'Taking longer…',
           'not-responding': 'Web service not responding',
           stopping: 'Stopping…',
           active: project.httpUnresponsive ? 'Detected, web service not responding' : 'Detected running',
@@ -212,10 +251,8 @@ function renderList() {
           stopped: 'Stopped'
         };
         const conflicted = ['port-in-use', 'port-in-use-unknown'].includes(projectStatus);
-        const transitioning = ['starting', 'stopping'].includes(projectStatus);
-        const canOpen = ['running', 'active'].includes(projectStatus)
-          && project.services?.length
-          && project.primaryServiceOpen;
+        const transitioning = ['starting', 'not-ready', 'stopping'].includes(projectStatus);
+        const canOpen = Boolean(project.previewUrl);
         const detectedWithoutStop = projectStatus === 'active' && !project.stopCommand;
         const stopState = ['running', 'starting', 'not-ready', 'not-responding', 'active'].includes(projectStatus);
         const canRestart = !reviewRequired
@@ -244,6 +281,13 @@ function renderList() {
           : blocked
             ? `${conflictOwnerName} is using port :${conflict?.port || 'unknown'} — cannot start ${projectName}`
           : `${actionLabel} ${projectName}`;
+        const openTitle = canOpen
+          ? `Open ${projectName} in your browser`
+          : conflicted
+            ? 'This port may belong to another app'
+            : stopState
+              ? `${projectName} does not have a responding web service yet`
+              : `Start ${projectName} before opening it`;
         const statusTitle = reviewRequired
           ? 'A coding agent added or updated this setup. Review its folder and commands before running it.'
           : projectStatus === 'active'
@@ -253,7 +297,7 @@ function renderList() {
           : projectStatus === 'not-responding'
             ? 'The launched process is still running and its configured port is open, but the web service did not respond.'
           : projectStatus === 'not-ready'
-            ? 'The launched process is still running, but not every configured service port became ready in time. View recent output for details.'
+            ? 'The launched process is still running. Runlist is continuing to check its configured services.'
           : projectStatus === 'port-in-use-unknown'
             ? `Port :${conflict?.port || 'unknown'} is shared with ${conflictProjectNames}. Runlist cannot identify the running owner.`
             : projectStatus === 'port-in-use'
@@ -271,6 +315,7 @@ function renderList() {
                   </h2>
                 </div>
                 <div class="project-status status-${statusClass}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : ''}<span class="auto-scroll"><span class="auto-scroll-content">${statusLabels[displayStatus]}</span></span></div>
+                ${!reviewRequired ? readinessDetailsHtml(project, projectStatus) : ''}
               </div>
               <div class="project-actions">
                 <button class="run-button ${reviewRequired ? 'review' : blocked ? 'blocked' : stopState || projectStatus === 'stopping' ? 'stop' : 'start'}" data-action="${action}" data-id="${projectId}" aria-label="${actionTitle}" title="${actionTitle}" ${actionDisabled && !reviewRequired ? 'disabled' : ''}>
@@ -278,11 +323,17 @@ function renderList() {
                 </button>
                 <button class="more-button" data-action="toggle-menu" data-id="${projectId}" aria-label="More actions for ${projectName}" aria-haspopup="menu" aria-expanded="false">${icon('more')}</button>
                 <div class="action-menu" data-menu-id="${projectId}" role="menu" aria-label="Actions for ${projectName}" hidden>
-                  <button data-action="open" data-id="${projectId}" role="menuitem" ${canOpen ? '' : 'disabled'} title="${canOpen ? `Open ${projectName} in your browser` : conflicted ? 'This port may belong to another app' : `Start ${projectName} before opening it`}">
+                  <button data-action="open" data-id="${projectId}" role="menuitem" ${canOpen ? '' : 'disabled'} title="${openTitle}">
                     ${icon('external', 'menu-icon')}<span>Open app</span>
                   </button>
                   <button data-action="open-vscode" data-id="${projectId}" role="menuitem" title="Open ${projectName} in a new VS Code window">
                     ${icon('folder', 'menu-icon')}<span>Open in VS Code</span>
+                  </button>
+                  <button data-action="open-terminal" data-id="${projectId}" role="menuitem" title="Open a terminal in ${projectName}">
+                    ${icon('terminal', 'menu-icon')}<span>Open terminal here</span>
+                  </button>
+                  <button data-action="copy-project-path" data-id="${projectId}" role="menuitem" title="Copy the saved folder path for ${projectName}">
+                    ${icon('copy', 'menu-icon')}<span>Copy project path</span>
                   </button>
                   <button data-action="output" data-id="${projectId}" role="menuitem">
                     ${icon('terminal', 'menu-icon')}<span>View output</span>
@@ -345,7 +396,7 @@ function renderList() {
                   <span>Preview</span>
                   <div class="preview-actions">
                     <button data-action="refresh-preview" data-id="${projectId}" aria-label="Refresh ${projectName} preview" title="Refresh preview">${icon('refresh')}</button>
-                    <button data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(String(project.services[0].port))}" aria-label="Copy ${projectName} URL" title="Copy URL">${icon('copy')}</button>
+                    <button data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(String(project.previewPort))}" aria-label="Copy ${projectName} URL" title="Copy URL">${icon('copy')}</button>
                     <button data-action="open" data-id="${projectId}" aria-label="Open ${projectName} in browser" title="Open in browser">${icon('external')}</button>
                   </div>
                 </header>
@@ -607,9 +658,10 @@ function renderProjectOutput() {
         </div>
       </header>
       <p class="screen-copy">${escapeHtml(projectOutput.name)}</p>
+      <div id="project-output-failure">${outputFailureSummaryHtml(projectOutput.failureSummary)}</div>
       <div class="output-panel-wrap">
         <div class="output-panel" data-empty="${projectOutput.output ? 'false' : 'true'}" tabindex="0" aria-label="Recent output for ${escapeHtml(projectOutput.name)}">
-          <div id="project-output">${outputEntriesHtml(projectOutput.entries)}</div>
+          <div id="project-output">${outputEntriesHtml(projectOutput.entries, projectOutput.failureSummary)}</div>
         </div>
         <button class="output-jump-button" data-action="jump-latest" hidden>
           ${icon('chevron-down', 'jump-icon')}Latest
@@ -755,6 +807,14 @@ app.addEventListener('click', (event) => {
       closeMenus();
       vscode.postMessage({ type: 'openProjectFolder', id: button.dataset.id });
     },
+    'open-terminal': () => {
+      closeMenus();
+      vscode.postMessage({ type: 'openProjectTerminal', id: button.dataset.id });
+    },
+    'copy-project-path': () => {
+      closeMenus();
+      vscode.postMessage({ type: 'copyProjectPath', id: button.dataset.id });
+    },
     output: () => {
       closeMenus();
       vscode.postMessage({ type: 'showOutput', id: button.dataset.id });
@@ -856,8 +916,12 @@ window.addEventListener('message', (event) => {
   const shouldFollow = outputFollowLatest || outputIsNearBottom(outputPanel);
   const previousScrollTop = outputPanel.scrollTop;
   const focusedLink = focusedOutputLink(output);
+  const failure = document.getElementById('project-output-failure');
+  if (failure) {
+    failure.innerHTML = outputFailureSummaryHtml(event.data.failureSummary);
+  }
   outputPanel.dataset.empty = String(!event.data.output);
-  output.innerHTML = outputEntriesHtml(event.data.entries);
+  output.innerHTML = outputEntriesHtml(event.data.entries, event.data.failureSummary);
   const copyButton = document.querySelector('.output-copy-button');
   if (copyButton) {
     copyButton.disabled = !event.data.output;

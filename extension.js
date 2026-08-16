@@ -15,17 +15,21 @@ const {
   installAgentSkill
 } = require('./skill-installation');
 const {
-  isPrimaryServiceResponding,
-  primaryServiceUrl,
   projectStatus,
   reachableServiceUrls,
   serviceHttpStatus,
+  serviceReadinessDetails,
   serviceReadinessTimedOut,
   servicePortStatus,
   stoppableProjectIds
 } = require('./project-status');
-const { openProjectInNewWindow } = require('./project-navigation');
-const { previewFrameSource, projectPreviewUrl } = require('./preview-security');
+const {
+  copyProjectPath: writeProjectPathToClipboard,
+  openProjectInNewWindow,
+  openProjectTerminal,
+  projectFolderIsAccessible
+} = require('./project-navigation');
+const { previewFrameSource, projectPreviewService } = require('./preview-security');
 const { OwnedProcessMetrics } = require('./process-metrics');
 const {
   canUseCurrentWorkspace,
@@ -56,7 +60,8 @@ const {
   createOutputUpdateScheduler,
   formatProjectOutput,
   listenToProjectOutput,
-  sanitizeProjectOutput
+  sanitizeProjectOutput,
+  startFailureSummary
 } = require('./project-output');
 const { projectSearchText } = require('./project-search');
 const {
@@ -95,6 +100,7 @@ class RunlistViewProvider {
     this.returnFocus = undefined;
     this.selectedProjectId = undefined;
     this.expandedPreviewProjectId = undefined;
+    this.expandedPreviewServicePort = undefined;
     this.processes = new Map();
     this.ownedProcessMetrics = new OwnedProcessMetrics();
     this.projectMetrics = new Map();
@@ -102,6 +108,8 @@ class RunlistViewProvider {
     this.resourceSampleProjectId = undefined;
     this.resourceSampleGeneration = 0;
     this.projectOutputs = new Map();
+    this.projectFailureSummaries = new Map();
+    this.projectFailureDetails = new Map();
     this.outputUpdateScheduler = createOutputUpdateScheduler((id) => this.sendProjectOutput(id));
     this.managedProjectIds = new Set();
     this.portReservations = new PortReservationStore(
@@ -299,7 +307,13 @@ class RunlistViewProvider {
           portStatus.openPorts,
           httpStatus.respondingPorts,
           httpStatus.webPorts,
-          reachableUrls
+          reachableUrls,
+          serviceReadinessDetails(
+            project.services,
+            portStatus.openPorts,
+            httpStatus.respondingPorts,
+            httpStatus.webPorts
+          )
         ];
       }));
 
@@ -308,7 +322,7 @@ class RunlistViewProvider {
       }
 
       const projectsById = new Map(projects.map((project) => [project.id, project]));
-      for (const [id, status] of checks) {
+      for (const [id, status, , , , , , readinessDetails] of checks) {
         if (status === 'stopped') {
           this.managedProjectIds.delete(id);
           this.startReadinessDeadlines.delete(id);
@@ -324,7 +338,7 @@ class RunlistViewProvider {
           && this.managedProjectIds.has(id)) {
           this.processOwnership.setState(id, status);
           this.portReservations.setState(id, status);
-          this.notifyServiceNotReady(projectsById.get(id), status);
+          this.notifyServiceNotReady(projectsById.get(id), status, readinessDetails);
         }
       }
 
@@ -413,6 +427,12 @@ class RunlistViewProvider {
         break;
       case 'openProjectFolder':
         await this.openProjectFolder(message.id);
+        break;
+      case 'openProjectTerminal':
+        await this.openProjectTerminal(message.id);
+        break;
+      case 'copyProjectPath':
+        await this.copyProjectPath(message.id);
         break;
       case 'copyServiceUrl':
         await this.copyServiceUrl(message.id, Number(message.port));
@@ -569,17 +589,20 @@ class RunlistViewProvider {
   addProjectOutput(id, chunk) {
     const output = appendProjectOutput(this.projectOutputs.get(id), chunk);
     this.projectOutputs.set(id, output);
+    const failureDetails = this.projectFailureDetails.get(id);
+    if (failureDetails) {
+      this.projectFailureSummaries.set(id, startFailureSummary(output, failureDetails));
+    }
     if (this.mode === 'output' && this.selectedProjectId === id) {
       this.outputUpdateScheduler.schedule(id);
     }
   }
 
-  notifyServiceNotReady(project, status = 'not-ready') {
+  notifyServiceNotReady(project, status = 'not-ready', readinessDetails = {}) {
     if (this.readinessWarnings.has(project.id)) {
       return;
     }
     this.readinessWarnings.add(project.id);
-    const seconds = Math.round(START_READINESS_TIMEOUT_MS / 1000);
     if (status === 'not-responding') {
       this.addProjectOutput(
         project.id,
@@ -595,13 +618,18 @@ class RunlistViewProvider {
       });
       return;
     }
-    const ports = project.services.map((service) => `:${service.port}`).join(', ');
+    const stillChecking = [
+      ...(readinessDetails.waiting || []),
+      ...(readinessDetails.notResponding || [])
+    ];
+    const waiting = formatServiceList(stillChecking) || 'the configured services';
+    const ready = formatServiceList(readinessDetails.ready);
     this.addProjectOutput(
       project.id,
-      `Runlist: configured service ports ${ports} were not all ready within ${seconds} seconds.\n`
+      `Runlist: startup is taking longer than expected. Still checking ${waiting}.${ready ? ` Ready: ${ready}.` : ''}\n`
     );
     void vscode.window.showWarningMessage(
-      `${project.name} is still running, but its configured services were not ready within ${seconds} seconds.`,
+      `${project.name} is still running. Runlist is still checking ${waiting}.`,
       'View output'
     ).then((choice) => {
       if (choice === 'View output') {
@@ -610,10 +638,16 @@ class RunlistViewProvider {
     });
   }
 
-  showStartFailure(project, detail) {
-    this.addProjectOutput(project.id, `Runlist: start failed — ${detail}\n`);
+  showStartFailure(project, details = {}) {
+    const normalizedDetails = typeof details === 'string' ? { detail: details } : details;
+    const summary = startFailureSummary(this.projectOutputs.get(project.id), normalizedDetails);
+    this.projectFailureDetails.set(project.id, normalizedDetails);
+    this.projectFailureSummaries.set(project.id, summary);
+    if (this.mode === 'output' && this.selectedProjectId === project.id) {
+      this.outputUpdateScheduler.schedule(project.id);
+    }
     void vscode.window.showErrorMessage(
-      `Could not start ${project.name}: ${detail}`,
+      `Could not start ${project.name}: ${summary.message}`,
       'View output'
     ).then((choice) => {
       if (choice === 'View output') {
@@ -631,6 +665,7 @@ class RunlistViewProvider {
       type: 'projectOutput',
       messageToken: this.webviewMessageToken,
       entries: formatProjectOutput(rawOutput),
+      failureSummary: this.projectFailureSummaries.get(id),
       output: sanitizeProjectOutput(rawOutput)
     });
   }
@@ -677,29 +712,33 @@ class RunlistViewProvider {
       return;
     }
     const status = this.getProjectStatus(id);
-    if (status === 'not-responding') {
-      vscode.window.showInformationMessage(`${project.name} is running, but its web service is not responding.`);
-      return;
-    }
-    if (!this.isProjectRunning(id)) {
+    const previewService = projectPreviewService(
+      project,
+      status,
+      this.projectServiceUrls.get(id),
+      this.projectPortConflicts.has(id)
+    );
+    if (!previewService) {
+      if (['running', 'starting', 'not-ready', 'not-responding', 'active'].includes(status)) {
+        vscode.window.showInformationMessage(`${project.name} does not have a responding web service to open.`);
+        return;
+      }
       vscode.window.showInformationMessage(`Start ${project.name} before opening it.`);
       return;
     }
-
-    const url = primaryServiceUrl(project.services);
-    if (!url) {
-      vscode.window.showErrorMessage(`${project.name} does not have a valid service URL to open.`);
+    const service = project.services.find((item) => item.port === previewService.port);
+    const portStatus = await servicePortStatus([service]);
+    const [reachable] = await reachableServiceUrls([service], portStatus.openPorts, {
+      resolveUrl: (url) => this.externalServiceUrl(url)
+    });
+    if (!reachable) {
+      vscode.window.showInformationMessage(`${service.name} is not responding as a web service.`);
+      await this.refreshProjectStatuses();
       return;
     }
-
-    const externalUrl = await this.externalServiceUrl(url);
-    if (!externalUrl) {
-      vscode.window.showErrorMessage(`${project.name} does not have a valid service URL to open.`);
-      return;
-    }
-    const opened = await vscode.env.openExternal(vscode.Uri.parse(externalUrl));
+    const opened = await vscode.env.openExternal(vscode.Uri.parse(reachable.url));
     if (!opened) {
-      vscode.window.showErrorMessage(`Could not open ${project.name} at ${externalUrl}.`);
+      vscode.window.showErrorMessage(`Could not open ${project.name} at ${reachable.url}.`);
     }
   }
 
@@ -726,17 +765,24 @@ class RunlistViewProvider {
 
   toggleProjectPreview(id) {
     const project = this.projects.find((item) => item.id === id);
-    const previewUrl = projectPreviewUrl(
+    const previewService = projectPreviewService(
       project,
       this.getProjectStatus(id),
       this.projectServiceUrls.get(id),
       this.projectPortConflicts.has(id)
     );
-    if (!previewUrl) {
+    if (!previewService) {
       return;
     }
 
-    this.expandedPreviewProjectId = this.expandedPreviewProjectId === id ? undefined : id;
+    if (this.expandedPreviewProjectId === id
+      && this.expandedPreviewServicePort === previewService.port) {
+      this.expandedPreviewProjectId = undefined;
+      this.expandedPreviewServicePort = undefined;
+    } else {
+      this.expandedPreviewProjectId = id;
+      this.expandedPreviewServicePort = previewService.port;
+    }
     this.focusTarget = { type: 'action', action: 'toggle-preview', id };
     this.renderProjectList();
   }
@@ -825,6 +871,52 @@ class RunlistViewProvider {
       await openProjectInNewWindow(vscode, project.folder);
     } catch (error) {
       vscode.window.showErrorMessage(`Could not open ${project.name} in VS Code: ${error.message}`);
+    }
+  }
+
+  async openProjectTerminal(id) {
+    const project = this.projects.find((item) => item.id === id);
+    if (!project) {
+      return;
+    }
+
+    if (!projectFolderIsAccessible(fs, project.folder)) {
+      const selection = await vscode.window.showErrorMessage(
+        `Could not open a terminal for ${project.name}: its saved folder is missing or inaccessible.`,
+        'Edit project'
+      );
+      if (selection === 'Edit project') {
+        this.showEditProject(id);
+      } else {
+        this.focusTarget = { type: 'project-menu', id };
+        this.renderProjectList();
+      }
+      return;
+    }
+
+    try {
+      openProjectTerminal(vscode, project.folder);
+    } catch {
+      await vscode.window.showErrorMessage(`Could not open a terminal for ${project.name}.`);
+      this.focusTarget = { type: 'project-menu', id };
+      this.renderProjectList();
+    }
+  }
+
+  async copyProjectPath(id) {
+    const project = this.projects.find((item) => item.id === id);
+    if (!project) {
+      return;
+    }
+
+    try {
+      await writeProjectPathToClipboard(vscode, project.folder);
+      vscode.window.showInformationMessage(`Copied ${project.name} path.`);
+    } catch {
+      vscode.window.showErrorMessage(`Could not copy the path for ${project.name}.`);
+    } finally {
+      this.focusTarget = { type: 'project-menu', id };
+      this.renderProjectList();
     }
   }
 
@@ -1029,12 +1121,15 @@ class RunlistViewProvider {
       this.projectWebPorts.delete(id);
       if (this.expandedPreviewProjectId === id) {
         this.expandedPreviewProjectId = undefined;
+        this.expandedPreviewServicePort = undefined;
       }
       this.startReadinessDeadlines.delete(id);
       this.readinessWarnings.delete(id);
       this.stoppingProjectIds.delete(id);
       this.remoteStopRequests.delete(id);
       this.projectOutputs.delete(id);
+      this.projectFailureSummaries.delete(id);
+      this.projectFailureDetails.delete(id);
       if (this.selectedProjectId === id) {
         this.outputUpdateScheduler.cancel();
       }
@@ -1127,6 +1222,10 @@ class RunlistViewProvider {
     this.statusRevision += 1;
     this.startAttempts.set(id, attempt);
     this.projectPortConflicts.delete(id);
+    this.projectOpenPorts.delete(id);
+    this.projectRespondingPorts.delete(id);
+    this.projectServiceUrls.delete(id);
+    this.projectWebPorts.delete(id);
     this.projectStatuses.set(id, 'starting');
     this.renderProjectList();
 
@@ -1171,6 +1270,8 @@ class RunlistViewProvider {
         this.startReadinessDeadlines.set(id, readinessDeadline);
       }
       this.projectOutputs.set(id, '');
+      this.projectFailureSummaries.delete(id);
+      this.projectFailureDetails.delete(id);
       const child = spawn(project.startCommand, {
         cwd: project.folder,
         shell: true,
@@ -1189,12 +1290,7 @@ class RunlistViewProvider {
       this.startAttempts.delete(id);
       this.portReservations.setState(id, hasServices ? 'starting' : 'running');
       this.statusRevision += 1;
-      let stderr = '';
       listenToProjectOutput(child, (chunk) => this.addProjectOutput(id, chunk));
-      child.stderr?.setEncoding('utf8');
-      child.stderr?.on('data', (chunk) => {
-        stderr = `${stderr}${chunk}`.slice(-2000);
-      });
       child.once('error', (error) => {
         this.statusRevision += 1;
         this.processes.delete(id);
@@ -1224,10 +1320,9 @@ class RunlistViewProvider {
             this.startReadinessDeadlines.delete(id);
             this.readinessWarnings.delete(id);
             if (!stoppedIntentionally) {
-              const detail = lastUsefulLine(stderr);
               this.showStartFailure(
                 project,
-                detail || (signal ? `command was terminated by ${signal}.` : `command exited with code ${code}.`)
+                { code, signal }
               );
             }
             this.renderProjectList();
@@ -1514,26 +1609,34 @@ class RunlistViewProvider {
       const serviceUrls = this.projectServiceUrls.get(project.id) || [];
       const webPorts = this.projectWebPorts.get(project.id) || [];
       const status = this.getProjectStatus(project.id);
-      const primaryUrl = projectPreviewUrl(
+      const previewService = projectPreviewService(
         project,
         status,
         serviceUrls,
         this.projectPortConflicts.has(project.id)
       );
-      const canPreview = Boolean(primaryUrl);
-      const previewExpanded = canPreview && this.expandedPreviewProjectId === project.id;
+      const canPreview = Boolean(previewService);
+      const previewExpanded = canPreview
+        && this.expandedPreviewProjectId === project.id
+        && this.expandedPreviewServicePort === previewService.port;
       const locallyOwned = this.processes.has(project.id);
       return {
         ...project,
         pinned: project.pinned === true,
         openPorts,
         portConflict: this.projectPortConflicts.get(project.id),
-        primaryServiceOpen: isPrimaryServiceResponding(project.services, openPorts, respondingPorts),
         respondingPorts,
+        serviceReadiness: serviceReadinessDetails(
+          project.services,
+          openPorts,
+          respondingPorts,
+          webPorts
+        ),
         serviceUrls,
         status,
         previewExpanded,
-        previewUrl: canPreview ? primaryUrl : undefined,
+        previewPort: previewService?.port,
+        previewUrl: previewService?.url,
         resourceMetrics: previewExpanded
           ? this.projectMetrics.get(project.id) || (locallyOwned
             ? { available: true, measuring: true }
@@ -1552,6 +1655,7 @@ class RunlistViewProvider {
       && !stateProjects.some((project) => project.previewExpanded)) {
       const previousId = this.expandedPreviewProjectId;
       this.expandedPreviewProjectId = undefined;
+      this.expandedPreviewServicePort = undefined;
       this.focusTarget = { type: 'project-control', id: previousId };
     }
     const state = {
@@ -1571,6 +1675,7 @@ class RunlistViewProvider {
           .includes(this.getProjectStatus(this.selectedProjectId)),
       projectOutput: outputProject ? {
         entries: formatProjectOutput(rawProjectOutput),
+        failureSummary: this.projectFailureSummaries.get(outputProject.id),
         name: outputProject.name,
         output: cleanProjectOutput
       } : undefined,
@@ -1642,6 +1747,11 @@ function portConflictSummary(conflict) {
     };
   }
   return undefined;
+}
+
+function formatServiceList(services) {
+  const labels = (services || []).map((service) => `${service.name} :${service.port}`);
+  return labels.join(', ');
 }
 
 function portConflictMapsDiffer(left, right) {

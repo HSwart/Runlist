@@ -25,7 +25,7 @@ Runlist keeps a reusable list of local projects from different repositories insi
 - Expand a running web app to see a compact live preview with refresh, copy, and browser actions.
 - See current CPU and memory use for the process tree Runlist started while its app preview is expanded.
 - Open any saved project folder in a new VS Code window.
-- View readable recent output from the latest run, follow new lines, and open web links without leaving the sidebar.
+- View readable recent output from the latest run, including a concise failure summary when startup exits, follow new lines, and open web links without leaving the sidebar.
 - Edit or remove a saved project without touching its files.
 
 > Runlist remembers the setup. You decide what runs.
@@ -57,7 +57,7 @@ After installation, select the Runlist icon in the VS Code Activity Bar.
 
 Runlist points out missing or invalid details beside the field that needs attention. If you close the screen after making changes, it asks before discarding them.
 
-Your project is now ready whenever you need it. Select the **Start** icon to run its saved start command. Projects with configured services stay **Starting…** until every saved TCP port is accepting connections. A service with an Open URL also waits for its web page to respond; redirects, sign-in responses, and error pages still count as a response. If its port opens but the page does not respond within 30 seconds, Runlist shows **Web service not responding** while leaving the process running. Services without an Open URL keep using port-based checks. Projects without configured services use the launched process state. Select **Stop** to stop only the process tree Runlist launched. When an explicit custom stop command is configured, Runlist runs it instead.
+Your project is now ready whenever you need it. Select the **Start** icon to run its saved start command. Projects with configured services stay **Starting…** until every saved TCP port is accepting connections. A service with an Open URL also waits for its web page to respond; redirects, sign-in responses, and error pages still count as a response. After 30 seconds, Runlist shows **Taking longer…** and names the services it is still checking, without stopping the project or giving up. If those services become ready later, the status changes to **Running**. A service whose port is open but whose page does not respond is shown separately as **Web service not responding**. Services without an Open URL keep using port-based checks. Projects without configured services use the launched process state. Select **Stop** to stop only the process tree Runlist launched. When an explicit custom stop command is configured, Runlist runs it instead.
 
 If Runlist is open in more than one VS Code window, starting or stopping a project in one window updates its status in the others automatically.
 
@@ -99,17 +99,17 @@ Runlist keeps the everyday controls simple:
 | --- | --- |
 | **Search** | Filters your saved projects by project name or folder. |
 | **Pin to top** | In a project's More actions menu, keeps that project above unpinned projects until you unpin it. |
-| **Project status** | Shows the written state in a clear status capsule, including running, stopped, transitions, a web service that is not responding, and port conflicts. Long names, status details, and folder paths scroll automatically when they do not fit. |
+| **Project status** | Shows the written state in a clear status capsule, including running, stopped, transitions, a slow-starting service, a web service that is not responding, and port conflicts. When startup takes longer, Runlist names the services that are ready and the ones it is still checking. Long names, status details, and folder paths scroll automatically when they do not fit. |
 | **Start icon** | Runs the saved start command inside the project folder. |
 | **Stop icon** | Stops the process tree Runlist launched, or runs the optional custom stop command when one is configured. |
 | **Restart** | In a project's More actions menu, safely stops that project before starting it again and checking service readiness. |
 | **Stop all running** | Appears when two or more projects are running and stops them together. |
 | **Port in use** | Prevents conflicting projects from starting and identifies the owning project when possible. |
 | **Copy URL** | Appears beside the responding first service, and beside other responding services with an Open URL. It copies the same safe URL Runlist would open. |
-| **Preview app** | A chevron appears at the far right of the responding first web service row. Expand it to load one live preview beneath the project; collapsing or stopping the app unloads it. Some apps block embedded views, so Open in browser remains available. |
+| **Preview app** | A chevron appears at the far right when any configured web service responds, even while another service is still starting. Runlist uses the first responding web service in the saved order. Expand it to load one live preview beneath the project; collapsing or losing that service unloads it. Some apps block embedded views, so Open in browser remains available. |
 | **Resource use** | Shows current CPU and memory inside an expanded preview when this VS Code window started the project. Runlist stops measuring when the preview closes or ownership is uncertain. |
-| **View output** | Highlights common log levels, opens web links, and lets you copy output from the latest run. If you scroll up, Runlist keeps your place and offers a **Latest** button when new output arrives. |
-| **…** | Opens the app, project folder, recent output, edit screen, or remove action. |
+| **View output** | Summarizes a failed start above the unchanged raw log, highlights common log levels, opens web links, and lets you copy output from the latest run. If you scroll up, Runlist keeps your place and offers a **Latest** button when new output arrives. |
+| **…** | Opens the app or project folder, opens a terminal in that folder, copies the saved project path, and provides recent output, edit, or remove actions. |
 
 Removing a project from Runlist does **not** delete the project or any of its files.
 

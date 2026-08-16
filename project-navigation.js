@@ -6,4 +6,33 @@ function openProjectInNewWindow(vscode, folder) {
   );
 }
 
-module.exports = { openProjectInNewWindow };
+function projectFolderIsAccessible(fileSystem, folder) {
+  try {
+    fileSystem.accessSync(
+      folder,
+      fileSystem.constants.R_OK | fileSystem.constants.X_OK
+    );
+    return fileSystem.statSync(folder).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function openProjectTerminal(vscode, folder) {
+  const terminal = vscode.window.createTerminal({
+    cwd: folder
+  });
+  terminal.show();
+  return terminal;
+}
+
+function copyProjectPath(vscode, folder) {
+  return vscode.env.clipboard.writeText(folder);
+}
+
+module.exports = {
+  copyProjectPath,
+  openProjectInNewWindow,
+  openProjectTerminal,
+  projectFolderIsAccessible
+};
