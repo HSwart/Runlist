@@ -4,8 +4,10 @@ const test = require('node:test');
 const {
   areServicesRunning,
   isPortOpen,
+  isPrimaryServiceOpen,
   primaryServiceUrl,
   projectStatus,
+  serviceReadinessTimedOut,
   servicePortStatus,
   stoppableProjectIds
 } = require('../project-status');
@@ -27,61 +29,120 @@ test('detects whether configured local service ports are accepting connections',
   assert.equal(await isPortOpen(port), false);
 });
 
-test('distinguishes a managed app from an occupied configured port', () => {
+test('detects an unmanaged app when all configured service ports are open', () => {
   assert.equal(projectStatus({
-    allPortsOpen: true,
-    anyPortOpen: true,
+    allOpen: true,
+    anyOpen: true,
+    hasServices: true,
+    managed: false
+  }), 'active');
+});
+
+test('keeps managed services starting until every configured port is ready', () => {
+  assert.equal(projectStatus({
+    allOpen: true,
+    anyOpen: true,
     hasServices: true,
     managed: true
   }), 'running');
   assert.equal(projectStatus({
-    allPortsOpen: true,
-    anyPortOpen: true,
-    hasServices: true,
-    managed: false
-  }), 'active');
-  assert.equal(projectStatus({
-    allPortsOpen: true,
-    anyPortOpen: true,
-    hasServices: true,
-    knownConflict: true,
-    managed: false
-  }), 'port-in-use');
-  assert.equal(projectStatus({
-    allPortsOpen: true,
-    anyPortOpen: true,
-    ambiguousConflict: true,
-    hasServices: true,
-    managed: false
-  }), 'port-in-use-unknown');
-  assert.equal(projectStatus({
+    allOpen: false,
+    anyOpen: true,
     hasServices: true,
     managed: true,
-    withinStartGrace: true
+    processActive: true
   }), 'starting');
   assert.equal(projectStatus({
     hasServices: true,
     managed: true,
     processActive: true
-  }), 'running');
+  }), 'starting');
   assert.equal(projectStatus({
     hasServices: true,
-    managed: true
-  }), 'running');
-  assert.equal(projectStatus({ managed: true }), 'running');
+    managed: true,
+    processActive: true,
+    readinessTimedOut: true
+  }), 'not-ready');
+  assert.equal(projectStatus({
+    anyOpen: true,
+    hasServices: true,
+    managed: true,
+    readinessTimedOut: true
+  }), 'not-ready');
+  assert.equal(projectStatus({ hasServices: true }), 'stopped');
+  assert.equal(projectStatus({ managed: true, processActive: true }), 'running');
+  assert.equal(projectStatus({}), 'stopped');
   assert.equal(projectStatus({ stopping: true }), 'stopping');
 });
 
-test('builds the primary local service URL from the first configured port', () => {
+test('treats partial unmanaged service availability as active', () => {
+  assert.equal(projectStatus({
+    allOpen: false,
+    anyOpen: true,
+    hasServices: true,
+    managed: false
+  }), 'active');
+});
+
+test('reports known and ambiguous port conflicts from refresh-shaped status', () => {
+  assert.equal(projectStatus({
+    allOpen: true,
+    anyOpen: true,
+    hasServices: true,
+    knownConflict: true,
+    managed: false
+  }), 'port-in-use');
+  assert.equal(projectStatus({
+    allOpen: false,
+    anyOpen: true,
+    ambiguousConflict: true,
+    hasServices: true,
+    managed: false
+  }), 'port-in-use-unknown');
+});
+
+test('uses a bounded TCP readiness deadline', () => {
+  assert.equal(serviceReadinessTimedOut(1000, false, 999), false);
+  assert.equal(serviceReadinessTimedOut(1000, false, 1000), true);
+  assert.equal(serviceReadinessTimedOut(1000, true, 2000), false);
+  assert.equal(serviceReadinessTimedOut(undefined, false, 2000), false);
+});
+
+test('represents clean exits and no-service projects with process state', () => {
+  assert.equal(projectStatus({ hasServices: true, managed: false, processActive: false }), 'stopped');
+  assert.equal(projectStatus({ hasServices: false, managed: true, processActive: true }), 'running');
+  assert.equal(projectStatus({ hasServices: false, managed: true, processActive: false }), 'stopped');
+  assert.equal(projectStatus({ hasServices: false, managed: false, processActive: false }), 'stopped');
+});
+
+test('uses a safe primary service URL override or derives localhost from its port', () => {
+  assert.equal(primaryServiceUrl([{
+    name: 'web',
+    port: 8787,
+    url: 'https://app.local/dashboard?view=all'
+  }]), 'https://app.local/dashboard?view=all');
   assert.equal(primaryServiceUrl([{ name: 'web', port: 8787 }]), 'http://127.0.0.1:8787');
+  assert.equal(primaryServiceUrl([{ name: 'web', port: 8787, url: 'file:///tmp/app' }]), undefined);
   assert.equal(primaryServiceUrl([]), undefined);
+});
+
+test('opens the primary service only when its own port is ready', () => {
+  const services = [
+    { name: 'web', port: 8787 },
+    { name: 'api', port: 8788 }
+  ];
+  assert.equal(isPrimaryServiceOpen(services, [8788]), false);
+  assert.equal(isPrimaryServiceOpen(services, [8787, 8788]), true);
+  assert.equal(isPrimaryServiceOpen([], [8787]), false);
 });
 
 test('selects only projects that can be stopped together', () => {
   const projects = [
     { id: 'running', status: 'running' },
     { id: 'starting', status: 'starting' },
-    { id: 'active', status: 'active' },
+    { id: 'not-ready', status: 'not-ready' },
+    { id: 'detected-without-stop', status: 'active' },
+    { id: 'detected-with-custom-stop', status: 'active', stopCommand: 'docker compose down' },
     { id: 'pending-review', status: 'running', reviewRequired: true },
     { id: 'stopping', status: 'stopping' },
     { id: 'stopped', status: 'stopped' },
@@ -89,6 +150,11 @@ test('selects only projects that can be stopped together', () => {
     { id: 'unknown-owner', status: 'port-in-use-unknown' }
   ];
 
-  assert.deepEqual(stoppableProjectIds(projects), ['running', 'starting', 'active']);
+  assert.deepEqual(stoppableProjectIds(projects), [
+    'running',
+    'starting',
+    'not-ready',
+    'detected-with-custom-stop'
+  ]);
   assert.deepEqual(stoppableProjectIds(), []);
 });

@@ -1,4 +1,5 @@
 const net = require('net');
+const { safeServiceUrl } = require('./external-url');
 
 function isPortOpen(port, options = {}) {
   const host = options.host || '127.0.0.1';
@@ -39,30 +40,33 @@ async function areServicesRunning(services) {
   return (await servicePortStatus(services)).allOpen;
 }
 
+function serviceReadinessTimedOut(deadline, allReady, now = Date.now()) {
+  return Number.isFinite(deadline) && now >= deadline && !allReady;
+}
+
+function isPrimaryServiceOpen(services, openPorts) {
+  const primaryPort = services?.[0]?.port;
+  return Number.isInteger(primaryPort) && (openPorts || []).includes(primaryPort);
+}
+
 function projectStatus({
   ambiguousConflict = false,
-  allPortsOpen = false,
-  anyPortOpen = false,
+  allOpen = false,
+  anyOpen = false,
   hasServices = false,
   knownConflict = false,
   managed = false,
   processActive = false,
+  readinessTimedOut = false,
   stopping = false,
-  withinStartGrace = false
 }) {
   if (stopping) {
     return 'stopping';
   }
-  if (managed && withinStartGrace) {
-    return 'starting';
-  }
-  if (managed && processActive) {
-    return 'running';
-  }
   if (!hasServices) {
-    return managed || processActive ? 'running' : 'stopped';
+    return processActive ? 'running' : 'stopped';
   }
-  if (allPortsOpen) {
+  if (allOpen) {
     return managed
       ? 'running'
       : knownConflict
@@ -71,9 +75,9 @@ function projectStatus({
           ? 'port-in-use-unknown'
           : 'active';
   }
-  if (anyPortOpen) {
+  if (anyOpen) {
     return managed
-      ? 'starting'
+      ? readinessTimedOut ? 'not-ready' : 'starting'
       : knownConflict
         ? 'port-in-use'
         : ambiguousConflict
@@ -81,13 +85,18 @@ function projectStatus({
           : 'active';
   }
   if (managed) {
-    return 'running';
+    return readinessTimedOut ? 'not-ready' : 'starting';
   }
   return 'stopped';
 }
 
 function primaryServiceUrl(services) {
-  const port = services?.[0]?.port;
+  const service = services?.[0];
+  const override = typeof service?.url === 'string' ? service.url.trim() : '';
+  if (override) {
+    return safeServiceUrl(override);
+  }
+  const port = service?.port;
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     return undefined;
   }
@@ -97,15 +106,18 @@ function primaryServiceUrl(services) {
 function stoppableProjectIds(projects) {
   return (projects || [])
     .filter((project) => !project.reviewRequired
-      && ['running', 'starting', 'active'].includes(project.status))
+      && (['running', 'starting', 'not-ready'].includes(project.status)
+        || (project.status === 'active' && Boolean(project.stopCommand))))
     .map((project) => project.id);
 }
 
 module.exports = {
   areServicesRunning,
   isPortOpen,
+  isPrimaryServiceOpen,
   primaryServiceUrl,
   projectStatus,
+  serviceReadinessTimedOut,
   servicePortStatus,
   stoppableProjectIds
 };

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { safeServiceUrl } = require('./external-url');
 
 function initializeProjectStore(filePath, legacyProjects = []) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -32,7 +33,7 @@ function writeProjects(filePath, projects) {
 function upsertProject(filePath, input, options = {}) {
   const folder = normalizeFolder(input.folder);
   const startCommand = normalizeCommand(input.startCommand, 'startCommand');
-  const stopCommand = normalizeCommand(input.stopCommand, 'stopCommand');
+  const stopCommand = normalizeOptionalCommand(input.stopCommand, 'stopCommand');
   const providedServices = input.services === undefined
     ? undefined
     : normalizeServices(input.services);
@@ -54,7 +55,7 @@ function upsertProject(filePath, input, options = {}) {
     name,
     folder,
     startCommand,
-    stopCommand,
+    ...(stopCommand ? { stopCommand } : {}),
     services: providedServices || existing?.services || [],
     reviewRequired: options.reviewRequired === undefined
       ? Boolean(existing?.reviewRequired)
@@ -72,6 +73,13 @@ function upsertProject(filePath, input, options = {}) {
     action: existing ? 'updated' : 'created',
     project
   };
+}
+
+function findProjectByFolder(filePath, folder) {
+  const normalizedFolder = normalizeFolder(folder);
+  return readProjects(filePath).find((project) => (
+    normalizeForComparison(project.folder) === normalizedFolder
+  ));
 }
 
 function removeProject(filePath, id) {
@@ -126,9 +134,25 @@ function normalizeCommand(value, fieldName) {
   return value.trim();
 }
 
+function normalizeOptionalCommand(value, fieldName) {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+  if (typeof value !== 'string') {
+    throw new Error(`${fieldName} must be text.`);
+  }
+  if (!value.trim()) {
+    return undefined;
+  }
+  if (value.length > 4096) {
+    throw new Error(`${fieldName} is too long.`);
+  }
+  return value.trim();
+}
+
 function normalizeServices(value) {
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new Error('services must list at least one service and port.');
+  if (!Array.isArray(value)) {
+    throw new Error('services must be a list.');
   }
   if (value.length > 32) {
     throw new Error('services cannot contain more than 32 entries.');
@@ -140,7 +164,7 @@ function normalizeServices(value) {
     if (!service || typeof service !== 'object' || Array.isArray(service)) {
       throw new Error(`services[${index}] must be an object.`);
     }
-    const unsupportedKeys = Object.keys(service).filter((key) => !['name', 'port'].includes(key));
+    const unsupportedKeys = Object.keys(service).filter((key) => !['name', 'port', 'url'].includes(key));
     if (unsupportedKeys.length) {
       throw new Error(`services[${index}] has unsupported field: ${unsupportedKeys.join(', ')}`);
     }
@@ -152,6 +176,10 @@ function normalizeServices(value) {
     if (!Number.isInteger(service.port) || service.port < 1 || service.port > 65535) {
       throw new Error(`services[${index}].port must be an integer from 1 to 65535.`);
     }
+    const url = service.url === undefined ? '' : typeof service.url === 'string' ? service.url.trim() : undefined;
+    if (url === undefined || (url && !safeServiceUrl(url))) {
+      throw new Error(`services[${index}].url must be a valid HTTP or HTTPS URL without credentials.`);
+    }
     if (names.has(name.toLowerCase())) {
       throw new Error(`service names must be unique: ${name}.`);
     }
@@ -161,7 +189,7 @@ function normalizeServices(value) {
 
     names.add(name.toLowerCase());
     ports.add(service.port);
-    return { name, port: service.port };
+    return { name, port: service.port, ...(url ? { url } : {}) };
   });
 }
 
@@ -178,6 +206,7 @@ function createId() {
 }
 
 module.exports = {
+  findProjectByFolder,
   initializeProjectStore,
   readProjects,
   removeProject,

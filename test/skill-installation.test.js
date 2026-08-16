@@ -24,6 +24,22 @@ function createSource(t) {
   return directory;
 }
 
+test('bundled skill treats the custom stop command as optional', () => {
+  const skill = fs.readFileSync(
+    path.join(__dirname, '..', 'skills', 'switchboard', 'SKILL.md'),
+    'utf8'
+  );
+  assert.match(skill, /stops the process tree it launches by default/i);
+  assert.match(skill, /optional custom stop command/i);
+  assert.match(skill, /never invent a broad process-matching command/i);
+});
+
+test('managed setup guidance preserves only explicit HTTP or HTTPS service URLs', () => {
+  const skill = fs.readFileSync(path.join(__dirname, '..', 'skills', 'switchboard', 'SKILL.md'), 'utf8');
+  assert.match(skill, /explicitly documents an HTTP or HTTPS browser URL/);
+  assert.match(skill, /never derive or guess one from the port/);
+});
+
 test('resolves personal skill folders on macOS and Linux', () => {
   const environment = { HOME: '/Users/example' };
   assert.equal(agentSkillPath('codex', environment, 'darwin'), '/Users/example/.codex/skills/switchboard');

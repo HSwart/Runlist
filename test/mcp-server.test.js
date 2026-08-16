@@ -5,6 +5,7 @@ const path = require('node:path');
 const readline = require('node:readline');
 const { spawn } = require('node:child_process');
 const test = require('node:test');
+const { ProcessOwnershipStore } = require('../project-process');
 
 test('serves the setup tool over MCP stdio', async (t) => {
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-mcp-'));
@@ -21,6 +22,14 @@ test('serves the setup tool over MCP stdio', async (t) => {
   fs.copyFileSync(
     path.join(__dirname, '..', 'project-store.js'),
     path.join(installedRoot, 'project-store.js')
+  );
+  fs.copyFileSync(
+    path.join(__dirname, '..', 'external-url.js'),
+    path.join(installedRoot, 'external-url.js')
+  );
+  fs.copyFileSync(
+    path.join(__dirname, '..', 'project-process.js'),
+    path.join(installedRoot, 'project-process.js')
   );
   t.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
 
@@ -66,7 +75,11 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.match(listed.result.tools[0].description, /custom name/i);
   assert.match(listed.result.tools[0].description, /reviews and approves/i);
   assert.match(listed.result.tools[0].inputSchema.properties.name.description, /friendly project name/i);
+  assert.match(listed.result.tools[0].inputSchema.properties.services.items.properties.url.description, /optional.*HTTP or HTTPS/i);
   assert.ok(listed.result.tools[0].inputSchema.required.includes('services'));
+  assert.equal(listed.result.tools[0].inputSchema.required.includes('stopCommand'), false);
+  assert.match(listed.result.tools[0].inputSchema.properties.stopCommand.description, /optional.*custom/i);
+  assert.match(listed.result.tools[0].inputSchema.properties.stopCommand.description, /advanced/i);
 
   const called = await request('tools/call', {
     name: 'switchboard_setup_project',
@@ -74,9 +87,8 @@ test('serves the setup tool over MCP stdio', async (t) => {
       name: 'Agent app',
       folder: projectFolder,
       startCommand: 'npm run dev',
-      stopCommand: 'pkill -f vite',
       services: [
-        { name: 'web', port: 3000 },
+        { name: 'web', port: 3000, url: 'https://app.local/dashboard' },
         { name: 'api', port: 4000 }
       ]
     }
@@ -85,9 +97,10 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.equal(called.result.structuredContent.action, 'created');
   assert.equal(called.result.structuredContent.project.name, 'Agent app');
   assert.equal(called.result.structuredContent.project.reviewRequired, true);
+  assert.equal(Object.hasOwn(called.result.structuredContent.project, 'stopCommand'), false);
   assert.match(called.result.content[0].text, /must review and approve/i);
   assert.deepEqual(called.result.structuredContent.project.services, [
-    { name: 'web', port: 3000 },
+    { name: 'web', port: 3000, url: 'https://app.local/dashboard' },
     { name: 'api', port: 4000 }
   ]);
   const storedProjects = JSON.parse(fs.readFileSync(projectsFile, 'utf8'));
@@ -96,13 +109,31 @@ test('serves the setup tool over MCP stdio', async (t) => {
 
   storedProjects[0].reviewRequired = false;
   fs.writeFileSync(projectsFile, `${JSON.stringify(storedProjects, null, 2)}\n`);
+  const processOwnership = new ProcessOwnershipStore(
+    path.join(temporaryRoot, 'process-ownership')
+  );
+  assert.equal(processOwnership.reserve(storedProjects[0].id), undefined);
+  processOwnership.setProcess(storedProjects[0].id, process.pid);
+  const blockedUpdate = await request('tools/call', {
+    name: 'switchboard_setup_project',
+    arguments: {
+      name: 'Agent app',
+      folder: projectFolder,
+      startCommand: 'npm run dev -- --host',
+      services: [{ name: 'web', port: 3000 }]
+    }
+  });
+  assert.equal(blockedUpdate.result.isError, true);
+  assert.match(blockedUpdate.result.content[0].text, /Stop Agent app before.*update/i);
+  processOwnership.release(storedProjects[0].id);
+
   const updated = await request('tools/call', {
     name: 'switchboard_setup_project',
     arguments: {
       name: 'Agent app',
       folder: projectFolder,
       startCommand: 'npm run dev -- --host',
-      stopCommand: 'pkill -f vite',
+      stopCommand: 'docker compose down',
       services: [
         { name: 'web', port: 3000 },
         { name: 'api', port: 4000 }
@@ -111,13 +142,13 @@ test('serves the setup tool over MCP stdio', async (t) => {
   });
   assert.equal(updated.result.structuredContent.action, 'updated');
   assert.equal(updated.result.structuredContent.project.reviewRequired, true);
+  assert.equal(updated.result.structuredContent.project.stopCommand, 'docker compose down');
 
   const invalid = await request('tools/call', {
     name: 'switchboard_setup_project',
     arguments: {
       folder: 'relative/path',
       startCommand: 'npm run dev',
-      stopCommand: 'pkill -f vite',
       services: [{ name: 'web', port: 3000 }]
     }
   });
@@ -128,10 +159,33 @@ test('serves the setup tool over MCP stdio', async (t) => {
     name: 'switchboard_setup_project',
     arguments: {
       folder: projectFolder,
-      startCommand: 'npm run dev',
-      stopCommand: 'pkill -f vite'
+      startCommand: 'npm run dev'
     }
   });
   assert.equal(missingServices.result.isError, true);
   assert.match(missingServices.result.content[0].text, /at least one service and port/);
+
+  const emptyServices = await request('tools/call', {
+    name: 'switchboard_setup_project',
+    arguments: {
+      folder: projectFolder,
+      startCommand: 'npm run dev',
+      stopCommand: 'pkill -f vite',
+      services: []
+    }
+  });
+  assert.equal(emptyServices.result.isError, true);
+  assert.match(emptyServices.result.content[0].text, /at least one service and port/);
+
+  const unsafeUrl = await request('tools/call', {
+    name: 'switchboard_setup_project',
+    arguments: {
+      folder: projectFolder,
+      startCommand: 'npm run dev',
+      stopCommand: 'pkill -f vite',
+      services: [{ name: 'web', port: 3000, url: 'javascript:alert(1)' }]
+    }
+  });
+  assert.equal(unsafeUrl.result.isError, true);
+  assert.match(unsafeUrl.result.content[0].text, /valid HTTP or HTTPS URL/);
 });

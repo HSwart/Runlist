@@ -3,7 +3,11 @@
 .gitignore
 .vscode/**
 .vscode-test/**
+.env*
+AGENTS.md
+docs/**
 node_modules/**
+scripts/**
 test/**
 coverage/**
 *.log
@@ -11,5 +15,6 @@ coverage/**
 *.vsix
 *.pen
 switchboard-icon-options.html
+media/switchboard-preview.png
 media/switchboard-readme.svg
 .DS_Store

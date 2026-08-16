@@ -1,8 +1,9 @@
 <div align="center">
   <img src="media/switchboard.png" width="80" height="80" alt="Switchboard logo">
   <h1>Switchboard</h1>
-  <p><strong>Start and stop your local development projects from one simple VS Code sidebar.</strong></p>
-  <p>No more hunting through old notes or trying to remember how each project starts.</p>
+  <p><strong>Every local app, across every repository, in one focused VS Code control panel.</strong></p>
+  <p>Save each project's folder and commands once, then start, stop, inspect, and open it from the sidebar.</p>
+  <p>Set projects up yourself—or optionally let a supported coding agent propose the setup for your approval. Switchboard checks configured ports before start and never stops an unknown process to free one.</p>
   <p>
     <a href="https://github.com/HSwart/Switchboard/releases/download/v0.0.1/switchboard.vsix">
       <img src="https://img.shields.io/badge/Download-Switchboard%200.0.1-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="Download Switchboard 0.0.1">
@@ -13,35 +14,48 @@
 ---
 
 <p align="center">
-  <img src="media/switchboard-preview.png" width="1200" alt="Switchboard in VS Code showing local projects with running and stopped statuses">
+  <img src="media/switchboard-screenshot.png" width="680" alt="Straight view of the Switchboard sidebar showing projects, service ports, and start and stop controls">
 </p>
 
-## Everything you are working on, in one place
+## A control panel for local projects
 
-Switchboard keeps a reusable list of your local projects inside VS Code. Save each project’s folder and commands once, then use **Start** and **Stop** whenever you return to it.
+Switchboard keeps a reusable list of local projects from different repositories inside VS Code. It combines saved commands with project status, cautious port checks, quick links, and recent output, so it is more than a list of tasks to run.
 
-- Start and stop projects with their saved commands.
+- Start projects with their saved commands and safely stop the process trees Switchboard launched.
 - Search saved projects by name or folder.
 - Give projects a friendly name without renaming their folders.
 - Keep configured service names and ports visible at a glance.
-- When service ports are configured, see project status and open the first local service in your browser.
+- When service ports are configured, see project status and open the first service at its localhost address or optional HTTP/HTTPS URL.
 - Open any saved project folder in a new VS Code window.
 - View readable recent output from the latest run, follow new lines, and open web links without leaving the sidebar.
 - Edit or remove a saved project without touching its files.
 
-> Switchboard remembers the setup. You stay in control of when a project runs.
+> Switchboard remembers the setup. You decide what runs.
 
-## Download and install
+## Install
 
 Switchboard is tested on Windows, macOS, and Linux.
 
-### 1. Download Switchboard
+### From the VS Code Marketplace after publication
+
+Switchboard is not listed in the VS Code Marketplace yet. The permanent publisher identifier still needs to be selected before the first listing can be created.
+
+After an official Marketplace link is added here:
+
+1. Open the **Extensions** view in VS Code.
+2. Search for **Switchboard**.
+3. Confirm that the publisher matches the publisher shown in this README.
+4. Select **Install**.
+
+Marketplace installations receive updates through VS Code. Until the official listing is available, use the GitHub release below.
+
+### From the GitHub release
 
 Download version 0.0.1 here:
 
 **[Download Switchboard 0.0.1](https://github.com/HSwart/Switchboard/releases/download/v0.0.1/switchboard.vsix)**
 
-### 2. Install it in VS Code
+Then install the downloaded VSIX:
 
 1. Open the **Extensions** view in VS Code.
 2. Select the **…** menu at the top of the Extensions view.
@@ -55,27 +69,27 @@ After installation, select the Switchboard icon in the VS Code Activity Bar.
 
 1. Select the **+** button in the Switchboard sidebar.
 2. Optionally enter a friendly project name. If you leave it blank, Switchboard uses the folder name.
-3. Choose the project folder.
+3. If a local folder is already open in VS Code, choose **Use current workspace**, or select **Browse**. In a multi-root workspace, Switchboard asks which local workspace folder to use.
 4. Enter the command that starts the project.
-5. Enter the command that stops the project.
-6. If you know it, enter the app's port so Switchboard can verify its status and open it in your browser.
+5. If the project needs a special shutdown workflow, optionally enter a custom stop command. Most projects should leave this blank.
+6. If you know them, add each service name and port so Switchboard can verify its status. You can optionally add an HTTP or HTTPS URL to open instead of the service's localhost address.
 7. Save it.
 
 Switchboard points out missing or invalid details beside the field that needs attention. If you close the screen after making changes, it asks before discarding them.
 
-Your project is now ready whenever you need it. Select the **Start** icon to run its saved start command and the **Stop** icon to run its saved stop command. While a command is being handled, the project clearly shows **Starting…** or **Stopping…**.
+Your project is now ready whenever you need it. Select the **Start** icon to run its saved start command. Projects with configured services stay **Starting…** until every saved TCP port is accepting connections. If they are not ready within 30 seconds, Switchboard shows **Service not ready** and keeps recent output available. Projects without configured services use the launched process state. Select **Stop** to stop only the process tree Switchboard launched. When an explicit custom stop command is configured, Switchboard runs it instead.
 
 If Switchboard is open in more than one VS Code window, starting or stopping a project in one window updates its status in the others automatically.
 
-Projects may save the same app port because they can still run at different times. Switchboard points this out while you add or edit a project. Before starting anything, it checks the port again and blocks the start if another app is already using it.
+Configured service ports are lightweight details, not a port-management system. Projects may save the same service ports because they can still run at different times. Switchboard points this out while you add or edit a project, checks every configured port again before starting, and blocks the start if another app is already using one.
 
-If another Switchboard project owns the port, Switchboard names it. If a shared port is occupied but its owner cannot be identified safely, both Start and Stop remain unavailable until the port is free. Switchboard never changes ports or stops an unknown process automatically.
+If another Switchboard project owns a port, Switchboard names it. If a shared port is occupied but its owner cannot be identified safely, both Start and Stop remain unavailable until that port is free. Switchboard never changes ports or stops an unknown process automatically.
 
-If you do not know the exact commands, use the coding-agent setup below. A supported agent can inspect the project and identify its commands and service ports for you.
+You can set up every project yourself. If you prefer, the optional coding-agent setup below can inspect a project and propose its commands, service ports, and explicitly documented browser URLs for your approval.
 
-## Set up a project with your coding agent
+## Optional: set up a project with your coding agent
 
-Switchboard can also give a supported coding agent a guided setup skill. The agent inspects the project, finds its existing commands and service ports, and saves the result through Switchboard.
+Switchboard can also give a supported coding agent a guided setup skill. The agent inspects the project, finds its existing commands, service ports, and explicit browser URLs, and saves the result through Switchboard.
 
 1. Select the **plug** button beside the **+** button to open **Agent connections**.
 2. Select **Set up** beside the agent you use.
@@ -91,9 +105,9 @@ Then open the project with your agent and use its Switchboard skill:
 
 You can also describe what you want naturally. For example:
 
-> Inspect this project and add it to Switchboard with the name My App. Identify the exact start and stop commands, and include the port for every service it runs.
+> Inspect this project and add it to Switchboard with the name My App. Identify the exact start command and the port for every service it runs. Preserve any explicit HTTP or HTTPS browser URLs, and include a custom stop command only if the project daemonizes or manages external services such as Docker or databases.
 
-The agent can save a new project or update one already in Switchboard. The project then shows **Review setup** in the sidebar. Check its folder and exact commands, then select **Approve setup** before Start or Stop becomes available.
+The agent can propose a new project or an update to one already in Switchboard. The project then shows **Review setup** in the sidebar. Check its folder and exact commands, then select **Approve setup** before Start or Stop becomes available. Agent-proposed commands never run without this approval.
 
 After updating Switchboard, return to **Agent connections** and select **Refresh setup** so the agent uses the current connection and skill. Switchboard will not replace a different skill you created with the same name.
 
@@ -106,7 +120,8 @@ Switchboard keeps the everyday controls simple:
 | **Search** | Filters your saved projects by project name or folder. |
 | **Project status** | Shows the written state in a clear status capsule, including running, stopped, transitions, and port conflicts. Long names, status details, and folder paths scroll automatically when they do not fit. |
 | **Start icon** | Runs the saved start command inside the project folder. |
-| **Stop icon** | Runs the saved stop command inside the project folder. |
+| **Stop icon** | Stops the process tree Switchboard launched, or runs the optional custom stop command when one is configured. |
+| **Restart** | In a project's More actions menu, safely stops that project before starting it again and checking service readiness. |
 | **Stop all running** | Appears when two or more projects are running and stops them together. |
 | **Port in use** | Prevents conflicting projects from starting and identifies the owning project when possible. |
 | **View output** | Highlights common log levels, opens web links, and lets you copy output from the latest run. If you scroll up, Switchboard keeps your place and offers a **Latest** button when new output arrives. |
@@ -118,7 +133,7 @@ If Switchboard finds a configured service already running but did not start it i
 
 ## Your projects stay local
 
-Switchboard stores its project list in your local VS Code data. Switchboard itself does not upload project folders, commands, or service ports. Any coding agent you connect has its own data and privacy settings.
+Switchboard stores its project list in your local VS Code data. Switchboard itself does not upload project folders, commands, service ports, or URL overrides. Any coding agent you connect has its own data and privacy settings.
 
 ## Security
 

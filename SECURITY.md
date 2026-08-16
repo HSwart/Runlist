@@ -1,6 +1,6 @@
 # Security Policy
 
-Switchboard starts and stops local development projects by running commands saved by the user. We take vulnerabilities that could make this behavior unsafe seriously.
+Switchboard starts local development projects by running commands saved by the user. It stops the process trees it launched by default and can run an optional custom stop command. We take vulnerabilities that could make this behavior unsafe seriously.
 
 ## Supported versions
 
@@ -50,7 +50,7 @@ Examples include:
 
 ## Security model
 
-Switchboard runs each saved start or stop command as a shell command from the configured project folder. The command inherits the environment and operating-system access of the VS Code process. Only add projects and commands you trust, and review agent-created setups before running them.
+Switchboard runs each saved start command and optional custom stop command as a shell command from the configured project folder. Commands inherit the environment and operating-system access of the VS Code process. Without a custom stop command, Switchboard targets only the process tree it launched. Only add projects and commands you trust, and review agent-created setups before running them.
 
 Project configuration is stored in VS Code's local application data. Coding agents connected to Switchboard are separate products with their own permissions, data handling, and privacy settings.
 

@@ -1,12 +1,18 @@
 {
   "name": "switchboard",
   "displayName": "Switchboard",
-  "description": "Start and stop local projects from one focused sidebar.",
+  "description": "Control local projects across repositories from one focused sidebar.",
   "version": "0.0.1",
   "publisher": "local",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "preview": true,
   "icon": "media/switchboard.png",
+  "galleryBanner": {
+    "color": "#161B22",
+    "theme": "dark"
+  },
+  "pricing": "Free",
+  "markdown": "github",
   "repository": {
     "type": "git",
     "url": "https://github.com/HSwart/Switchboard.git"
@@ -17,7 +23,12 @@
   },
   "keywords": [
     "local development",
+    "project manager",
+    "task runner",
+    "developer tools",
     "projects",
+    "ports",
+    "coding agents",
     "start",
     "stop",
     "mcp"
@@ -97,7 +108,9 @@
   },
   "scripts": {
     "test": "node --test",
-    "package": "vsce package --no-dependencies --out releases/switchboard.vsix"
+    "validate:marketplace": "node scripts/validate-marketplace.js --preparation",
+    "validate:marketplace:publish": "node scripts/validate-marketplace.js",
+    "package": "npm run validate:marketplace && vsce package --no-dependencies --out releases/switchboard.vsix"
   },
   "devDependencies": {
     "@vscode/vsce": "3.9.2"

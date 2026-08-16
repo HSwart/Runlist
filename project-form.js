@@ -1,13 +1,24 @@
-const FIELD_ORDER = ['project-name', 'folder', 'start-command', 'stop-command', 'app-port'];
+const FIELD_ORDER = ['project-name', 'folder', 'start-command', 'stop-command'];
+const MAX_SERVICES = 32;
+const { safeServiceUrl } = require('./external-url');
 
 function projectFormValues(input = {}) {
+  const sourceServices = Array.isArray(input.services)
+    ? input.services
+    : input.appPort === undefined || input.appPort === ''
+      ? []
+      : [{ name: 'app', port: input.appPort }];
   return {
     id: String(input.id || ''),
     name: String(input.name || ''),
     folder: String(input.folder || ''),
     startCommand: String(input.startCommand || ''),
     stopCommand: String(input.stopCommand || ''),
-    appPort: String(input.appPort ?? input.services?.[0]?.port ?? '')
+    services: sourceServices.map((service) => ({
+      name: String(service?.name ?? ''),
+      port: String(service?.port ?? ''),
+      url: String(service?.url ?? '')
+    }))
   };
 }
 
@@ -23,32 +34,91 @@ function validateProjectForm(input) {
   if (!values.startCommand.trim()) {
     errors['start-command'] = 'Enter a start command.';
   }
-  if (!values.stopCommand.trim()) {
-    errors['stop-command'] = 'Enter a stop command.';
+  if (values.services.length > MAX_SERVICES) {
+    errors.services = `Configure no more than ${MAX_SERVICES} services.`;
   }
-  if (values.appPort.trim()) {
-    const port = Number(values.appPort);
-    if (!Number.isInteger(port) || port < 1 || port > 65535) {
-      errors['app-port'] = 'Enter a whole-number port from 1 to 65535.';
+
+  const names = new Map();
+  const ports = new Map();
+  values.services.forEach((service, index) => {
+    const name = service.name.trim();
+    const portText = service.port.trim();
+    const url = service.url.trim();
+    if (!name && !portText && !url) {
+      return;
     }
-  }
+    if (!name) {
+      errors[`service-name-${index}`] = 'Enter a service name.';
+    } else if (name.length > 64) {
+      errors[`service-name-${index}`] = 'Service name cannot contain more than 64 characters.';
+    } else {
+      const normalizedName = name.toLowerCase();
+      if (names.has(normalizedName)) {
+        const firstIndex = names.get(normalizedName);
+        errors[`service-name-${firstIndex}`] ||= 'Use a unique service name.';
+        errors[`service-name-${index}`] = 'Use a unique service name.';
+      } else {
+        names.set(normalizedName, index);
+      }
+    }
+
+    const port = Number(portText);
+    if (!portText) {
+      errors[`service-port-${index}`] = 'Enter a port.';
+    } else if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      errors[`service-port-${index}`] = 'Enter a whole-number port from 1 to 65535.';
+    } else if (ports.has(port)) {
+      const firstIndex = ports.get(port);
+      errors[`service-port-${firstIndex}`] ||= 'Use a unique port.';
+      errors[`service-port-${index}`] = 'Use a unique port.';
+    } else {
+      ports.set(port, index);
+    }
+    if (url && !safeServiceUrl(url)) {
+      errors[`service-url-${index}`] = 'Enter a valid HTTP or HTTPS URL without sign-in details.';
+    }
+  });
+
+  const serviceFields = values.services.flatMap((service, index) => [
+    `service-name-${index}`,
+    `service-port-${index}`,
+    `service-url-${index}`
+  ]);
   return {
     errors,
-    firstField: FIELD_ORDER.find((field) => errors[field]),
+    firstField: [...FIELD_ORDER, 'services', ...serviceFields].find((field) => errors[field]),
     values
   };
+}
+
+function projectFormServices(values) {
+  return projectFormValues(values).services
+    .filter((service) => service.name.trim() || service.port.trim() || service.url.trim())
+    .map((service) => ({
+      name: service.name.trim(),
+      port: Number(service.port.trim()),
+      ...(service.url.trim() ? { url: service.url.trim() } : {})
+    }));
 }
 
 function projectFormChanged(input, baseline) {
   const current = projectFormValues(input);
   const original = projectFormValues(baseline);
-  return Object.keys(current).some((key) => current[key] !== original[key]);
+  return JSON.stringify(current) !== JSON.stringify(original);
+}
+
+function projectServicesChanged(input, baseline) {
+  return JSON.stringify(projectFormServices(input)) !== JSON.stringify(projectFormServices(baseline));
 }
 
 function projectSaveError(error) {
   const message = String(error?.message || 'Could not save this project.');
-  if (/service|port/i.test(message)) {
-    return { field: 'app-port', message };
+  const serviceField = message.match(/services\[(\d+)\]\.(name|port|url)/);
+  if (serviceField) {
+    return { field: `service-${serviceField[2]}-${serviceField[1]}`, message };
+  }
+  if (/service/i.test(message)) {
+    return { field: 'services', message };
   }
   if (/name/i.test(message)) {
     return { field: 'project-name', message };
@@ -66,7 +136,10 @@ function projectSaveError(error) {
 }
 
 module.exports = {
+  MAX_SERVICES,
   projectFormChanged,
+  projectFormServices,
+  projectServicesChanged,
   projectFormValues,
   projectSaveError,
   validateProjectForm
