@@ -15,6 +15,6 @@ coverage/**
 *.vsix
 *.pen
 switchboard-icon-options.html
-media/switchboard-preview.png
+media/switchboard-screenshot.png
 media/switchboard-readme.svg
 .DS_Store

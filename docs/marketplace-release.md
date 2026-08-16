@@ -8,7 +8,7 @@ Switchboard uses the permanent Marketplace publisher identifier `hankoswart`, di
 
 For each Marketplace release:
 
-1. Update `package.json`, `package-lock.json`, `CHANGELOG.md`, and the GitHub fallback links in `README.md` to the same reviewed version.
+1. Update `package.json`, `package-lock.json`, `CHANGELOG.md`, and the Marketplace installation state in `README.md` to the same reviewed version.
 2. Run `npm ci`, `npm test`, and `npm run validate:marketplace:publish`.
 3. Run `npm run package` and install that exact VSIX in a clean VS Code profile before publishing it.
 4. Confirm the package contains the README, changelog, icon, license, security policy, and third-party notices, and does not contain development instructions, tests, nested release artifacts, or credentials.
@@ -28,8 +28,7 @@ Official guidance:
 
 ## First listing and update-path check
 
-1. Publish the reviewed first listing under `hankoswart`.
+1. Publish reviewed version 0.0.2 under `hankoswart` while its README retains the accurate pre-publication notice and contains no dead install link.
 2. Install it from the VS Code Extensions view and confirm the installed extension ID is `hankoswart.switchboard`.
-3. Keep the GitHub release available as the manual VSIX fallback.
-4. For a later reviewed release, update the version, changelog, Marketplace package, and GitHub release artifact together.
-5. Install that later release through the Marketplace and confirm VS Code updates the existing installation rather than creating a second extension.
+3. Prepare reviewed version 0.0.3 with the live Marketplace link in `README.md`.
+4. Publish 0.0.3 and confirm VS Code updates the existing installation rather than creating a second extension.

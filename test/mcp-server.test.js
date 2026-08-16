@@ -31,6 +31,10 @@ test('serves the setup tool over MCP stdio', async (t) => {
     path.join(__dirname, '..', 'project-process.js'),
     path.join(installedRoot, 'project-process.js')
   );
+  fs.copyFileSync(
+    path.join(__dirname, '..', 'package.json'),
+    path.join(installedRoot, 'package.json')
+  );
   t.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
 
   const server = spawn(process.execPath, [path.join(installedMcpRoot, 'server.js')], {
@@ -67,6 +71,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
     clientInfo: { name: 'switchboard-test', version: '1.0.0' }
   });
   assert.equal(initialized.result.serverInfo.name, 'switchboard-mcp-server');
+  assert.equal(initialized.result.serverInfo.version, require('../package.json').version);
   assert.match(initialized.result.instructions, /custom project name/i);
 
   const listed = await request('tools/list');

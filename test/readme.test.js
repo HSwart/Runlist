@@ -6,24 +6,20 @@ const test = require('node:test');
 const root = path.join(__dirname, '..');
 const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
 
-test('leads with the readable straight sidebar screenshot', () => {
-  const screenshotPath = 'media/switchboard-screenshot.png';
+test('leads with the stylized Switchboard preview', () => {
+  const screenshotPath = 'media/switchboard-preview.png';
   const screenshot = fs.readFileSync(path.join(root, screenshotPath));
 
   assert.ok(readme.indexOf(screenshotPath) < readme.indexOf('## A control panel'));
-  assert.match(readme, /switchboard-screenshot\.png" width="680" alt="Straight view/);
+  assert.match(readme, /switchboard-preview\.png" width="900" alt="Stylized preview/);
   assert.equal(screenshot.subarray(1, 4).toString('ascii'), 'PNG');
-  assert.ok(screenshot.readUInt32BE(16) >= 1000);
+  assert.ok(screenshot.readUInt32BE(16) >= 1900);
 });
 
-test('keeps README positioning and downloads accurate', () => {
-  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-  const expectedDownload = `https://github.com/HSwart/Switchboard/releases/download/v${manifest.version}/switchboard.vsix`;
-  const downloadLinks = readme.match(/https:\/\/github\.com\/HSwart\/Switchboard\/releases\/download\/[^)"<]+/g);
-
+test('keeps README positioning and installation claims accurate', () => {
   assert.match(readme, /Every local app, across every repository/);
   assert.match(readme, /optionally let a supported coding agent propose the setup for your approval/);
   assert.match(readme, /never stops an unknown process to free one/);
-  assert.ok(downloadLinks.length > 0);
-  assert.deepEqual(new Set(downloadLinks), new Set([expectedDownload]));
+  assert.doesNotMatch(readme, /github\.com\/HSwart\/Switchboard\/releases\/download/);
+  assert.match(readme, /not listed in the VS Code Marketplace yet/);
 });
