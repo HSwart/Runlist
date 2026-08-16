@@ -271,6 +271,7 @@ button:active:not(:disabled) {
 .project-status.status-port-in-use,
 .project-status.status-port-in-use-unknown,
 .project-status.status-not-ready,
+.project-status.status-not-responding,
 .project-status.status-review-required {
   border-color: var(--vscode-editorWarning-foreground, var(--vscode-contrastBorder, transparent));
 }
@@ -498,6 +499,10 @@ button:active:not(:disabled) {
 .service-indicator {
   width: 5px;
   height: 5px;
+}
+
+.service-indicator.not-responding {
+  background: var(--vscode-editorWarning-foreground, #cca700);
 }
 
 .add-screen,

@@ -14,9 +14,10 @@ const {
   installAgentSkill
 } = require('./skill-installation');
 const {
-  isPrimaryServiceOpen,
+  isPrimaryServiceResponding,
   primaryServiceUrl,
   projectStatus,
+  serviceHttpStatus,
   serviceReadinessTimedOut,
   servicePortStatus,
   stoppableProjectIds
@@ -101,6 +102,8 @@ class RunlistViewProvider {
     this.startAttempts = new Map();
     this.projectPortConflicts = new Map();
     this.projectOpenPorts = new Map();
+    this.projectRespondingPorts = new Map();
+    this.projectWebPorts = new Map();
     this.projectStatuses = new Map();
     this.startReadinessDeadlines = new Map();
     this.readinessWarnings = new Set();
@@ -240,25 +243,20 @@ class RunlistViewProvider {
         const portStatus = hasServices
           ? await servicePortStatus(project.services)
           : { allOpen: false, anyOpen: false, openPorts: [] };
+        const httpStatus = hasServices
+          ? await serviceHttpStatus(project.services, portStatus.openPorts, {
+              resolveUrl: (url) => this.externalServiceUrl(url)
+            })
+          : { allResponding: true, respondingPorts: [], unresponsivePorts: [], webPorts: [] };
         const ownership = processRuntime.get(project.id);
+        const sharedState = sharedRuntime.get(project.id);
         const readinessDeadline = ownership?.readinessDeadline
           || this.startReadinessDeadlines.get(project.id);
+        const allReady = portStatus.allOpen && httpStatus.allResponding;
         const readinessTimedOut = hasServices
           && managedProjectIds.has(project.id)
-          && serviceReadinessTimedOut(readinessDeadline, portStatus.allOpen, now);
-        if (portStatus.allOpen) {
-          this.startReadinessDeadlines.delete(project.id);
-          this.readinessWarnings.delete(project.id);
-          if (this.managedProjectIds.has(project.id)) {
-            this.processOwnership.setState(project.id, 'running');
-            this.portReservations.setState(project.id, 'running');
-          }
-        } else if (readinessTimedOut && this.managedProjectIds.has(project.id)) {
-          this.processOwnership.setState(project.id, 'not-ready');
-          this.portReservations.setState(project.id, 'not-ready');
-          this.notifyServiceNotReady(project);
-        }
-        const sharedState = sharedRuntime.get(project.id);
+          && (sharedState === 'running'
+            || serviceReadinessTimedOut(readinessDeadline, allReady, now));
         const conflict = occupiedPortConflict({
           project,
           projects,
@@ -272,6 +270,7 @@ class RunlistViewProvider {
           hasServices,
           knownConflict: conflict?.kind === 'managed',
           managed: managedProjectIds.has(project.id),
+          httpUnresponsive: httpStatus.unresponsivePorts.length > 0,
           processActive: this.processes.has(project.id) || ownership?.processActive,
           readinessTimedOut,
           stopping: this.stoppingProjectIds.has(project.id) || sharedState === 'stopping',
@@ -280,7 +279,9 @@ class RunlistViewProvider {
           project.id,
           status,
           portConflictSummary(conflict),
-          portStatus.openPorts
+          portStatus.openPorts,
+          httpStatus.respondingPorts,
+          httpStatus.webPorts
         ];
       }));
 
@@ -288,11 +289,24 @@ class RunlistViewProvider {
         return;
       }
 
+      const projectsById = new Map(projects.map((project) => [project.id, project]));
       for (const [id, status] of checks) {
         if (status === 'stopped') {
           this.managedProjectIds.delete(id);
           this.startReadinessDeadlines.delete(id);
           this.readinessWarnings.delete(id);
+        } else if (status === 'running') {
+          this.startReadinessDeadlines.delete(id);
+          this.readinessWarnings.delete(id);
+          if (this.managedProjectIds.has(id)) {
+            this.processOwnership.setState(id, 'running');
+            this.portReservations.setState(id, 'running');
+          }
+        } else if (['not-ready', 'not-responding'].includes(status)
+          && this.managedProjectIds.has(id)) {
+          this.processOwnership.setState(id, status);
+          this.portReservations.setState(id, status);
+          this.notifyServiceNotReady(projectsById.get(id), status);
         }
       }
 
@@ -302,14 +316,24 @@ class RunlistViewProvider {
         .map(([id, , conflict]) => [id, conflict]));
       const nextOpenPorts = new Map(checks
         .map(([id, , , openPorts]) => [id, openPorts]));
+      const nextRespondingPorts = new Map(checks
+        .map(([id, , , , respondingPorts]) => [id, respondingPorts]));
+      const nextWebPorts = new Map(checks
+        .map(([id, , , , , webPorts]) => [id, webPorts]));
       const changed = nextStatuses.size !== this.projectStatuses.size
         || [...nextStatuses].some(([id, status]) => this.projectStatuses.get(id) !== status)
         || portConflictMapsDiffer(nextConflicts, this.projectPortConflicts)
         || [...nextOpenPorts]
-          .some(([id, openPorts]) => String(this.projectOpenPorts.get(id)) !== String(openPorts));
+          .some(([id, openPorts]) => String(this.projectOpenPorts.get(id)) !== String(openPorts))
+        || [...nextRespondingPorts]
+          .some(([id, ports]) => String(this.projectRespondingPorts.get(id)) !== String(ports))
+        || [...nextWebPorts]
+          .some(([id, ports]) => String(this.projectWebPorts.get(id)) !== String(ports));
       this.projectStatuses = nextStatuses;
       this.projectPortConflicts = nextConflicts;
       this.projectOpenPorts = nextOpenPorts;
+      this.projectRespondingPorts = nextRespondingPorts;
+      this.projectWebPorts = nextWebPorts;
       if (changed) {
         this.renderProjectList();
       }
@@ -521,12 +545,27 @@ class RunlistViewProvider {
     }
   }
 
-  notifyServiceNotReady(project) {
+  notifyServiceNotReady(project, status = 'not-ready') {
     if (this.readinessWarnings.has(project.id)) {
       return;
     }
     this.readinessWarnings.add(project.id);
     const seconds = Math.round(START_READINESS_TIMEOUT_MS / 1000);
+    if (status === 'not-responding') {
+      this.addProjectOutput(
+        project.id,
+        'Runlist: one or more configured web service ports are open, but their pages did not respond.\n'
+      );
+      void vscode.window.showWarningMessage(
+        `${project.name} is still running, but one or more web services are not responding.`,
+        'View output'
+      ).then((choice) => {
+        if (choice === 'View output') {
+          this.showProjectOutput(project.id);
+        }
+      });
+      return;
+    }
     const ports = project.services.map((service) => `:${service.port}`).join(', ');
     this.addProjectOutput(
       project.id,
@@ -586,9 +625,27 @@ class RunlistViewProvider {
     }
   }
 
+  async externalServiceUrl(value) {
+    const url = safeHttpUrl(value);
+    if (!url) {
+      return undefined;
+    }
+    try {
+      const externalUri = await vscode.env.asExternalUri(vscode.Uri.parse(url));
+      return safeHttpUrl(externalUri.toString());
+    } catch {
+      return undefined;
+    }
+  }
+
   async openProject(id) {
     const project = this.projects.find((item) => item.id === id);
     if (!project) {
+      return;
+    }
+    const status = this.getProjectStatus(id);
+    if (status === 'not-responding') {
+      vscode.window.showInformationMessage(`${project.name} is running, but its web service is not responding.`);
       return;
     }
     if (!this.isProjectRunning(id)) {
@@ -602,9 +659,14 @@ class RunlistViewProvider {
       return;
     }
 
-    const opened = await vscode.env.openExternal(vscode.Uri.parse(url));
+    const externalUrl = await this.externalServiceUrl(url);
+    if (!externalUrl) {
+      vscode.window.showErrorMessage(`${project.name} does not have a valid service URL to open.`);
+      return;
+    }
+    const opened = await vscode.env.openExternal(vscode.Uri.parse(externalUrl));
     if (!opened) {
-      vscode.window.showErrorMessage(`Could not open ${project.name} at ${url}.`);
+      vscode.window.showErrorMessage(`Could not open ${project.name} at ${externalUrl}.`);
     }
   }
 
@@ -684,7 +746,8 @@ class RunlistViewProvider {
     const servicesChanged = Boolean(existingProject)
       && projectServicesChanged(validation.values, existingProject);
     const servicesLocked = existingProject
-      && ['running', 'starting', 'not-ready', 'stopping', 'active'].includes(this.getProjectStatus(projectId));
+      && ['running', 'starting', 'not-ready', 'not-responding', 'stopping', 'active']
+        .includes(this.getProjectStatus(projectId));
     if (servicesLocked && servicesChanged) {
       this.formErrors = { services: 'Stop this project before changing its services.' };
       this.focusTarget = { type: 'field', id: 'services' };
@@ -812,6 +875,8 @@ class RunlistViewProvider {
       this.projectStatuses.delete(id);
       this.projectPortConflicts.delete(id);
       this.projectOpenPorts.delete(id);
+      this.projectRespondingPorts.delete(id);
+      this.projectWebPorts.delete(id);
       this.startReadinessDeadlines.delete(id);
       this.readinessWarnings.delete(id);
       this.stoppingProjectIds.delete(id);
@@ -1096,7 +1161,7 @@ class RunlistViewProvider {
       canRestart: () => {
         const sharedState = this.processOwnership.snapshot().get(id)?.state
           || this.portReservations.snapshot().get(id);
-        return ['running', 'not-ready', 'active'].includes(this.getProjectStatus(id))
+        return ['running', 'not-ready', 'not-responding', 'active'].includes(this.getProjectStatus(id))
           && (this.getProjectStatus(id) !== 'active' || Boolean(project.stopCommand))
           && !['starting', 'stopping'].includes(sharedState);
       },
@@ -1272,13 +1337,19 @@ class RunlistViewProvider {
     const cleanProjectOutput = sanitizeProjectOutput(rawProjectOutput);
     const stateProjects = projects.map((project) => {
       const openPorts = this.projectOpenPorts.get(project.id) || [];
+      const respondingPorts = this.projectRespondingPorts.get(project.id) || [];
+      const webPorts = this.projectWebPorts.get(project.id) || [];
       return {
         ...project,
         pinned: project.pinned === true,
         openPorts,
         portConflict: this.projectPortConflicts.get(project.id),
-        primaryServiceOpen: isPrimaryServiceOpen(project.services, openPorts),
+        primaryServiceOpen: isPrimaryServiceResponding(project.services, openPorts, respondingPorts),
+        respondingPorts,
         status: this.getProjectStatus(project.id),
+        webPorts,
+        httpUnresponsive: webPorts.some((port) => openPorts.includes(port)
+          && !respondingPorts.includes(port)),
         searchText: projectSearchText(project)
       };
     });
@@ -1294,7 +1365,7 @@ class RunlistViewProvider {
       reviewRequired: this.mode === 'edit'
         && Boolean(projects.find((project) => project.id === this.selectedProjectId)?.reviewRequired),
       servicesLocked: this.mode === 'edit'
-        && ['running', 'starting', 'not-ready', 'stopping', 'active']
+        && ['running', 'starting', 'not-ready', 'not-responding', 'stopping', 'active']
           .includes(this.getProjectStatus(this.selectedProjectId)),
       projectOutput: outputProject ? {
         entries: formatProjectOutput(rawProjectOutput),
