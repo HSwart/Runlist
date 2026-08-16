@@ -284,6 +284,9 @@ function renderList() {
                   <button data-action="open-vscode" data-id="${projectId}" role="menuitem" title="Open ${projectName} in a new VS Code window">
                     ${icon('folder', 'menu-icon')}<span>Open in VS Code</span>
                   </button>
+                  <button data-action="copy-project-path" data-id="${projectId}" role="menuitem" title="Copy the saved folder path for ${projectName}">
+                    ${icon('copy', 'menu-icon')}<span>Copy project path</span>
+                  </button>
                   <button data-action="output" data-id="${projectId}" role="menuitem">
                     ${icon('terminal', 'menu-icon')}<span>View output</span>
                   </button>
@@ -754,6 +757,10 @@ app.addEventListener('click', (event) => {
     'open-vscode': () => {
       closeMenus();
       vscode.postMessage({ type: 'openProjectFolder', id: button.dataset.id });
+    },
+    'copy-project-path': () => {
+      closeMenus();
+      vscode.postMessage({ type: 'copyProjectPath', id: button.dataset.id });
     },
     output: () => {
       closeMenus();

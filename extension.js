@@ -24,7 +24,10 @@ const {
   servicePortStatus,
   stoppableProjectIds
 } = require('./project-status');
-const { openProjectInNewWindow } = require('./project-navigation');
+const {
+  copyProjectPath: writeProjectPathToClipboard,
+  openProjectInNewWindow
+} = require('./project-navigation');
 const { previewFrameSource, projectPreviewUrl } = require('./preview-security');
 const { OwnedProcessMetrics } = require('./process-metrics');
 const {
@@ -413,6 +416,9 @@ class RunlistViewProvider {
         break;
       case 'openProjectFolder':
         await this.openProjectFolder(message.id);
+        break;
+      case 'copyProjectPath':
+        await this.copyProjectPath(message.id);
         break;
       case 'copyServiceUrl':
         await this.copyServiceUrl(message.id, Number(message.port));
@@ -825,6 +831,23 @@ class RunlistViewProvider {
       await openProjectInNewWindow(vscode, project.folder);
     } catch (error) {
       vscode.window.showErrorMessage(`Could not open ${project.name} in VS Code: ${error.message}`);
+    }
+  }
+
+  async copyProjectPath(id) {
+    const project = this.projects.find((item) => item.id === id);
+    if (!project) {
+      return;
+    }
+
+    try {
+      await writeProjectPathToClipboard(vscode, project.folder);
+      vscode.window.showInformationMessage(`Copied ${project.name} path.`);
+    } catch {
+      vscode.window.showErrorMessage(`Could not copy the path for ${project.name}.`);
+    } finally {
+      this.focusTarget = { type: 'project-menu', id };
+      this.renderProjectList();
     }
   }
 

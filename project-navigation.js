@@ -6,4 +6,8 @@ function openProjectInNewWindow(vscode, folder) {
   );
 }
 
-module.exports = { openProjectInNewWindow };
+function copyProjectPath(vscode, folder) {
+  return vscode.env.clipboard.writeText(folder);
+}
+
+module.exports = { copyProjectPath, openProjectInNewWindow };
