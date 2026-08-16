@@ -10,6 +10,45 @@ function normalizeSearchQuery(value) {
   return String(value || '').trim().toLocaleLowerCase();
 }
 
+function formatCpuPercent(value) {
+  if (!Number.isFinite(value)) {
+    return 'Measuring…';
+  }
+  if (value > 0 && value < 0.1) {
+    return '<0.1%';
+  }
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)}%`;
+}
+
+function formatMemory(value) {
+  if (!Number.isFinite(value)) {
+    return 'Unavailable';
+  }
+  const megabytes = value / (1024 * 1024);
+  return megabytes >= 1024
+    ? `${(megabytes / 1024).toFixed(1)} GB`
+    : `${Math.max(0, Math.round(megabytes))} MB`;
+}
+
+function resourceMetricsContent(metrics) {
+  if (!metrics?.available) {
+    const message = escapeHtml(metrics?.message || 'Resource use is unavailable.');
+    return `<span class="resource-unavailable" title="${message}">Resource use unavailable</span>`;
+  }
+  const cpu = metrics.measuring ? 'Measuring…' : formatCpuPercent(metrics.cpuPercent);
+  const memory = metrics.measuring ? 'Measuring…' : formatMemory(metrics.memoryBytes);
+  return `<span><strong>CPU</strong> <span data-resource-cpu>${escapeHtml(cpu)}</span></span><span><strong>Memory</strong> <span data-resource-memory>${escapeHtml(memory)}</span></span>`;
+}
+
+function resourceMetricsLabel(metrics) {
+  if (!metrics?.available) {
+    return metrics?.message || 'Resource use unavailable.';
+  }
+  const cpu = metrics.measuring ? 'measuring' : formatCpuPercent(metrics.cpuPercent);
+  const memory = metrics.measuring ? 'measuring' : formatMemory(metrics.memoryBytes);
+  return `Resource use: CPU ${cpu}; memory ${memory}.`;
+}
+
 function escapeHtml(value = '') {
   return value
     .replaceAll('&', '&amp;')
@@ -305,6 +344,9 @@ function renderList() {
                     <button data-action="open" data-id="${projectId}" aria-label="Open ${projectName} in browser" title="Open in browser">${icon('external')}</button>
                   </div>
                 </header>
+                <div class="resource-metrics" data-resource-metrics data-project-id="${projectId}" role="group" aria-label="${escapeHtml(resourceMetricsLabel(project.resourceMetrics))}">
+                  ${resourceMetricsContent(project.resourceMetrics)}
+                </div>
                 <div class="preview-frame-wrap">
                   <iframe class="preview-frame" data-preview-frame data-src="${escapeHtml(project.previewUrl)}" title="${projectName} app preview" sandbox="allow-forms allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
                   <div class="preview-loading" data-preview-loading role="status">Loading preview…</div>
@@ -787,6 +829,17 @@ function initializeProjectPreview() {
 }
 
 window.addEventListener('message', (event) => {
+  if (event.data?.messageToken !== state.messageToken) {
+    return;
+  }
+  if (event.data?.type === 'projectMetrics') {
+    const metrics = document.querySelector(`[data-resource-metrics][data-project-id="${CSS.escape(String(event.data.id || ''))}"]`);
+    if (metrics) {
+      metrics.innerHTML = resourceMetricsContent(event.data.metrics);
+      metrics.setAttribute('aria-label', resourceMetricsLabel(event.data.metrics));
+    }
+    return;
+  }
   if (event.data?.type !== 'projectOutput') {
     return;
   }
@@ -843,7 +896,7 @@ function restoreOutputLinkFocus(output, focusedLink) {
 }
 
 window.addEventListener('message', (event) => {
-  if (event.data?.type !== 'outputCopied') {
+  if (event.data?.messageToken !== state.messageToken || event.data?.type !== 'outputCopied') {
     return;
   }
   const copyButton = document.querySelector('.output-copy-button');
@@ -857,7 +910,7 @@ window.addEventListener('message', (event) => {
 });
 
 window.addEventListener('message', (event) => {
-  if (event.data?.type !== 'restoreProjectMenuFocus') {
+  if (event.data?.messageToken !== state.messageToken || event.data?.type !== 'restoreProjectMenuFocus') {
     return;
   }
   closeMenus();

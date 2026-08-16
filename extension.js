@@ -1,4 +1,5 @@
 const vscode = require('vscode');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -25,6 +26,7 @@ const {
 } = require('./project-status');
 const { openProjectInNewWindow } = require('./project-navigation');
 const { previewFrameSource, projectPreviewUrl } = require('./preview-security');
+const { OwnedProcessMetrics } = require('./process-metrics');
 const {
   canUseCurrentWorkspace,
   selectCurrentWorkspaceFolder
@@ -69,6 +71,7 @@ const {
 const STORAGE_KEY = 'runlist.projects';
 const START_READINESS_TIMEOUT_MS = 30000;
 const STATUS_POLL_INTERVAL_MS = 2000;
+const RESOURCE_SAMPLE_INTERVAL_MS = 5000;
 const CUSTOM_STOP_TIMEOUT_MS = 15000;
 const CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS = 20000;
 const REMOTE_STOP_TIMEOUT_MS = STATUS_POLL_INTERVAL_MS
@@ -93,6 +96,11 @@ class RunlistViewProvider {
     this.selectedProjectId = undefined;
     this.expandedPreviewProjectId = undefined;
     this.processes = new Map();
+    this.ownedProcessMetrics = new OwnedProcessMetrics();
+    this.projectMetrics = new Map();
+    this.resourceSampleTimer = undefined;
+    this.resourceSampleProjectId = undefined;
+    this.resourceSampleGeneration = 0;
     this.projectOutputs = new Map();
     this.outputUpdateScheduler = createOutputUpdateScheduler((id) => this.sendProjectOutput(id));
     this.managedProjectIds = new Set();
@@ -621,6 +629,7 @@ class RunlistViewProvider {
     const rawOutput = this.projectOutputs.get(id) || '';
     this.view?.webview.postMessage({
       type: 'projectOutput',
+      messageToken: this.webviewMessageToken,
       entries: formatProjectOutput(rawOutput),
       output: sanitizeProjectOutput(rawOutput)
     });
@@ -632,7 +641,10 @@ class RunlistViewProvider {
       return;
     }
     await vscode.env.clipboard.writeText(output);
-    this.view?.webview.postMessage({ type: 'outputCopied' });
+    this.view?.webview.postMessage({
+      type: 'outputCopied',
+      messageToken: this.webviewMessageToken
+    });
   }
 
   async openOutputUrl(value) {
@@ -727,6 +739,80 @@ class RunlistViewProvider {
     this.expandedPreviewProjectId = this.expandedPreviewProjectId === id ? undefined : id;
     this.focusTarget = { type: 'action', action: 'toggle-preview', id };
     this.renderProjectList();
+  }
+
+  syncResourceSampling(id) {
+    if (this.resourceSampleProjectId === id && this.resourceSampleTimer) {
+      return;
+    }
+    this.stopResourceSampling();
+    if (!id) {
+      return;
+    }
+
+    this.resourceSampleProjectId = id;
+    const child = this.processes.get(id);
+    if (!child || !this.processOwnership.owns(id, child.pid)) {
+      this.publishProjectMetrics(id, {
+        available: false,
+        message: 'Resource use is available in the VS Code window that started this project.'
+      });
+      return;
+    }
+
+    const generation = ++this.resourceSampleGeneration;
+    let sampling = false;
+    const sample = async () => {
+      if (sampling || generation !== this.resourceSampleGeneration) {
+        return;
+      }
+      const currentChild = this.processes.get(id);
+      if (currentChild !== child || !this.processOwnership.owns(id, child.pid)) {
+        this.stopResourceSampling();
+        this.publishProjectMetrics(id, {
+          available: false,
+          message: 'Resource use stopped because process ownership is uncertain.'
+        });
+        return;
+      }
+      sampling = true;
+      const metrics = await this.ownedProcessMetrics.sample(id, child.pid);
+      sampling = false;
+      if (generation !== this.resourceSampleGeneration || this.expandedPreviewProjectId !== id) {
+        return;
+      }
+      this.publishProjectMetrics(id, metrics);
+      if (!metrics.available && /ownership/.test(metrics.message || '')) {
+        this.stopResourceSampling();
+      }
+    };
+    void sample();
+    this.resourceSampleTimer = setInterval(() => void sample(), RESOURCE_SAMPLE_INTERVAL_MS);
+  }
+
+  stopResourceSampling() {
+    clearInterval(this.resourceSampleTimer);
+    this.resourceSampleTimer = undefined;
+    this.resourceSampleProjectId = undefined;
+    this.resourceSampleGeneration += 1;
+  }
+
+  publishProjectMetrics(id, metrics) {
+    this.projectMetrics.set(id, metrics);
+    void this.view?.webview.postMessage({
+      type: 'projectMetrics',
+      messageToken: this.webviewMessageToken,
+      id,
+      metrics
+    });
+  }
+
+  forgetProjectMetrics(id) {
+    this.ownedProcessMetrics.untrack(id);
+    this.projectMetrics.delete(id);
+    if (this.resourceSampleProjectId === id) {
+      this.stopResourceSampling();
+    }
   }
 
   async openProjectFolder(id) {
@@ -880,7 +966,11 @@ class RunlistViewProvider {
     );
 
     if (choice !== 'Delete project') {
-      this.view?.webview.postMessage({ type: 'restoreProjectMenuFocus', id });
+      this.view?.webview.postMessage({
+        type: 'restoreProjectMenuFocus',
+        messageToken: this.webviewMessageToken,
+        id
+      });
       return;
     }
 
@@ -1090,6 +1180,8 @@ class RunlistViewProvider {
       });
 
       this.processes.set(id, child);
+      this.projectMetrics.delete(id);
+      this.ownedProcessMetrics.track(id, child.pid);
       this.processOwnership.setProcess(id, child.pid, {
         state: hasServices ? 'starting' : 'running',
         readinessDeadline
@@ -1106,6 +1198,7 @@ class RunlistViewProvider {
       child.once('error', (error) => {
         this.statusRevision += 1;
         this.processes.delete(id);
+        this.forgetProjectMetrics(id);
         this.managedProjectIds.delete(id);
         this.processOwnership.release(id);
         this.portReservations.releaseShared(id);
@@ -1121,6 +1214,7 @@ class RunlistViewProvider {
           const stoppedIntentionally = this.stoppingProjectIds.has(id);
           this.statusRevision += 1;
           this.processes.delete(id);
+          this.forgetProjectMetrics(id);
           this.processOwnership.release(id);
           if (code !== 0) {
             this.managedProjectIds.delete(id);
@@ -1389,7 +1483,8 @@ class RunlistViewProvider {
     const scriptUri = this.view.webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'media', 'main.js')
     );
-    const nonce = Math.random().toString(36).slice(2);
+    const nonce = crypto.randomBytes(16).toString('base64');
+    this.webviewMessageToken = nonce;
     const projects = this.projects;
     const outputProject = this.mode === 'output'
       ? projects.find((project) => project.id === this.selectedProjectId)
@@ -1411,6 +1506,8 @@ class RunlistViewProvider {
         this.projectPortConflicts.has(project.id)
       );
       const canPreview = Boolean(primaryUrl);
+      const previewExpanded = canPreview && this.expandedPreviewProjectId === project.id;
+      const locallyOwned = this.processes.has(project.id);
       return {
         ...project,
         pinned: project.pinned === true,
@@ -1420,8 +1517,16 @@ class RunlistViewProvider {
         respondingPorts,
         serviceUrls,
         status,
-        previewExpanded: canPreview && this.expandedPreviewProjectId === project.id,
+        previewExpanded,
         previewUrl: canPreview ? primaryUrl : undefined,
+        resourceMetrics: previewExpanded
+          ? this.projectMetrics.get(project.id) || (locallyOwned
+            ? { available: true, measuring: true }
+            : {
+                available: false,
+                message: 'Resource use is available in the VS Code window that started this project.'
+              })
+          : undefined,
         webPorts,
         httpUnresponsive: webPorts.some((port) => openPorts.includes(port)
           && !respondingPorts.includes(port)),
@@ -1436,6 +1541,7 @@ class RunlistViewProvider {
     }
     const state = {
       agentConnections: this.agentConnections,
+      messageToken: nonce,
       mode: this.mode,
       searchQuery: this.searchQuery,
       draft: this.draft,
@@ -1475,9 +1581,11 @@ class RunlistViewProvider {
         </body>
       </html>`;
     this.focusTarget = undefined;
+    this.syncResourceSampling(expandedPreview?.id);
   }
 
   dispose() {
+    this.stopResourceSampling();
     for (const id of [...this.processes.keys()]) {
       void terminateTrackedProcess(this.processes, id).then(
         () => this.processOwnership.release(id),

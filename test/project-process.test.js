@@ -213,6 +213,9 @@ test('coordinates owned process stopping across VS Code hosts without sharing ki
 
   assert.equal(owner.reserve('project-1'), undefined);
   owner.setProcess('project-1', 303, { state: 'starting', readinessDeadline: 12345 });
+  assert.equal(owner.owns('project-1', 303), true);
+  assert.equal(owner.owns('project-1', 304), false);
+  assert.equal(otherWindow.owns('project-1', 303), false);
   assert.equal(otherWindow.snapshot().get('project-1').state, 'starting');
   assert.equal(otherWindow.snapshot().get('project-1').processActive, true);
   assert.equal(otherWindow.snapshot().get('project-1').readinessDeadline, 12345);

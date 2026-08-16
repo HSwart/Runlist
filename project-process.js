@@ -218,6 +218,17 @@ class ProcessOwnershipStore {
     this.updateOwned(projectId, (ownership) => ({ ...ownership, state }));
   }
 
+  owns(projectId, childPid) {
+    const owned = this.owned.get(projectId);
+    if (!owned) {
+      return false;
+    }
+    const current = readJson(owned.ownershipPath);
+    return current?.token === owned.token
+      && current.hostPid === this.pid
+      && current.childPid === childPid;
+  }
+
   release(projectId) {
     const owned = this.owned.get(projectId);
     if (!owned) {
