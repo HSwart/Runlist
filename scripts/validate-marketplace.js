@@ -114,18 +114,13 @@ function validateMarketplace(root, options = {}) {
   if (readme.includes('github.com/HSwart/Switchboard/releases/download/')) {
     errors.push('README.md must use Marketplace installation instead of a direct VSIX download');
   }
-  const marketplaceUnavailable = readme.includes('Switchboard is not listed in the VS Code Marketplace yet.');
   const marketplaceUrl = `https://marketplace.visualstudio.com/items?itemName=${manifest.publisher}.${manifest.name}`;
-  if (manifest.publisher === PLACEHOLDER_PUBLISHER && !marketplaceUnavailable) {
-    errors.push('README.md must not imply Marketplace availability before publication');
+  if (!readme.includes('### Install from the VS Code Marketplace')) {
+    errors.push('README.md must explain how to install from the VS Code Marketplace');
   }
-  if (manifest.publisher !== PLACEHOLDER_PUBLISHER) {
-    if (marketplaceUnavailable && readme.includes(marketplaceUrl)) {
-      errors.push('README.md must not link to the Marketplace before the listing is available');
-    }
-    if (!marketplaceUnavailable && !readme.includes(marketplaceUrl)) {
-      errors.push('README.md must link to the official Marketplace listing');
-    }
+  const marketplaceLinks = readme.match(/https:\/\/marketplace\.visualstudio\.com\/items\?itemName=[^)"<\s]+/g) || [];
+  if (marketplaceLinks.some((link) => link !== marketplaceUrl)) {
+    errors.push('README.md Marketplace links must use the manifest publisher and extension name');
   }
   if (!security.includes(`| ${manifest.version} | Yes |`)) {
     errors.push('SECURITY.md must mark the manifest version as supported');

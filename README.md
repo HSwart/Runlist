@@ -31,11 +31,9 @@ Switchboard keeps a reusable list of local projects from different repositories 
 
 Switchboard is tested on Windows, macOS, and Linux.
 
-### VS Code Marketplace
+### Install from the VS Code Marketplace
 
-Switchboard is not listed in the VS Code Marketplace yet. Version 0.0.2 is the reviewed first-listing package, and installation instructions will be enabled here only after that exact package is available from VS Code.
-
-Once the listing is live:
+When the Switchboard listing is visible in the VS Code Marketplace:
 
 1. Open the **Extensions** view in VS Code.
 2. Search for **Switchboard**.

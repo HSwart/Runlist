@@ -21,5 +21,6 @@ test('keeps README positioning and installation claims accurate', () => {
   assert.match(readme, /optionally let a supported coding agent propose the setup for your approval/);
   assert.match(readme, /never stops an unknown process to free one/);
   assert.doesNotMatch(readme, /github\.com\/HSwart\/Switchboard\/releases\/download/);
-  assert.match(readme, /not listed in the VS Code Marketplace yet/);
+  assert.match(readme, /Install from the VS Code Marketplace/);
+  assert.match(readme, /When the Switchboard listing is visible/);
 });

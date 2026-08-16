@@ -28,7 +28,7 @@ Official guidance:
 
 ## First listing and update-path check
 
-1. Publish reviewed version 0.0.2 under `hankoswart` while its README retains the accurate pre-publication notice and contains no dead install link.
+1. Publish reviewed version 0.0.2 under `hankoswart` with Marketplace installation wording that remains accurate before and after the listing becomes visible.
 2. Install it from the VS Code Extensions view and confirm the installed extension ID is `hankoswart.switchboard`.
-3. Prepare reviewed version 0.0.3 with the live Marketplace link in `README.md`.
-4. Publish 0.0.3 and confirm VS Code updates the existing installation rather than creating a second extension.
+3. Prepare a later reviewed release.
+4. Publish that release and confirm VS Code updates the existing installation rather than creating a second extension.
