@@ -56,7 +56,6 @@ const {
 const { projectSearchText } = require('./project-search');
 const {
   initializeProjectStore,
-  migrateProjectStore,
   readProjects,
   removeProject,
   upsertProject
@@ -1458,11 +1457,6 @@ function installMcpBridge(context) {
 
 function activate(context) {
   const projectsFile = path.join(context.globalStorageUri.fsPath, 'projects.json');
-  const globalStorageRoot = path.dirname(context.globalStorageUri.fsPath);
-  migrateProjectStore(projectsFile, [
-    path.join(globalStorageRoot, 'local.switchboard', 'projects.json'),
-    path.join(globalStorageRoot, 'hankoswart.switchboard', 'projects.json')
-  ]);
   initializeProjectStore(projectsFile, context.globalState.get(STORAGE_KEY, []));
 
   const serverPath = installMcpBridge(context);

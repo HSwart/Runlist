@@ -10,58 +10,6 @@ function initializeProjectStore(filePath, legacyProjects = []) {
   }
 }
 
-function migrateProjectStore(filePath, legacyFilePaths = []) {
-  if (fs.existsSync(filePath)) {
-    return [];
-  }
-
-  const stores = [];
-  for (const legacyFilePath of legacyFilePaths) {
-    if (!fs.existsSync(legacyFilePath)) {
-      continue;
-    }
-    try {
-      const projects = JSON.parse(fs.readFileSync(legacyFilePath, 'utf8'));
-      if (!Array.isArray(projects)) {
-        continue;
-      }
-      stores.push({
-        filePath: legacyFilePath,
-        modifiedAt: fs.statSync(legacyFilePath).mtimeMs,
-        projects
-      });
-    } catch {
-      // Leave an invalid preview store untouched and try the next known identity.
-    }
-  }
-
-  if (!stores.length) {
-    return [];
-  }
-
-  const projects = [];
-  for (const store of stores.sort((left, right) => left.modifiedAt - right.modifiedAt)) {
-    for (const project of store.projects) {
-      const folder = typeof project?.folder === 'string'
-        ? normalizeForComparison(project.folder)
-        : undefined;
-      for (let index = projects.length - 1; index >= 0; index -= 1) {
-        const existing = projects[index];
-        const sameId = project?.id && existing?.id === project.id;
-        const sameFolder = folder && typeof existing?.folder === 'string'
-          && normalizeForComparison(existing.folder) === folder;
-        if (sameId || sameFolder) {
-          projects.splice(index, 1);
-        }
-      }
-      projects.push(project);
-    }
-  }
-
-  writeProjects(filePath, projects);
-  return stores.map((store) => store.filePath);
-}
-
 function readProjects(filePath) {
   initializeProjectStore(filePath);
   const contents = fs.readFileSync(filePath, 'utf8');
@@ -260,7 +208,6 @@ function createId() {
 module.exports = {
   findProjectByFolder,
   initializeProjectStore,
-  migrateProjectStore,
   readProjects,
   removeProject,
   upsertProject,

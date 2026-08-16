@@ -42,8 +42,6 @@ When the Switchboard listing is visible in the VS Code Marketplace:
 
 After installation, select the Switchboard icon in the VS Code Activity Bar.
 
-If you installed a preview VSIX, Switchboard restores its saved projects the first time the Marketplace version opens. If two Switchboard entries appear, remove the older preview extension and reconnect your coding agents from the Switchboard sidebar.
-
 ## Add your first project
 
 1. Select the **+** button in the Switchboard sidebar.
