@@ -76,13 +76,18 @@ test('renders one lazy, sandboxed, accessible expandable preview', () => {
 
   assert.match(extension, /this\.expandedPreviewServicePort === previewService\.port/);
   assert.match(extension, /this\.expandedPreviewServicePort = previewService\.port/);
-  assert.match(extension, /previewExpanded = canPreview[\s\S]*this\.expandedPreviewServicePort === previewService\.port/);
+  assert.match(extension, /detailsExpanded = this\.expandedPreviewProjectId === project\.id[\s\S]*this\.expandedPreviewServicePort === previewService\.port/);
+  assert.match(extension, /previewExpanded = canPreview && detailsExpanded/);
   assert.match(extension, /this\.expandedPreviewProjectId = undefined;[\s\S]*this\.expandedPreviewServicePort = undefined;[\s\S]*type: 'project-control'/);
   assert.match(extension, /this\.startAttempts\.set\(id, attempt\);[\s\S]*this\.projectServiceUrls\.delete\(id\);[\s\S]*this\.projectStatuses\.set\(id, 'starting'\)/);
   assert.match(extension, /frame-src \$\{frameSource\}/);
   assert.match(extension, /this\.focusTarget = \{ type: 'project-control', id: previousId \}/);
-  assert.match(webview, /data-action="toggle-preview"[^>]*aria-expanded="\$\{project\.previewExpanded\}"[^>]*aria-controls="preview-/);
-  assert.match(webview, /title="\$\{project\.previewExpanded \? 'Collapse' : 'Expand'\} app preview">\$\{icon\('chevron-down'\)\}/);
+  assert.match(webview, /data-action="toggle-preview"[^>]*aria-expanded="\$\{project\.detailsExpanded\}"[^>]*aria-controls="details-/);
+  assert.match(webview, /title="\$\{project\.detailsExpanded \? 'Collapse' : 'Expand'\} \$\{project\.timeline \? 'live project details' : 'app preview'\}">\$\{icon\('chevron-down'\)\}/);
+  assert.match(webview, /id="details-\$\{projectId\}" class="project-live-details" \$\{project\.detailsExpanded \? '' : 'hidden'\}/);
+  assert.match(webview, /data-timeline-elapsed data-started-at=/);
+  assert.doesNotMatch(webview, /data-timeline-elapsed[^>]*aria-live/);
+  assert.match(webview, /\(timeline\.failed \|\| timeline\.attention\) && timeline\.outputAvailable/);
   assert.doesNotMatch(webview, /icon\('arrow-down'\)/);
   assert.match(webview, /class="project-services-row">[\s\S]*class="project-services"[\s\S]*class="preview-toggle"/);
   assert.match(webview, /project\.previewExpanded \? `[\s\S]*data-preview-frame data-src=/);

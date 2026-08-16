@@ -5,6 +5,7 @@ let searchQuery = String(state.searchQuery || '');
 let outputFollowLatest = true;
 let previewLoadGeneration = 0;
 let previewLoadTimer;
+const pendingOutputPeeks = new Map();
 
 function normalizeSearchQuery(value) {
   return String(value || '').trim().toLocaleLowerCase();
@@ -172,6 +173,70 @@ function readinessDetailsHtml(project, status) {
   return rows.length ? `<div class="project-readiness-detail">${rows.join('')}</div>` : '';
 }
 
+function formatElapsed(milliseconds) {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${String(seconds % 60).padStart(2, '0')}s`;
+}
+
+function timelineElapsedLabel(timeline) {
+  if (!Number.isFinite(timeline?.launchedAt)) {
+    return timeline?.failed ? 'Start did not complete.' : 'Waiting to start…';
+  }
+  if (Number.isFinite(timeline.readyAt)) {
+    return `Ready in ${formatElapsed(timeline.readyAt - timeline.launchedAt)}`;
+  }
+  return `Elapsed ${formatElapsed(Date.now() - timeline.launchedAt)}`;
+}
+
+function projectTimelineHtml(project, projectName) {
+  const timeline = project.timeline;
+  if (!timeline || !project.timelineExpanded) {
+    return '';
+  }
+  const stages = (timeline.stages || []).map((stage) => `
+    <li class="timeline-stage timeline-${escapeHtml(stage.state)}">
+      <span class="timeline-marker" aria-hidden="true"></span>
+      <span>${escapeHtml(stage.label)}</span>
+    </li>`).join('');
+  const outputLink = (timeline.failed || timeline.attention) && timeline.outputAvailable
+    ? `<button class="timeline-output-link" data-action="output" data-id="${escapeHtml(project.id)}">View Recent Output</button>`
+    : '';
+  return `
+    <div class="project-timeline" aria-label="Startup timeline for ${projectName}">
+      <ol class="timeline-stages">${stages}</ol>
+      <p class="timeline-elapsed" data-timeline-elapsed data-started-at="${timeline.launchedAt || ''}" data-ready-at="${timeline.readyAt || ''}">${escapeHtml(timelineElapsedLabel(timeline))}</p>
+      ${(timeline.failed || timeline.attention) && !timeline.outputAvailable ? '<p class="timeline-output-note">Recent output is available in the VS Code window that started this project.</p>' : ''}
+      ${outputLink}
+    </div>`;
+}
+
+function outputPeekEntriesHtml(entries) {
+  return (entries || []).map((entry) => {
+    const level = entry.kind === 'structured' ? entry.level || 'log' : 'log';
+    const meta = entry.kind === 'structured' && (entry.time || entry.level)
+      ? `<span class="output-peek-meta">${entry.time ? `<time>${escapeHtml(entry.time)}</time>` : ''}${entry.level ? `<span>${escapeHtml(entry.level)}</span>` : ''}</span>`
+      : '';
+    return `<li class="output-peek-line ${escapeHtml(level)}">${meta}<span class="output-peek-message">${escapeHtml(entry.message)}</span></li>`;
+  }).join('');
+}
+
+function projectOutputPeekHtml(entries, projectId, projectName) {
+  if (!entries?.length) {
+    return '';
+  }
+  const safeProjectId = escapeHtml(String(projectId || ''));
+  const safeProjectName = escapeHtml(String(projectName || 'project'));
+  return `
+    <section class="project-output-peek" tabindex="0" aria-label="Latest output for ${safeProjectName}">
+      <header><span>Live output</span><button data-action="output" data-id="${safeProjectId}">View output</button></header>
+      <ol>${outputPeekEntriesHtml(entries)}</ol>
+    </section>`;
+}
+
 function statusSummaryHtml(projects) {
   const reviewCount = projects.filter((project) => project.reviewRequired).length;
   const runningCount = projects
@@ -251,6 +316,10 @@ function renderList() {
           stopped: 'Stopped'
         };
         const conflicted = ['port-in-use', 'port-in-use-unknown'].includes(projectStatus);
+        const canHandoff = projectStatus === 'port-in-use'
+          && conflict?.handoffAvailable
+          && conflict?.ownerName;
+        const handoffLabel = `Stop ${conflictOwnerName} and start ${projectName}`;
         const transitioning = ['starting', 'not-ready', 'stopping'].includes(projectStatus);
         const canOpen = Boolean(project.previewUrl);
         const detectedWithoutStop = projectStatus === 'active' && !project.stopCommand;
@@ -354,6 +423,10 @@ function renderList() {
                 </div>
               </div>
             </div>
+            ${canHandoff ? `<button class="handoff-button" data-action="handoff" data-id="${projectId}" aria-label="${handoffLabel}" title="${handoffLabel}" ${project.handoffInProgress ? 'disabled' : ''}>
+              ${project.handoffInProgress ? productIcon('loading', 'status-progress') : productIcon('play')}
+              <span>${project.handoffInProgress ? `Stopping ${conflictOwnerName}, then starting ${projectName}…` : handoffLabel}</span>
+            </button>` : ''}
             <div class="project-details">
               <div class="detail-row" title="${escapeHtml(project.folder)}">
                 ${icon('folder', 'detail-icon')}<span class="auto-scroll"><span class="auto-scroll-content">${escapeHtml(project.folder)}</span></span>
@@ -367,15 +440,16 @@ function renderList() {
                   const canCopyUrl = project.serviceUrls?.some((entry) => entry.port === service.port)
                     && !reviewRequired
                     && !conflicted;
-                  const webNotResponding = portOpen
+                  const webNotResponding = !conflicted
+                    && portOpen
                     && project.webPorts?.includes(service.port)
                     && !project.respondingPorts?.includes(service.port);
-                  const indicator = webNotResponding
-                    ? 'not-responding'
-                    : portOpen
-                      ? 'running'
-                      : conflicted
-                        ? 'conflict'
+                  const indicator = conflicted
+                    ? 'conflict'
+                    : webNotResponding
+                      ? 'not-responding'
+                      : portOpen
+                        ? 'running'
                         : '';
                   const title = webNotResponding
                     ? ` title="${escapeHtml(service.name)} port is open, but its web service is not responding"`
@@ -387,10 +461,13 @@ function renderList() {
                   return `<span${title}${ariaLabel}><span class="service-indicator ${indicator}" aria-hidden="true"></span>${escapeHtml(service.name)} <strong>:${escapeHtml(String(service.port))}</strong>${canCopyUrl ? `<button class="copy-url-button" data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(String(service.port))}" aria-label="${copyLabel}" title="${copyLabel}">${icon('copy')}</button>` : ''}</span>`;
                   }).join('')}
                 </div>
-                ${project.previewUrl ? `<button class="preview-toggle" data-action="toggle-preview" data-id="${projectId}" aria-label="${project.previewExpanded ? 'Collapse' : 'Expand'} preview for ${projectName}" aria-expanded="${project.previewExpanded}" aria-controls="preview-${projectId}" title="${project.previewExpanded ? 'Collapse' : 'Expand'} app preview">${icon('chevron-down')}</button>` : ''}
+                ${(project.timeline || project.previewUrl) ? `<button class="preview-toggle" data-action="toggle-preview" data-id="${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} ${project.timeline ? 'live project details' : 'preview'} for ${projectName}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" title="${project.detailsExpanded ? 'Collapse' : 'Expand'} ${project.timeline ? 'live project details' : 'app preview'}">${icon('chevron-down')}</button>` : ''}
               </div>` : ''}
+            ${(project.timeline || project.previewUrl) ? `<div id="details-${projectId}" class="project-live-details" ${project.detailsExpanded ? '' : 'hidden'}>
+            ${project.timeline ? projectTimelineHtml(project, projectName) : ''}
+            ${project.outputPeek !== undefined ? `<div class="project-output-peek-slot" data-output-peek-slot data-project-id="${projectId}" data-project-name="${projectName}">${projectOutputPeekHtml(project.outputPeek, project.id, project.name)}</div>` : ''}
             ${project.previewUrl ? `
-              <section id="preview-${projectId}" class="project-preview" aria-label="Preview of ${projectName}" ${project.previewExpanded ? '' : 'hidden'}>
+              <section class="project-preview" aria-label="Preview of ${projectName}" ${project.previewExpanded ? '' : 'hidden'}>
                 ${project.previewExpanded ? `
                 <header class="preview-toolbar">
                   <span>Preview</span>
@@ -414,6 +491,7 @@ function renderList() {
                 <p class="preview-help">If the app blocks this view, use Open in browser.</p>
                 ` : ''}
               </section>` : ''}
+            </div>` : ''}
           </article>`;
       }).join('')}
       <div class="search-empty" data-search-empty hidden>
@@ -659,6 +737,7 @@ function renderProjectOutput() {
       </header>
       <p class="screen-copy">${escapeHtml(projectOutput.name)}</p>
       <div id="project-output-failure">${outputFailureSummaryHtml(projectOutput.failureSummary)}</div>
+      ${projectOutput.canAskAgent ? `<button class="diagnosis-open-button" data-action="ask-agent" data-id="${escapeHtml(projectOutput.projectId)}">Ask your agent</button>` : ''}
       <div class="output-panel-wrap">
         <div class="output-panel" data-empty="${projectOutput.output ? 'false' : 'true'}" tabindex="0" aria-label="Recent output for ${escapeHtml(projectOutput.name)}">
           <div id="project-output">${outputEntriesHtml(projectOutput.entries, projectOutput.failureSummary)}</div>
@@ -678,6 +757,45 @@ function renderProjectOutput() {
       outputPanel.addEventListener('scroll', handleOutputScroll, { passive: true });
     }
   });
+}
+
+function renderProjectDiagnosis() {
+  const diagnosis = state.diagnosis;
+  if (!diagnosis) {
+    app.innerHTML = '<section class="diagnosis-screen"><p class="screen-copy">These diagnostics are no longer available.</p></section>';
+    return;
+  }
+  app.innerHTML = `
+    <section class="diagnosis-screen">
+      <header class="screen-header">
+        <h2>Ask your agent</h2>
+        <button class="icon-button" data-action="close-screen" aria-label="Close agent diagnosis">${icon('close')}</button>
+      </header>
+      <p class="screen-copy">Prepare ${escapeHtml(diagnosis.name)}'s latest failed start for diagnosis.</p>
+      <div class="diagnosis-notice">
+        <strong>Nothing is sent automatically</strong>
+        <p>Runlist copies a short request for you to paste into your agent. The agent can then retrieve only this project's retained failure through Runlist.</p>
+      </div>
+      <h3 class="diagnosis-heading">Context available</h3>
+      <ul class="diagnosis-context">
+        <li>Project name and saved folder</li>
+        <li>Saved start command, with credential-like values redacted</li>
+        <li>Configured service names and ports</li>
+        <li>Platform, last observed state, and exit result</li>
+        <li>Concise failure summary</li>
+        <li>Sanitized recent output${diagnosis.outputAvailable ? diagnosis.outputTruncated ? ' (latest portion)' : '' : ' (no command output was captured)'}</li>
+      </ul>
+      <p class="diagnosis-exclusion">Runlist does not provide environment variables, source files, shell history, process environments, or unconfigured network data.</p>
+      <button class="primary-button diagnosis-copy-button" data-action="copy-diagnosis-request">Copy diagnosis request</button>
+      <p id="diagnosis-copy-status" class="diagnosis-copy-status" aria-live="polite">Copy the request, then paste it into your agent chat.</p>
+      ${diagnosis.agentReady ? '' : `
+        <div class="diagnosis-setup">
+          <strong>Need to connect an agent?</strong>
+          <p>Use Runlist's existing Agent connections screen for Copilot, Codex, or Claude.</p>
+          <button class="secondary-button" data-action="show-agent-connections">Open Agent connections</button>
+        </div>`}
+      <p class="diagnosis-review-note">Any command or service change proposed by an agent still requires your review and approval in Runlist.</p>
+    </section>`;
 }
 
 function outputIsNearBottom(panel) {
@@ -788,6 +906,7 @@ app.addEventListener('click', (event) => {
       }
     },
     'register-agent': () => vscode.postMessage({ type: 'registerAgent', agent: button.dataset.agent }),
+    'show-agent-connections': () => vscode.postMessage({ type: 'showAgentSetup' }),
     'toggle-menu': () => toggleMenu(button),
     open: () => {
       closeMenus();
@@ -819,6 +938,8 @@ app.addEventListener('click', (event) => {
       closeMenus();
       vscode.postMessage({ type: 'showOutput', id: button.dataset.id });
     },
+    'ask-agent': () => vscode.postMessage({ type: 'showDiagnosis', id: button.dataset.id }),
+    'copy-diagnosis-request': () => vscode.postMessage({ type: 'copyDiagnosisRequest' }),
     'open-output-url': () => {
       event.preventDefault();
       vscode.postMessage({ type: 'openOutputUrl', url: button.dataset.url });
@@ -831,6 +952,10 @@ app.addEventListener('click', (event) => {
     start: () => vscode.postMessage({ type: 'startProject', id: button.dataset.id }),
     stop: () => vscode.postMessage({ type: 'stopProject', id: button.dataset.id }),
     restart: () => vscode.postMessage({ type: 'restartProject', id: button.dataset.id }),
+    handoff: () => {
+      button.disabled = true;
+      vscode.postMessage({ type: 'handoffProject', id: button.dataset.id });
+    },
     'stop-all': () => {
       button.disabled = true;
       button.innerHTML = `${productIcon('loading', 'status-progress')}Stopping all…`;
@@ -893,6 +1018,36 @@ function initializeProjectPreview() {
   document.querySelectorAll('[data-preview-frame]').forEach(loadProjectPreview);
 }
 
+let timelineClock;
+function updateTimelineElapsed() {
+  document.querySelectorAll('[data-timeline-elapsed]').forEach((element) => {
+    if (!element.dataset.startedAt) {
+      return;
+    }
+    const startedAt = Number(element.dataset.startedAt);
+    const readyAt = element.dataset.readyAt ? Number(element.dataset.readyAt) : undefined;
+    if (!Number.isFinite(startedAt)) {
+      return;
+    }
+    element.textContent = Number.isFinite(readyAt)
+      ? `Ready in ${formatElapsed(readyAt - startedAt)}`
+      : `Elapsed ${formatElapsed(Date.now() - startedAt)}`;
+  });
+}
+
+function initializeTimelineClock() {
+  clearInterval(timelineClock);
+  timelineClock = undefined;
+  const elapsed = document.querySelector('[data-timeline-elapsed]');
+  if (!elapsed) {
+    return;
+  }
+  updateTimelineElapsed();
+  if (document.querySelector('[data-timeline-elapsed][data-ready-at=""]')) {
+    timelineClock = setInterval(updateTimelineElapsed, 1000);
+  }
+}
+
 window.addEventListener('message', (event) => {
   if (event.data?.messageToken !== state.messageToken) {
     return;
@@ -902,6 +1057,17 @@ window.addEventListener('message', (event) => {
     if (metrics) {
       metrics.innerHTML = resourceMetricsContent(event.data.metrics);
       metrics.setAttribute('aria-label', resourceMetricsLabel(event.data.metrics));
+    }
+    return;
+  }
+  if (event.data?.type === 'projectOutputPeek') {
+    updateProjectOutputPeek(event.data.id, event.data.entries);
+    return;
+  }
+  if (event.data?.type === 'diagnosisRequestCopied') {
+    const status = document.getElementById('diagnosis-copy-status');
+    if (status) {
+      status.textContent = 'Diagnosis request copied. Paste it into your agent chat.';
     }
     return;
   }
@@ -941,6 +1107,45 @@ window.addEventListener('message', (event) => {
   restoreOutputLinkFocus(output, focusedLink);
   updateOutputJumpButton();
 });
+
+function outputPeekInteractionActive(slot) {
+  if (slot.contains(document.activeElement)) {
+    return true;
+  }
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+    return false;
+  }
+  try {
+    return selection.getRangeAt(0).intersectsNode(slot);
+  } catch {
+    return false;
+  }
+}
+
+function updateProjectOutputPeek(id, entries) {
+  const key = String(id || '');
+  const slot = document.querySelector(`[data-output-peek-slot][data-project-id="${CSS.escape(key)}"]`);
+  if (!slot) {
+    pendingOutputPeeks.delete(key);
+    return;
+  }
+  if (outputPeekInteractionActive(slot)) {
+    pendingOutputPeeks.set(key, entries || []);
+    return;
+  }
+  pendingOutputPeeks.delete(key);
+  slot.innerHTML = projectOutputPeekHtml(entries || [], key, slot.dataset.projectName || 'project');
+}
+
+function flushPendingOutputPeeks() {
+  for (const [id, entries] of [...pendingOutputPeeks]) {
+    updateProjectOutputPeek(id, entries);
+  }
+}
+
+document.addEventListener('focusout', () => setTimeout(flushPendingOutputPeeks, 0));
+document.addEventListener('selectionchange', flushPendingOutputPeeks);
 
 function focusedOutputLink(output) {
   const active = document.activeElement;
@@ -1151,10 +1356,13 @@ if (state.mode === 'list') {
   document.getElementById('project-search')?.addEventListener('input', handleSearchInput);
   scheduleAutoScrollUpdate();
   initializeProjectPreview();
+  initializeTimelineClock();
 } else if (state.mode === 'agents') {
   renderAgentSetup();
 } else if (state.mode === 'output') {
   renderProjectOutput();
+} else if (state.mode === 'diagnosis') {
+  renderProjectDiagnosis();
 } else {
   renderProjectForm(state.mode);
 }

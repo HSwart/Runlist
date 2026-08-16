@@ -238,6 +238,69 @@ function serviceReadinessDetails(services, openPorts, respondingPorts, webPorts)
   return details;
 }
 
+function serviceTimelineStages({
+  services = [],
+  commandLaunched = false,
+  openPorts = [],
+  respondingPorts = [],
+  webPorts = [],
+  failed = false,
+  attention = false
+} = {}) {
+  const open = new Set(openPorts || []);
+  const responding = new Set(respondingPorts || []);
+  const web = new Set(webPorts || []);
+  const stages = [{
+    key: 'command',
+    kind: 'command',
+    label: 'Launch command',
+    state: commandLaunched ? 'complete' : 'pending'
+  }];
+
+  for (const service of services || []) {
+    const portOpen = open.has(service.port);
+    stages.push({
+      key: `port-${service.port}`,
+      kind: 'port',
+      label: `${service.name} :${service.port} available`,
+      name: service.name,
+      port: service.port,
+      state: portOpen ? 'complete' : 'pending'
+    });
+    if (web.has(service.port)) {
+      stages.push({
+        key: `response-${service.port}`,
+        kind: 'response',
+        label: `${service.name} responding`,
+        name: service.name,
+        port: service.port,
+        state: responding.has(service.port) ? 'complete' : 'pending'
+      });
+    }
+  }
+
+  if (failed) {
+    const incomplete = stages.find((stage) => stage.state !== 'complete');
+    if (incomplete) {
+      incomplete.state = 'failed';
+    } else {
+      stages.push({
+        key: 'process-exit',
+        kind: 'process',
+        label: 'Process exited',
+        state: 'failed'
+      });
+    }
+  } else {
+    const current = stages.find((stage) => stage.state !== 'complete');
+    if (current) {
+      current.state = attention ? 'attention' : 'current';
+    }
+  }
+
+  return stages;
+}
+
 function isPrimaryServiceOpen(services, openPorts) {
   const primaryPort = services?.[0]?.port;
   return Number.isInteger(primaryPort) && (openPorts || []).includes(primaryPort);
@@ -324,6 +387,7 @@ module.exports = {
   serviceUrl,
   serviceHttpStatus,
   serviceReadinessDetails,
+  serviceTimelineStages,
   serviceReadinessTimedOut,
   servicePortStatus,
   stoppableProjectIds

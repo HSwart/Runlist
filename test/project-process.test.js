@@ -9,6 +9,7 @@ const {
   customStopSpawnOptions,
   ProcessOwnershipStore,
   projectProcessSpawnOptions,
+  startExitFailed,
   terminateProcessTree,
   terminateTrackedProcess
 } = require('../project-process');
@@ -33,6 +34,13 @@ test('runs explicit custom stop commands through the platform shell', () => {
     stdio: ['ignore', 'ignore', 'pipe'],
     windowsHide: true
   });
+});
+
+test('retains a failed start when a managed command exits before its services are ready', () => {
+  assert.equal(startExitFailed({ code: 0, hasServices: true, stoppedIntentionally: false }), true);
+  assert.equal(startExitFailed({ code: 1, hasServices: false, stoppedIntentionally: false }), true);
+  assert.equal(startExitFailed({ code: 0, hasServices: false, stoppedIntentionally: false }), false);
+  assert.equal(startExitFailed({ code: 1, hasServices: true, stoppedIntentionally: true }), false);
 });
 
 test('terminates only the requested POSIX process group', async () => {
@@ -212,19 +220,28 @@ test('coordinates owned process stopping across VS Code hosts without sharing ki
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
 
   assert.equal(owner.reserve('project-1'), undefined);
-  owner.setProcess('project-1', 303, { state: 'starting', readinessDeadline: 12345 });
+  owner.setProcess('project-1', 303, {
+    state: 'starting',
+    readinessDeadline: 12345,
+    launchedAt: 12000
+  });
   assert.equal(owner.owns('project-1', 303), true);
   assert.equal(owner.owns('project-1', 304), false);
   assert.equal(otherWindow.owns('project-1', 303), false);
   assert.equal(otherWindow.snapshot().get('project-1').state, 'starting');
   assert.equal(otherWindow.snapshot().get('project-1').processActive, true);
   assert.equal(otherWindow.snapshot().get('project-1').readinessDeadline, 12345);
+  assert.equal(otherWindow.snapshot().get('project-1').launchedAt, 12000);
+  owner.setState('project-1', 'running', { readyAt: 15000 });
+  assert.equal(otherWindow.snapshot().get('project-1').readyAt, 15000);
   owner.setState('project-1', 'not-ready');
   assert.equal(otherWindow.snapshot().get('project-1').state, 'not-ready');
   owner.setState('project-1', 'running');
   assert.equal(otherWindow.snapshot().get('project-1').state, 'running');
   assert.equal(otherWindow.reserve('project-1').kind, 'owned');
-  assert.deepEqual(otherWindow.requestStop('project-1'), { kind: 'requested' });
+  const ownershipToken = otherWindow.snapshot().get('project-1').token;
+  assert.deepEqual(otherWindow.requestStop('project-1', 'stale-token'), { kind: 'changed' });
+  assert.deepEqual(otherWindow.requestStop('project-1', ownershipToken), { kind: 'requested' });
   assert.equal(otherWindow.snapshot().get('project-1').state, 'stopping');
   assert.equal(otherWindow.cancelStopRequest('project-1'), true);
   assert.equal(otherWindow.snapshot().get('project-1').state, 'running');

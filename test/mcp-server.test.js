@@ -5,6 +5,7 @@ const path = require('node:path');
 const readline = require('node:readline');
 const { spawn } = require('node:child_process');
 const test = require('node:test');
+const { MAX_DIAGNOSTIC_OUTPUT_CHARS, writeProjectDiagnostics } = require('../project-diagnostics');
 const { ProcessOwnershipStore } = require('../project-process');
 
 test('serves the setup tool over MCP stdio', async (t) => {
@@ -30,6 +31,14 @@ test('serves the setup tool over MCP stdio', async (t) => {
   fs.copyFileSync(
     path.join(__dirname, '..', 'project-process.js'),
     path.join(installedRoot, 'project-process.js')
+  );
+  fs.copyFileSync(
+    path.join(__dirname, '..', 'project-output.js'),
+    path.join(installedRoot, 'project-output.js')
+  );
+  fs.copyFileSync(
+    path.join(__dirname, '..', 'project-diagnostics.js'),
+    path.join(installedRoot, 'project-diagnostics.js')
   );
   fs.copyFileSync(
     path.join(__dirname, '..', 'package.json'),
@@ -75,7 +84,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.match(initialized.result.instructions, /custom project name/i);
 
   const listed = await request('tools/list');
-  assert.equal(listed.result.tools.length, 1);
+  assert.equal(listed.result.tools.length, 2);
   assert.equal(listed.result.tools[0].name, 'runlist_setup_project');
   assert.match(listed.result.tools[0].description, /custom name/i);
   assert.match(listed.result.tools[0].description, /reviews and approves/i);
@@ -85,6 +94,10 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.equal(listed.result.tools[0].inputSchema.required.includes('stopCommand'), false);
   assert.match(listed.result.tools[0].inputSchema.properties.stopCommand.description, /optional.*custom/i);
   assert.match(listed.result.tools[0].inputSchema.properties.stopCommand.description, /advanced/i);
+  assert.equal(listed.result.tools[1].name, 'runlist_get_project_diagnostics');
+  assert.equal(listed.result.tools[1].annotations.readOnlyHint, true);
+  assert.equal(listed.result.tools[1].annotations.openWorldHint, false);
+  assert.deepEqual(listed.result.tools[1].inputSchema.required, ['projectId']);
 
   const called = await request('tools/call', {
     name: 'runlist_setup_project',
@@ -112,8 +125,74 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.equal(storedProjects.length, 1);
   assert.equal(storedProjects[0].reviewRequired, true);
 
+  const reviewBlockedDiagnostics = await request('tools/call', {
+    name: 'runlist_get_project_diagnostics',
+    arguments: { projectId: storedProjects[0].id }
+  });
+  assert.equal(reviewBlockedDiagnostics.result.isError, true);
+  assert.match(reviewBlockedDiagnostics.result.content[0].text, /Review and approve/i);
+
   storedProjects[0].reviewRequired = false;
   fs.writeFileSync(projectsFile, `${JSON.stringify(storedProjects, null, 2)}\n`);
+
+  const missingDiagnostics = await request('tools/call', {
+    name: 'runlist_get_project_diagnostics',
+    arguments: { projectId: storedProjects[0].id }
+  });
+  assert.equal(missingDiagnostics.result.isError, true);
+  assert.match(missingDiagnostics.result.content[0].text, /does not have a retained failed start/i);
+
+  const unknownDiagnostics = await request('tools/call', {
+    name: 'runlist_get_project_diagnostics',
+    arguments: { projectId: 'unknown-project' }
+  });
+  assert.equal(unknownDiagnostics.result.isError, true);
+  assert.match(unknownDiagnostics.result.content[0].text, /was not found/i);
+
+  storedProjects[0].startCommand = 'API_KEY=command-secret npm run dev';
+  fs.writeFileSync(projectsFile, `${JSON.stringify(storedProjects, null, 2)}\n`);
+  writeProjectDiagnostics(projectsFile, storedProjects[0].id, {
+    platform: 'win32',
+    lifecycleState: 'stopped',
+    exitCode: 1,
+    summary: {
+      title: 'Start failed',
+      message: 'Authorization: summary-secret',
+      outcome: 'Exited with code 1'
+    },
+    output: `\u001b[31mAPI_KEY=output-secret\u001b[0m\n${'x'.repeat(MAX_DIAGNOSTIC_OUTPUT_CHARS + 100)}`,
+    failedAt: 1234
+  });
+  const diagnostics = await request('tools/call', {
+    name: 'runlist_get_project_diagnostics',
+    arguments: { projectId: storedProjects[0].id }
+  });
+  assert.equal(diagnostics.result.isError, false);
+  assert.equal(diagnostics.result.structuredContent.project.id, storedProjects[0].id);
+  assert.equal(diagnostics.result.structuredContent.platform, 'win32');
+  assert.equal(diagnostics.result.structuredContent.observedLifecycleState, 'stopped');
+  assert.equal(diagnostics.result.structuredContent.exitCode, 1);
+  assert.equal(diagnostics.result.structuredContent.signal, null);
+  assert.equal(diagnostics.result.structuredContent.outputTruncated, true);
+  assert.ok(diagnostics.result.structuredContent.retainedOutput.length <= MAX_DIAGNOSTIC_OUTPUT_CHARS);
+  assert.doesNotMatch(JSON.stringify(diagnostics.result), /command-secret|output-secret|summary-secret|\u001b/);
+  assert.match(diagnostics.result.structuredContent.project.startCommand, /\[redacted\]/);
+  assert.match(diagnostics.result.structuredContent.failureSummary.message, /\[redacted\]/);
+
+  writeProjectDiagnostics(projectsFile, storedProjects[0].id, {
+    lifecycleState: 'stopped',
+    signal: 'SIGTERM',
+    summary: { message: 'spawn failed' },
+    output: ''
+  });
+  const noOutputDiagnostics = await request('tools/call', {
+    name: 'runlist_get_project_diagnostics',
+    arguments: { projectId: storedProjects[0].id }
+  });
+  assert.equal(noOutputDiagnostics.result.isError, false);
+  assert.equal(noOutputDiagnostics.result.structuredContent.retainedOutput, '');
+  assert.equal(noOutputDiagnostics.result.structuredContent.signal, 'SIGTERM');
+
   const processOwnership = new ProcessOwnershipStore(
     path.join(temporaryRoot, 'process-ownership')
   );

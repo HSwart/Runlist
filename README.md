@@ -21,11 +21,14 @@ Runlist keeps a reusable list of local projects from different repositories insi
 - Pin important projects so they stay at the top of the list.
 - Give projects a friendly name without renaming their folders.
 - Keep configured service names and ports visible at a glance.
+- When another Runlist-owned project needs the same port, switch safely by stopping it before starting the selected project.
 - When service ports are configured, see project status, copy a responding web service's URL, and open the first service at its localhost address or optional HTTP/HTTPS URL. Services with an Open URL are also checked for an HTTP response.
 - Expand a running web app to see a compact live preview with refresh, copy, and browser actions.
 - See current CPU and memory use for the process tree Runlist started while its app preview is expanded.
 - Open any saved project folder in a new VS Code window.
+- Expand a starting or running project to follow its startup timeline and the latest three useful output lines, then open the complete Recent Output screen when you need more detail.
 - View readable recent output from the latest run, including a concise failure summary when startup exits, follow new lines, and open web links without leaving the sidebar.
+- After a failed start, prepare a bounded, sanitized diagnosis request for a connected coding agent without sending anything automatically.
 - Edit or remove a saved project without touching its files.
 
 > Runlist remembers the setup. You decide what runs.
@@ -89,6 +92,8 @@ You can also describe what you want naturally. For example:
 
 The agent can propose a new project or an update to one already in Runlist. The project then shows **Review setup** in the sidebar. Check its folder and exact commands, then select **Approve setup** before Start or Stop becomes available. Agent-proposed commands never run without this approval.
 
+When a start fails, open **View output** and select **Ask your agent**. Runlist first shows exactly which saved details and retained output the agent can retrieve. Select **Copy diagnosis request**, then paste it into your agent chat. Nothing is sent automatically, and any setup change the agent proposes still returns to Runlist for your review and approval.
+
 After updating Runlist, return to **Agent connections** and select **Refresh setup** so the agent uses the current connection and skill. Runlist will not replace a different skill you created with the same name.
 
 ## Day-to-day use
@@ -105,10 +110,13 @@ Runlist keeps the everyday controls simple:
 | **Restart** | In a project's More actions menu, safely stops that project before starting it again and checking service readiness. |
 | **Stop all running** | Appears when two or more projects are running and stops them together. |
 | **Port in use** | Prevents conflicting projects from starting and identifies the owning project when possible. |
+| **Switch projects** | When two Runlist-owned projects need the same port, offers one action to stop the running project and start the selected one. Unknown or external port owners are never stopped. |
 | **Copy URL** | Appears beside the responding first service, and beside other responding services with an Open URL. It copies the same safe URL Runlist would open. |
 | **Preview app** | A chevron appears at the far right when any configured web service responds, even while another service is still starting. Runlist uses the first responding web service in the saved order. Expand it to load one live preview beneath the project; collapsing or losing that service unloads it. Some apps block embedded views, so Open in browser remains available. |
 | **Resource use** | Shows current CPU and memory inside an expanded preview when this VS Code window started the project. Runlist stops measuring when the preview closes or ownership is uncertain. |
+| **Expand details** | Shows the project's startup progress and up to three useful live output lines without turning the sidebar into a terminal. **View output** opens the complete retained output. |
 | **View output** | Summarizes a failed start above the unchanged raw log, highlights common log levels, opens web links, and lets you copy output from the latest run. If you scroll up, Runlist keeps your place and offers a **Latest** button when new output arrives. |
+| **Ask your agent** | Appears only for a retained failed start. It copies a request that lets a connected agent retrieve bounded, sanitized diagnostics for that one project through Runlist. |
 | **…** | Opens the app or project folder, opens a terminal in that folder, copies the saved project path, and provides recent output, edit, or remove actions. |
 
 Removing a project from Runlist does **not** delete the project or any of its files.
