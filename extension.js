@@ -20,6 +20,7 @@ const {
   projectStatus,
   reachableServiceUrls,
   serviceHttpStatus,
+  serviceReadinessDetails,
   serviceReadinessTimedOut,
   servicePortStatus,
   stoppableProjectIds
@@ -302,7 +303,13 @@ class RunlistViewProvider {
           portStatus.openPorts,
           httpStatus.respondingPorts,
           httpStatus.webPorts,
-          reachableUrls
+          reachableUrls,
+          serviceReadinessDetails(
+            project.services,
+            portStatus.openPorts,
+            httpStatus.respondingPorts,
+            httpStatus.webPorts
+          )
         ];
       }));
 
@@ -311,7 +318,7 @@ class RunlistViewProvider {
       }
 
       const projectsById = new Map(projects.map((project) => [project.id, project]));
-      for (const [id, status] of checks) {
+      for (const [id, status, , , , , , readinessDetails] of checks) {
         if (status === 'stopped') {
           this.managedProjectIds.delete(id);
           this.startReadinessDeadlines.delete(id);
@@ -327,7 +334,7 @@ class RunlistViewProvider {
           && this.managedProjectIds.has(id)) {
           this.processOwnership.setState(id, status);
           this.portReservations.setState(id, status);
-          this.notifyServiceNotReady(projectsById.get(id), status);
+          this.notifyServiceNotReady(projectsById.get(id), status, readinessDetails);
         }
       }
 
@@ -581,12 +588,11 @@ class RunlistViewProvider {
     }
   }
 
-  notifyServiceNotReady(project, status = 'not-ready') {
+  notifyServiceNotReady(project, status = 'not-ready', readinessDetails = {}) {
     if (this.readinessWarnings.has(project.id)) {
       return;
     }
     this.readinessWarnings.add(project.id);
-    const seconds = Math.round(START_READINESS_TIMEOUT_MS / 1000);
     if (status === 'not-responding') {
       this.addProjectOutput(
         project.id,
@@ -602,13 +608,18 @@ class RunlistViewProvider {
       });
       return;
     }
-    const ports = project.services.map((service) => `:${service.port}`).join(', ');
+    const stillChecking = [
+      ...(readinessDetails.waiting || []),
+      ...(readinessDetails.notResponding || [])
+    ];
+    const waiting = formatServiceList(stillChecking) || 'the configured services';
+    const ready = formatServiceList(readinessDetails.ready);
     this.addProjectOutput(
       project.id,
-      `Runlist: configured service ports ${ports} were not all ready within ${seconds} seconds.\n`
+      `Runlist: startup is taking longer than expected. Still checking ${waiting}.${ready ? ` Ready: ${ready}.` : ''}\n`
     );
     void vscode.window.showWarningMessage(
-      `${project.name} is still running, but its configured services were not ready within ${seconds} seconds.`,
+      `${project.name} is still running. Runlist is still checking ${waiting}.`,
       'View output'
     ).then((choice) => {
       if (choice === 'View output') {
@@ -1542,6 +1553,12 @@ class RunlistViewProvider {
         portConflict: this.projectPortConflicts.get(project.id),
         primaryServiceOpen: isPrimaryServiceResponding(project.services, openPorts, respondingPorts),
         respondingPorts,
+        serviceReadiness: serviceReadinessDetails(
+          project.services,
+          openPorts,
+          respondingPorts,
+          webPorts
+        ),
         serviceUrls,
         status,
         previewExpanded,
@@ -1655,6 +1672,11 @@ function portConflictSummary(conflict) {
     };
   }
   return undefined;
+}
+
+function formatServiceList(services) {
+  const labels = (services || []).map((service) => `${service.name} :${service.port}`);
+  return labels.join(', ');
 }
 
 function portConflictMapsDiffer(left, right) {

@@ -16,6 +16,7 @@ const {
   reachableServiceUrls,
   serviceUrl,
   serviceHttpStatus,
+  serviceReadinessDetails,
   serviceReadinessTimedOut,
   servicePortStatus,
   stoppableProjectIds
@@ -239,6 +240,43 @@ test('keeps managed services starting until every configured port is ready', () 
   assert.equal(projectStatus({ stopping: true }), 'stopping');
 });
 
+test('keeps checking after the readiness deadline and becomes running when services are ready', () => {
+  assert.equal(projectStatus({
+    allOpen: false,
+    hasServices: true,
+    managed: true,
+    processActive: true,
+    readinessTimedOut: true
+  }), 'not-ready');
+  assert.equal(projectStatus({
+    allOpen: true,
+    anyOpen: true,
+    hasServices: true,
+    managed: true,
+    processActive: true,
+    readinessTimedOut: true
+  }), 'running');
+});
+
+test('describes ready, waiting, and nonresponding services by name and port', () => {
+  const details = serviceReadinessDetails([
+    { name: 'web', port: 5173 },
+    { name: 'api', port: 4311 },
+    { name: 'docs', port: 4173 }
+  ], [5173, 4173], [5173], [5173, 4173]);
+
+  assert.deepEqual(details, {
+    ready: [{ name: 'web', port: 5173 }],
+    waiting: [{ name: 'api', port: 4311 }],
+    notResponding: [{ name: 'docs', port: 4173 }]
+  });
+  assert.deepEqual(serviceReadinessDetails(), {
+    ready: [],
+    waiting: [],
+    notResponding: []
+  });
+});
+
 test('treats partial unmanaged service availability as active', () => {
   assert.equal(projectStatus({
     allOpen: false,
@@ -332,6 +370,27 @@ test('shows a clear nonresponding state without changing stop safety', () => {
   assert.match(webview, /\['running', 'starting', 'not-ready', 'not-responding', 'active'\]\.includes\(projectStatus\)/);
   assert.match(webview, /aria-label="\$\{escapeHtml\(service\.name\)\} on port/);
   assert.match(styles, /\.service-indicator\.not-responding/);
+});
+
+test('shows slow startup as ongoing service checks rather than a failure', () => {
+  const root = path.join(__dirname, '..');
+  const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
+  const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
+
+  assert.match(webview, /'not-ready': 'Taking longer…'/);
+  assert.match(webview, /notReadyCount[\s\S]*taking longer/);
+  assert.match(webview, /<strong>Ready:<\/strong>/);
+  assert.match(webview, /<strong>Still checking:<\/strong>/);
+  assert.match(webview, /<strong>Waiting for web response:<\/strong>/);
+  assert.match(webview, /\['starting', 'not-ready', 'stopping'\]\.includes\(projectStatus\)/);
+  assert.doesNotMatch(webview, /Service not ready/);
+  assert.match(styles, /\.project-readiness-detail[\s\S]*overflow-wrap: anywhere/);
+  assert.match(extension, /startup is taking longer than expected\. Still checking/);
+  assert.match(extension, /is still running\. Runlist is still checking/);
+  assert.match(extension, /formatServiceList\(stillChecking\) \|\| 'the configured services'/);
+  assert.match(extension, /ready \? ` Ready: \$\{ready\}\.\` : ''/);
+  assert.doesNotMatch(extension, /were not all ready within/);
 });
 
 test('selects only projects that can be stopped together', () => {

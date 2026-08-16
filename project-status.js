@@ -214,6 +214,30 @@ function serviceReadinessTimedOut(deadline, allReady, now = Date.now()) {
   return Number.isFinite(deadline) && now >= deadline && !allReady;
 }
 
+function serviceReadinessDetails(services, openPorts, respondingPorts, webPorts) {
+  const open = new Set(openPorts || []);
+  const responding = new Set(respondingPorts || []);
+  const web = new Set(webPorts || []);
+  const details = {
+    ready: [],
+    waiting: [],
+    notResponding: []
+  };
+
+  for (const service of services || []) {
+    const item = { name: service.name, port: service.port };
+    if (!open.has(service.port)) {
+      details.waiting.push(item);
+    } else if (web.has(service.port) && !responding.has(service.port)) {
+      details.notResponding.push(item);
+    } else {
+      details.ready.push(item);
+    }
+  }
+
+  return details;
+}
+
 function isPrimaryServiceOpen(services, openPorts) {
   const primaryPort = services?.[0]?.port;
   return Number.isInteger(primaryPort) && (openPorts || []).includes(primaryPort);
@@ -299,6 +323,7 @@ module.exports = {
   reachableServiceUrls,
   serviceUrl,
   serviceHttpStatus,
+  serviceReadinessDetails,
   serviceReadinessTimedOut,
   servicePortStatus,
   stoppableProjectIds
