@@ -24,6 +24,7 @@ const {
   stoppableProjectIds
 } = require('./project-status');
 const { openProjectInNewWindow } = require('./project-navigation');
+const { previewFrameSource, projectPreviewUrl } = require('./preview-security');
 const {
   canUseCurrentWorkspace,
   selectCurrentWorkspaceFolder
@@ -90,6 +91,7 @@ class RunlistViewProvider {
     this.lastFocusTarget = undefined;
     this.returnFocus = undefined;
     this.selectedProjectId = undefined;
+    this.expandedPreviewProjectId = undefined;
     this.processes = new Map();
     this.projectOutputs = new Map();
     this.outputUpdateScheduler = createOutputUpdateScheduler((id) => this.sendProjectOutput(id));
@@ -407,6 +409,9 @@ class RunlistViewProvider {
       case 'copyServiceUrl':
         await this.copyServiceUrl(message.id, Number(message.port));
         break;
+      case 'toggleProjectPreview':
+        this.toggleProjectPreview(message.id);
+        break;
       case 'toggleProjectPin':
         this.toggleProjectPin(message.id);
         break;
@@ -707,6 +712,23 @@ class RunlistViewProvider {
     vscode.window.showInformationMessage(`Copied ${service.name} URL.`);
   }
 
+  toggleProjectPreview(id) {
+    const project = this.projects.find((item) => item.id === id);
+    const previewUrl = projectPreviewUrl(
+      project,
+      this.getProjectStatus(id),
+      this.projectServiceUrls.get(id),
+      this.projectPortConflicts.has(id)
+    );
+    if (!previewUrl) {
+      return;
+    }
+
+    this.expandedPreviewProjectId = this.expandedPreviewProjectId === id ? undefined : id;
+    this.focusTarget = { type: 'action', action: 'toggle-preview', id };
+    this.renderProjectList();
+  }
+
   async openProjectFolder(id) {
     const project = this.projects.find((item) => item.id === id);
     if (!project) {
@@ -915,6 +937,9 @@ class RunlistViewProvider {
       this.projectRespondingPorts.delete(id);
       this.projectServiceUrls.delete(id);
       this.projectWebPorts.delete(id);
+      if (this.expandedPreviewProjectId === id) {
+        this.expandedPreviewProjectId = undefined;
+      }
       this.startReadinessDeadlines.delete(id);
       this.readinessWarnings.delete(id);
       this.stoppingProjectIds.delete(id);
@@ -1378,6 +1403,14 @@ class RunlistViewProvider {
       const respondingPorts = this.projectRespondingPorts.get(project.id) || [];
       const serviceUrls = this.projectServiceUrls.get(project.id) || [];
       const webPorts = this.projectWebPorts.get(project.id) || [];
+      const status = this.getProjectStatus(project.id);
+      const primaryUrl = projectPreviewUrl(
+        project,
+        status,
+        serviceUrls,
+        this.projectPortConflicts.has(project.id)
+      );
+      const canPreview = Boolean(primaryUrl);
       return {
         ...project,
         pinned: project.pinned === true,
@@ -1386,13 +1419,21 @@ class RunlistViewProvider {
         primaryServiceOpen: isPrimaryServiceResponding(project.services, openPorts, respondingPorts),
         respondingPorts,
         serviceUrls,
-        status: this.getProjectStatus(project.id),
+        status,
+        previewExpanded: canPreview && this.expandedPreviewProjectId === project.id,
+        previewUrl: canPreview ? primaryUrl : undefined,
         webPorts,
         httpUnresponsive: webPorts.some((port) => openPorts.includes(port)
           && !respondingPorts.includes(port)),
         searchText: projectSearchText(project)
       };
     });
+    if (this.expandedPreviewProjectId
+      && !stateProjects.some((project) => project.previewExpanded)) {
+      const previousId = this.expandedPreviewProjectId;
+      this.expandedPreviewProjectId = undefined;
+      this.focusTarget = { type: 'project-control', id: previousId };
+    }
     const state = {
       agentConnections: this.agentConnections,
       mode: this.mode,
@@ -1415,13 +1456,15 @@ class RunlistViewProvider {
       projects: stateProjects,
       stopAllCount: stoppableProjectIds(stateProjects).length
     };
+    const expandedPreview = stateProjects.find((project) => project.previewExpanded);
+    const frameSource = previewFrameSource(expandedPreview?.previewUrl);
 
     this.view.webview.html = `<!doctype html>
       <html lang="en">
         <head>
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this.view.webview.cspSource}; script-src 'nonce-${nonce}';">
+          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this.view.webview.cspSource}; script-src 'nonce-${nonce}'; frame-src ${frameSource};">
           <link rel="stylesheet" href="${stylesUri}">
           <title>Runlist</title>
         </head>

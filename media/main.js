@@ -3,6 +3,8 @@ const state = window.runlistState;
 const app = document.getElementById('app');
 let searchQuery = String(state.searchQuery || '');
 let outputFollowLatest = true;
+let previewLoadGeneration = 0;
+let previewLoadTimer;
 
 function normalizeSearchQuery(value) {
   return String(value || '').trim().toLocaleLowerCase();
@@ -78,6 +80,7 @@ function icon(name, className = 'icon') {
     pin: { viewBox: '0 0 16 16', body: '<path d="M14 5v7h-.278c-.406 0-.778-.086-1.117-.258A2.528 2.528 0 0 1 11.73 11H8.87a3.463 3.463 0 0 1-.546.828 3.685 3.685 0 0 1-.735.633c-.27.177-.565.31-.882.398a3.875 3.875 0 0 1-.985.141h-.5V9H2l-1-.5L2 8h3.222V4h.5c.339 0 .664.047.977.14.312.094.607.227.883.4A3.404 3.404 0 0 1 8.87 6h2.859a2.56 2.56 0 0 1 .875-.734c.338-.172.71-.26 1.117-.266H14zm-.778 1.086a1.222 1.222 0 0 0-.32.156 1.491 1.491 0 0 0-.43.461L12.285 7H8.183l-.117-.336a2.457 2.457 0 0 0-.711-1.047C7.027 5.331 6.427 5.09 6 5v7c.427-.088 1.027-.33 1.355-.617.328-.287.565-.636.71-1.047L8.184 10h4.102l.18.297c.057.094.122.177.195.25.073.073.153.143.242.21.088.069.195.12.32.157V6.086z"/>' },
     pinned: { viewBox: '0 0 16 16', body: '<path d="M10.0589 2.44511C9.34701 1.73063 8.14697 1.90829 7.67261 2.79839L5.6526 6.58878L2.8419 7.52568C2.6775 7.58048 2.5532 7.71649 2.51339 7.88514C2.47357 8.0538 2.52392 8.23104 2.64646 8.35357L4.79291 10.5L2.14645 13.1465L2 14L2.85356 13.8536L5.50002 11.2071L7.64646 13.3536C7.76899 13.4761 7.94623 13.5265 8.11489 13.4866C8.28354 13.4468 8.41955 13.3225 8.47435 13.1581L9.41143 10.3469L13.1897 8.32423C14.0759 7.84982 14.2538 6.6551 13.5443 5.94305L10.0589 2.44511ZM8.55511 3.2687C8.71323 2.972 9.11324 2.91278 9.35055 3.15094L12.836 6.64889C13.0725 6.88624 13.0131 7.28448 12.7178 7.44262L8.76403 9.55921C8.65137 9.61952 8.56608 9.72068 8.52567 9.84191L7.7815 12.0744L3.92562 8.21853L6.15812 7.47436C6.27966 7.43385 6.38101 7.34823 6.44126 7.23518L8.55511 3.2687Z"/>' },
     play: { viewBox: '0 0 16 16', body: '<path d="M4.74514 3.06414C4.41183 2.87665 4 3.11751 4 3.49993V12.5002C4 12.8826 4.41182 13.1235 4.74512 12.936L12.7454 8.43601C13.0852 8.24486 13.0852 7.75559 12.7454 7.56443L4.74514 3.06414ZM3 3.49993C3 2.35268 4.2355 1.63011 5.23541 2.19257L13.2357 6.69286C14.2551 7.26633 14.2551 8.73415 13.2356 9.30759L5.23537 13.8076C4.23546 14.37 3 13.6474 3 12.5002V3.49993Z"/>' },
+    refresh: { viewBox: '0 0 16 16', body: '<path d="M13.6 3.4A6 6 0 1 0 14 11h-1.13A5 5 0 1 1 13 6.17V8h1V3h-5v1h3.88A5.98 5.98 0 0 1 13.6 3.4Z"/>' },
     search: { viewBox: '0 0 16 16', body: '<path d="M10.0195 10.7266C9.06578 11.5217 7.83875 12 6.5 12C3.46243 12 1 9.53757 1 6.5C1 3.46243 3.46243 1 6.5 1C9.53757 1 12 3.46243 12 6.5C12 7.83875 11.5217 9.06578 10.7266 10.0195L13.8535 13.1464C14.0488 13.3417 14.0488 13.6583 13.8535 13.8536C13.6583 14.0488 13.3417 14.0488 13.1464 13.8536L10.0195 10.7266ZM11 6.5C11 4.01472 8.98528 2 6.5 2C4.01472 2 2 4.01472 2 6.5C2 8.98528 4.01472 11 6.5 11C8.98528 11 11 8.98528 11 6.5Z"/>' },
     stop: { viewBox: '0 0 16 16', body: '<path fill-rule="evenodd" clip-rule="evenodd" d="M5.5 5C5.22386 5 5 5.22386 5 5.5V10.5C5 10.7761 5.22386 11 5.5 11H10.5C10.7761 11 11 10.7761 11 10.5V5.5C11 5.22386 10.7761 5 10.5 5H5.5ZM4 5.5C4 4.67157 4.67157 4 5.5 4H10.5C11.3284 4 12 4.67157 12 5.5V10.5C12 11.3284 11.3284 12 10.5 12H5.5C4.67157 12 4 11.3284 4 10.5V5.5Z"/>' },
     terminal: { viewBox: '0 0 24 24', body: '<path d="M18.75 1.5H5.25C3.1815 1.5 1.5 3.183 1.5 5.25V18.75C1.5 20.8185 3.1815 22.5 5.25 22.5H18.75C20.8185 22.5 22.5 20.8185 22.5 18.75V5.25C22.5 3.183 20.8185 1.5 18.75 1.5ZM21 18.75C21 19.9905 19.9905 21 18.75 21H5.25C4.0095 21 3 19.9905 3 18.75V5.25C3 4.0095 4.0095 3 5.25 3H18.75C19.9905 3 21 4.0095 21 5.25V18.75ZM10.281 13.281L5.781 17.781C5.634 17.928 5.442 18 5.25 18C5.058 18 4.866 17.9265 4.719 17.781C4.4265 17.4885 4.4265 17.013 4.719 16.7205L8.688 12.7515L4.719 8.7825C4.4265 8.49 4.4265 8.0145 4.719 7.722C5.0115 7.4295 5.487 7.4295 5.7795 7.722L10.2795 12.222C10.572 12.5145 10.572 12.99 10.2795 13.2825L10.281 13.281ZM19.5 17.25C19.5 17.664 19.164 18 18.75 18H11.25C10.836 18 10.5 17.664 10.5 17.25C10.5 16.836 10.836 16.5 11.25 16.5H18.75C19.164 16.5 19.5 16.836 19.5 17.25Z"/>' },
@@ -219,10 +222,13 @@ function renderList() {
           <article class="project-row" data-project-id="${projectId}" aria-labelledby="project-${projectId}">
             <div class="project-topline">
               <div class="project-heading">
-                <h2 id="project-${projectId}" title="${project.pinned ? `Pinned: ${projectName}` : projectName}" aria-label="${project.pinned ? `Pinned project: ${projectName}` : projectName}">
-                  ${project.pinned ? icon('pinned', 'pinned-icon') : ''}
-                  <span class="auto-scroll"><span class="auto-scroll-content">${projectName}</span></span>
-                </h2>
+                <div class="project-title-line">
+                  ${project.previewUrl ? `<button class="preview-toggle" data-action="toggle-preview" data-id="${projectId}" aria-label="${project.previewExpanded ? 'Collapse' : 'Preview'} ${projectName}" aria-expanded="${project.previewExpanded}" aria-controls="preview-${projectId}" title="${project.previewExpanded ? 'Collapse preview' : 'Preview app'}">${icon('arrow-down')}</button>` : ''}
+                  <h2 id="project-${projectId}" title="${project.pinned ? `Pinned: ${projectName}` : projectName}" aria-label="${project.pinned ? `Pinned project: ${projectName}` : projectName}">
+                    ${project.pinned ? icon('pinned', 'pinned-icon') : ''}
+                    <span class="auto-scroll"><span class="auto-scroll-content">${projectName}</span></span>
+                  </h2>
+                </div>
                 <div class="project-status status-${displayStatus}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : ''}<span class="auto-scroll"><span class="auto-scroll-content">${statusLabels[displayStatus]}</span></span></div>
               </div>
               <div class="project-actions">
@@ -288,6 +294,28 @@ function renderList() {
                   return `<span${title}${ariaLabel}><span class="service-indicator ${indicator}" aria-hidden="true"></span>${escapeHtml(service.name)} <strong>:${escapeHtml(String(service.port))}</strong>${canCopyUrl ? `<button class="copy-url-button" data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(String(service.port))}" aria-label="${copyLabel}" title="${copyLabel}">${icon('copy')}</button>` : ''}</span>`;
                 }).join('')}
               </div>` : ''}
+            ${project.previewUrl ? `
+              <section id="preview-${projectId}" class="project-preview" aria-label="Preview of ${projectName}" ${project.previewExpanded ? '' : 'hidden'}>
+                ${project.previewExpanded ? `
+                <header class="preview-toolbar">
+                  <span>Preview</span>
+                  <div class="preview-actions">
+                    <button data-action="refresh-preview" data-id="${projectId}" aria-label="Refresh ${projectName} preview" title="Refresh preview">${icon('refresh')}</button>
+                    <button data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(String(project.services[0].port))}" aria-label="Copy ${projectName} URL" title="Copy URL">${icon('copy')}</button>
+                    <button data-action="open" data-id="${projectId}" aria-label="Open ${projectName} in browser" title="Open in browser">${icon('external')}</button>
+                  </div>
+                </header>
+                <div class="preview-frame-wrap">
+                  <iframe class="preview-frame" data-preview-frame data-src="${escapeHtml(project.previewUrl)}" title="${projectName} app preview" sandbox="allow-forms allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
+                  <div class="preview-loading" data-preview-loading role="status">Loading preview…</div>
+                  <div class="preview-fallback" data-preview-fallback hidden>
+                    <strong>Preview unavailable</strong>
+                    <span>This app may block embedded views.</span>
+                  </div>
+                </div>
+                <p class="preview-help">If the app blocks this view, use Open in browser.</p>
+                ` : ''}
+              </section>` : ''}
           </article>`;
       }).join('')}
       <div class="search-empty" data-search-empty hidden>
@@ -671,6 +699,11 @@ app.addEventListener('click', (event) => {
       id: button.dataset.id,
       port: Number(button.dataset.port)
     }),
+    'toggle-preview': () => vscode.postMessage({
+      type: 'toggleProjectPreview',
+      id: button.dataset.id
+    }),
+    'refresh-preview': () => refreshProjectPreview(button.dataset.id),
     'open-vscode': () => {
       closeMenus();
       vscode.postMessage({ type: 'openProjectFolder', id: button.dataset.id });
@@ -700,6 +733,58 @@ app.addEventListener('click', (event) => {
 
   actions[button.dataset.action]?.();
 });
+
+function loadProjectPreview(frame) {
+  const wrapper = frame.closest('.preview-frame-wrap');
+  const loading = wrapper?.querySelector('[data-preview-loading]');
+  const fallback = wrapper?.querySelector('[data-preview-fallback]');
+  const source = frame.dataset.src;
+  if (!wrapper || !source) {
+    return;
+  }
+
+  wrapper.classList.remove('loaded');
+  loading.hidden = false;
+  fallback.hidden = true;
+  const generation = ++previewLoadGeneration;
+  clearTimeout(previewLoadTimer);
+  previewLoadTimer = setTimeout(() => {
+    if (generation !== previewLoadGeneration) {
+      return;
+    }
+    loading.hidden = true;
+    fallback.hidden = false;
+  }, 8000);
+  frame.addEventListener('load', () => {
+    if (generation !== previewLoadGeneration) {
+      return;
+    }
+    clearTimeout(previewLoadTimer);
+    wrapper.classList.add('loaded');
+    loading.hidden = true;
+    fallback.hidden = true;
+  }, { once: true });
+  frame.addEventListener('error', () => {
+    if (generation !== previewLoadGeneration) {
+      return;
+    }
+    clearTimeout(previewLoadTimer);
+    loading.hidden = true;
+    fallback.hidden = false;
+  }, { once: true });
+  frame.src = source;
+}
+
+function refreshProjectPreview(id) {
+  const frame = document.querySelector(`.project-row[data-project-id="${CSS.escape(id)}"] [data-preview-frame]`);
+  if (frame) {
+    loadProjectPreview(frame);
+  }
+}
+
+function initializeProjectPreview() {
+  document.querySelectorAll('[data-preview-frame]').forEach(loadProjectPreview);
+}
 
 window.addEventListener('message', (event) => {
   if (event.data?.type !== 'projectOutput') {
@@ -943,6 +1028,7 @@ if (state.mode === 'list') {
   renderList();
   document.getElementById('project-search')?.addEventListener('input', handleSearchInput);
   scheduleAutoScrollUpdate();
+  initializeProjectPreview();
 } else if (state.mode === 'agents') {
   renderAgentSetup();
 } else if (state.mode === 'output') {
