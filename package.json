@@ -1,12 +1,12 @@
 {
-  "name": "switchboard-projects",
-  "displayName": "Switchboard",
+  "name": "runlist",
+  "displayName": "Runlist",
   "description": "Control local projects across repositories from one focused sidebar.",
   "version": "0.0.2",
   "publisher": "hankoswart",
   "license": "SEE LICENSE IN LICENSE",
   "preview": true,
-  "icon": "media/switchboard.png",
+  "icon": "media/runlist.png",
   "galleryBanner": {
     "color": "#161B22",
     "theme": "dark"
@@ -15,11 +15,11 @@
   "markdown": "github",
   "repository": {
     "type": "git",
-    "url": "https://github.com/HSwart/Switchboard.git"
+    "url": "https://github.com/HSwart/Runlist.git"
   },
-  "homepage": "https://github.com/HSwart/Switchboard#readme",
+  "homepage": "https://github.com/HSwart/Runlist#readme",
   "bugs": {
-    "url": "https://github.com/HSwart/Switchboard/issues"
+    "url": "https://github.com/HSwart/Runlist/issues"
   },
   "keywords": [
     "local development",
@@ -40,9 +40,9 @@
     "Other"
   ],
   "activationEvents": [
-    "onView:switchboard.projects",
-    "onCommand:switchboard.addProject",
-    "onCommand:switchboard.showAgentSetup"
+    "onView:runlist.projects",
+    "onCommand:runlist.addProject",
+    "onCommand:runlist.showAgentSetup"
   ],
   "main": "./extension.js",
   "extensionKind": [
@@ -51,56 +51,56 @@
   "contributes": {
     "commands": [
       {
-        "command": "switchboard.addProject",
+        "command": "runlist.addProject",
         "title": "Add Project",
         "icon": "$(add)"
       },
       {
-        "command": "switchboard.showAgentSetup",
+        "command": "runlist.showAgentSetup",
         "title": "Set Up Agent Connections",
         "icon": "$(plug)"
       }
     ],
     "mcpServerDefinitionProviders": [
       {
-        "id": "switchboard.projects",
-        "label": "Switchboard"
+        "id": "runlist.projects",
+        "label": "Runlist"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "switchboard",
-          "title": "Switchboard",
-          "icon": "media/switchboard.svg"
+          "id": "runlist",
+          "title": "Runlist",
+          "icon": "media/runlist.svg"
         }
       ]
     },
     "views": {
-      "switchboard": [
+      "runlist": [
         {
           "type": "webview",
-          "id": "switchboard.projects",
-          "name": "Switchboard"
+          "id": "runlist.projects",
+          "name": "Runlist"
         }
       ]
     },
     "menus": {
       "view/title": [
         {
-          "command": "switchboard.addProject",
-          "when": "view == switchboard.projects",
+          "command": "runlist.addProject",
+          "when": "view == runlist.projects",
           "group": "navigation@1"
         },
         {
-          "command": "switchboard.showAgentSetup",
-          "when": "view == switchboard.projects",
+          "command": "runlist.showAgentSetup",
+          "when": "view == runlist.projects",
           "group": "navigation@2"
         }
       ],
       "commandPalette": [
         {
-          "command": "switchboard.showAgentSetup",
+          "command": "runlist.showAgentSetup",
           "when": "false"
         }
       ]
@@ -110,7 +110,7 @@
     "test": "node --test",
     "validate:marketplace": "node scripts/validate-marketplace.js --preparation",
     "validate:marketplace:publish": "node scripts/validate-marketplace.js",
-    "package": "npm run validate:marketplace:publish && vsce package --no-dependencies --out releases/switchboard.vsix"
+    "package": "npm run validate:marketplace:publish && vsce package --no-dependencies --out releases/runlist.vsix"
   },
   "devDependencies": {
     "@vscode/vsce": "3.9.2"

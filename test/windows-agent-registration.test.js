@@ -14,14 +14,14 @@ const {
 const windowsTest = process.platform === 'win32' ? test : test.skip;
 
 function createWindowsCliFixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'Switchboard 100% Windows & spaces-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'Runlist 100% Windows & spaces-'));
   const npmDirectory = path.join(root, 'App Data', 'npm');
   const cliScript = path.join(root, 'fake agent cli.js');
   const logFile = path.join(root, 'agent calls.jsonl');
   fs.mkdirSync(npmDirectory, { recursive: true });
   fs.writeFileSync(cliScript, [
     "const fs = require('fs');",
-    "fs.appendFileSync(process.env.SWITCHBOARD_CLI_LOG, `${JSON.stringify(process.argv.slice(2))}\\n`);",
+    "fs.appendFileSync(process.env.RUNLIST_CLI_LOG, `${JSON.stringify(process.argv.slice(2))}\\n`);",
     "if (process.argv.includes('__fail__')) {",
     "  process.stderr.write('fixture failed on purpose\\n');",
     '  process.exit(7);',
@@ -31,7 +31,7 @@ function createWindowsCliFixture(t) {
   for (const name of ['codex', 'claude']) {
     fs.writeFileSync(path.join(npmDirectory, `${name}.cmd`), [
       '@echo off',
-      '"%SWITCHBOARD_TEST_NODE%" "%SWITCHBOARD_TEST_CLI%" %*'
+      '"%RUNLIST_TEST_NODE%" "%RUNLIST_TEST_CLI%" %*'
     ].join('\r\n'));
   }
 
@@ -39,9 +39,9 @@ function createWindowsCliFixture(t) {
     ...process.env,
     APPDATA: path.join(root, 'App Data'),
     Path: npmDirectory,
-    SWITCHBOARD_CLI_LOG: logFile,
-    SWITCHBOARD_TEST_CLI: cliScript,
-    SWITCHBOARD_TEST_NODE: process.execPath,
+    RUNLIST_CLI_LOG: logFile,
+    RUNLIST_TEST_CLI: cliScript,
+    RUNLIST_TEST_NODE: process.execPath,
     USERPROFILE: path.join(root, 'User Profile')
   };
   delete environment.PATH;
@@ -76,7 +76,7 @@ windowsTest('registers Codex through a Windows npm cmd shim', async (t) => {
 
   assert.deepEqual(fixture.readCalls(), [
     ['--version'],
-    ['mcp', 'remove', 'switchboard'],
+    ['mcp', 'remove', 'runlist'],
     buildCodexAddArguments(fixture.options)
   ]);
 });
@@ -88,7 +88,7 @@ windowsTest('registers Claude Code through a Windows npm cmd shim', async (t) =>
 
   assert.deepEqual(fixture.readCalls(), [
     ['--version'],
-    ['mcp', 'remove', '--scope', 'user', 'switchboard'],
+    ['mcp', 'remove', '--scope', 'user', 'runlist'],
     buildClaudeAddArguments(fixture.options)
   ]);
 });

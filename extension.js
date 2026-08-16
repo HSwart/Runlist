@@ -61,7 +61,7 @@ const {
   upsertProject
 } = require('./project-store');
 
-const STORAGE_KEY = 'switchboard.projects';
+const STORAGE_KEY = 'runlist.projects';
 const START_READINESS_TIMEOUT_MS = 30000;
 const STATUS_POLL_INTERVAL_MS = 2000;
 const CUSTOM_STOP_TIMEOUT_MS = 15000;
@@ -71,7 +71,7 @@ const REMOTE_STOP_TIMEOUT_MS = STATUS_POLL_INTERVAL_MS
   + CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS
   + 1000;
 
-class SwitchboardViewProvider {
+class RunlistViewProvider {
   constructor(context, projectsFile, serverPath) {
     this.context = context;
     this.projectsFile = projectsFile;
@@ -107,7 +107,7 @@ class SwitchboardViewProvider {
     this.remoteStopRequests = new Map();
     this.statusRefreshInFlight = false;
     this.statusRevision = 0;
-    this.skillSourceDirectory = path.join(context.extensionUri.fsPath, 'skills', 'switchboard');
+    this.skillSourceDirectory = path.join(context.extensionUri.fsPath, 'skills', 'runlist');
     this.agentConnections = Object.fromEntries(
       ['copilot', 'codex', 'claude'].map((agent) => [agent, initialAgentConnection(agent)])
     );
@@ -214,7 +214,7 @@ class SwitchboardViewProvider {
           this.remoteStopRequests.delete(id);
           this.stoppingProjectIds.delete(id);
           vscode.window.showErrorMessage(
-            `Could not confirm that ${request.projectName} stopped: its launching VS Code window did not respond. Switchboard left the process ownership unchanged.`
+            `Could not confirm that ${request.projectName} stopped: its launching VS Code window did not respond. Runlist left the process ownership unchanged.`
           );
         }
       }
@@ -312,7 +312,7 @@ class SwitchboardViewProvider {
         this.renderProjectList();
       }
     } catch (error) {
-      vscode.window.showErrorMessage(`Could not refresh Switchboard status: ${error.message}`);
+      vscode.window.showErrorMessage(`Could not refresh Runlist status: ${error.message}`);
     } finally {
       this.statusRefreshInFlight = false;
     }
@@ -389,17 +389,17 @@ class SwitchboardViewProvider {
     const registrations = {
       copilot: {
         label: 'GitHub Copilot',
-        success: 'Skill installed. Use /switchboard in Copilot CLI, or ask Copilot agent mode to set up this project.'
+        success: 'Skill installed. Use /runlist in Copilot CLI, or ask Copilot agent mode to set up this project.'
       },
       claude: {
         label: 'Claude Code',
         register: registerWithClaude,
-        success: 'Connection and skill are ready. Use /switchboard. Restart Claude Code if it was already open and does not detect the skill.'
+        success: 'Connection and skill are ready. Use /runlist. Restart Claude Code if it was already open and does not detect the skill.'
       },
       codex: {
         label: 'Codex',
         register: registerWithCodex,
-        success: 'Connection and skill are ready. Restart Codex, then use $switchboard.'
+        success: 'Connection and skill are ready. Restart Codex, then use $runlist.'
       }
     };
     const registration = registrations[agent];
@@ -525,7 +525,7 @@ class SwitchboardViewProvider {
     const ports = project.services.map((service) => `:${service.port}`).join(', ');
     this.addProjectOutput(
       project.id,
-      `Switchboard: configured service ports ${ports} were not all ready within ${seconds} seconds.\n`
+      `Runlist: configured service ports ${ports} were not all ready within ${seconds} seconds.\n`
     );
     void vscode.window.showWarningMessage(
       `${project.name} is still running, but its configured services were not ready within ${seconds} seconds.`,
@@ -538,7 +538,7 @@ class SwitchboardViewProvider {
   }
 
   showStartFailure(project, detail) {
-    this.addProjectOutput(project.id, `Switchboard: start failed — ${detail}\n`);
+    this.addProjectOutput(project.id, `Runlist: start failed — ${detail}\n`);
     void vscode.window.showErrorMessage(
       `Could not start ${project.name}: ${detail}`,
       'View output'
@@ -731,10 +731,10 @@ class SwitchboardViewProvider {
 
     const sharedOwnership = this.processOwnership.snapshot().get(id);
     const detail = this.processes.has(id) || sharedOwnership
-      ? 'This removes the saved project from Switchboard and stops its running process. Project files are not deleted.'
-      : 'This removes the saved project from Switchboard. Project files are not deleted.';
+      ? 'This removes the saved project from Runlist and stops its running process. Project files are not deleted.'
+      : 'This removes the saved project from Runlist. Project files are not deleted.';
     const choice = await vscode.window.showWarningMessage(
-      `Delete ${project.name} from Switchboard?`,
+      `Delete ${project.name} from Runlist?`,
       { modal: true, detail },
       'Delete project'
     );
@@ -766,7 +766,7 @@ class SwitchboardViewProvider {
         const stopRequested = await this.stopProject(id, latestProject);
         if (!stopRequested || !await this.waitForProjectStopCompletion(id)) {
           vscode.window.showErrorMessage(
-            `Could not delete ${project.name}: Switchboard could not confirm that its launched process stopped.`
+            `Could not delete ${project.name}: Runlist could not confirm that its launched process stopped.`
           );
           return;
         }
@@ -859,7 +859,7 @@ class SwitchboardViewProvider {
     const ownershipConflict = this.processOwnership.reserve(id);
     if (ownershipConflict) {
       vscode.window.showWarningMessage(ownershipConflict.kind === 'uncertain'
-        ? `Switchboard cannot safely verify who owns ${project.name}'s previous process. Close it manually before starting again.`
+        ? `Runlist cannot safely verify who owns ${project.name}'s previous process. Close it manually before starting again.`
         : `${project.name} is already running in another VS Code window.`);
       return;
     }
@@ -882,7 +882,7 @@ class SwitchboardViewProvider {
       this.processOwnership.release(id);
       const owner = projects.find((candidate) => candidate.id === reservationConflict.projectId);
       vscode.window.showWarningMessage(
-        `${owner?.name || 'Another Switchboard project'} is using port :${reservationConflict.port}. Stop it before starting ${project.name}.`
+        `${owner?.name || 'Another Runlist project'} is using port :${reservationConflict.port}. Stop it before starting ${project.name}.`
       );
       return;
     }
@@ -1154,13 +1154,13 @@ class SwitchboardViewProvider {
     }
     if (request.kind === 'local') {
       vscode.window.showErrorMessage(
-        `Could not stop ${project.name}: Switchboard lost its tracked process details. The process was left running.`
+        `Could not stop ${project.name}: Runlist lost its tracked process details. The process was left running.`
       );
       return false;
     }
     if (request.kind === 'uncertain') {
       vscode.window.showErrorMessage(
-        `Could not stop ${project.name}: its launching VS Code window is unavailable, so Switchboard cannot safely verify the process owner. The process was left running.`
+        `Could not stop ${project.name}: its launching VS Code window is unavailable, so Runlist cannot safely verify the process owner. The process was left running.`
       );
       return false;
     }
@@ -1170,7 +1170,7 @@ class SwitchboardViewProvider {
     }
 
     vscode.window.showErrorMessage(
-      `Could not stop ${project.name}: Switchboard does not own a launched process for it. No process was stopped.`
+      `Could not stop ${project.name}: Runlist does not own a launched process for it. No process was stopped.`
     );
     return false;
   }
@@ -1293,11 +1293,11 @@ class SwitchboardViewProvider {
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this.view.webview.cspSource}; script-src 'nonce-${nonce}';">
           <link rel="stylesheet" href="${stylesUri}">
-          <title>Switchboard</title>
+          <title>Runlist</title>
         </head>
         <body>
           <main id="app"></main>
-          <script nonce="${nonce}">window.switchboardState = ${safeJson(state)};</script>
+          <script nonce="${nonce}">window.runlistState = ${safeJson(state)};</script>
           <script nonce="${nonce}" src="${scriptUri}"></script>
         </body>
       </html>`;
@@ -1325,7 +1325,7 @@ function startBlockedMessage(project, conflict) {
   }
   if (conflict?.kind === 'ambiguous') {
     const names = conflict.sharedWith.map((candidate) => candidate.name).join(', ');
-    return `Port :${conflict.port} is already in use and is also configured for ${names}. Switchboard cannot safely identify its owner.`;
+    return `Port :${conflict.port} is already in use and is also configured for ${names}. Runlist cannot safely identify its owner.`;
   }
   return `Port :${conflict?.port || 'unknown'} is already in use. ${project.name} appears to be running already.`;
 }
@@ -1391,13 +1391,13 @@ function initialAgentConnection(agent) {
     if (skill.status === 'installed') {
       return {
         status: 'success',
-        message: `Switchboard skill installed. Use ${skill.invocation}, or select Refresh setup after an extension update.`
+        message: `Runlist skill installed. Use ${skill.invocation}, or select Refresh setup after an extension update.`
       };
     }
     if (skill.status === 'conflict') {
       return {
         status: 'error',
-        message: `A different Switchboard skill already exists at ${skill.targetDirectory}. Rename or remove it, then try again.`
+        message: `A different Runlist skill already exists at ${skill.targetDirectory}. Rename or remove it, then try again.`
       };
     }
   } catch (error) {
@@ -1460,28 +1460,28 @@ function activate(context) {
   initializeProjectStore(projectsFile, context.globalState.get(STORAGE_KEY, []));
 
   const serverPath = installMcpBridge(context);
-  const provider = new SwitchboardViewProvider(context, projectsFile, serverPath);
+  const provider = new RunlistViewProvider(context, projectsFile, serverPath);
   context.subscriptions.push({ dispose: () => provider.dispose() });
   const handleProjectStoreChange = () => provider.renderProjectList();
   fs.watchFile(projectsFile, { interval: 500 }, handleProjectStoreChange);
 
   const mcpDefinition = new vscode.McpStdioServerDefinition(
-    'Switchboard',
+    'Runlist',
     process.execPath,
     [serverPath],
     {
       ELECTRON_RUN_AS_NODE: '1',
-      SWITCHBOARD_PROJECTS_FILE: projectsFile
+      RUNLIST_PROJECTS_FILE: projectsFile
     },
     context.extension.packageJSON.version
   );
   mcpDefinition.cwd = context.globalStorageUri;
 
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider('switchboard.projects', provider),
-    vscode.commands.registerCommand('switchboard.addProject', () => provider.showAddProject()),
-    vscode.commands.registerCommand('switchboard.showAgentSetup', () => provider.showAgentSetup()),
-    vscode.lm.registerMcpServerDefinitionProvider('switchboard.projects', {
+    vscode.window.registerWebviewViewProvider('runlist.projects', provider),
+    vscode.commands.registerCommand('runlist.addProject', () => provider.showAddProject()),
+    vscode.commands.registerCommand('runlist.showAgentSetup', () => provider.showAgentSetup()),
+    vscode.lm.registerMcpServerDefinitionProvider('runlist.projects', {
       provideMcpServerDefinitions: () => [mcpDefinition],
       resolveMcpServerDefinition: (server) => server
     }),

@@ -14,7 +14,7 @@ coverage/**
 *.tmp
 *.vsix
 *.pen
-switchboard-icon-options.html
-media/switchboard-screenshot.png
-media/switchboard-readme.svg
+runlist-icon-options.html
+media/runlist-screenshot.png
+media/runlist-readme.svg
 .DS_Store

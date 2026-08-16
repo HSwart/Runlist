@@ -11,7 +11,7 @@ const {
 } = require('../skill-installation');
 
 function temporaryDirectory(t) {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-skill-'));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-skill-'));
   t.after(() => fs.rmSync(directory, { force: true, recursive: true }));
   return directory;
 }
@@ -19,14 +19,14 @@ function temporaryDirectory(t) {
 function createSource(t) {
   const directory = path.join(temporaryDirectory(t), 'source');
   fs.mkdirSync(path.join(directory, 'agents'), { recursive: true });
-  fs.writeFileSync(path.join(directory, 'SKILL.md'), `${MANAGED_MARKER}\n# Switchboard\n`);
-  fs.writeFileSync(path.join(directory, 'agents', 'openai.yaml'), 'interface:\n  display_name: Switchboard\n');
+  fs.writeFileSync(path.join(directory, 'SKILL.md'), `${MANAGED_MARKER}\n# Runlist\n`);
+  fs.writeFileSync(path.join(directory, 'agents', 'openai.yaml'), 'interface:\n  display_name: Runlist\n');
   return directory;
 }
 
 test('bundled skill treats the custom stop command as optional', () => {
   const skill = fs.readFileSync(
-    path.join(__dirname, '..', 'skills', 'switchboard', 'SKILL.md'),
+    path.join(__dirname, '..', 'skills', 'runlist', 'SKILL.md'),
     'utf8'
   );
   assert.match(skill, /stops the process tree it launches by default/i);
@@ -35,27 +35,27 @@ test('bundled skill treats the custom stop command as optional', () => {
 });
 
 test('managed setup guidance preserves only explicit HTTP or HTTPS service URLs', () => {
-  const skill = fs.readFileSync(path.join(__dirname, '..', 'skills', 'switchboard', 'SKILL.md'), 'utf8');
+  const skill = fs.readFileSync(path.join(__dirname, '..', 'skills', 'runlist', 'SKILL.md'), 'utf8');
   assert.match(skill, /explicitly documents an HTTP or HTTPS browser URL/);
   assert.match(skill, /never derive or guess one from the port/);
 });
 
 test('resolves personal skill folders on macOS and Linux', () => {
   const environment = { HOME: '/Users/example' };
-  assert.equal(agentSkillPath('codex', environment, 'darwin'), '/Users/example/.codex/skills/switchboard');
-  assert.equal(agentSkillPath('claude', environment, 'darwin'), '/Users/example/.claude/skills/switchboard');
-  assert.equal(agentSkillPath('copilot', environment, 'linux'), '/Users/example/.copilot/skills/switchboard');
+  assert.equal(agentSkillPath('codex', environment, 'darwin'), '/Users/example/.codex/skills/runlist');
+  assert.equal(agentSkillPath('claude', environment, 'darwin'), '/Users/example/.claude/skills/runlist');
+  assert.equal(agentSkillPath('copilot', environment, 'linux'), '/Users/example/.copilot/skills/runlist');
   assert.equal(
     agentSkillPath('codex', { ...environment, CODEX_HOME: '/opt/codex' }, 'linux'),
-    '/opt/codex/skills/switchboard'
+    '/opt/codex/skills/runlist'
   );
 });
 
 test('resolves personal skill folders on Windows', () => {
   const environment = { USERPROFILE: 'C:\\Users\\example' };
-  assert.equal(agentSkillPath('codex', environment, 'win32'), 'C:\\Users\\example\\.codex\\skills\\switchboard');
-  assert.equal(agentSkillPath('claude', environment, 'win32'), 'C:\\Users\\example\\.claude\\skills\\switchboard');
-  assert.equal(agentSkillPath('copilot', environment, 'win32'), 'C:\\Users\\example\\.copilot\\skills\\switchboard');
+  assert.equal(agentSkillPath('codex', environment, 'win32'), 'C:\\Users\\example\\.codex\\skills\\runlist');
+  assert.equal(agentSkillPath('claude', environment, 'win32'), 'C:\\Users\\example\\.claude\\skills\\runlist');
+  assert.equal(agentSkillPath('copilot', environment, 'win32'), 'C:\\Users\\example\\.copilot\\skills\\runlist');
 });
 
 test('installs and refreshes the managed skill for every supported agent', (t) => {
@@ -71,7 +71,7 @@ test('installs and refreshes the managed skill for every supported agent', (t) =
     };
     const installed = installAgentSkill(options);
     assert.equal(agentSkillStatus(options).status, 'installed');
-    assert.match(fs.readFileSync(path.join(installed.targetDirectory, 'SKILL.md'), 'utf8'), /# Switchboard/);
+    assert.match(fs.readFileSync(path.join(installed.targetDirectory, 'SKILL.md'), 'utf8'), /# Runlist/);
     assert.ok(fs.existsSync(path.join(installed.targetDirectory, 'agents', 'openai.yaml')));
 
     fs.writeFileSync(path.join(installed.targetDirectory, 'SKILL.md'), `${MANAGED_MARKER}\nold content\n`);

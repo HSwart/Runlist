@@ -204,7 +204,7 @@ test('uses only an approved post-confirmation snapshot during deletion', async (
 });
 
 test('coordinates owned process stopping across VS Code hosts without sharing kill authority', (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-process-owner-'));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-process-owner-'));
   const alive = new Set([101, 202, 303]);
   const isProcessAlive = (pid) => alive.has(pid);
   const owner = new ProcessOwnershipStore(directory, { pid: 101, platform: 'linux', isProcessAlive });
@@ -233,7 +233,7 @@ test('coordinates owned process stopping across VS Code hosts without sharing ki
 });
 
 test('fails safely when the launching host is gone but its child may still be running', (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-process-uncertain-'));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-process-uncertain-'));
   const alive = new Set([101, 202, 303]);
   const isProcessAlive = (pid) => alive.has(pid);
   const owner = new ProcessOwnershipStore(directory, { pid: 101, platform: 'win32', isProcessAlive });
