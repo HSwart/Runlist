@@ -18,6 +18,9 @@ coverage/
 .cache/
 .eslintcache
 
+# Local Codex release workflow
+/.agents/skills/publish-runlist/
+
 # Logs
 *.log
 npm-debug.log*
