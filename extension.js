@@ -21,6 +21,7 @@ const {
   serviceReadinessDetails,
   serviceReadinessTimedOut,
   servicePortStatus,
+  serviceTimelineStages,
   stoppableProjectIds
 } = require('./project-status');
 const {
@@ -41,6 +42,7 @@ const {
   ProcessOwnershipStore,
   projectProcessSpawnOptions,
   restartProjectSafely,
+  startExitFailed,
   terminateTrackedProcess
 } = require('./project-process');
 const {
@@ -125,6 +127,9 @@ class RunlistViewProvider {
     this.projectServiceUrls = new Map();
     this.projectWebPorts = new Map();
     this.projectStatuses = new Map();
+    this.projectRuntime = new Map();
+    this.projectAttemptMetadata = new Map();
+    this.projectTimelineFailures = new Map();
     this.startReadinessDeadlines = new Map();
     this.readinessWarnings = new Set();
     this.restartingProjectIds = new Set();
@@ -331,7 +336,9 @@ class RunlistViewProvider {
           this.startReadinessDeadlines.delete(id);
           this.readinessWarnings.delete(id);
           if (this.managedProjectIds.has(id)) {
-            this.processOwnership.setState(id, 'running');
+            this.processOwnership.setState(id, 'running', {
+              readyAt: processRuntime.get(id)?.readyAt || Date.now()
+            });
             this.portReservations.setState(id, 'running');
           }
         } else if (['not-ready', 'not-responding'].includes(status)
@@ -354,8 +361,16 @@ class RunlistViewProvider {
         .map(([id, , , , , webPorts]) => [id, webPorts]));
       const nextServiceUrls = new Map(checks
         .map(([id, , , , , , serviceUrls]) => [id, serviceUrls]));
+      const nextRuntime = this.processOwnership.snapshot();
+      const runtimeChanged = nextRuntime.size !== this.projectRuntime.size
+        || [...nextRuntime].some(([id, runtime]) => {
+          const previous = this.projectRuntime.get(id);
+          return runtime.launchedAt !== previous?.launchedAt
+            || runtime.readyAt !== previous?.readyAt;
+        });
       const changed = nextStatuses.size !== this.projectStatuses.size
         || [...nextStatuses].some(([id, status]) => this.projectStatuses.get(id) !== status)
+        || runtimeChanged
         || portConflictMapsDiffer(nextConflicts, this.projectPortConflicts)
         || [...nextOpenPorts]
           .some(([id, openPorts]) => String(this.projectOpenPorts.get(id)) !== String(openPorts))
@@ -371,6 +386,13 @@ class RunlistViewProvider {
       this.projectRespondingPorts = nextRespondingPorts;
       this.projectServiceUrls = nextServiceUrls;
       this.projectWebPorts = nextWebPorts;
+      this.projectRuntime = nextRuntime;
+      for (const [id, metadata] of this.projectAttemptMetadata) {
+        const readyAt = this.projectRuntime.get(id)?.readyAt;
+        if (Number.isFinite(readyAt)) {
+          metadata.readyAt = readyAt;
+        }
+      }
       if (changed) {
         this.renderProjectList();
       }
@@ -598,6 +620,28 @@ class RunlistViewProvider {
     }
   }
 
+  projectHasLiveTimeline(id, project, status = this.getProjectStatus(id)) {
+    if (!project?.services?.length) {
+      return false;
+    }
+    if (this.projectTimelineFailures.has(id)) {
+      return true;
+    }
+    return ['starting', 'running', 'not-ready', 'not-responding'].includes(status)
+      && (this.managedProjectIds.has(id)
+        || this.processes.has(id)
+        || this.projectRuntime.has(id));
+  }
+
+  recordTimelineFailure(id, details = {}) {
+    const metadata = this.projectAttemptMetadata.get(id) || {};
+    this.projectTimelineFailures.set(id, {
+      ...details,
+      launchedAt: metadata.launchedAt,
+      failedAt: Date.now()
+    });
+  }
+
   notifyServiceNotReady(project, status = 'not-ready', readinessDetails = {}) {
     if (this.readinessWarnings.has(project.id)) {
       return;
@@ -640,6 +684,7 @@ class RunlistViewProvider {
 
   showStartFailure(project, details = {}) {
     const normalizedDetails = typeof details === 'string' ? { detail: details } : details;
+    this.recordTimelineFailure(project.id, normalizedDetails);
     const summary = startFailureSummary(this.projectOutputs.get(project.id), normalizedDetails);
     this.projectFailureDetails.set(project.id, normalizedDetails);
     this.projectFailureSummaries.set(project.id, summary);
@@ -765,23 +810,29 @@ class RunlistViewProvider {
 
   toggleProjectPreview(id) {
     const project = this.projects.find((item) => item.id === id);
+    const status = this.getProjectStatus(id);
     const previewService = projectPreviewService(
       project,
-      this.getProjectStatus(id),
+      status,
       this.projectServiceUrls.get(id),
       this.projectPortConflicts.has(id)
     );
-    if (!previewService) {
+    const hasTimeline = this.projectHasLiveTimeline(id, project, status);
+    if (!previewService && !hasTimeline) {
       return;
     }
 
     if (this.expandedPreviewProjectId === id
-      && this.expandedPreviewServicePort === previewService.port) {
+      && (!previewService || this.expandedPreviewServicePort === previewService.port)) {
       this.expandedPreviewProjectId = undefined;
       this.expandedPreviewServicePort = undefined;
     } else {
       this.expandedPreviewProjectId = id;
-      this.expandedPreviewServicePort = previewService.port;
+      if (previewService) {
+        this.expandedPreviewServicePort = previewService.port;
+      } else {
+        this.expandedPreviewServicePort = undefined;
+      }
     }
     this.focusTarget = { type: 'action', action: 'toggle-preview', id };
     this.renderProjectList();
@@ -1119,6 +1170,9 @@ class RunlistViewProvider {
       this.projectRespondingPorts.delete(id);
       this.projectServiceUrls.delete(id);
       this.projectWebPorts.delete(id);
+      this.projectRuntime.delete(id);
+      this.projectAttemptMetadata.delete(id);
+      this.projectTimelineFailures.delete(id);
       if (this.expandedPreviewProjectId === id) {
         this.expandedPreviewProjectId = undefined;
         this.expandedPreviewServicePort = undefined;
@@ -1226,6 +1280,8 @@ class RunlistViewProvider {
     this.projectRespondingPorts.delete(id);
     this.projectServiceUrls.delete(id);
     this.projectWebPorts.delete(id);
+    this.projectTimelineFailures.delete(id);
+    this.projectAttemptMetadata.delete(id);
     this.projectStatuses.set(id, 'starting');
     this.renderProjectList();
 
@@ -1280,13 +1336,21 @@ class RunlistViewProvider {
         ...projectProcessSpawnOptions()
       });
 
+      const launchedAt = Date.now();
       this.processes.set(id, child);
+      this.projectAttemptMetadata.set(id, {
+        launchedAt,
+        ...(hasServices ? {} : { readyAt: launchedAt })
+      });
       this.projectMetrics.delete(id);
       this.ownedProcessMetrics.track(id, child.pid);
       this.processOwnership.setProcess(id, child.pid, {
         state: hasServices ? 'starting' : 'running',
-        readinessDeadline
+        readinessDeadline,
+        launchedAt,
+        ...(hasServices ? {} : { readyAt: launchedAt })
       });
+      this.projectRuntime = this.processOwnership.snapshot();
       this.startAttempts.delete(id);
       this.portReservations.setState(id, hasServices ? 'starting' : 'running');
       this.statusRevision += 1;
@@ -1295,6 +1359,7 @@ class RunlistViewProvider {
         this.statusRevision += 1;
         this.processes.delete(id);
         this.forgetProjectMetrics(id);
+        this.projectRuntime.delete(id);
         this.managedProjectIds.delete(id);
         this.processOwnership.release(id);
         this.portReservations.releaseShared(id);
@@ -1311,30 +1376,21 @@ class RunlistViewProvider {
           this.statusRevision += 1;
           this.processes.delete(id);
           this.forgetProjectMetrics(id);
+          this.projectRuntime.delete(id);
           this.processOwnership.release(id);
-          if (code !== 0) {
-            this.managedProjectIds.delete(id);
-            this.portReservations.releaseShared(id);
-            this.releaseStartReservation(id);
-            this.projectStatuses.set(id, 'stopped');
-            this.startReadinessDeadlines.delete(id);
-            this.readinessWarnings.delete(id);
-            if (!stoppedIntentionally) {
-              this.showStartFailure(
-                project,
-                { code, signal }
-              );
-            }
-            this.renderProjectList();
+          this.managedProjectIds.delete(id);
+          this.portReservations.releaseShared(id);
+          this.releaseStartReservation(id);
+          this.projectStatuses.set(id, 'stopped');
+          this.startReadinessDeadlines.delete(id);
+          this.readinessWarnings.delete(id);
+          if (startExitFailed({ code, hasServices, stoppedIntentionally })) {
+            this.showStartFailure(project, { code, signal });
           } else {
-            this.managedProjectIds.delete(id);
-            this.portReservations.releaseShared(id);
-            this.releaseStartReservation(id);
-            this.startReadinessDeadlines.delete(id);
-            this.readinessWarnings.delete(id);
-            this.projectStatuses.set(id, 'stopped');
-            this.renderProjectList();
+            this.projectAttemptMetadata.delete(id);
+            this.projectTimelineFailures.delete(id);
           }
+          this.renderProjectList();
           this.refreshProjectStatuses();
         }
       });
@@ -1444,6 +1500,9 @@ class RunlistViewProvider {
     if (succeeded) {
       this.managedProjectIds.delete(id);
       this.processOwnership.release(id);
+      this.projectRuntime.delete(id);
+      this.projectAttemptMetadata.delete(id);
+      this.projectTimelineFailures.delete(id);
       this.releaseStartReservation(id);
     } else {
       const project = this.projects.find((candidate) => candidate.id === id);
@@ -1469,6 +1528,9 @@ class RunlistViewProvider {
   async stopOwnedProjectProcess(id, project, options = {}) {
     if (this.startAttempts.has(id)) {
       this.processOwnership.release(id);
+      this.projectRuntime.delete(id);
+      this.projectAttemptMetadata.delete(id);
+      this.projectTimelineFailures.delete(id);
       this.releaseStartReservation(id);
       this.projectStatuses.set(id, 'stopped');
       this.renderProjectList();
@@ -1616,9 +1678,36 @@ class RunlistViewProvider {
         this.projectPortConflicts.has(project.id)
       );
       const canPreview = Boolean(previewService);
-      const previewExpanded = canPreview
-        && this.expandedPreviewProjectId === project.id
-        && this.expandedPreviewServicePort === previewService.port;
+      const timelineVisible = this.projectHasLiveTimeline(project.id, project, status);
+      const runtime = this.projectRuntime.get(project.id);
+      const attempt = this.projectAttemptMetadata.get(project.id);
+      const failure = this.projectTimelineFailures.get(project.id);
+      const timelineAttention = ['not-ready', 'not-responding'].includes(status);
+      const commandLaunched = Boolean(runtime?.launchedAt
+        || attempt?.launchedAt
+        || runtime?.processActive
+        || this.processes.has(project.id));
+      const timelineStages = serviceTimelineStages({
+        services: project.services,
+        commandLaunched,
+        openPorts,
+        respondingPorts,
+        webPorts,
+        failed: Boolean(failure),
+        attention: timelineAttention
+      });
+      const readyAt = runtime?.readyAt || attempt?.readyAt;
+      const timeline = timelineVisible ? {
+        failed: Boolean(failure),
+        attention: timelineAttention,
+        launchedAt: runtime?.launchedAt || attempt?.launchedAt || failure?.launchedAt,
+        readyAt,
+        outputAvailable: this.projectOutputs.has(project.id),
+        stages: timelineStages
+      } : undefined;
+      const detailsExpanded = this.expandedPreviewProjectId === project.id
+        && (!canPreview || this.expandedPreviewServicePort === previewService.port);
+      const previewExpanded = canPreview && detailsExpanded;
       const locallyOwned = this.processes.has(project.id);
       return {
         ...project,
@@ -1634,6 +1723,9 @@ class RunlistViewProvider {
         ),
         serviceUrls,
         status,
+        timeline,
+        detailsExpanded,
+        timelineExpanded: timelineVisible && detailsExpanded,
         previewExpanded,
         previewPort: previewService?.port,
         previewUrl: previewService?.url,
@@ -1652,7 +1744,7 @@ class RunlistViewProvider {
       };
     });
     if (this.expandedPreviewProjectId
-      && !stateProjects.some((project) => project.previewExpanded)) {
+      && !stateProjects.some((project) => project.detailsExpanded)) {
       const previousId = this.expandedPreviewProjectId;
       this.expandedPreviewProjectId = undefined;
       this.expandedPreviewServicePort = undefined;

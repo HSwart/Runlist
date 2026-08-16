@@ -207,15 +207,27 @@ class ProcessOwnershipStore {
     this.updateOwned(projectId, (ownership) => ({
       ...ownership,
       childPid,
+      ...(Number.isFinite(details.launchedAt)
+        ? { launchedAt: details.launchedAt }
+        : {}),
       ...(Number.isFinite(details.readinessDeadline)
         ? { readinessDeadline: details.readinessDeadline }
+        : {}),
+      ...(Number.isFinite(details.readyAt)
+        ? { readyAt: details.readyAt }
         : {}),
       state: details.state || 'running'
     }));
   }
 
-  setState(projectId, state) {
-    this.updateOwned(projectId, (ownership) => ({ ...ownership, state }));
+  setState(projectId, state, details = {}) {
+    this.updateOwned(projectId, (ownership) => ({
+      ...ownership,
+      ...(Number.isFinite(details.readyAt)
+        ? { readyAt: details.readyAt }
+        : {}),
+      state
+    }));
   }
 
   owns(projectId, childPid) {
@@ -430,12 +442,17 @@ function lastUsefulLine(value) {
     .at(-1);
 }
 
+function startExitFailed({ code, hasServices, stoppedIntentionally }) {
+  return !stoppedIntentionally && (code !== 0 || hasServices);
+}
+
 module.exports = {
   cleanupTrackedProcessForDeletion,
   customStopSpawnOptions,
   ProcessOwnershipStore,
   projectProcessSpawnOptions,
   restartProjectSafely,
+  startExitFailed,
   terminateProcessTree,
   terminateTrackedProcess
 };
