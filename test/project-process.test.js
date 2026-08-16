@@ -239,7 +239,9 @@ test('coordinates owned process stopping across VS Code hosts without sharing ki
   owner.setState('project-1', 'running');
   assert.equal(otherWindow.snapshot().get('project-1').state, 'running');
   assert.equal(otherWindow.reserve('project-1').kind, 'owned');
-  assert.deepEqual(otherWindow.requestStop('project-1'), { kind: 'requested' });
+  const ownershipToken = otherWindow.snapshot().get('project-1').token;
+  assert.deepEqual(otherWindow.requestStop('project-1', 'stale-token'), { kind: 'changed' });
+  assert.deepEqual(otherWindow.requestStop('project-1', ownershipToken), { kind: 'requested' });
   assert.equal(otherWindow.snapshot().get('project-1').state, 'stopping');
   assert.equal(otherWindow.cancelStopRequest('project-1'), true);
   assert.equal(otherWindow.snapshot().get('project-1').state, 'running');

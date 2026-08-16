@@ -316,6 +316,10 @@ function renderList() {
           stopped: 'Stopped'
         };
         const conflicted = ['port-in-use', 'port-in-use-unknown'].includes(projectStatus);
+        const canHandoff = projectStatus === 'port-in-use'
+          && conflict?.handoffAvailable
+          && conflict?.ownerName;
+        const handoffLabel = `Stop ${conflictOwnerName} and start ${projectName}`;
         const transitioning = ['starting', 'not-ready', 'stopping'].includes(projectStatus);
         const canOpen = Boolean(project.previewUrl);
         const detectedWithoutStop = projectStatus === 'active' && !project.stopCommand;
@@ -419,6 +423,10 @@ function renderList() {
                 </div>
               </div>
             </div>
+            ${canHandoff ? `<button class="handoff-button" data-action="handoff" data-id="${projectId}" aria-label="${handoffLabel}" title="${handoffLabel}" ${project.handoffInProgress ? 'disabled' : ''}>
+              ${project.handoffInProgress ? productIcon('loading', 'status-progress') : productIcon('play')}
+              <span>${project.handoffInProgress ? `Stopping ${conflictOwnerName}, then starting ${projectName}…` : handoffLabel}</span>
+            </button>` : ''}
             <div class="project-details">
               <div class="detail-row" title="${escapeHtml(project.folder)}">
                 ${icon('folder', 'detail-icon')}<span class="auto-scroll"><span class="auto-scroll-content">${escapeHtml(project.folder)}</span></span>
@@ -432,15 +440,16 @@ function renderList() {
                   const canCopyUrl = project.serviceUrls?.some((entry) => entry.port === service.port)
                     && !reviewRequired
                     && !conflicted;
-                  const webNotResponding = portOpen
+                  const webNotResponding = !conflicted
+                    && portOpen
                     && project.webPorts?.includes(service.port)
                     && !project.respondingPorts?.includes(service.port);
-                  const indicator = webNotResponding
-                    ? 'not-responding'
-                    : portOpen
-                      ? 'running'
-                      : conflicted
-                        ? 'conflict'
+                  const indicator = conflicted
+                    ? 'conflict'
+                    : webNotResponding
+                      ? 'not-responding'
+                      : portOpen
+                        ? 'running'
                         : '';
                   const title = webNotResponding
                     ? ` title="${escapeHtml(service.name)} port is open, but its web service is not responding"`
@@ -900,6 +909,10 @@ app.addEventListener('click', (event) => {
     start: () => vscode.postMessage({ type: 'startProject', id: button.dataset.id }),
     stop: () => vscode.postMessage({ type: 'stopProject', id: button.dataset.id }),
     restart: () => vscode.postMessage({ type: 'restartProject', id: button.dataset.id }),
+    handoff: () => {
+      button.disabled = true;
+      vscode.postMessage({ type: 'handoffProject', id: button.dataset.id });
+    },
     'stop-all': () => {
       button.disabled = true;
       button.innerHTML = `${productIcon('loading', 'status-progress')}Stopping all…`;

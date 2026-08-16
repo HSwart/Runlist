@@ -13,6 +13,11 @@ function projectsUsingPort(projects, port, excludeProjectId) {
     && servicePorts(project).includes(port));
 }
 
+function occupiedPortsBelongToProject(openPorts, reservationConflicts, projectId) {
+  return Array.isArray(openPorts) && openPorts.every((port) => reservationConflicts
+    .some((conflict) => conflict.port === port && conflict.projectId === projectId));
+}
+
 function reserveProjectPorts(reservations, project) {
   const ports = servicePorts(project);
   for (const port of ports) {
@@ -50,6 +55,25 @@ class PortReservationStore {
       acquired.push(port);
     }
     return undefined;
+  }
+
+  conflicts(project) {
+    const conflicts = [];
+    for (const port of servicePorts(project).sort((left, right) => left - right)) {
+      const lockPath = this.lockPath(port);
+      const lock = readLock(lockPath);
+      if (!lock) {
+        continue;
+      }
+      if (!lock.projectId || !lock.pid || !this.isProcessAlive(lock.pid)) {
+        tryUnlink(lockPath);
+        continue;
+      }
+      if (lock.projectId !== project.id) {
+        conflicts.push({ port, projectId: lock.projectId });
+      }
+    }
+    return conflicts;
   }
 
   release(projectId) {
@@ -227,6 +251,7 @@ function occupiedPortConflict({ project, projects, managedProjectIds, openPorts 
 }
 
 module.exports = {
+  occupiedPortsBelongToProject,
   PortReservationStore,
   occupiedPortConflict,
   projectsUsingPort,

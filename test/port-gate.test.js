@@ -4,6 +4,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const {
+  occupiedPortsBelongToProject,
   occupiedPortConflict,
   PortReservationStore,
   projectsUsingPort,
@@ -80,6 +81,36 @@ test('coordinates reservations across independent extension hosts', (t) => {
   assert.equal(firstHost.snapshot().has('alpha'), false);
   assert.equal(secondHost.reserve(projects[1]), undefined);
   secondHost.dispose();
+});
+
+test('reports every live Runlist reservation that blocks a project', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-port-conflicts-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const firstHost = new PortReservationStore(directory, { pid: 101, isProcessAlive: () => true });
+  const secondHost = new PortReservationStore(directory, { pid: 202, isProcessAlive: () => true });
+  const observer = new PortReservationStore(directory, { pid: 303, isProcessAlive: () => true });
+  firstHost.reserve(projects[0]);
+  secondHost.reserve(projects[2]);
+
+  assert.deepEqual(observer.conflicts({
+    id: 'requested',
+    services: [{ name: 'web', port: 3000 }, { name: 'api', port: 4000 }]
+  }), [
+    { port: 3000, projectId: 'alpha' },
+    { port: 4000, projectId: 'gamma' }
+  ]);
+});
+
+test('requires every occupied target port to belong to the same Runlist project', () => {
+  const reservations = [
+    { port: 3000, projectId: 'alpha' },
+    { port: 4000, projectId: 'gamma' }
+  ];
+
+  assert.equal(occupiedPortsBelongToProject([3000], reservations, 'alpha'), true);
+  assert.equal(occupiedPortsBelongToProject([3000, 4000], reservations, 'alpha'), false);
+  assert.equal(occupiedPortsBelongToProject([3000, 5000], reservations, 'alpha'), false);
+  assert.equal(occupiedPortsBelongToProject(undefined, reservations, 'alpha'), false);
 });
 
 test('removes abandoned locks without deleting another host lock', (t) => {
