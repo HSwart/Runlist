@@ -25,7 +25,7 @@ Runlist keeps a reusable list of local projects from different repositories insi
 - Expand a running web app to see a compact live preview with refresh, copy, and browser actions.
 - See current CPU and memory use for the process tree Runlist started while its app preview is expanded.
 - Open any saved project folder in a new VS Code window.
-- View readable recent output from the latest run, follow new lines, and open web links without leaving the sidebar.
+- View readable recent output from the latest run, including a concise failure summary when startup exits, follow new lines, and open web links without leaving the sidebar.
 - Edit or remove a saved project without touching its files.
 
 > Runlist remembers the setup. You decide what runs.
@@ -108,7 +108,7 @@ Runlist keeps the everyday controls simple:
 | **Copy URL** | Appears beside the responding first service, and beside other responding services with an Open URL. It copies the same safe URL Runlist would open. |
 | **Preview app** | A chevron appears at the far right of the responding first web service row. Expand it to load one live preview beneath the project; collapsing or stopping the app unloads it. Some apps block embedded views, so Open in browser remains available. |
 | **Resource use** | Shows current CPU and memory inside an expanded preview when this VS Code window started the project. Runlist stops measuring when the preview closes or ownership is uncertain. |
-| **View output** | Highlights common log levels, opens web links, and lets you copy output from the latest run. If you scroll up, Runlist keeps your place and offers a **Latest** button when new output arrives. |
+| **View output** | Summarizes a failed start above the unchanged raw log, highlights common log levels, opens web links, and lets you copy output from the latest run. If you scroll up, Runlist keeps your place and offers a **Latest** button when new output arrives. |
 | **…** | Opens the app, project folder, recent output, edit screen, or remove action. |
 
 Removing a project from Runlist does **not** delete the project or any of its files.

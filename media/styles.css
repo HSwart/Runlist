@@ -1055,6 +1055,32 @@ input[aria-invalid='true'] {
   position: relative;
 }
 
+.output-failure-summary {
+  display: grid;
+  gap: 3px;
+  margin: 0 0 10px;
+  padding: 9px 10px;
+  color: var(--vscode-foreground);
+  background: var(--vscode-inputValidation-errorBackground, var(--vscode-textBlockQuote-background));
+  border: 1px solid var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
+  border-radius: 3px;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.output-failure-summary strong {
+  color: var(--vscode-errorForeground);
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.output-failure-summary small {
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+}
+
 .output-panel {
   max-height: calc(100vh - 135px);
   min-height: 180px;
