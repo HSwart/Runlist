@@ -49,4 +49,7 @@ Thumbs.db
 
 # Local screenshot demo projects
 /demos/
+
+# Local feature-review screenshots
+/review-screenshots/
 /Runlist Demos/

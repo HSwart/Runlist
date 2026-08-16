@@ -1,5 +1,10 @@
 const net = require('net');
+const http = require('http');
+const https = require('https');
 const { safeServiceUrl } = require('./external-url');
+
+const HTTP_PROBE_TIMEOUT_MS = 700;
+const TIMED_OUT = Symbol('timed-out');
 
 function isPortOpen(port, options = {}) {
   const host = options.host || '127.0.0.1';
@@ -40,58 +45,12 @@ async function areServicesRunning(services) {
   return (await servicePortStatus(services)).allOpen;
 }
 
-function serviceReadinessTimedOut(deadline, allReady, now = Date.now()) {
-  return Number.isFinite(deadline) && now >= deadline && !allReady;
+function httpServiceUrl(service) {
+  const override = typeof service?.url === 'string' ? service.url.trim() : '';
+  return override ? safeServiceUrl(override) : undefined;
 }
 
-function isPrimaryServiceOpen(services, openPorts) {
-  const primaryPort = services?.[0]?.port;
-  return Number.isInteger(primaryPort) && (openPorts || []).includes(primaryPort);
-}
-
-function projectStatus({
-  ambiguousConflict = false,
-  allOpen = false,
-  anyOpen = false,
-  hasServices = false,
-  knownConflict = false,
-  managed = false,
-  processActive = false,
-  readinessTimedOut = false,
-  stopping = false,
-}) {
-  if (stopping) {
-    return 'stopping';
-  }
-  if (!hasServices) {
-    return processActive ? 'running' : 'stopped';
-  }
-  if (allOpen) {
-    return managed
-      ? 'running'
-      : knownConflict
-        ? 'port-in-use'
-        : ambiguousConflict
-          ? 'port-in-use-unknown'
-          : 'active';
-  }
-  if (anyOpen) {
-    return managed
-      ? readinessTimedOut ? 'not-ready' : 'starting'
-      : knownConflict
-        ? 'port-in-use'
-        : ambiguousConflict
-          ? 'port-in-use-unknown'
-          : 'active';
-  }
-  if (managed) {
-    return readinessTimedOut ? 'not-ready' : 'starting';
-  }
-  return 'stopped';
-}
-
-function primaryServiceUrl(services) {
-  const service = services?.[0];
+function serviceUrl(service) {
   const override = typeof service?.url === 'string' ? service.url.trim() : '';
   if (override) {
     return safeServiceUrl(override);
@@ -103,20 +62,243 @@ function primaryServiceUrl(services) {
   return `http://127.0.0.1:${port}`;
 }
 
+function probeHttpService(url, options = {}) {
+  const safeUrl = safeServiceUrl(url);
+  if (!safeUrl) {
+    return Promise.resolve(false);
+  }
+
+  const timeout = Number.isFinite(options.timeout)
+    ? Math.max(1, options.timeout)
+    : HTTP_PROBE_TIMEOUT_MS;
+  const transport = new URL(safeUrl).protocol === 'https:' ? https : http;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let request;
+    let timer;
+    const finish = (responding) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      resolve(responding);
+    };
+
+    timer = setTimeout(() => {
+      finish(false);
+      request?.destroy();
+    }, timeout);
+
+    try {
+      request = transport.request(safeUrl, { method: 'HEAD' }, (response) => {
+        response.resume();
+        finish(true);
+      });
+      request.once('error', () => finish(false));
+      request.end();
+    } catch {
+      request?.destroy();
+      finish(false);
+    }
+  });
+}
+
+async function serviceHttpStatus(services, openPorts, options = {}) {
+  const configured = (services || [])
+    .map((service) => ({ service, url: httpServiceUrl(service) }))
+    .filter(({ url }) => Boolean(url));
+  if (configured.length === 0) {
+    return {
+      allResponding: true,
+      respondingPorts: [],
+      unresponsivePorts: [],
+      webPorts: []
+    };
+  }
+
+  const open = new Set(openPorts || []);
+  const resolveUrl = options.resolveUrl || (async (url) => url);
+  const probe = options.probe || probeHttpService;
+  const timeout = Number.isFinite(options.timeout)
+    ? Math.max(1, options.timeout)
+    : HTTP_PROBE_TIMEOUT_MS;
+  const results = await Promise.all(configured.map(async ({ service, url }) => {
+    if (!open.has(service.port)) {
+      return false;
+    }
+    try {
+      const deadline = Date.now() + timeout;
+      const resolvedUrl = await valueWithin(() => resolveUrl(url, service), timeout);
+      if (resolvedUrl === TIMED_OUT) {
+        return false;
+      }
+      const remaining = Math.max(1, deadline - Date.now());
+      const responding = await valueWithin(
+        () => probe(resolvedUrl, { timeout: remaining }),
+        remaining
+      );
+      return responding === TIMED_OUT ? false : Boolean(responding);
+    } catch {
+      return false;
+    }
+  }));
+
+  return {
+    allResponding: results.every(Boolean),
+    respondingPorts: configured
+      .filter((_, index) => results[index])
+      .map(({ service }) => service.port),
+    unresponsivePorts: configured
+      .filter(({ service }, index) => open.has(service.port) && !results[index])
+      .map(({ service }) => service.port),
+    webPorts: configured.map(({ service }) => service.port)
+  };
+}
+
+async function reachableServiceUrls(services, openPorts, options = {}) {
+  const open = new Set(openPorts || []);
+  const configured = (services || [])
+    .map((service, index) => ({
+      service,
+      url: serviceUrl(service),
+      webCandidate: index === 0 || Boolean(httpServiceUrl(service))
+    }))
+    .filter(({ service, webCandidate }) => open.has(service.port) && webCandidate)
+    .filter(({ url }) => Boolean(url));
+  const resolveUrl = options.resolveUrl || (async (url) => url);
+  const probe = options.probe || probeHttpService;
+  const timeout = Number.isFinite(options.timeout)
+    ? Math.max(1, options.timeout)
+    : HTTP_PROBE_TIMEOUT_MS;
+
+  const results = await Promise.all(configured.map(async ({ service, url }) => {
+    try {
+      const deadline = Date.now() + timeout;
+      const resolvedUrl = await valueWithin(() => resolveUrl(url, service), timeout);
+      if (resolvedUrl === TIMED_OUT || !safeServiceUrl(resolvedUrl)) {
+        return undefined;
+      }
+      const remaining = Math.max(1, deadline - Date.now());
+      const responding = await valueWithin(
+        () => probe(resolvedUrl, { timeout: remaining }),
+        remaining
+      );
+      return responding !== TIMED_OUT && responding
+        ? { port: service.port, url: safeServiceUrl(resolvedUrl) }
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }));
+
+  return results.filter(Boolean);
+}
+
+async function valueWithin(factory, timeout) {
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(factory),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(TIMED_OUT), timeout);
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function serviceReadinessTimedOut(deadline, allReady, now = Date.now()) {
+  return Number.isFinite(deadline) && now >= deadline && !allReady;
+}
+
+function isPrimaryServiceOpen(services, openPorts) {
+  const primaryPort = services?.[0]?.port;
+  return Number.isInteger(primaryPort) && (openPorts || []).includes(primaryPort);
+}
+
+function isPrimaryServiceResponding(services, openPorts, respondingPorts) {
+  if (!isPrimaryServiceOpen(services, openPorts)) {
+    return false;
+  }
+  const primary = services?.[0];
+  return !httpServiceUrl(primary) || (respondingPorts || []).includes(primary.port);
+}
+
+function projectStatus({
+  ambiguousConflict = false,
+  allOpen = false,
+  anyOpen = false,
+  hasServices = false,
+  knownConflict = false,
+  managed = false,
+  httpUnresponsive = false,
+  processActive = false,
+  readinessTimedOut = false,
+  stopping = false,
+}) {
+  if (stopping) {
+    return 'stopping';
+  }
+  if (!hasServices) {
+    return processActive ? 'running' : 'stopped';
+  }
+  if (allOpen) {
+    if (!managed && knownConflict) {
+      return 'port-in-use';
+    }
+    if (!managed && ambiguousConflict) {
+      return 'port-in-use-unknown';
+    }
+    if (managed && httpUnresponsive) {
+      return readinessTimedOut ? 'not-responding' : 'starting';
+    }
+    return managed ? 'running' : 'active';
+  }
+  if (anyOpen) {
+    if (managed) {
+      return readinessTimedOut ? 'not-ready' : 'starting';
+    }
+    if (knownConflict) {
+      return 'port-in-use';
+    }
+    if (ambiguousConflict) {
+      return 'port-in-use-unknown';
+    }
+    return 'active';
+  }
+  if (managed) {
+    return readinessTimedOut ? 'not-ready' : 'starting';
+  }
+  return 'stopped';
+}
+
+function primaryServiceUrl(services) {
+  return serviceUrl(services?.[0]);
+}
+
 function stoppableProjectIds(projects) {
   return (projects || [])
     .filter((project) => !project.reviewRequired
-      && (['running', 'starting', 'not-ready'].includes(project.status)
+      && (['running', 'starting', 'not-ready', 'not-responding'].includes(project.status)
         || (project.status === 'active' && Boolean(project.stopCommand))))
     .map((project) => project.id);
 }
 
 module.exports = {
   areServicesRunning,
+  httpServiceUrl,
   isPortOpen,
   isPrimaryServiceOpen,
+  isPrimaryServiceResponding,
   primaryServiceUrl,
+  probeHttpService,
   projectStatus,
+  reachableServiceUrls,
+  serviceUrl,
+  serviceHttpStatus,
   serviceReadinessTimedOut,
   servicePortStatus,
   stoppableProjectIds

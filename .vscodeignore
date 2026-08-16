@@ -10,6 +10,7 @@ node_modules/**
 scripts/**
 test/**
 coverage/**
+review-screenshots/**
 *.log
 *.tmp
 *.vsix

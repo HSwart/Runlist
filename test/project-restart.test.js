@@ -9,8 +9,9 @@ test('exposes an accessible single-project Restart overflow action', () => {
 
   assert.match(script, /data-action="restart" data-id="\$\{projectId\}" role="menuitem" aria-label="Restart \$\{projectName\}"/);
   assert.match(script, /const detectedWithoutStop = projectStatus === 'active' && !project\.stopCommand/);
-  assert.match(script, /\['running', 'not-ready', 'active'\]\.includes\(projectStatus\)[\s\S]*&& !detectedWithoutStop/);
+  assert.match(script, /\['running', 'not-ready', 'not-responding', 'active'\]\.includes\(projectStatus\)[\s\S]*&& !detectedWithoutStop/);
   assert.match(script, /\$\{canRestart \? '' : 'disabled'\}/);
+  assert.match(script, /data-action="restart"[\s\S]*\$\{icon\('refresh', 'menu-icon'\)\}<span>Restart<\/span>/);
   assert.match(script, /restart: \(\) => vscode\.postMessage\(\{ type: 'restartProject', id: button\.dataset\.id \}\)/);
 });
 
@@ -133,7 +134,7 @@ test('prevents service metadata changes while a project is running', () => {
   assert.match(extensionSource, /servicesLocked && servicesChanged/);
   assert.match(extensionSource, /if \(servicesChanged\)[\s\S]*this\.processOwnership\.reserve\(projectId\)/);
   assert.match(extensionSource, /if \(servicesReservation\)[\s\S]*this\.processOwnership\.release\(projectId\)/);
-  assert.match(extensionSource, /servicesLocked: this\.mode === 'edit'[\s\S]*'running', 'starting', 'not-ready', 'stopping', 'active'/);
+  assert.match(extensionSource, /servicesLocked: this\.mode === 'edit'[\s\S]*'running', 'starting', 'not-ready', 'not-responding', 'stopping', 'active'/);
   assert.match(webviewSource, /<fieldset id="services"[^>]*\$\{state\.servicesLocked \? 'disabled' : ''\}/);
   assert.match(webviewSource, /Stop this project before changing its services\./);
   assert.match(webviewSource, /project\.openPorts\?\.includes\(service\.port\)/);
