@@ -180,6 +180,17 @@ test('routes remote custom stops through the launching VS Code window', () => {
   assert.ok(requestRemoteStop < runCustomStop);
 });
 
+test('recovers a locally owned process when its in-memory handle is missing', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const localRequest = source.indexOf("if (request.kind === 'local')");
+  const recoverOwnedProcess = source.indexOf('this.processOwnership.terminateOwnedProcess(id)', localRequest);
+  const finishRecoveredStop = source.indexOf('this.finishStopping(id, true)', recoverOwnedProcess);
+
+  assert.ok(localRequest >= 0);
+  assert.ok(localRequest < recoverOwnedProcess);
+  assert.ok(recoverOwnedProcess < finishRecoveredStop);
+});
+
 test('does not report an intentional custom-stop exit as a start failure', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
 
