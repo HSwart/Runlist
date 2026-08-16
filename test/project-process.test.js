@@ -97,6 +97,33 @@ test('keeps a live process handle when tree termination fails', async () => {
   assert.equal(processes.get('project'), child);
 });
 
+test('accepts a termination race when the tracked process has already exited', async () => {
+  const child = { pid: 607, exitCode: null, signalCode: null };
+  const processes = new Map([['project', child]]);
+
+  assert.equal(await terminateTrackedProcess(processes, 'project', {
+    platform: 'darwin',
+    kill: () => {
+      child.exitCode = 0;
+      throw Object.assign(new Error('not permitted'), { code: 'EPERM' });
+    }
+  }), true);
+  assert.equal(processes.has('project'), false);
+});
+
+test('does not hide unrelated tree termination failures after process exit', async () => {
+  const child = { pid: 608, exitCode: 0, signalCode: null };
+  const processes = new Map([['project', child]]);
+
+  await assert.rejects(terminateTrackedProcess(processes, 'project', {
+    platform: 'darwin',
+    kill: () => {
+      throw Object.assign(new Error('unexpected failure'), { code: 'EINVAL' });
+    }
+  }), /unexpected failure/);
+  assert.equal(processes.has('project'), false);
+});
+
 test('fails safely when the process identifier is unavailable', async () => {
   await assert.rejects(
     terminateProcessTree(undefined, { platform: 'linux' }),

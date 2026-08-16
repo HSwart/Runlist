@@ -69,7 +69,11 @@ async function terminateTrackedProcess(processes, id, options = {}) {
   try {
     await terminateProcessTree(child.pid, options);
   } catch (error) {
-    if (child.exitCode === null && child.signalCode === null) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      if (error.code === 'EPERM') {
+        return true;
+      }
+    } else {
       processes.set(id, child);
     }
     throw error;
