@@ -172,6 +172,47 @@ function readinessDetailsHtml(project, status) {
   return rows.length ? `<div class="project-readiness-detail">${rows.join('')}</div>` : '';
 }
 
+function formatElapsed(milliseconds) {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${String(seconds % 60).padStart(2, '0')}s`;
+}
+
+function timelineElapsedLabel(timeline) {
+  if (!Number.isFinite(timeline?.launchedAt)) {
+    return timeline?.failed ? 'Start did not complete.' : 'Waiting to start…';
+  }
+  if (Number.isFinite(timeline.readyAt)) {
+    return `Ready in ${formatElapsed(timeline.readyAt - timeline.launchedAt)}`;
+  }
+  return `Elapsed ${formatElapsed(Date.now() - timeline.launchedAt)}`;
+}
+
+function projectTimelineHtml(project, projectName) {
+  const timeline = project.timeline;
+  if (!timeline || !project.timelineExpanded) {
+    return '';
+  }
+  const stages = (timeline.stages || []).map((stage) => `
+    <li class="timeline-stage timeline-${escapeHtml(stage.state)}">
+      <span class="timeline-marker" aria-hidden="true"></span>
+      <span>${escapeHtml(stage.label)}</span>
+    </li>`).join('');
+  const outputLink = (timeline.failed || timeline.attention) && timeline.outputAvailable
+    ? `<button class="timeline-output-link" data-action="output" data-id="${escapeHtml(project.id)}">View Recent Output</button>`
+    : '';
+  return `
+    <div class="project-timeline" aria-label="Startup timeline for ${projectName}">
+      <ol class="timeline-stages">${stages}</ol>
+      <p class="timeline-elapsed" data-timeline-elapsed data-started-at="${timeline.launchedAt || ''}" data-ready-at="${timeline.readyAt || ''}">${escapeHtml(timelineElapsedLabel(timeline))}</p>
+      ${(timeline.failed || timeline.attention) && !timeline.outputAvailable ? '<p class="timeline-output-note">Recent output is available in the VS Code window that started this project.</p>' : ''}
+      ${outputLink}
+    </div>`;
+}
+
 function statusSummaryHtml(projects) {
   const reviewCount = projects.filter((project) => project.reviewRequired).length;
   const runningCount = projects
@@ -387,10 +428,12 @@ function renderList() {
                   return `<span${title}${ariaLabel}><span class="service-indicator ${indicator}" aria-hidden="true"></span>${escapeHtml(service.name)} <strong>:${escapeHtml(String(service.port))}</strong>${canCopyUrl ? `<button class="copy-url-button" data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(String(service.port))}" aria-label="${copyLabel}" title="${copyLabel}">${icon('copy')}</button>` : ''}</span>`;
                   }).join('')}
                 </div>
-                ${project.previewUrl ? `<button class="preview-toggle" data-action="toggle-preview" data-id="${projectId}" aria-label="${project.previewExpanded ? 'Collapse' : 'Expand'} preview for ${projectName}" aria-expanded="${project.previewExpanded}" aria-controls="preview-${projectId}" title="${project.previewExpanded ? 'Collapse' : 'Expand'} app preview">${icon('chevron-down')}</button>` : ''}
+                ${(project.timeline || project.previewUrl) ? `<button class="preview-toggle" data-action="toggle-preview" data-id="${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} ${project.timeline ? 'live project details' : 'preview'} for ${projectName}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" title="${project.detailsExpanded ? 'Collapse' : 'Expand'} ${project.timeline ? 'live project details' : 'app preview'}">${icon('chevron-down')}</button>` : ''}
               </div>` : ''}
+            ${(project.timeline || project.previewUrl) ? `<div id="details-${projectId}" class="project-live-details" ${project.detailsExpanded ? '' : 'hidden'}>
+            ${project.timeline ? projectTimelineHtml(project, projectName) : ''}
             ${project.previewUrl ? `
-              <section id="preview-${projectId}" class="project-preview" aria-label="Preview of ${projectName}" ${project.previewExpanded ? '' : 'hidden'}>
+              <section class="project-preview" aria-label="Preview of ${projectName}" ${project.previewExpanded ? '' : 'hidden'}>
                 ${project.previewExpanded ? `
                 <header class="preview-toolbar">
                   <span>Preview</span>
@@ -414,6 +457,7 @@ function renderList() {
                 <p class="preview-help">If the app blocks this view, use Open in browser.</p>
                 ` : ''}
               </section>` : ''}
+            </div>` : ''}
           </article>`;
       }).join('')}
       <div class="search-empty" data-search-empty hidden>
@@ -893,6 +937,36 @@ function initializeProjectPreview() {
   document.querySelectorAll('[data-preview-frame]').forEach(loadProjectPreview);
 }
 
+let timelineClock;
+function updateTimelineElapsed() {
+  document.querySelectorAll('[data-timeline-elapsed]').forEach((element) => {
+    if (!element.dataset.startedAt) {
+      return;
+    }
+    const startedAt = Number(element.dataset.startedAt);
+    const readyAt = element.dataset.readyAt ? Number(element.dataset.readyAt) : undefined;
+    if (!Number.isFinite(startedAt)) {
+      return;
+    }
+    element.textContent = Number.isFinite(readyAt)
+      ? `Ready in ${formatElapsed(readyAt - startedAt)}`
+      : `Elapsed ${formatElapsed(Date.now() - startedAt)}`;
+  });
+}
+
+function initializeTimelineClock() {
+  clearInterval(timelineClock);
+  timelineClock = undefined;
+  const elapsed = document.querySelector('[data-timeline-elapsed]');
+  if (!elapsed) {
+    return;
+  }
+  updateTimelineElapsed();
+  if (document.querySelector('[data-timeline-elapsed][data-ready-at=""]')) {
+    timelineClock = setInterval(updateTimelineElapsed, 1000);
+  }
+}
+
 window.addEventListener('message', (event) => {
   if (event.data?.messageToken !== state.messageToken) {
     return;
@@ -1151,6 +1225,7 @@ if (state.mode === 'list') {
   document.getElementById('project-search')?.addEventListener('input', handleSearchInput);
   scheduleAutoScrollUpdate();
   initializeProjectPreview();
+  initializeTimelineClock();
 } else if (state.mode === 'agents') {
   renderAgentSetup();
 } else if (state.mode === 'output') {

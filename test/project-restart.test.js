@@ -195,7 +195,7 @@ test('does not report an intentional custom-stop exit as a start failure', () =>
   const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
 
   assert.match(source, /const stoppedIntentionally = this\.stoppingProjectIds\.has\(id\)/);
-  assert.match(source, /if \(!stoppedIntentionally\) \{[\s\S]*this\.showStartFailure\(/);
+  assert.match(source, /if \(startExitFailed\(\{ code, hasServices, stoppedIntentionally \}\)\) \{[\s\S]*this\.showStartFailure\(/);
 });
 
 test('allows remote custom stops enough time for owner polling', () => {

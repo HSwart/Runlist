@@ -17,6 +17,7 @@ const {
   serviceUrl,
   serviceHttpStatus,
   serviceReadinessDetails,
+  serviceTimelineStages,
   serviceReadinessTimedOut,
   servicePortStatus,
   stoppableProjectIds
@@ -275,6 +276,52 @@ test('describes ready, waiting, and nonresponding services by name and port', ()
     waiting: [],
     notResponding: []
   });
+});
+
+test('derives a truthful ordered startup timeline from observed service state', () => {
+  assert.deepEqual(serviceTimelineStages({
+    services: [
+      { name: 'web', port: 5173, url: 'http://127.0.0.1:5173' },
+      { name: 'api', port: 4311 }
+    ],
+    commandLaunched: true,
+    openPorts: [5173],
+    respondingPorts: [5173],
+    webPorts: [5173]
+  }), [
+    { key: 'command', kind: 'command', label: 'Launch command', state: 'complete' },
+    { key: 'port-5173', kind: 'port', label: 'web :5173 available', name: 'web', port: 5173, state: 'complete' },
+    { key: 'response-5173', kind: 'response', label: 'web responding', name: 'web', port: 5173, state: 'complete' },
+    { key: 'port-4311', kind: 'port', label: 'api :4311 available', name: 'api', port: 4311, state: 'current' }
+  ]);
+  assert.equal(serviceTimelineStages({
+    services: [{ name: 'web', port: 5173 }],
+    commandLaunched: false,
+    openPorts: [5173]
+  })[0].state, 'current');
+  assert.equal(serviceTimelineStages({
+    services: [{ name: 'web', port: 5173, url: 'https://example.test' }],
+    commandLaunched: true,
+    openPorts: [5173],
+    webPorts: [5173],
+    failed: true
+  }).at(-1).state, 'failed');
+  assert.deepEqual(serviceTimelineStages({
+    services: [{ name: 'api', port: 4311 }],
+    commandLaunched: true,
+    openPorts: [4311],
+    failed: true
+  }).at(-1), {
+    key: 'process-exit',
+    kind: 'process',
+    label: 'Process exited',
+    state: 'failed'
+  });
+  assert.equal(serviceTimelineStages({
+    services: [{ name: 'api', port: 4311 }],
+    commandLaunched: true,
+    attention: true
+  }).at(-1).state, 'attention');
 });
 
 test('treats partial unmanaged service availability as active', () => {
