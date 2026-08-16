@@ -5,10 +5,28 @@ const path = require('node:path');
 const test = require('node:test');
 const {
   initializeProjectStore,
+  migrateProjectStore,
   readProjects,
   removeProject,
   upsertProject
 } = require('../project-store');
+
+test('migrates saved projects from a preview extension identity once', (t) => {
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-store-'));
+  const legacyFile = path.join(temporaryRoot, 'local.switchboard', 'projects.json');
+  const projectsFile = path.join(temporaryRoot, 'hankoswart.switchboard-projects', 'projects.json');
+  const legacyProjects = [{ id: 'project-1', name: 'Preview app' }];
+  fs.mkdirSync(path.dirname(legacyFile), { recursive: true });
+  fs.writeFileSync(legacyFile, `${JSON.stringify(legacyProjects)}\n`);
+  t.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
+
+  assert.equal(migrateProjectStore(projectsFile, [legacyFile]), legacyFile);
+  assert.deepEqual(readProjects(projectsFile), legacyProjects);
+
+  fs.writeFileSync(legacyFile, `${JSON.stringify([{ id: 'project-2' }])}\n`);
+  assert.equal(migrateProjectStore(projectsFile, [legacyFile]), undefined);
+  assert.deepEqual(readProjects(projectsFile), legacyProjects);
+});
 
 test('creates, updates, and removes projects in the shared store', (t) => {
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-store-'));

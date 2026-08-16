@@ -10,6 +10,30 @@ function initializeProjectStore(filePath, legacyProjects = []) {
   }
 }
 
+function migrateProjectStore(filePath, legacyFilePaths = []) {
+  if (fs.existsSync(filePath)) {
+    return undefined;
+  }
+
+  for (const legacyFilePath of legacyFilePaths) {
+    if (!fs.existsSync(legacyFilePath)) {
+      continue;
+    }
+    try {
+      const projects = JSON.parse(fs.readFileSync(legacyFilePath, 'utf8'));
+      if (!Array.isArray(projects)) {
+        continue;
+      }
+      writeProjects(filePath, projects);
+      return legacyFilePath;
+    } catch {
+      // Leave an invalid preview store untouched and try the next known identity.
+    }
+  }
+
+  return undefined;
+}
+
 function readProjects(filePath) {
   initializeProjectStore(filePath);
   const contents = fs.readFileSync(filePath, 'utf8');
@@ -208,6 +232,7 @@ function createId() {
 module.exports = {
   findProjectByFolder,
   initializeProjectStore,
+  migrateProjectStore,
   readProjects,
   removeProject,
   upsertProject,

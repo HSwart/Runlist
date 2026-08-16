@@ -2,6 +2,8 @@
 
 ## 0.0.2 — Marketplace release
 
+- Restores saved projects from earlier preview extension identities on first launch under the Marketplace ID.
+
 - Refresh detected-running and port-conflict status consistently across VS Code windows.
 - Add the current VS Code workspace directly from the project form.
 - Configure multiple named services and optional HTTP or HTTPS URLs for each project.
