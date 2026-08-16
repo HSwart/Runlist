@@ -100,6 +100,35 @@ async function restartProjectSafely(restartingProjectIds, id, actions) {
   }
 }
 
+async function handoffProjectSafely(handoffProjectIds, id, actions) {
+  if (handoffProjectIds.has(id)) {
+    return false;
+  }
+  handoffProjectIds.add(id);
+  let reservationHeld = false;
+  let reservationTransferred = false;
+  try {
+    if (!await actions.reserveRequested()) {
+      return false;
+    }
+    reservationHeld = true;
+    const conflict = await actions.currentConflict();
+    if (!conflict || !await actions.stop(conflict)) {
+      return false;
+    }
+    if (!await actions.waitForStop(conflict)) {
+      return false;
+    }
+    reservationTransferred = Boolean(await actions.start(conflict));
+    return reservationTransferred;
+  } finally {
+    if (reservationHeld && !reservationTransferred) {
+      await actions.releaseRequested();
+    }
+    handoffProjectIds.delete(id);
+  }
+}
+
 async function cleanupTrackedProcessForDeletion(processes, id, project, stopProject, options = {}) {
   if (!processes.has(id)) {
     return false;
@@ -311,10 +340,13 @@ class ProcessOwnershipStore {
     return projects;
   }
 
-  requestStop(projectId) {
+  requestStop(projectId, expectedToken) {
     const ownership = readJson(this.ownershipPath(projectId));
     if (!validOwnership(ownership, projectId)) {
       return { kind: 'missing' };
+    }
+    if (expectedToken && ownership.token !== expectedToken) {
+      return { kind: 'changed' };
     }
     if (ownership.hostPid === this.pid && this.owned.get(projectId)?.token === ownership.token) {
       return { kind: 'local' };
@@ -449,6 +481,7 @@ function startExitFailed({ code, hasServices, stoppedIntentionally }) {
 module.exports = {
   cleanupTrackedProcessForDeletion,
   customStopSpawnOptions,
+  handoffProjectSafely,
   ProcessOwnershipStore,
   projectProcessSpawnOptions,
   restartProjectSafely,

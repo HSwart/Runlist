@@ -39,6 +39,7 @@ const {
 const {
   cleanupTrackedProcessForDeletion,
   customStopSpawnOptions,
+  handoffProjectSafely,
   ProcessOwnershipStore,
   projectProcessSpawnOptions,
   restartProjectSafely,
@@ -46,6 +47,7 @@ const {
   terminateTrackedProcess
 } = require('./project-process');
 const {
+  occupiedPortsBelongToProject,
   occupiedPortConflict,
   PortReservationStore
 } = require('./port-gate');
@@ -134,6 +136,7 @@ class RunlistViewProvider {
     this.startReadinessDeadlines = new Map();
     this.readinessWarnings = new Set();
     this.restartingProjectIds = new Set();
+    this.handoffProjectIds = new Set();
     this.stoppingProjectIds = new Set();
     this.remoteStopRequests = new Map();
     this.statusRefreshInFlight = false;
@@ -236,6 +239,11 @@ class RunlistViewProvider {
       const projects = this.projects;
       const portRuntime = this.portReservations.snapshot();
       const processRuntime = this.processOwnership.snapshot();
+      const handoffOwnerIds = new Set([...processRuntime]
+        .filter(([, ownership]) => ownership.ownerAvailable
+          && ownership.processActive
+          && ownership.state !== 'stopping')
+        .map(([id]) => id));
       for (const [id, request] of [...this.remoteStopRequests]) {
         if (processRuntime.get(id)?.state !== 'stopping') {
           this.remoteStopRequests.delete(id);
@@ -291,7 +299,7 @@ class RunlistViewProvider {
         const conflict = occupiedPortConflict({
           project,
           projects,
-          managedProjectIds,
+          managedProjectIds: handoffOwnerIds,
           openPorts: portStatus.openPorts
         });
         const status = projectStatus({
@@ -309,7 +317,12 @@ class RunlistViewProvider {
         return [
           project.id,
           status,
-          portConflictSummary(conflict),
+          portConflictSummary(
+            conflict,
+            processRuntime,
+            this.portReservations.conflicts(project),
+            portStatus.openPorts
+          ),
           portStatus.openPorts,
           httpStatus.respondingPorts,
           httpStatus.webPorts,
@@ -441,6 +454,9 @@ class RunlistViewProvider {
         break;
       case 'restartProject':
         await this.restartProject(message.id);
+        break;
+      case 'handoffProject':
+        await this.handoffProject(message.id);
         break;
       case 'stopAllProjects':
         this.stopAllProjects();
@@ -1234,55 +1250,84 @@ class RunlistViewProvider {
     this.portReservations.release(id);
   }
 
-  async startProject(id) {
+  async startProject(id, options = {}) {
     let projects = this.projects;
     let project = projects.find((item) => item.id === id);
     if (!project) {
-      return;
+      return false;
     }
     if (project.reviewRequired) {
       vscode.window.showWarningMessage(`Review and approve ${project.name}'s setup before running its commands.`);
       this.showEditProject(id);
-      return;
+      return false;
     }
 
     const currentStatus = this.getProjectStatus(id);
-    if (currentStatus !== 'stopped') {
+    if (currentStatus !== 'stopped' && !options.allowPortConflict) {
       if (['port-in-use', 'port-in-use-unknown'].includes(currentStatus)) {
         vscode.window.showWarningMessage('A configured app port is already in use. Stop the running app before starting this project.');
       }
-      return;
+      return false;
     }
 
-    const ownershipConflict = this.processOwnership.reserve(id);
-    if (ownershipConflict) {
-      vscode.window.showWarningMessage(ownershipConflict.kind === 'uncertain'
-        ? `Runlist cannot safely verify who owns ${project.name}'s previous process. Close it manually before starting again.`
-        : `${project.name} is already running in another VS Code window.`);
-      return;
+    if (!options.ownershipReserved) {
+      const ownershipConflict = this.processOwnership.reserve(id);
+      if (ownershipConflict) {
+        vscode.window.showWarningMessage(ownershipConflict.kind === 'uncertain'
+          ? `Runlist cannot safely verify who owns ${project.name}'s previous process. Close it manually before starting again.`
+          : `${project.name} is already running in another VS Code window.`);
+        return false;
+      }
     }
 
     projects = this.projects;
     project = projects.find((item) => item.id === id);
     if (!project) {
       this.processOwnership.release(id);
-      return;
+      return false;
     }
     if (project.reviewRequired) {
       this.processOwnership.release(id);
       vscode.window.showWarningMessage(`Review and approve ${project.name}'s setup before running its commands.`);
       this.showEditProject(id);
-      return;
+      return false;
     }
 
     const reservationConflict = this.portReservations.reserve(project);
     if (reservationConflict) {
       this.processOwnership.release(id);
       const owner = projects.find((candidate) => candidate.id === reservationConflict.projectId);
-      vscode.window.showWarningMessage(
-        `${owner?.name || 'Another Runlist project'} is using port :${reservationConflict.port}. Stop it before starting ${project.name}.`
+      const processRuntime = this.processOwnership.snapshot();
+      const reservationConflicts = this.portReservations.conflicts(project);
+      const ownership = processRuntime.get(reservationConflict.projectId);
+      const allReservationsMatchOwner = reservationConflicts.length > 0
+        && reservationConflicts.every((conflict) => conflict.projectId === reservationConflict.projectId);
+      const conflict = owner
+        && ownership?.ownerAvailable
+        && ownership.processActive
+        && ownership.state !== 'stopping'
+        && allReservationsMatchOwner
+        ? { kind: 'managed', owner, port: reservationConflict.port }
+        : {
+            kind: 'ambiguous',
+            port: reservationConflict.port,
+            sharedWith: owner ? [owner] : []
+          };
+      this.statusRevision += 1;
+      this.projectStatuses.set(id, conflict.kind === 'managed'
+        ? 'port-in-use'
+        : 'port-in-use-unknown');
+      this.projectPortConflicts.set(
+        id,
+        portConflictSummary(conflict, processRuntime, reservationConflicts)
       );
-      return;
+      vscode.window.showWarningMessage(
+        conflict.kind === 'managed'
+          ? `${owner.name} has reserved port :${reservationConflict.port}. Runlist is checking whether a safe switch is available.`
+          : `Port :${reservationConflict.port} is reserved, but Runlist cannot safely verify the running owner. Nothing was stopped.`
+      );
+      this.renderProjectList();
+      return false;
     }
 
     const attempt = Symbol(id);
@@ -1302,7 +1347,7 @@ class RunlistViewProvider {
       ? await servicePortStatus(project.services)
       : { allOpen: false, anyOpen: false, openPorts: [] };
     if (this.startAttempts.get(id) !== attempt) {
-      return;
+      return false;
     }
     if (portStatus.anyOpen) {
       const conflict = occupiedPortConflict({
@@ -1325,7 +1370,7 @@ class RunlistViewProvider {
       }
       vscode.window.showWarningMessage(startBlockedMessage(project, conflict));
       this.renderProjectList();
-      return;
+      return false;
     }
 
     try {
@@ -1408,6 +1453,7 @@ class RunlistViewProvider {
         }
       });
       this.renderProjectList();
+      return true;
     } catch (error) {
       this.statusRevision += 1;
       this.managedProjectIds.delete(id);
@@ -1419,10 +1465,97 @@ class RunlistViewProvider {
       this.readinessWarnings.delete(id);
       this.showStartFailure(project, error.message);
       this.renderProjectList();
+      return false;
     }
   }
 
-  async stopProject(id, projectSnapshot) {
+  async handoffProject(id) {
+    const requestedProject = this.projects.find((project) => project.id === id);
+    if (!requestedProject || requestedProject.reviewRequired) {
+      return false;
+    }
+
+    let conflictOwnerName = 'the conflicting project';
+    let failureMessage;
+    let succeeded = false;
+    try {
+      succeeded = await handoffProjectSafely(this.handoffProjectIds, id, {
+        reserveRequested: () => {
+          const reservationConflict = this.processOwnership.reserve(id);
+          if (!reservationConflict) {
+            return true;
+          }
+          failureMessage = reservationConflict.kind === 'uncertain'
+            ? `Runlist cannot safely verify ${requestedProject.name}'s current ownership. Nothing was stopped.`
+            : `${requestedProject.name} is already starting or running in another VS Code window.`;
+          return false;
+        },
+        currentConflict: async () => {
+          const projects = this.projects;
+          const latestRequestedProject = projects.find((project) => project.id === id);
+          if (!latestRequestedProject || latestRequestedProject.reviewRequired) {
+            failureMessage = `${requestedProject.name}'s setup changed before Runlist could switch projects. Nothing was stopped.`;
+            return undefined;
+          }
+          const reservationConflicts = this.portReservations.conflicts(latestRequestedProject);
+          const ownerIds = new Set(reservationConflicts.map((conflict) => conflict.projectId));
+          if (reservationConflicts.length === 0 || ownerIds.size !== 1) {
+            failureMessage = reservationConflicts.length > 1
+              ? `${requestedProject.name} now conflicts with more than one project. Runlist did not stop anything.`
+              : `The port conflict for ${requestedProject.name} changed before Runlist could switch projects. Nothing was stopped.`;
+            return undefined;
+          }
+          const ownerId = reservationConflicts[0].projectId;
+          const owner = projects.find((project) => project.id === ownerId);
+          const ownership = this.processOwnership.snapshot().get(ownerId);
+          const portStatus = await servicePortStatus(latestRequestedProject.services || []);
+          conflictOwnerName = owner?.name || conflictOwnerName;
+          if (!owner
+            || !ownership?.ownerAvailable
+            || !ownership.processActive
+            || ownership.state === 'stopping'
+            || !occupiedPortsBelongToProject(
+              portStatus.openPorts,
+              reservationConflicts,
+              ownerId
+            )) {
+            failureMessage = `Runlist can no longer verify that ${conflictOwnerName} owns the conflicting process. Nothing was stopped.`;
+            return undefined;
+          }
+          return { owner, ownership };
+        },
+        stop: (conflict) => this.stopProject(conflict.owner.id, undefined, {
+          expectedOwnershipToken: conflict.ownership.token
+        }),
+        waitForStop: async (conflict) => {
+          const stopped = await this.waitForProjectStopCompletion(conflict.owner.id);
+          if (!stopped) {
+            failureMessage = `Runlist could not confirm that ${conflict.owner.name} stopped, so ${requestedProject.name} was not started.`;
+          }
+          return stopped;
+        },
+        start: () => this.startProject(id, {
+          allowPortConflict: true,
+          ownershipReserved: true
+        }),
+        releaseRequested: () => this.processOwnership.release(id)
+      });
+    } catch (error) {
+      failureMessage = `Could not switch to ${requestedProject.name}: ${error.message}`;
+    }
+
+    if (!succeeded && failureMessage) {
+      vscode.window.showErrorMessage(failureMessage);
+    }
+    this.focusTarget = succeeded
+      ? { type: 'project-control', id }
+      : { type: 'action', action: 'handoff', id };
+    this.renderProjectList();
+    void this.refreshProjectStatuses();
+    return succeeded;
+  }
+
+  async stopProject(id, projectSnapshot, options = {}) {
     const project = projectSnapshot || this.projects.find((item) => item.id === id);
     if (!project) {
       return false;
@@ -1447,13 +1580,20 @@ class RunlistViewProvider {
     }
 
     const sharedOwnership = this.processOwnership.snapshot().get(id);
+    if (options.expectedOwnershipToken
+      && sharedOwnership?.token !== options.expectedOwnershipToken) {
+      vscode.window.showErrorMessage(
+        `Could not stop ${project.name}: its Runlist ownership changed before the handoff. Nothing was stopped.`
+      );
+      return false;
+    }
     const locallyOwnedWithoutHandle = sharedOwnership
       && this.processOwnership.owns(id, sharedOwnership.childPid);
     if (project.stopCommand
       && sharedOwnership
       && !this.processes.has(id)
       && !locallyOwnedWithoutHandle) {
-      return this.stopOwnedProjectProcess(id, project);
+      return this.stopOwnedProjectProcess(id, project, options);
     }
 
     if (project.stopCommand) {
@@ -1476,7 +1616,7 @@ class RunlistViewProvider {
       return true;
     }
 
-    return this.stopOwnedProjectProcess(id, project);
+    return this.stopOwnedProjectProcess(id, project, options);
   }
 
   async restartProject(id) {
@@ -1539,6 +1679,13 @@ class RunlistViewProvider {
   }
 
   async stopOwnedProjectProcess(id, project, options = {}) {
+    if (options.expectedOwnershipToken
+      && this.processOwnership.snapshot().get(id)?.token !== options.expectedOwnershipToken) {
+      vscode.window.showErrorMessage(
+        `Could not stop ${project.name}: its Runlist ownership changed before the handoff. Nothing was stopped.`
+      );
+      return false;
+    }
     if (this.startAttempts.has(id)) {
       this.processOwnership.release(id);
       this.projectRuntime.delete(id);
@@ -1562,7 +1709,7 @@ class RunlistViewProvider {
       }
     }
 
-    const request = this.processOwnership.requestStop(id);
+    const request = this.processOwnership.requestStop(id, options.expectedOwnershipToken);
     if (request.kind === 'requested') {
       this.remoteStopRequests.set(id, { projectName: project.name, requestedAt: Date.now() });
       this.beginStopping(id);
@@ -1586,6 +1733,12 @@ class RunlistViewProvider {
     if (request.kind === 'uncertain') {
       vscode.window.showErrorMessage(
         `Could not stop ${project.name}: its launching VS Code window is unavailable, so Runlist cannot safely verify the process owner. The process was left running.`
+      );
+      return false;
+    }
+    if (request.kind === 'changed') {
+      vscode.window.showErrorMessage(
+        `Could not stop ${project.name}: its Runlist ownership changed before the handoff. Nothing was stopped.`
       );
       return false;
     }
@@ -1743,6 +1896,7 @@ class RunlistViewProvider {
         status,
         timeline,
         detailsExpanded,
+        handoffInProgress: this.handoffProjectIds.has(project.id),
         outputPeek: outputPeekVisible
           ? projectOutputPeek(this.projectOutputs.get(project.id))
           : undefined,
@@ -1844,12 +1998,28 @@ function startBlockedMessage(project, conflict) {
   return `Port :${conflict?.port || 'unknown'} is already in use. ${project.name} appears to be running already.`;
 }
 
-function portConflictSummary(conflict) {
+function portConflictSummary(
+  conflict,
+  processRuntime = new Map(),
+  reservationConflicts = [],
+  openPorts
+) {
   if (conflict?.kind === 'managed') {
+    const ownership = processRuntime.get(conflict.owner.id);
+    const reservationOwnerIds = new Set(reservationConflicts.map((entry) => entry.projectId));
+    const handoffAvailable = ownership?.ownerAvailable
+      && ownership.processActive
+      && ownership.state !== 'stopping'
+      && reservationConflicts.length > 0
+      && reservationOwnerIds.size === 1
+      && reservationOwnerIds.has(conflict.owner.id)
+      && occupiedPortsBelongToProject(openPorts, reservationConflicts, conflict.owner.id);
     return {
       kind: conflict.kind,
+      ownerId: conflict.owner.id,
       ownerName: conflict.owner.name,
-      port: conflict.port
+      port: conflict.port,
+      handoffAvailable
     };
   }
   if (conflict?.kind === 'ambiguous') {
@@ -1876,7 +2046,9 @@ function portConflictMapsDiffer(left, right) {
     return !previous
       || previous.kind !== conflict.kind
       || previous.port !== conflict.port
+      || previous.ownerId !== conflict.ownerId
       || previous.ownerName !== conflict.ownerName
+      || previous.handoffAvailable !== conflict.handoffAvailable
       || String(previous.projectNames) !== String(conflict.projectNames);
   });
 }

@@ -316,6 +316,10 @@ function renderList() {
           stopped: 'Stopped'
         };
         const conflicted = ['port-in-use', 'port-in-use-unknown'].includes(projectStatus);
+        const canHandoff = projectStatus === 'port-in-use'
+          && conflict?.handoffAvailable
+          && conflict?.ownerName;
+        const handoffLabel = `Stop ${conflictOwnerName} and start ${projectName}`;
         const transitioning = ['starting', 'not-ready', 'stopping'].includes(projectStatus);
         const canOpen = Boolean(project.previewUrl);
         const detectedWithoutStop = projectStatus === 'active' && !project.stopCommand;
@@ -419,6 +423,10 @@ function renderList() {
                 </div>
               </div>
             </div>
+            ${canHandoff ? `<button class="handoff-button" data-action="handoff" data-id="${projectId}" aria-label="${handoffLabel}" title="${handoffLabel}" ${project.handoffInProgress ? 'disabled' : ''}>
+              ${project.handoffInProgress ? productIcon('loading', 'status-progress') : productIcon('play')}
+              <span>${project.handoffInProgress ? `Stopping ${conflictOwnerName}, then starting ${projectName}…` : handoffLabel}</span>
+            </button>` : ''}
             <div class="project-details">
               <div class="detail-row" title="${escapeHtml(project.folder)}">
                 ${icon('folder', 'detail-icon')}<span class="auto-scroll"><span class="auto-scroll-content">${escapeHtml(project.folder)}</span></span>
@@ -900,6 +908,10 @@ app.addEventListener('click', (event) => {
     start: () => vscode.postMessage({ type: 'startProject', id: button.dataset.id }),
     stop: () => vscode.postMessage({ type: 'stopProject', id: button.dataset.id }),
     restart: () => vscode.postMessage({ type: 'restartProject', id: button.dataset.id }),
+    handoff: () => {
+      button.disabled = true;
+      vscode.postMessage({ type: 'handoffProject', id: button.dataset.id });
+    },
     'stop-all': () => {
       button.disabled = true;
       button.innerHTML = `${productIcon('loading', 'status-progress')}Stopping all…`;
