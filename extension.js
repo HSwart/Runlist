@@ -23,7 +23,11 @@ const {
   servicePortStatus,
   stoppableProjectIds
 } = require('./project-status');
-const { openProjectInNewWindow } = require('./project-navigation');
+const {
+  openProjectInNewWindow,
+  openProjectTerminal,
+  projectFolderIsAccessible
+} = require('./project-navigation');
 const { previewFrameSource, projectPreviewService } = require('./preview-security');
 const { OwnedProcessMetrics } = require('./process-metrics');
 const {
@@ -422,6 +426,9 @@ class RunlistViewProvider {
         break;
       case 'openProjectFolder':
         await this.openProjectFolder(message.id);
+        break;
+      case 'openProjectTerminal':
+        await this.openProjectTerminal(message.id);
         break;
       case 'copyServiceUrl':
         await this.copyServiceUrl(message.id, Number(message.port));
@@ -860,6 +867,35 @@ class RunlistViewProvider {
       await openProjectInNewWindow(vscode, project.folder);
     } catch (error) {
       vscode.window.showErrorMessage(`Could not open ${project.name} in VS Code: ${error.message}`);
+    }
+  }
+
+  async openProjectTerminal(id) {
+    const project = this.projects.find((item) => item.id === id);
+    if (!project) {
+      return;
+    }
+
+    if (!projectFolderIsAccessible(fs, project.folder)) {
+      const selection = await vscode.window.showErrorMessage(
+        `Could not open a terminal for ${project.name}: its saved folder is missing or inaccessible.`,
+        'Edit project'
+      );
+      if (selection === 'Edit project') {
+        this.showEditProject(id);
+      } else {
+        this.focusTarget = { type: 'project-menu', id };
+        this.renderProjectList();
+      }
+      return;
+    }
+
+    try {
+      openProjectTerminal(vscode, project.folder);
+    } catch {
+      await vscode.window.showErrorMessage(`Could not open a terminal for ${project.name}.`);
+      this.focusTarget = { type: 'project-menu', id };
+      this.renderProjectList();
     }
   }
 

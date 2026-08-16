@@ -1,6 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { openProjectInNewWindow } = require('../project-navigation');
+const {
+  openProjectInNewWindow,
+  openProjectTerminal,
+  projectFolderIsAccessible
+} = require('../project-navigation');
 
 test('opens a saved project folder in a new VS Code window', async () => {
   const calls = [];
@@ -23,4 +27,74 @@ test('opens a saved project folder in a new VS Code window', async () => {
     { scheme: 'file', fsPath: folder },
     { forceNewWindow: true }
   ]]);
+});
+
+test('opens an integrated terminal in the exact saved folder without sending a command', () => {
+  const terminals = [];
+  const vscode = {
+    window: {
+      createTerminal: (options) => {
+        const calls = { options, show: 0, sendText: 0 };
+        terminals.push(calls);
+        return {
+          show: () => {
+            calls.show += 1;
+          },
+          sendText: () => {
+            calls.sendText += 1;
+          }
+        };
+      }
+    }
+  };
+  const folders = [
+    'C:\\Users\\Example User\\Git Projects\\café app',
+    '/Users/Example User/Git Projects/café app'
+  ];
+
+  for (const folder of folders) {
+    openProjectTerminal(vscode, folder);
+  }
+
+  assert.deepEqual(terminals.map(({ options }) => options), folders.map((folder) => ({ cwd: folder })));
+  assert.deepEqual(terminals.map(({ show }) => show), [1, 1]);
+  assert.deepEqual(terminals.map(({ sendText }) => sendText), [0, 0]);
+});
+
+test('recognizes accessible directories and rejects missing or inaccessible folders', () => {
+  const accessible = {
+    constants: { R_OK: 4, X_OK: 1 },
+    accessSync: () => {},
+    statSync: () => ({ isDirectory: () => true })
+  };
+  const file = {
+    ...accessible,
+    statSync: () => ({ isDirectory: () => false })
+  };
+  const inaccessible = {
+    ...accessible,
+    accessSync: () => {
+      throw new Error('access denied');
+    }
+  };
+
+  assert.equal(projectFolderIsAccessible(accessible, '/projects/app'), true);
+  assert.equal(projectFolderIsAccessible(file, '/projects/app'), false);
+  assert.equal(projectFolderIsAccessible(inaccessible, '/projects/app'), false);
+});
+
+test('wires an accessible menu action and restores or redirects focus after folder errors', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const root = path.join(__dirname, '..');
+  const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
+
+  assert.match(webview, /data-action="open-terminal"[^>]*role="menuitem"[^>]*title="Open a terminal in \$\{projectName\}"/);
+  assert.match(webview, /<span>Open terminal here<\/span>/);
+  assert.match(webview, /'open-terminal': \(\) => \{[\s\S]*type: 'openProjectTerminal'/);
+  assert.match(extension, /case 'openProjectTerminal':[\s\S]*await this\.openProjectTerminal\(message\.id\)/);
+  assert.match(extension, /projectFolderIsAccessible\(fs, project\.folder\)[\s\S]*'Edit project'/);
+  assert.match(extension, /selection === 'Edit project'[\s\S]*this\.showEditProject\(id\)/);
+  assert.match(extension, /this\.focusTarget = \{ type: 'project-menu', id \};[\s\S]*this\.renderProjectList\(\)/);
 });
