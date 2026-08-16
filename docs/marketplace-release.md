@@ -26,9 +26,8 @@ Official guidance:
 - [Publishing Extensions](https://code.visualstudio.com/api/working-with-extensions/publishing-extension)
 - [Extension Manifest](https://code.visualstudio.com/api/references/extension-manifest)
 
-## First listing and update-path check
+## Marketplace update-path check
 
-1. Publish reviewed version 0.0.2 under `hankoswart` with Marketplace installation wording that remains accurate before and after the listing becomes visible.
-2. Install it from the VS Code Extensions view and confirm the installed extension ID is `hankoswart.runlist`.
-3. Prepare a later reviewed release.
-4. Publish that release and confirm VS Code updates the existing installation rather than creating a second extension.
+1. Confirm the currently published version is installed from the VS Code Extensions view with extension ID `hankoswart.runlist`.
+2. Publish the next reviewed release under the same publisher and extension name.
+3. Confirm VS Code offers the new version as an update to the existing installation rather than creating a second extension.

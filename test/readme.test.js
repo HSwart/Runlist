@@ -22,5 +22,5 @@ test('keeps README positioning and installation claims accurate', () => {
   assert.match(readme, /never stops an unknown process to free one/);
   assert.doesNotMatch(readme, /github\.com\/HSwart\/Runlist\/releases\/download/);
   assert.match(readme, /Install from the VS Code Marketplace/);
-  assert.match(readme, /When the Runlist listing is visible/);
+  assert.match(readme, /marketplace\.visualstudio\.com\/items\?itemName=hankoswart\.runlist/);
 });

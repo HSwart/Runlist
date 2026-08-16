@@ -36,7 +36,7 @@ Runlist is tested on Windows, macOS, and Linux.
 
 ### Install from the VS Code Marketplace
 
-When the Runlist listing is visible in the VS Code Marketplace:
+[Install Runlist from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=hankoswart.runlist), or install it from VS Code:
 
 1. Open the **Extensions** view in VS Code.
 2. Search for **Runlist**.
