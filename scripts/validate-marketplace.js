@@ -142,8 +142,11 @@ function validateMarketplace(root, options = {}) {
   if (!releaseGuide.includes('vsce publish --azure-credential --packagePath releases/runlist.vsix')) {
     errors.push('Marketplace release guide must publish the exact reviewed VSIX');
   }
+  if (manifest.scripts?.['publish:marketplace'] !== 'npm run validate:marketplace:publish && npm run validate:marketplace:vsix && vsce publish --azure-credential --packagePath releases/runlist.vsix') {
+    errors.push('Marketplace publish command must validate and publish only the reviewed VSIX with Microsoft Entra ID');
+  }
 
-  for (const pattern of ['.env*', 'AGENTS.md', 'docs/**', 'scripts/**', 'test/**', 'media/runlist-screenshot.png']) {
+  for (const pattern of ['.env*', '.agents/**', 'AGENTS.md', 'docs/**', 'scripts/**', 'test/**', 'media/runlist-screenshot.png']) {
     if (!vscodeIgnore.split(/\r?\n/).includes(pattern)) {
       errors.push(`.vscodeignore must exclude ${pattern}`);
     }
