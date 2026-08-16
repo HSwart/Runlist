@@ -64,7 +64,7 @@ test('blocks starting the same project twice while its ports remain reserved', (
 });
 
 test('coordinates reservations across independent extension hosts', (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-port-gate-'));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-port-gate-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const firstHost = new PortReservationStore(directory, { pid: 101, isProcessAlive: () => true });
   const secondHost = new PortReservationStore(directory, { pid: 202, isProcessAlive: () => true });
@@ -83,7 +83,7 @@ test('coordinates reservations across independent extension hosts', (t) => {
 });
 
 test('removes abandoned locks without deleting another host lock', (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-stale-port-gate-'));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-stale-port-gate-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   fs.writeFileSync(
     path.join(directory, 'port-3000.lock'),

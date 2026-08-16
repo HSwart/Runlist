@@ -1,5 +1,5 @@
 const vscode = acquireVsCodeApi();
-const state = window.switchboardState;
+const state = window.runlistState;
 const app = document.getElementById('app');
 let searchQuery = String(state.searchQuery || '');
 let outputFollowLatest = true;
@@ -184,7 +184,7 @@ function renderList() {
         const actionTitle = reviewRequired
           ? `Review setup for ${projectName}`
           : detectedWithoutStop
-          ? `Switchboard did not start ${projectName}. Add a custom stop command to stop it safely.`
+          ? `Runlist did not start ${projectName}. Add a custom stop command to stop it safely.`
           : projectStatus === 'port-in-use-unknown'
           ? `Port :${conflict?.port || 'unknown'} owner is unknown — cannot safely start or stop ${projectName}`
           : blocked
@@ -193,11 +193,11 @@ function renderList() {
         const statusTitle = reviewRequired
           ? 'A coding agent added or updated this setup. Review its folder and commands before running it.'
           : projectStatus === 'active'
-          ? 'Detected through a configured service port; Switchboard did not start this process.'
+          ? 'Detected through a configured service port; Runlist did not start this process.'
           : projectStatus === 'not-ready'
             ? 'The launched process is still running, but not every configured service port became ready in time. View recent output for details.'
           : projectStatus === 'port-in-use-unknown'
-            ? `Port :${conflict?.port || 'unknown'} is shared with ${conflictProjectNames}. Switchboard cannot identify the running owner.`
+            ? `Port :${conflict?.port || 'unknown'} is shared with ${conflictProjectNames}. Runlist cannot identify the running owner.`
             : projectStatus === 'port-in-use'
               ? `${conflictOwnerName} is using port :${conflict?.port || 'unknown'}.`
               : '';
@@ -421,7 +421,7 @@ function renderProjectForm(mode) {
         <label for="stop-command">Custom stop command <span class="optional-label">Optional</span></label>
         <input id="stop-command" name="stopCommand" value="${escapeHtml(state.draft.stopCommand || '')}" placeholder="docker compose down" ${errorAttributes('stop-command')}>
         ${fieldError('stop-command')}
-        <p class="field-hint">Leave empty to stop only the process tree Switchboard started.</p>
+        <p class="field-hint">Leave empty to stop only the process tree Runlist started.</p>
 
         <fieldset id="services" class="service-editor" ${state.servicesLocked ? 'disabled' : ''} ${errors.services ? 'aria-invalid="true" aria-describedby="services-hint services-error" tabindex="-1"' : 'aria-describedby="services-hint"'}>
           <legend>Services <span class="optional-label">Optional</span></legend>
@@ -468,13 +468,13 @@ function renderAgentSetup() {
         <h2>Agent connections</h2>
         <button class="icon-button" data-action="close-screen" aria-label="Close agent connections screen">${icon('close')}</button>
       </header>
-      <p class="screen-copy">Connect Switchboard and add its guided project setup skill.</p>
+      <p class="screen-copy">Connect Runlist and add its guided project setup skill.</p>
       <div class="agent-list" aria-label="Supported coding agents">
-        ${agentCard('copilot', 'GitHub Copilot', 'Adds /switchboard. The connection is discovered automatically through VS Code.')}
-        ${agentCard('codex', 'Codex', 'Registers the connection and adds $switchboard.')}
-        ${agentCard('claude', 'Claude Code', 'Registers the connection and adds /switchboard.')}
+        ${agentCard('copilot', 'GitHub Copilot', 'Adds /runlist. The connection is discovered automatically through VS Code.')}
+        ${agentCard('codex', 'Codex', 'Registers the connection and adds $runlist.')}
+        ${agentCard('claude', 'Claude Code', 'Registers the connection and adds /runlist.')}
       </div>
-      <p class="agent-footnote">The skill inspects exact project commands and service ports, then saves them through Switchboard.</p>
+      <p class="agent-footnote">The skill inspects exact project commands and service ports, then saves them through Runlist.</p>
     </section>`;
 }
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Runlist"
+  short_description: "Set up local projects in Runlist"
+  default_prompt: "Use $runlist to add this local project to Runlist."

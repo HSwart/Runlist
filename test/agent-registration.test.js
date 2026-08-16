@@ -16,21 +16,21 @@ const options = {
   platform: 'linux',
   projectsFile: '/data/projects.json',
   runtimePath: '/opt/code/code',
-  serverPath: '/extensions/switchboard/mcp/server.js'
+  serverPath: '/extensions/runlist/mcp/server.js'
 };
 
 test('builds a shell-free Codex registration with the bundled runtime', () => {
   assert.deepEqual(buildCodexAddArguments(options), [
     'mcp',
     'add',
-    'switchboard',
+    'runlist',
     '--env',
-    'SWITCHBOARD_PROJECTS_FILE=/data/projects.json',
+    'RUNLIST_PROJECTS_FILE=/data/projects.json',
     '--env',
     'ELECTRON_RUN_AS_NODE=1',
     '--',
     '/opt/code/code',
-    '/extensions/switchboard/mcp/server.js'
+    '/extensions/runlist/mcp/server.js'
   ]);
 });
 
@@ -41,15 +41,15 @@ test('builds a user-scoped Claude Code registration with correctly ordered optio
     '--transport',
     'stdio',
     '--env',
-    'SWITCHBOARD_PROJECTS_FILE=/data/projects.json',
+    'RUNLIST_PROJECTS_FILE=/data/projects.json',
     '--env',
     'ELECTRON_RUN_AS_NODE=1',
     '--scope',
     'user',
-    'switchboard',
+    'runlist',
     '--',
     '/opt/code/code',
-    '/extensions/switchboard/mcp/server.js'
+    '/extensions/runlist/mcp/server.js'
   ]);
 });
 
@@ -167,7 +167,7 @@ test('uses the Codex executable bundled with the VS Code extension on Windows', 
   assert.deepEqual(calls.slice(0, 3), [
     ['codex.exe', ['--version']],
     [bundledCliPath, ['--version']],
-    [bundledCliPath, ['mcp', 'remove', 'switchboard']]
+    [bundledCliPath, ['mcp', 'remove', 'runlist']]
   ]);
   assert.deepEqual(calls[3], [bundledCliPath, buildCodexAddArguments(options)]);
 });
@@ -195,7 +195,7 @@ test('uses the Claude executable bundled with the VS Code extension on Windows',
   assert.deepEqual(calls.slice(0, 4), [
     ['claude.exe', ['--version']],
     [bundledCliPath, ['--version']],
-    [bundledCliPath, ['mcp', 'remove', '--scope', 'user', 'switchboard']],
+    [bundledCliPath, ['mcp', 'remove', '--scope', 'user', 'runlist']],
     [bundledCliPath, buildClaudeAddArguments(options)]
   ]);
 });
@@ -211,7 +211,7 @@ test('refreshes Codex registration before adding the current extension path', as
 
   assert.deepEqual(calls, [
     ['codex', ['--version']],
-    ['codex', ['mcp', 'remove', 'switchboard']],
+    ['codex', ['mcp', 'remove', 'runlist']],
     ['codex', buildCodexAddArguments(options)]
   ]);
 });
@@ -227,7 +227,7 @@ test('refreshes the user-scoped Claude Code registration', async () => {
 
   assert.deepEqual(calls, [
     ['claude', ['--version']],
-    ['claude', ['mcp', 'remove', '--scope', 'user', 'switchboard']],
+    ['claude', ['mcp', 'remove', '--scope', 'user', 'runlist']],
     ['claude', buildClaudeAddArguments(options)]
   ]);
 });
@@ -237,7 +237,7 @@ test('allows first-time registration when no prior server exists', async () => {
   const run = async (command, args) => {
     calls.push([command, args]);
     if (args[0] === 'mcp' && args[1] === 'remove') {
-      throw new Error("Error: No MCP server named 'switchboard' found.");
+      throw new Error("Error: No MCP server named 'runlist' found.");
     }
     return { stdout: '', stderr: '' };
   };

@@ -1,7 +1,7 @@
 const path = require('path');
 const { spawn } = require('child_process');
 
-const SERVER_NAME = 'switchboard';
+const SERVER_NAME = 'runlist';
 const MACOS_CODEX_CLI = '/Applications/Codex.app/Contents/Resources/codex';
 const WINDOWS_SHELL_EXTENSIONS = /\.(?:bat|cmd)$/i;
 const WINDOWS_SHELL_META_CHARACTERS = /([()\][%!^"`<>&|;, *?])/g;
@@ -118,7 +118,7 @@ function uniqueCandidates(candidates) {
 function serverEnvironmentArguments(projectsFile) {
   return [
     '--env',
-    `SWITCHBOARD_PROJECTS_FILE=${projectsFile}`,
+    `RUNLIST_PROJECTS_FILE=${projectsFile}`,
     '--env',
     'ELECTRON_RUN_AS_NODE=1'
   ];

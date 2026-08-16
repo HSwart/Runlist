@@ -1,10 +1,10 @@
 # Marketplace release checklist
 
-Do not describe a Switchboard release as available in the Marketplace until that exact version can be installed from VS Code.
+Do not describe a Runlist release as available in the Marketplace until that exact version can be installed from VS Code.
 
 ## Permanent publisher
 
-Switchboard uses the permanent Marketplace publisher identifier `hankoswart`, displayed as **Hanko Swart**. The extension identifier is `hankoswart.switchboard-projects`.
+Runlist uses the permanent Marketplace publisher identifier `hankoswart`, displayed as **Hanko Swart**. The extension identifier is `hankoswart.runlist`.
 
 For each Marketplace release:
 
@@ -17,7 +17,7 @@ The strict `npm run validate:marketplace:publish` command must pass before publi
 
 ## Secure publication
 
-Use Microsoft Entra ID workload identity federation or a managed identity. Publish the exact reviewed package with `vsce publish --azure-credential --packagePath releases/switchboard.vsix`; do not use a publish command that repackages the source. Keep tenant configuration and publisher membership outside this repository. Do not commit access tokens, client secrets, `.env` files, CLI login state, or generated credentials.
+Use Microsoft Entra ID workload identity federation or a managed identity. Publish the exact reviewed package with `vsce publish --azure-credential --packagePath releases/runlist.vsix`; do not use a publish command that repackages the source. Keep tenant configuration and publisher membership outside this repository. Do not commit access tokens, client secrets, `.env` files, CLI login state, or generated credentials.
 
 Only publish from the reviewed release commit after its tests and package checks pass. The publishing job should be limited to protected release tags and the selected Marketplace publisher.
 
@@ -29,6 +29,6 @@ Official guidance:
 ## First listing and update-path check
 
 1. Publish reviewed version 0.0.2 under `hankoswart` with Marketplace installation wording that remains accurate before and after the listing becomes visible.
-2. Install it from the VS Code Extensions view and confirm the installed extension ID is `hankoswart.switchboard-projects`.
+2. Install it from the VS Code Extensions view and confirm the installed extension ID is `hankoswart.runlist`.
 3. Prepare a later reviewed release.
 4. Publish that release and confirm VS Code updates the existing installation rather than creating a second extension.

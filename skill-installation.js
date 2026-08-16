@@ -1,12 +1,12 @@
 const fs = require('fs');
 const path = require('path');
 
-const MANAGED_MARKER = '<!-- Managed by the Switchboard VS Code extension. -->';
+const MANAGED_MARKER = '<!-- Managed by the Runlist VS Code extension. -->';
 
 const AGENTS = {
-  claude: { invocation: '/switchboard', root: '.claude' },
-  codex: { invocation: '$switchboard', root: '.codex' },
-  copilot: { invocation: '/switchboard', root: '.copilot' }
+  claude: { invocation: '/runlist', root: '.claude' },
+  codex: { invocation: '$runlist', root: '.codex' },
+  copilot: { invocation: '/runlist', root: '.copilot' }
 };
 
 function agentSkillPath(agent, environment = process.env, platform = process.platform) {
@@ -26,7 +26,7 @@ function agentSkillPath(agent, environment = process.env, platform = process.pla
   const agentRoot = agent === 'codex' && environment.CODEX_HOME
     ? environment.CODEX_HOME
     : pathForPlatform.join(home, config.root);
-  return pathForPlatform.join(agentRoot, 'skills', 'switchboard');
+  return pathForPlatform.join(agentRoot, 'skills', 'runlist');
 }
 
 function agentSkillStatus(options) {
@@ -58,13 +58,13 @@ function installAgentSkill(options) {
   const sourceFile = path.join(sourceDirectory, 'SKILL.md');
   const sourceContents = readText(sourceFile);
   if (!sourceContents?.includes(MANAGED_MARKER)) {
-    throw new Error('The bundled Switchboard skill is invalid.');
+    throw new Error('The bundled Runlist skill is invalid.');
   }
 
   const current = agentSkillStatus(options);
   if (current.status === 'conflict') {
     const error = new Error(
-      `A different Switchboard skill already exists at ${current.targetDirectory}. Rename or remove it, then try again.`
+      `A different Runlist skill already exists at ${current.targetDirectory}. Rename or remove it, then try again.`
     );
     error.code = 'ESKILLCONFLICT';
     throw error;

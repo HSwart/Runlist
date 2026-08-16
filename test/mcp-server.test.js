@@ -8,7 +8,7 @@ const test = require('node:test');
 const { ProcessOwnershipStore } = require('../project-process');
 
 test('serves the setup tool over MCP stdio', async (t) => {
-  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-mcp-'));
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-mcp-'));
   const projectFolder = path.join(temporaryRoot, 'agent-app');
   const projectsFile = path.join(temporaryRoot, 'projects.json');
   const installedRoot = path.join(temporaryRoot, 'installed-bridge');
@@ -38,7 +38,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
   t.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
 
   const server = spawn(process.execPath, [path.join(installedMcpRoot, 'server.js')], {
-    env: { ...process.env, SWITCHBOARD_PROJECTS_FILE: projectsFile },
+    env: { ...process.env, RUNLIST_PROJECTS_FILE: projectsFile },
     stdio: ['pipe', 'pipe', 'pipe']
   });
   t.after(() => server.kill());
@@ -68,15 +68,15 @@ test('serves the setup tool over MCP stdio', async (t) => {
   const initialized = await request('initialize', {
     protocolVersion: '2025-11-25',
     capabilities: {},
-    clientInfo: { name: 'switchboard-test', version: '1.0.0' }
+    clientInfo: { name: 'runlist-test', version: '1.0.0' }
   });
-  assert.equal(initialized.result.serverInfo.name, 'switchboard-mcp-server');
+  assert.equal(initialized.result.serverInfo.name, 'runlist-mcp-server');
   assert.equal(initialized.result.serverInfo.version, require('../package.json').version);
   assert.match(initialized.result.instructions, /custom project name/i);
 
   const listed = await request('tools/list');
   assert.equal(listed.result.tools.length, 1);
-  assert.equal(listed.result.tools[0].name, 'switchboard_setup_project');
+  assert.equal(listed.result.tools[0].name, 'runlist_setup_project');
   assert.match(listed.result.tools[0].description, /custom name/i);
   assert.match(listed.result.tools[0].description, /reviews and approves/i);
   assert.match(listed.result.tools[0].inputSchema.properties.name.description, /friendly project name/i);
@@ -87,7 +87,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.match(listed.result.tools[0].inputSchema.properties.stopCommand.description, /advanced/i);
 
   const called = await request('tools/call', {
-    name: 'switchboard_setup_project',
+    name: 'runlist_setup_project',
     arguments: {
       name: 'Agent app',
       folder: projectFolder,
@@ -120,7 +120,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.equal(processOwnership.reserve(storedProjects[0].id), undefined);
   processOwnership.setProcess(storedProjects[0].id, process.pid);
   const blockedUpdate = await request('tools/call', {
-    name: 'switchboard_setup_project',
+    name: 'runlist_setup_project',
     arguments: {
       name: 'Agent app',
       folder: projectFolder,
@@ -133,7 +133,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
   processOwnership.release(storedProjects[0].id);
 
   const updated = await request('tools/call', {
-    name: 'switchboard_setup_project',
+    name: 'runlist_setup_project',
     arguments: {
       name: 'Agent app',
       folder: projectFolder,
@@ -150,7 +150,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.equal(updated.result.structuredContent.project.stopCommand, 'docker compose down');
 
   const invalid = await request('tools/call', {
-    name: 'switchboard_setup_project',
+    name: 'runlist_setup_project',
     arguments: {
       folder: 'relative/path',
       startCommand: 'npm run dev',
@@ -161,7 +161,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.match(invalid.result.content[0].text, /absolute path/);
 
   const missingServices = await request('tools/call', {
-    name: 'switchboard_setup_project',
+    name: 'runlist_setup_project',
     arguments: {
       folder: projectFolder,
       startCommand: 'npm run dev'
@@ -171,7 +171,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.match(missingServices.result.content[0].text, /at least one service and port/);
 
   const emptyServices = await request('tools/call', {
-    name: 'switchboard_setup_project',
+    name: 'runlist_setup_project',
     arguments: {
       folder: projectFolder,
       startCommand: 'npm run dev',
@@ -183,7 +183,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.match(emptyServices.result.content[0].text, /at least one service and port/);
 
   const unsafeUrl = await request('tools/call', {
-    name: 'switchboard_setup_project',
+    name: 'runlist_setup_project',
     arguments: {
       folder: projectFolder,
       startCommand: 'npm run dev',

@@ -19,7 +19,7 @@ function customStopSpawnOptions(platform = process.platform) {
 
 async function terminateProcessTree(pid, options = {}) {
   if (!Number.isInteger(pid) || pid <= 0) {
-    return Promise.reject(new Error('Switchboard no longer has a valid process identifier for this project.'));
+    return Promise.reject(new Error('Runlist no longer has a valid process identifier for this project.'));
   }
 
   const platform = options.platform || process.platform;
@@ -124,7 +124,7 @@ async function waitForProcessGroupExit(pid, kill, options) {
   const killDeadline = Date.now() + (options.killTimeoutMs ?? 1000);
   while (processGroupIsAlive(pid, kill)) {
     if (Date.now() >= killDeadline) {
-      throw new Error('the launched process tree did not exit after Switchboard terminated it.');
+      throw new Error('the launched process tree did not exit after Runlist terminated it.');
     }
     await delay(options.pollIntervalMs ?? 100);
   }

@@ -5,7 +5,7 @@ const { ProcessOwnershipStore } = require('../project-process');
 const { findProjectByFolder, upsertProject } = require('../project-store');
 const { version: SERVER_VERSION } = require('../package.json');
 
-const SERVER_NAME = 'switchboard-mcp-server';
+const SERVER_NAME = 'runlist-mcp-server';
 const LATEST_PROTOCOL_VERSION = '2025-11-25';
 const SUPPORTED_PROTOCOL_VERSIONS = new Set([
   '2025-11-25',
@@ -13,15 +13,15 @@ const SUPPORTED_PROTOCOL_VERSIONS = new Set([
   '2025-03-26',
   '2024-11-05'
 ]);
-const PROJECTS_FILE = process.env.SWITCHBOARD_PROJECTS_FILE;
+const PROJECTS_FILE = process.env.RUNLIST_PROJECTS_FILE;
 const processOwnership = PROJECTS_FILE
   ? new ProcessOwnershipStore(path.join(path.dirname(PROJECTS_FILE), 'process-ownership'))
   : undefined;
 
 const tool = {
-  name: 'switchboard_setup_project',
-  title: 'Set up a Switchboard project',
-  description: 'Add a local project to Switchboard, or update the existing entry for the same folder. You may give the project a friendly custom name and an advanced custom stop command. Switchboard normally stops only the process tree it launched. Before calling, identify every service the project starts and provide its explicit port. When the project explicitly defines an HTTP or HTTPS browser URL for a service, you may include it as an override. The saved setup remains blocked until the user reviews and approves it in Switchboard.',
+  name: 'runlist_setup_project',
+  title: 'Set up a Runlist project',
+  description: 'Add a local project to Runlist, or update the existing entry for the same folder. You may give the project a friendly custom name and an advanced custom stop command. Runlist normally stops only the process tree it launched. Before calling, identify every service the project starts and provide its explicit port. When the project explicitly defines an HTTP or HTTPS browser URL for a service, you may include it as an override. The saved setup remains blocked until the user reviews and approves it in Runlist.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -36,11 +36,11 @@ const tool = {
       },
       startCommand: {
         type: 'string',
-        description: 'Shell command Switchboard should execute to start this project.'
+        description: 'Shell command Runlist should execute to start this project.'
       },
       stopCommand: {
         type: 'string',
-        description: 'Optional advanced custom shell command for projects that daemonize or manage external services such as Docker or databases. Omit it for ordinary development servers so Switchboard stops only its launched process tree.'
+        description: 'Optional advanced custom shell command for projects that daemonize or manage external services such as Docker or databases. Omit it for ordinary development servers so Runlist stops only its launched process tree.'
       },
       services: {
         type: 'array',
@@ -111,7 +111,7 @@ const tool = {
     additionalProperties: false
   },
   annotations: {
-    title: 'Set up a Switchboard project',
+    title: 'Set up a Runlist project',
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: true,
@@ -161,11 +161,11 @@ function handleRequest(message) {
         capabilities: { tools: { listChanged: false } },
         serverInfo: {
           name: SERVER_NAME,
-          title: 'Switchboard',
+          title: 'Runlist',
           version: SERVER_VERSION,
-          description: 'Adds local projects to the Switchboard VS Code extension.'
+          description: 'Adds local projects to the Runlist VS Code extension.'
         },
-        instructions: 'Use switchboard_setup_project when the user asks to save a local project in Switchboard. Inspect the project first, identify every service it starts, and provide the absolute folder path, exact start command, and an explicit unique port for each service. Include an optional HTTP or HTTPS service URL only when the project defines it explicitly; never guess one. Omit stopCommand for ordinary development servers so Switchboard stops only the process tree it launched. Provide a custom stop command only when the project daemonizes or manages external services such as Docker or databases. You may also provide a friendly custom project name when the user requests one. Tell the user that Switchboard will require them to review and approve the saved setup before its commands can run.'
+        instructions: 'Use runlist_setup_project when the user asks to save a local project in Runlist. Inspect the project first, identify every service it starts, and provide the absolute folder path, exact start command, and an explicit unique port for each service. Include an optional HTTP or HTTPS service URL only when the project defines it explicitly; never guess one. Omit stopCommand for ordinary development servers so Runlist stops only the process tree it launched. Provide a custom stop command only when the project daemonizes or manages external services such as Docker or databases. You may also provide a friendly custom project name when the user requests one. Tell the user that Runlist will require them to review and approve the saved setup before its commands can run.'
       });
       break;
     case 'ping':
@@ -189,7 +189,7 @@ function callTool(message) {
     return;
   }
   if (!PROJECTS_FILE) {
-    toolError(message.id, 'Switchboard storage is unavailable. Restart VS Code and try again.');
+    toolError(message.id, 'Runlist storage is unavailable. Restart VS Code and try again.');
     return;
   }
 
@@ -232,13 +232,13 @@ function callTool(message) {
     result(message.id, {
       content: [{
         type: 'text',
-        text: `${saved.project.name} was ${saved.action} in Switchboard. The user must review and approve its folder and commands in the Switchboard sidebar before Start or Stop is available.\n${JSON.stringify(structuredContent)}`
+        text: `${saved.project.name} was ${saved.action} in Runlist. The user must review and approve its folder and commands in the Runlist sidebar before Start or Stop is available.\n${JSON.stringify(structuredContent)}`
       }],
       structuredContent,
       isError: false
     });
   } catch (toolFailure) {
-    toolError(message.id, `Could not set up the Switchboard project: ${toolFailure.message}`);
+    toolError(message.id, `Could not set up the Runlist project: ${toolFailure.message}`);
   }
 }
 

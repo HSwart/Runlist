@@ -1,6 +1,6 @@
 # Third-party notices
 
-Switchboard uses icon paths from Microsoft’s
+Runlist uses icon paths from Microsoft’s
 [VS Code Codicons](https://github.com/microsoft/vscode-codicons) project.
 
 MIT License

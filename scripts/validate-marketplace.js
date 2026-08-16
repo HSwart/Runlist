@@ -111,7 +111,7 @@ function validateMarketplace(root, options = {}) {
   if (!readme.includes('[MIT License](LICENSE)')) {
     errors.push('README.md must link to LICENSE');
   }
-  if (readme.includes('github.com/HSwart/Switchboard/releases/download/')) {
+  if (readme.includes('github.com/HSwart/Runlist/releases/download/')) {
     errors.push('README.md must use Marketplace installation instead of a direct VSIX download');
   }
   const marketplaceUrl = `https://marketplace.visualstudio.com/items?itemName=${manifest.publisher}.${manifest.name}`;
@@ -139,11 +139,11 @@ function validateMarketplace(root, options = {}) {
       errors.push(message);
     }
   }
-  if (!releaseGuide.includes('vsce publish --azure-credential --packagePath releases/switchboard.vsix')) {
+  if (!releaseGuide.includes('vsce publish --azure-credential --packagePath releases/runlist.vsix')) {
     errors.push('Marketplace release guide must publish the exact reviewed VSIX');
   }
 
-  for (const pattern of ['.env*', 'AGENTS.md', 'docs/**', 'scripts/**', 'test/**', 'media/switchboard-screenshot.png']) {
+  for (const pattern of ['.env*', 'AGENTS.md', 'docs/**', 'scripts/**', 'test/**', 'media/runlist-screenshot.png']) {
     if (!vscodeIgnore.split(/\r?\n/).includes(pattern)) {
       errors.push(`.vscodeignore must exclude ${pattern}`);
     }
