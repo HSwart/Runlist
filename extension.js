@@ -63,7 +63,9 @@ const {
 
 const STORAGE_KEY = 'switchboard.projects';
 const START_READINESS_TIMEOUT_MS = 30000;
-const REMOTE_STOP_TIMEOUT_MS = 15000;
+const STATUS_POLL_INTERVAL_MS = 2000;
+const CUSTOM_STOP_TIMEOUT_MS = 15000;
+const REMOTE_STOP_TIMEOUT_MS = CUSTOM_STOP_TIMEOUT_MS + STATUS_POLL_INTERVAL_MS + 1000;
 
 class SwitchboardViewProvider {
   constructor(context, projectsFile, serverPath) {
@@ -179,7 +181,7 @@ class SwitchboardViewProvider {
 
   startStatusMonitoring() {
     this.refreshProjectStatuses();
-    const timer = setInterval(() => this.refreshProjectStatuses(), 2000);
+    const timer = setInterval(() => this.refreshProjectStatuses(), STATUS_POLL_INTERVAL_MS);
     return { dispose: () => clearInterval(timer) };
   }
 
@@ -966,6 +968,7 @@ class SwitchboardViewProvider {
       });
       child.once('exit', (code, signal) => {
         if (this.processes.get(id) === child) {
+          const stoppedIntentionally = this.stoppingProjectIds.has(id);
           this.statusRevision += 1;
           this.processes.delete(id);
           this.processOwnership.release(id);
@@ -976,11 +979,13 @@ class SwitchboardViewProvider {
             this.projectStatuses.set(id, 'stopped');
             this.startReadinessDeadlines.delete(id);
             this.readinessWarnings.delete(id);
-            const detail = lastUsefulLine(stderr);
-            this.showStartFailure(
-              project,
-              detail || (signal ? `command was terminated by ${signal}.` : `command exited with code ${code}.`)
-            );
+            if (!stoppedIntentionally) {
+              const detail = lastUsefulLine(stderr);
+              this.showStartFailure(
+                project,
+                detail || (signal ? `command was terminated by ${signal}.` : `command exited with code ${code}.`)
+              );
+            }
             this.renderProjectList();
           } else {
             this.managedProjectIds.delete(id);
@@ -1195,7 +1200,7 @@ class SwitchboardViewProvider {
         stopProcess.kill();
         vscode.window.showErrorMessage(`Could not stop ${project.name}: the custom stop command did not finish.`);
         finalize(false);
-      }, 15000);
+      }, CUSTOM_STOP_TIMEOUT_MS);
 
       stopProcess.once('error', (error) => {
         vscode.window.showErrorMessage(`Could not stop ${project.name}: ${error.message}`);
