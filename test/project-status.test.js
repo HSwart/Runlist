@@ -6,6 +6,7 @@ const {
   isPortOpen,
   primaryServiceUrl,
   projectStatus,
+  serviceReadinessTimedOut,
   servicePortStatus,
   stoppableProjectIds
 } = require('../project-status');
@@ -36,7 +37,7 @@ test('detects an unmanaged app when all configured service ports are open', () =
   }), 'active');
 });
 
-test('preserves managed project status', () => {
+test('keeps managed services starting until every configured port is ready', () => {
   assert.equal(projectStatus({
     allOpen: true,
     anyOpen: true,
@@ -44,25 +45,32 @@ test('preserves managed project status', () => {
     managed: true
   }), 'running');
   assert.equal(projectStatus({
+    allOpen: false,
     anyOpen: true,
     hasServices: true,
-    managed: true
-  }), 'starting');
-  assert.equal(projectStatus({
-    hasServices: true,
     managed: true,
-    withinStartGrace: true
+    processActive: true
   }), 'starting');
   assert.equal(projectStatus({
     hasServices: true,
     managed: true,
     processActive: true
-  }), 'running');
+  }), 'starting');
   assert.equal(projectStatus({
     hasServices: true,
-    managed: true
-  }), 'running');
-  assert.equal(projectStatus({ managed: true }), 'running');
+    managed: true,
+    processActive: true,
+    readinessTimedOut: true
+  }), 'not-ready');
+  assert.equal(projectStatus({
+    anyOpen: true,
+    hasServices: true,
+    managed: true,
+    readinessTimedOut: true
+  }), 'not-ready');
+  assert.equal(projectStatus({ hasServices: true }), 'stopped');
+  assert.equal(projectStatus({ managed: true, processActive: true }), 'running');
+  assert.equal(projectStatus({}), 'stopped');
   assert.equal(projectStatus({ stopping: true }), 'stopping');
 });
 
@@ -92,6 +100,20 @@ test('reports known and ambiguous port conflicts from refresh-shaped status', ()
   }), 'port-in-use-unknown');
 });
 
+test('uses a bounded TCP readiness deadline', () => {
+  assert.equal(serviceReadinessTimedOut(1000, false, 999), false);
+  assert.equal(serviceReadinessTimedOut(1000, false, 1000), true);
+  assert.equal(serviceReadinessTimedOut(1000, true, 2000), false);
+  assert.equal(serviceReadinessTimedOut(undefined, false, 2000), false);
+});
+
+test('represents clean exits and no-service projects with process state', () => {
+  assert.equal(projectStatus({ hasServices: true, managed: false, processActive: false }), 'stopped');
+  assert.equal(projectStatus({ hasServices: false, managed: true, processActive: true }), 'running');
+  assert.equal(projectStatus({ hasServices: false, managed: true, processActive: false }), 'stopped');
+  assert.equal(projectStatus({ hasServices: false, managed: false, processActive: false }), 'stopped');
+});
+
 test('uses a safe primary service URL override or derives localhost from its port', () => {
   assert.equal(primaryServiceUrl([{
     name: 'web',
@@ -107,6 +129,7 @@ test('selects only projects that can be stopped together', () => {
   const projects = [
     { id: 'running', status: 'running' },
     { id: 'starting', status: 'starting' },
+    { id: 'not-ready', status: 'not-ready' },
     { id: 'active', status: 'active' },
     { id: 'pending-review', status: 'running', reviewRequired: true },
     { id: 'stopping', status: 'stopping' },
@@ -115,6 +138,6 @@ test('selects only projects that can be stopped together', () => {
     { id: 'unknown-owner', status: 'port-in-use-unknown' }
   ];
 
-  assert.deepEqual(stoppableProjectIds(projects), ['running', 'starting', 'active']);
+  assert.deepEqual(stoppableProjectIds(projects), ['running', 'starting', 'not-ready', 'active']);
   assert.deepEqual(stoppableProjectIds(), []);
 });

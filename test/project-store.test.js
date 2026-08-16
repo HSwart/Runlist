@@ -35,7 +35,7 @@ test('creates, updates, and removes projects in the shared store', (t) => {
     name: 'Sample web app',
     folder: projectFolder,
     startCommand: 'pnpm dev',
-    stopCommand: 'npm stop',
+    stopCommand: 'docker compose down',
     services: [{ name: 'web', port: 3001, url: ' https://app.local/dashboard ' }]
   });
 
@@ -43,7 +43,7 @@ test('creates, updates, and removes projects in the shared store', (t) => {
   assert.equal(updated.project.id, created.project.id);
   assert.equal(updated.project.name, 'Sample web app');
   assert.equal(readProjects(projectsFile)[0].startCommand, 'pnpm dev');
-  assert.equal(readProjects(projectsFile)[0].stopCommand, 'npm stop');
+  assert.equal(readProjects(projectsFile)[0].stopCommand, 'docker compose down');
   assert.equal(readProjects(projectsFile)[0].services[0].port, 3001);
   assert.equal(readProjects(projectsFile)[0].services[0].url, 'https://app.local/dashboard');
 
@@ -56,23 +56,20 @@ test('creates, updates, and removes projects in the shared store', (t) => {
 
   const updatedWithoutReviewOption = upsertProject(projectsFile, {
     folder: projectFolder,
-    startCommand: 'pnpm dev --host',
-    stopCommand: ''
+    startCommand: 'pnpm dev --host'
   });
   assert.equal(updatedWithoutReviewOption.project.reviewRequired, true);
 
   const approved = upsertProject(projectsFile, {
     id: created.project.id,
     folder: projectFolder,
-    startCommand: 'pnpm dev',
-    stopCommand: ''
+    startCommand: 'pnpm dev'
   }, { reviewRequired: false });
   assert.equal(approved.project.reviewRequired, false);
 
   const updatedWithoutName = upsertProject(projectsFile, {
     folder: projectFolder,
-    startCommand: 'pnpm dev',
-    stopCommand: ''
+    startCommand: 'pnpm dev'
   });
   assert.equal(updatedWithoutName.project.name, 'Sample web app');
 
@@ -87,8 +84,7 @@ test('creates, updates, and removes projects in the shared store', (t) => {
   const resetName = upsertProject(projectsFile, {
     name: '  ',
     folder: projectFolder,
-    startCommand: 'pnpm dev',
-    stopCommand: ''
+    startCommand: 'pnpm dev'
   });
   assert.equal(resetName.project.name, 'sample-app');
   assert.equal(removeProject(projectsFile, created.project.id), true);
@@ -141,8 +137,7 @@ test('rejects project folders that do not exist', (t) => {
   assert.throws(
     () => upsertProject(projectsFile, {
       folder: path.join(temporaryRoot, 'missing'),
-      startCommand: 'npm run dev',
-      stopCommand: ''
+      startCommand: 'npm run dev'
     }),
     /does not exist/
   );

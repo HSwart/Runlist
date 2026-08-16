@@ -16,7 +16,7 @@ const PROJECTS_FILE = process.env.SWITCHBOARD_PROJECTS_FILE;
 const tool = {
   name: 'switchboard_setup_project',
   title: 'Set up a Switchboard project',
-  description: 'Add a local project to Switchboard, or update the existing entry for the same folder. You may give the project a friendly custom name. Before calling, identify every service the project starts and provide its explicit port. When the project explicitly defines an HTTP or HTTPS browser URL for a service, you may include it as an override. The saved setup remains blocked until the user reviews and approves it in Switchboard.',
+  description: 'Add a local project to Switchboard, or update the existing entry for the same folder. You may give the project a friendly custom name and an advanced custom stop command. Switchboard normally stops only the process tree it launched. Before calling, identify every service the project starts and provide its explicit port. When the project explicitly defines an HTTP or HTTPS browser URL for a service, you may include it as an override. The saved setup remains blocked until the user reviews and approves it in Switchboard.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -35,7 +35,7 @@ const tool = {
       },
       stopCommand: {
         type: 'string',
-        description: 'Optional custom shell command for detached services, containers, or other advanced shutdown needs. Omit it to stop only the process tree Switchboard launches.'
+        description: 'Optional advanced custom shell command for projects that daemonize or manage external services such as Docker or databases. Omit it for ordinary development servers so Switchboard stops only its launched process tree.'
       },
       services: {
         type: 'array',
@@ -160,7 +160,7 @@ function handleRequest(message) {
           version: SERVER_VERSION,
           description: 'Adds local projects to the Switchboard VS Code extension.'
         },
-        instructions: 'Use switchboard_setup_project when the user asks to save a local project in Switchboard. Inspect the project first, identify every service it starts, and provide the absolute folder path, exact start command, and an explicit unique port for each service. Include an optional HTTP or HTTPS service URL only when the project defines it explicitly; never guess one. Provide a custom stop command only when the project needs an advanced shutdown workflow, such as a detached service or container. You may also provide a friendly custom project name when the user requests one. Tell the user that Switchboard will require them to review and approve the saved setup before its commands can run.'
+        instructions: 'Use switchboard_setup_project when the user asks to save a local project in Switchboard. Inspect the project first, identify every service it starts, and provide the absolute folder path, exact start command, and an explicit unique port for each service. Include an optional HTTP or HTTPS service URL only when the project defines it explicitly; never guess one. Omit stopCommand for ordinary development servers so Switchboard stops only the process tree it launched. Provide a custom stop command only when the project daemonizes or manages external services such as Docker or databases. You may also provide a friendly custom project name when the user requests one. Tell the user that Switchboard will require them to review and approve the saved setup before its commands can run.'
       });
       break;
     case 'ping':

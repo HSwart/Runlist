@@ -40,6 +40,10 @@ async function areServicesRunning(services) {
   return (await servicePortStatus(services)).allOpen;
 }
 
+function serviceReadinessTimedOut(deadline, allReady, now = Date.now()) {
+  return Number.isFinite(deadline) && now >= deadline && !allReady;
+}
+
 function projectStatus({
   ambiguousConflict = false,
   allOpen = false,
@@ -48,20 +52,14 @@ function projectStatus({
   knownConflict = false,
   managed = false,
   processActive = false,
+  readinessTimedOut = false,
   stopping = false,
-  withinStartGrace = false
 }) {
   if (stopping) {
     return 'stopping';
   }
-  if (managed && withinStartGrace) {
-    return 'starting';
-  }
-  if (managed && processActive) {
-    return 'running';
-  }
   if (!hasServices) {
-    return managed || processActive ? 'running' : 'stopped';
+    return processActive ? 'running' : 'stopped';
   }
   if (allOpen) {
     return managed
@@ -74,7 +72,7 @@ function projectStatus({
   }
   if (anyOpen) {
     return managed
-      ? 'starting'
+      ? readinessTimedOut ? 'not-ready' : 'starting'
       : knownConflict
         ? 'port-in-use'
         : ambiguousConflict
@@ -82,7 +80,7 @@ function projectStatus({
           : 'active';
   }
   if (managed) {
-    return 'running';
+    return readinessTimedOut ? 'not-ready' : 'starting';
   }
   return 'stopped';
 }
@@ -103,7 +101,7 @@ function primaryServiceUrl(services) {
 function stoppableProjectIds(projects) {
   return (projects || [])
     .filter((project) => !project.reviewRequired
-      && ['running', 'starting', 'active'].includes(project.status))
+      && ['running', 'starting', 'not-ready', 'active'].includes(project.status))
     .map((project) => project.id);
 }
 
@@ -112,6 +110,7 @@ module.exports = {
   isPortOpen,
   primaryServiceUrl,
   projectStatus,
+  serviceReadinessTimedOut,
   servicePortStatus,
   stoppableProjectIds
 };

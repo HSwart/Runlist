@@ -95,6 +95,8 @@ function statusSummaryHtml(projects) {
       && ['running', 'active'].includes(project.status)).length;
   const startingCount = projects
     .filter((project) => !project.reviewRequired && project.status === 'starting').length;
+  const notReadyCount = projects
+    .filter((project) => !project.reviewRequired && project.status === 'not-ready').length;
   const stoppingCount = projects
     .filter((project) => !project.reviewRequired && project.status === 'stopping').length;
   const stoppedCount = projects
@@ -102,7 +104,7 @@ function statusSummaryHtml(projects) {
   const conflictCount = projects
     .filter((project) => !project.reviewRequired
       && ['port-in-use', 'port-in-use-unknown'].includes(project.status)).length;
-  return `<span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running${startingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${startingCount} starting` : ''}${stoppingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${stoppingCount} stopping` : ''} <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped${reviewCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${reviewCount} to review` : ''}${conflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${conflictCount} unavailable` : ''}`;
+  return `<span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running${startingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${startingCount} starting` : ''}${notReadyCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notReadyCount} not ready` : ''}${stoppingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${stoppingCount} stopping` : ''} <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped${reviewCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${reviewCount} to review` : ''}${conflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${conflictCount} unavailable` : ''}`;
 }
 
 function renderList() {
@@ -147,6 +149,7 @@ function renderList() {
         const statusLabels = {
           running: 'Running',
           starting: 'Starting…',
+          'not-ready': 'Service not ready',
           stopping: 'Stopping…',
           active: 'Detected running',
           'port-in-use': conflict?.ownerName ? `Port in use by ${conflictOwnerName}` : 'Port in use',
@@ -158,7 +161,9 @@ function renderList() {
         const conflicted = ['port-in-use', 'port-in-use-unknown'].includes(projectStatus);
         const transitioning = ['starting', 'stopping'].includes(projectStatus);
         const canOpen = ['running', 'active'].includes(projectStatus) && project.services?.length;
-        const stopsProject = ['running', 'starting', 'active'].includes(projectStatus);
+        const canRestart = !reviewRequired
+          && ['running', 'not-ready', 'active'].includes(projectStatus);
+        const stopsProject = ['running', 'starting', 'not-ready', 'active'].includes(projectStatus);
         const blocked = conflicted;
         const action = reviewRequired ? 'edit' : stopsProject ? 'stop' : 'start';
         const actionLabel = reviewRequired
@@ -181,6 +186,8 @@ function renderList() {
           ? 'A coding agent added or updated this setup. Review its folder and commands before running it.'
           : projectStatus === 'active'
           ? 'Detected through a configured service port; Switchboard did not start this process.'
+          : projectStatus === 'not-ready'
+            ? 'The launched process is still running, but not every configured service port became ready in time. View recent output for details.'
           : projectStatus === 'port-in-use-unknown'
             ? `Port :${conflict?.port || 'unknown'} is shared with ${conflictProjectNames}. Switchboard cannot identify the running owner.`
             : projectStatus === 'port-in-use'
@@ -208,6 +215,9 @@ function renderList() {
                   </button>
                   <button data-action="output" data-id="${projectId}" role="menuitem">
                     ${icon('terminal', 'menu-icon')}<span>View output</span>
+                  </button>
+                  <button data-action="restart" data-id="${projectId}" role="menuitem" aria-label="Restart ${projectName}" ${canRestart ? '' : 'disabled'}>
+                    ${productIcon('loading', 'menu-icon')}<span>Restart</span>
                   </button>
                   <button data-action="edit" data-id="${projectId}" role="menuitem">
                     ${icon('edit', 'menu-icon')}<span>${reviewRequired ? 'Review setup' : 'Edit project'}</span>
@@ -400,10 +410,10 @@ function renderProjectForm(mode) {
         <input id="start-command" name="startCommand" value="${escapeHtml(state.draft.startCommand || '')}" placeholder="npm run dev" ${errorAttributes('start-command')}>
         ${fieldError('start-command')}
 
-        <label for="stop-command">Stop command <span class="optional-label">Optional</span></label>
-        <input id="stop-command" name="stopCommand" value="${escapeHtml(state.draft.stopCommand || '')}" placeholder="For detached services" ${errorAttributes('stop-command')}>
+        <label for="stop-command">Custom stop command <span class="optional-label">Optional</span></label>
+        <input id="stop-command" name="stopCommand" value="${escapeHtml(state.draft.stopCommand || '')}" placeholder="docker compose down" ${errorAttributes('stop-command')}>
         ${fieldError('stop-command')}
-        <p class="field-hint">Leave blank to stop only the process tree Switchboard starts.</p>
+        <p class="field-hint">Leave empty to stop only the process tree Switchboard started.</p>
 
         <fieldset id="services" class="service-editor" ${errors.services ? 'aria-invalid="true" aria-describedby="services-hint services-error" tabindex="-1"' : 'aria-describedby="services-hint"'}>
           <legend>Services <span class="optional-label">Optional</span></legend>
@@ -624,6 +634,7 @@ app.addEventListener('click', (event) => {
     delete: () => vscode.postMessage({ type: 'deleteProject', id: button.dataset.id }),
     start: () => vscode.postMessage({ type: 'startProject', id: button.dataset.id }),
     stop: () => vscode.postMessage({ type: 'stopProject', id: button.dataset.id }),
+    restart: () => vscode.postMessage({ type: 'restartProject', id: button.dataset.id }),
     'stop-all': () => {
       button.disabled = true;
       button.innerHTML = `${productIcon('loading', 'status-progress')}Stopping all…`;

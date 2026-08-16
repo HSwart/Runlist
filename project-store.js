@@ -128,7 +128,7 @@ function normalizeCommand(value, fieldName) {
 }
 
 function normalizeOptionalCommand(value, fieldName) {
-  if (value === undefined || value === '') {
+  if (value === undefined || value === null || value === '') {
     return undefined;
   }
   if (typeof value !== 'string') {

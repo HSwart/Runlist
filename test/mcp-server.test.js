@@ -73,7 +73,8 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.match(listed.result.tools[0].inputSchema.properties.services.items.properties.url.description, /optional.*HTTP or HTTPS/i);
   assert.ok(listed.result.tools[0].inputSchema.required.includes('services'));
   assert.equal(listed.result.tools[0].inputSchema.required.includes('stopCommand'), false);
-  assert.match(listed.result.tools[0].inputSchema.properties.stopCommand.description, /optional custom/i);
+  assert.match(listed.result.tools[0].inputSchema.properties.stopCommand.description, /optional.*custom/i);
+  assert.match(listed.result.tools[0].inputSchema.properties.stopCommand.description, /advanced/i);
 
   const called = await request('tools/call', {
     name: 'switchboard_setup_project',
@@ -109,7 +110,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
       name: 'Agent app',
       folder: projectFolder,
       startCommand: 'npm run dev -- --host',
-      stopCommand: 'npm stop',
+      stopCommand: 'docker compose down',
       services: [
         { name: 'web', port: 3000 },
         { name: 'api', port: 4000 }
@@ -117,8 +118,8 @@ test('serves the setup tool over MCP stdio', async (t) => {
     }
   });
   assert.equal(updated.result.structuredContent.action, 'updated');
-  assert.equal(updated.result.structuredContent.project.stopCommand, 'npm stop');
   assert.equal(updated.result.structuredContent.project.reviewRequired, true);
+  assert.equal(updated.result.structuredContent.project.stopCommand, 'docker compose down');
 
   const invalid = await request('tools/call', {
     name: 'switchboard_setup_project',

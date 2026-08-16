@@ -16,6 +16,7 @@ const {
 const {
   primaryServiceUrl,
   projectStatus,
+  serviceReadinessTimedOut,
   servicePortStatus,
   stoppableProjectIds
 } = require('./project-status');
@@ -26,7 +27,10 @@ const {
 } = require('./project-workspace');
 const {
   cleanupTrackedProcessForDeletion,
-  ownedProcessSpawnOptions,
+  customStopSpawnOptions,
+  ProcessOwnershipStore,
+  projectProcessSpawnOptions,
+  restartProjectSafely,
   terminateTrackedProcess
 } = require('./project-process');
 const {
@@ -56,7 +60,8 @@ const {
 } = require('./project-store');
 
 const STORAGE_KEY = 'switchboard.projects';
-const STARTING_DISPLAY_MS = 3000;
+const START_READINESS_TIMEOUT_MS = 30000;
+const REMOTE_STOP_TIMEOUT_MS = 15000;
 
 class SwitchboardViewProvider {
   constructor(context, projectsFile, serverPath) {
@@ -80,11 +85,17 @@ class SwitchboardViewProvider {
     this.portReservations = new PortReservationStore(
       path.join(path.dirname(projectsFile), 'port-reservations')
     );
+    this.processOwnership = new ProcessOwnershipStore(
+      path.join(path.dirname(projectsFile), 'process-ownership')
+    );
     this.startAttempts = new Map();
     this.projectPortConflicts = new Map();
     this.projectStatuses = new Map();
-    this.startGraceUntil = new Map();
+    this.startReadinessDeadlines = new Map();
+    this.readinessWarnings = new Set();
+    this.restartingProjectIds = new Set();
     this.stoppingProjectIds = new Set();
+    this.remoteStopRequests = new Map();
     this.statusRefreshInFlight = false;
     this.statusRevision = 0;
     this.skillSourceDirectory = path.join(context.extensionUri.fsPath, 'skills', 'switchboard');
@@ -177,15 +188,36 @@ class SwitchboardViewProvider {
     this.statusRefreshInFlight = true;
     const revision = this.statusRevision;
     try {
+      for (const id of this.processOwnership.consumeStopRequests()) {
+        const project = this.projects.find((candidate) => candidate.id === id);
+        void this.stopOwnedProjectProcess(id, project || { id, name: 'this project' });
+      }
       const now = Date.now();
       const projects = this.projects;
-      const sharedRuntime = this.portReservations.snapshot();
+      const portRuntime = this.portReservations.snapshot();
+      const processRuntime = this.processOwnership.snapshot();
+      for (const [id, request] of [...this.remoteStopRequests]) {
+        if (processRuntime.get(id)?.state !== 'stopping') {
+          this.remoteStopRequests.delete(id);
+          this.stoppingProjectIds.delete(id);
+        } else if (now - request.requestedAt >= REMOTE_STOP_TIMEOUT_MS) {
+          this.processOwnership.cancelStopRequest(id);
+          this.remoteStopRequests.delete(id);
+          this.stoppingProjectIds.delete(id);
+          vscode.window.showErrorMessage(
+            `Could not confirm that ${request.projectName} stopped: its launching VS Code window did not respond. Switchboard left the process ownership unchanged.`
+          );
+        }
+      }
+      const sharedRuntime = new Map([
+        ...portRuntime,
+        ...[...processRuntime].map(([id, ownership]) => [id, ownership.state])
+      ]);
       for (const id of [...this.managedProjectIds]) {
         if (!sharedRuntime.has(id)) {
-          terminateTrackedProcess(this.processes, id).catch(() => {});
           this.managedProjectIds.delete(id);
           this.portReservations.release(id);
-          this.startGraceUntil.delete(id);
+          this.startReadinessDeadlines.delete(id);
         }
       }
       const managedProjectIds = new Set([
@@ -197,11 +229,23 @@ class SwitchboardViewProvider {
         const portStatus = hasServices
           ? await servicePortStatus(project.services)
           : { allOpen: false, anyOpen: false, openPorts: [] };
+        const ownership = processRuntime.get(project.id);
+        const readinessDeadline = ownership?.readinessDeadline
+          || this.startReadinessDeadlines.get(project.id);
+        const readinessTimedOut = hasServices
+          && managedProjectIds.has(project.id)
+          && serviceReadinessTimedOut(readinessDeadline, portStatus.allOpen, now);
         if (portStatus.allOpen) {
-          this.startGraceUntil.delete(project.id);
+          this.startReadinessDeadlines.delete(project.id);
+          this.readinessWarnings.delete(project.id);
           if (this.managedProjectIds.has(project.id)) {
+            this.processOwnership.setState(project.id, 'running');
             this.portReservations.setState(project.id, 'running');
           }
+        } else if (readinessTimedOut && this.managedProjectIds.has(project.id)) {
+          this.processOwnership.setState(project.id, 'not-ready');
+          this.portReservations.setState(project.id, 'not-ready');
+          this.notifyServiceNotReady(project);
         }
         const sharedState = sharedRuntime.get(project.id);
         const conflict = occupiedPortConflict({
@@ -211,15 +255,15 @@ class SwitchboardViewProvider {
           openPorts: portStatus.openPorts
         });
         const status = projectStatus({
-          ...portStatus,
+          allOpen: portStatus.allOpen,
           ambiguousConflict: conflict?.kind === 'ambiguous',
+          anyOpen: portStatus.anyOpen,
           hasServices,
           knownConflict: conflict?.kind === 'managed',
           managed: managedProjectIds.has(project.id),
-          processActive: this.processes.has(project.id) || sharedState === 'running',
+          processActive: this.processes.has(project.id) || ownership?.processActive,
+          readinessTimedOut,
           stopping: this.stoppingProjectIds.has(project.id) || sharedState === 'stopping',
-          withinStartGrace: sharedState === 'starting'
-            || now < (this.startGraceUntil.get(project.id) || 0)
         });
         return [project.id, status, portConflictSummary(conflict)];
       }));
@@ -231,7 +275,8 @@ class SwitchboardViewProvider {
       for (const [id, status] of checks) {
         if (status === 'stopped') {
           this.managedProjectIds.delete(id);
-          this.startGraceUntil.delete(id);
+          this.startReadinessDeadlines.delete(id);
+          this.readinessWarnings.delete(id);
         }
       }
 
@@ -287,7 +332,10 @@ class SwitchboardViewProvider {
         await this.startProject(message.id);
         break;
       case 'stopProject':
-        this.stopProject(message.id);
+        await this.stopProject(message.id);
+        break;
+      case 'restartProject':
+        await this.restartProject(message.id);
         break;
       case 'stopAllProjects':
         this.stopAllProjects();
@@ -449,6 +497,39 @@ class SwitchboardViewProvider {
     }
   }
 
+  notifyServiceNotReady(project) {
+    if (this.readinessWarnings.has(project.id)) {
+      return;
+    }
+    this.readinessWarnings.add(project.id);
+    const seconds = Math.round(START_READINESS_TIMEOUT_MS / 1000);
+    const ports = project.services.map((service) => `:${service.port}`).join(', ');
+    this.addProjectOutput(
+      project.id,
+      `Switchboard: configured service ports ${ports} were not all ready within ${seconds} seconds.\n`
+    );
+    void vscode.window.showWarningMessage(
+      `${project.name} is still running, but its configured services were not ready within ${seconds} seconds.`,
+      'View output'
+    ).then((choice) => {
+      if (choice === 'View output') {
+        this.showProjectOutput(project.id);
+      }
+    });
+  }
+
+  showStartFailure(project, detail) {
+    this.addProjectOutput(project.id, `Switchboard: start failed — ${detail}\n`);
+    void vscode.window.showErrorMessage(
+      `Could not start ${project.name}: ${detail}`,
+      'View output'
+    ).then((choice) => {
+      if (choice === 'View output') {
+        this.showProjectOutput(project.id);
+      }
+    });
+  }
+
   sendProjectOutput(id) {
     if (this.mode !== 'output' || this.selectedProjectId !== id) {
       return;
@@ -602,7 +683,8 @@ class SwitchboardViewProvider {
       return;
     }
 
-    const detail = this.processes.has(id)
+    const sharedOwnership = this.processOwnership.snapshot().get(id);
+    const detail = this.processes.has(id) || sharedOwnership
       ? 'This removes the saved project from Switchboard and stops its running process. Project files are not deleted.'
       : 'This removes the saved project from Switchboard. Project files are not deleted.';
     const choice = await vscode.window.showWarningMessage(
@@ -617,17 +699,32 @@ class SwitchboardViewProvider {
     }
 
     const latestProject = this.projects.find((item) => item.id === id);
+    const hadTrackedProcess = this.processes.has(id);
     try {
-      await cleanupTrackedProcessForDeletion(
-        this.processes,
-        id,
-        latestProject,
-        (approvedProject) => this.stopProject(id, approvedProject)
-      );
+      if (hadTrackedProcess) {
+        const stopped = await cleanupTrackedProcessForDeletion(
+          this.processes,
+          id,
+          latestProject,
+          (approvedProject) => this.stopProject(id, approvedProject)
+        );
+        if (!stopped) {
+          return;
+        }
+      } else if (sharedOwnership) {
+        const stopRequested = await this.stopProject(id, latestProject);
+        if (!stopRequested || !await this.waitForProjectStopCompletion(id)) {
+          vscode.window.showErrorMessage(
+            `Could not delete ${project.name}: Switchboard could not confirm that its launched process stopped.`
+          );
+          return;
+        }
+      }
     } catch (error) {
       vscode.window.showErrorMessage(`Could not stop ${project.name}: ${error.message}`);
       return;
     }
+    this.processOwnership.release(id);
 
     removeProject(this.projectsFile, id);
     const remainingProjects = projects.filter((item) => item.id !== id);
@@ -638,8 +735,10 @@ class SwitchboardViewProvider {
     this.releaseStartReservation(id);
     this.projectStatuses.delete(id);
     this.projectPortConflicts.delete(id);
-    this.startGraceUntil.delete(id);
+    this.startReadinessDeadlines.delete(id);
+    this.readinessWarnings.delete(id);
     this.stoppingProjectIds.delete(id);
+    this.remoteStopRequests.delete(id);
     this.projectOutputs.delete(id);
     if (this.selectedProjectId === id) {
       this.outputUpdateScheduler.cancel();
@@ -653,6 +752,21 @@ class SwitchboardViewProvider {
       : { type: 'action', action: 'show-add' };
     this.selectedProjectId = undefined;
     this.render();
+  }
+
+  async waitForProjectStopCompletion(id) {
+    const deadline = Date.now() + REMOTE_STOP_TIMEOUT_MS + 1000;
+    while (this.processOwnership.snapshot().has(id) || this.portReservations.snapshot().has(id)) {
+      if (Date.now() >= deadline) {
+        return false;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    this.remoteStopRequests.delete(id);
+    this.stoppingProjectIds.delete(id);
+    this.managedProjectIds.delete(id);
+    this.projectStatuses.set(id, 'stopped');
+    return true;
   }
 
   releaseStartReservation(id) {
@@ -680,8 +794,17 @@ class SwitchboardViewProvider {
       return;
     }
 
+    const ownershipConflict = this.processOwnership.reserve(id);
+    if (ownershipConflict) {
+      vscode.window.showWarningMessage(ownershipConflict.kind === 'uncertain'
+        ? `Switchboard cannot safely verify who owns ${project.name}'s previous process. Close it manually before starting again.`
+        : `${project.name} is already running in another VS Code window.`);
+      return;
+    }
+
     const reservationConflict = this.portReservations.reserve(project);
     if (reservationConflict) {
+      this.processOwnership.release(id);
       const owner = projects.find((candidate) => candidate.id === reservationConflict.projectId);
       vscode.window.showWarningMessage(
         `${owner?.name || 'Another Switchboard project'} is using port :${reservationConflict.port}. Stop it before starting ${project.name}.`
@@ -710,6 +833,7 @@ class SwitchboardViewProvider {
         openPorts: portStatus.openPorts
       });
       this.statusRevision += 1;
+      this.processOwnership.release(id);
       this.releaseStartReservation(id);
       this.projectStatuses.set(id, conflict?.kind === 'managed'
         ? 'port-in-use'
@@ -727,20 +851,30 @@ class SwitchboardViewProvider {
 
     try {
       this.managedProjectIds.add(id);
-      this.projectStatuses.set(id, 'starting');
-      this.startGraceUntil.set(id, Date.now() + STARTING_DISPLAY_MS);
+      const hasServices = Boolean(project.services?.length);
+      const readinessDeadline = hasServices
+        ? Date.now() + START_READINESS_TIMEOUT_MS
+        : undefined;
+      this.projectStatuses.set(id, hasServices ? 'starting' : 'running');
+      if (readinessDeadline) {
+        this.startReadinessDeadlines.set(id, readinessDeadline);
+      }
       this.projectOutputs.set(id, '');
       const child = spawn(project.startCommand, {
         cwd: project.folder,
         shell: true,
         stdio: ['ignore', 'pipe', 'pipe'],
         env: process.env,
-        ...ownedProcessSpawnOptions()
+        ...projectProcessSpawnOptions()
       });
 
       this.processes.set(id, child);
+      this.processOwnership.setProcess(id, child.pid, {
+        state: hasServices ? 'starting' : 'running',
+        readinessDeadline
+      });
       this.startAttempts.delete(id);
-      this.portReservations.setState(id, 'running');
+      this.portReservations.setState(id, hasServices ? 'starting' : 'running');
       this.statusRevision += 1;
       let stderr = '';
       listenToProjectOutput(child, (chunk) => this.addProjectOutput(id, chunk));
@@ -752,32 +886,40 @@ class SwitchboardViewProvider {
         this.statusRevision += 1;
         this.processes.delete(id);
         this.managedProjectIds.delete(id);
+        this.processOwnership.release(id);
         this.portReservations.releaseShared(id);
         this.releaseStartReservation(id);
         this.projectStatuses.set(id, 'stopped');
-        this.startGraceUntil.delete(id);
-        this.addProjectOutput(id, `Switchboard could not start this project: ${error.message}\n`);
-        vscode.window.showErrorMessage(`Could not start ${project.name}: ${error.message}`);
+        this.startReadinessDeadlines.delete(id);
+        this.readinessWarnings.delete(id);
+        this.showStartFailure(project, error.message);
         this.renderProjectList();
       });
-      child.once('exit', (code) => {
+      child.once('exit', (code, signal) => {
         if (this.processes.get(id) === child) {
           this.statusRevision += 1;
           this.processes.delete(id);
+          this.processOwnership.release(id);
           if (code !== 0) {
             this.managedProjectIds.delete(id);
             this.portReservations.releaseShared(id);
             this.releaseStartReservation(id);
             this.projectStatuses.set(id, 'stopped');
-            this.startGraceUntil.delete(id);
+            this.startReadinessDeadlines.delete(id);
+            this.readinessWarnings.delete(id);
             const detail = lastUsefulLine(stderr);
-            vscode.window.showErrorMessage(
-              `Could not start ${project.name}: ${detail || `command exited with code ${code}.`}`
+            this.showStartFailure(
+              project,
+              detail || (signal ? `command was terminated by ${signal}.` : `command exited with code ${code}.`)
             );
             this.renderProjectList();
           } else {
-            this.startGraceUntil.delete(id);
-            this.projectStatuses.set(id, 'running');
+            this.managedProjectIds.delete(id);
+            this.portReservations.releaseShared(id);
+            this.releaseStartReservation(id);
+            this.startReadinessDeadlines.delete(id);
+            this.readinessWarnings.delete(id);
+            this.projectStatuses.set(id, 'stopped');
             this.renderProjectList();
           }
           this.refreshProjectStatuses();
@@ -787,121 +929,197 @@ class SwitchboardViewProvider {
     } catch (error) {
       this.statusRevision += 1;
       this.managedProjectIds.delete(id);
+      this.processOwnership.release(id);
       this.portReservations.releaseShared(id);
       this.releaseStartReservation(id);
       this.projectStatuses.set(id, 'stopped');
-      this.startGraceUntil.delete(id);
-      vscode.window.showErrorMessage(`Could not start ${project.name}: ${error.message}`);
+      this.startReadinessDeadlines.delete(id);
+      this.readinessWarnings.delete(id);
+      this.showStartFailure(project, error.message);
       this.renderProjectList();
     }
   }
 
-  stopProject(id, projectSnapshot) {
+  async stopProject(id, projectSnapshot) {
     const project = projectSnapshot || this.projects.find((item) => item.id === id);
     if (!project) {
-      return;
+      return false;
     }
     if (project.reviewRequired) {
       vscode.window.showWarningMessage(`Review and approve ${project.name}'s setup before running its commands.`);
       this.showEditProject(id);
-      return;
+      return false;
     }
 
     if (this.startAttempts.has(id)) {
       this.statusRevision += 1;
-      this.portReservations.releaseShared(id);
+      this.processOwnership.release(id);
       this.releaseStartReservation(id);
       this.projectStatuses.set(id, 'stopped');
       this.renderProjectList();
-      return;
+      return true;
     }
 
     if (this.getProjectStatus(id) === 'stopping') {
-      return;
+      return false;
     }
 
+    if (project.stopCommand) {
+      const customStopSucceeded = await this.runCustomStopCommand(project);
+      if (!customStopSucceeded) {
+        return false;
+      }
+    }
+
+    return this.stopOwnedProjectProcess(id, project, { allowMissing: Boolean(project.stopCommand) });
+  }
+
+  async restartProject(id) {
+    return restartProjectSafely(this.restartingProjectIds, id, {
+      canRestart: () => {
+        const sharedState = this.processOwnership.snapshot().get(id)?.state
+          || this.portReservations.snapshot().get(id);
+        return ['running', 'not-ready', 'active'].includes(this.getProjectStatus(id))
+          && !['starting', 'stopping'].includes(sharedState);
+      },
+      stop: () => this.stopProject(id),
+      waitForStop: () => this.waitForProjectStopCompletion(id),
+      start: () => this.startProject(id)
+    });
+  }
+
+  beginStopping(id) {
     this.stoppingProjectIds.add(id);
+    this.processOwnership.setState(id, 'stopping');
     this.portReservations.setState(id, 'stopping');
     this.statusRevision += 1;
     this.projectStatuses.set(id, 'stopping');
-    this.startGraceUntil.delete(id);
+    this.renderProjectList();
+  }
 
-    let finalized = false;
-    const finalizeStop = (succeeded) => {
-      if (finalized) {
-        return;
-      }
-      finalized = true;
-      this.stoppingProjectIds.delete(id);
-      this.statusRevision += 1;
-      if (succeeded) {
-        this.managedProjectIds.delete(id);
-        this.portReservations.releaseShared(id);
-        this.releaseStartReservation(id);
-      } else {
-        this.portReservations.setState(id, 'running');
-      }
-      this.projectStatuses.set(id, succeeded ? 'stopped' : 'active');
+  finishStopping(id, succeeded) {
+    this.stoppingProjectIds.delete(id);
+    this.statusRevision += 1;
+    if (succeeded) {
+      this.managedProjectIds.delete(id);
+      this.processOwnership.release(id);
+      this.releaseStartReservation(id);
+    } else {
+      const project = this.projects.find((candidate) => candidate.id === id);
+      const hasServices = Boolean(project?.services?.length);
+      const readinessTimedOut = hasServices
+        && Date.now() >= (this.startReadinessDeadlines.get(id) || Infinity);
+      const state = hasServices
+        ? readinessTimedOut ? 'not-ready' : 'starting'
+        : 'running';
+      this.processOwnership.setState(id, state);
+      this.portReservations.setState(id, state);
+      this.projectStatuses.set(id, state);
+    }
+    if (succeeded) {
+      this.startReadinessDeadlines.delete(id);
+      this.readinessWarnings.delete(id);
+      this.projectStatuses.set(id, 'stopped');
+    }
+    this.renderProjectList();
+    setTimeout(() => this.refreshProjectStatuses(), 250);
+  }
+
+  async stopOwnedProjectProcess(id, project, options = {}) {
+    if (this.startAttempts.has(id)) {
+      this.processOwnership.release(id);
+      this.releaseStartReservation(id);
+      this.projectStatuses.set(id, 'stopped');
       this.renderProjectList();
-      setTimeout(() => this.refreshProjectStatuses(), 250);
-    };
-
-    if (!project.stopCommand) {
-      if (!this.processes.has(id)) {
-        vscode.window.showErrorMessage(
-          `Could not stop ${project.name}: Switchboard does not have the process handle from the VS Code window that started it. No process was stopped. Add a custom stop command if the project detaches from its launcher.`
-        );
-        finalizeStop(false);
-        return;
+      return true;
+    }
+    if (this.processes.has(id)) {
+      this.beginStopping(id);
+      try {
+        await terminateTrackedProcess(this.processes, id);
+        this.finishStopping(id, true);
+        return true;
+      } catch (error) {
+        vscode.window.showErrorMessage(`Could not stop ${project.name}: ${error.message}`);
+        this.finishStopping(id, false);
+        return false;
       }
-      terminateTrackedProcess(this.processes, id).then(
-        () => finalizeStop(true),
-        (error) => {
-          vscode.window.showErrorMessage(`Could not stop ${project.name}: ${error.message}`);
-          finalizeStop(false);
-        }
-      );
-      return;
     }
 
-    const stopProcess = spawn(project.stopCommand, {
-      cwd: project.folder,
-      shell: true,
-      stdio: ['ignore', 'ignore', 'pipe'],
-      env: process.env
-    });
+    const request = this.processOwnership.requestStop(id);
+    if (request.kind === 'requested') {
+      this.remoteStopRequests.set(id, { projectName: project.name, requestedAt: Date.now() });
+      this.beginStopping(id);
+      return true;
+    }
+    if (request.kind === 'local') {
+      vscode.window.showErrorMessage(
+        `Could not stop ${project.name}: Switchboard lost its tracked process details. The process was left running.`
+      );
+      return false;
+    }
+    if (request.kind === 'uncertain') {
+      vscode.window.showErrorMessage(
+        `Could not stop ${project.name}: its launching VS Code window is unavailable, so Switchboard cannot safely verify the process owner. The process was left running.`
+      );
+      return false;
+    }
+    if (options.allowMissing) {
+      this.finishStopping(id, true);
+      return true;
+    }
 
-    let stderr = '';
-    stopProcess.stderr?.setEncoding('utf8');
-    stopProcess.stderr?.on('data', (chunk) => {
-      stderr = `${stderr}${chunk}`.slice(-2000);
-    });
-    const stopTimeout = setTimeout(() => {
-      stopProcess.kill();
-      vscode.window.showErrorMessage(`Could not stop ${project.name}: the stop command did not finish.`);
-      finalizeStop(false);
-    }, 15000);
-    const finalizeCustomStop = (succeeded) => {
-      clearTimeout(stopTimeout);
-      finalizeStop(succeeded);
-    };
+    vscode.window.showErrorMessage(
+      `Could not stop ${project.name}: Switchboard does not own a launched process for it. No process was stopped.`
+    );
+    return false;
+  }
 
-    stopProcess.once('error', (error) => {
-      vscode.window.showErrorMessage(`Could not stop ${project.name}: ${error.message}`);
-      finalizeCustomStop(false);
-    });
-    stopProcess.once('exit', (code) => {
-      if (code !== 0) {
-        const detail = lastUsefulLine(stderr);
-        vscode.window.showErrorMessage(
-          `Could not stop ${project.name}: ${detail || `command exited with code ${code}.`}`
-        );
-      }
-      finalizeCustomStop(code === 0);
-    });
+  runCustomStopCommand(project) {
+    this.beginStopping(project.id);
+    return new Promise((resolve) => {
+      const stopProcess = spawn(project.stopCommand, {
+        cwd: project.folder,
+        env: process.env,
+        ...customStopSpawnOptions()
+      });
+      let finalized = false;
+      let stderr = '';
+      stopProcess.stderr?.setEncoding('utf8');
+      stopProcess.stderr?.on('data', (chunk) => {
+        stderr = `${stderr}${chunk}`.slice(-2000);
+      });
+      const finalize = (succeeded) => {
+        if (finalized) {
+          return;
+        }
+        finalized = true;
+        clearTimeout(stopTimeout);
+        if (!succeeded) {
+          this.finishStopping(project.id, false);
+        }
+        resolve(succeeded);
+      };
+      const stopTimeout = setTimeout(() => {
+        stopProcess.kill();
+        vscode.window.showErrorMessage(`Could not stop ${project.name}: the custom stop command did not finish.`);
+        finalize(false);
+      }, 15000);
 
-    terminateTrackedProcess(this.processes, id).catch(() => {});
-    this.renderProjectList();
+      stopProcess.once('error', (error) => {
+        vscode.window.showErrorMessage(`Could not stop ${project.name}: ${error.message}`);
+        finalize(false);
+      });
+      stopProcess.once('exit', (code) => {
+        if (code !== 0) {
+          const detail = lastUsefulLine(stderr);
+          vscode.window.showErrorMessage(
+            `Could not stop ${project.name}: ${detail || `custom stop command exited with code ${code}.`}`
+          );
+        }
+        finalize(code === 0);
+      });
+    });
   }
 
   stopAllProjects() {
@@ -979,6 +1197,12 @@ class SwitchboardViewProvider {
   }
 
   dispose() {
+    for (const id of [...this.processes.keys()]) {
+      void terminateTrackedProcess(this.processes, id).then(
+        () => this.processOwnership.release(id),
+        () => {}
+      );
+    }
     this.portReservations.dispose();
   }
 }
