@@ -2,8 +2,8 @@
   "name": "switchboard",
   "displayName": "Switchboard",
   "description": "Control local projects across repositories from one focused sidebar.",
-  "version": "0.0.1",
-  "publisher": "local",
+  "version": "0.0.2",
+  "publisher": "hankoswart",
   "license": "SEE LICENSE IN LICENSE",
   "preview": true,
   "icon": "media/switchboard.png",
@@ -110,7 +110,7 @@
     "test": "node --test",
     "validate:marketplace": "node scripts/validate-marketplace.js --preparation",
     "validate:marketplace:publish": "node scripts/validate-marketplace.js",
-    "package": "npm run validate:marketplace && vsce package --no-dependencies --out releases/switchboard.vsix"
+    "package": "npm run validate:marketplace:publish && vsce package --no-dependencies --out releases/switchboard.vsix"
   },
   "devDependencies": {
     "@vscode/vsce": "3.9.2"

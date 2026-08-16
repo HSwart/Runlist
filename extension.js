@@ -1448,6 +1448,10 @@ function installMcpBridge(context) {
     vscode.Uri.joinPath(context.extensionUri, 'project-process.js').fsPath,
     path.join(storageRoot, 'project-process.js')
   );
+  fs.copyFileSync(
+    vscode.Uri.joinPath(context.extensionUri, 'package.json').fsPath,
+    path.join(storageRoot, 'package.json')
+  );
   return serverPath;
 }
 

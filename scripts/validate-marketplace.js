@@ -39,6 +39,7 @@ function validateMarketplace(root, options = {}) {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
   const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
+  const security = fs.readFileSync(path.join(root, 'SECURITY.md'), 'utf8');
   const releaseGuide = fs.readFileSync(path.join(root, 'docs', 'marketplace-release.md'), 'utf8');
   const vscodeIgnore = fs.readFileSync(path.join(root, '.vscodeignore'), 'utf8');
 
@@ -110,21 +111,19 @@ function validateMarketplace(root, options = {}) {
   if (!readme.includes('[MIT License](LICENSE)')) {
     errors.push('README.md must link to LICENSE');
   }
-  if (!readme.includes(`releases/download/v${manifest.version}/switchboard.vsix`)) {
-    errors.push('README.md GitHub fallback must match the manifest version');
+  if (readme.includes('github.com/HSwart/Switchboard/releases/download/')) {
+    errors.push('README.md must use Marketplace installation instead of a direct VSIX download');
   }
-  const marketplaceUnavailable = readme.includes('Switchboard is not listed in the VS Code Marketplace yet.');
-  if (manifest.publisher === PLACEHOLDER_PUBLISHER && !marketplaceUnavailable) {
-    errors.push('README.md must not imply Marketplace availability before publication');
+  const marketplaceUrl = `https://marketplace.visualstudio.com/items?itemName=${manifest.publisher}.${manifest.name}`;
+  if (!readme.includes('### Install from the VS Code Marketplace')) {
+    errors.push('README.md must explain how to install from the VS Code Marketplace');
   }
-  if (manifest.publisher !== PLACEHOLDER_PUBLISHER) {
-    const marketplaceUrl = `https://marketplace.visualstudio.com/items?itemName=${manifest.publisher}.${manifest.name}`;
-    if (marketplaceUnavailable) {
-      errors.push('README.md must remove the pre-publication Marketplace notice');
-    }
-    if (!readme.includes(marketplaceUrl)) {
-      errors.push('README.md must link to the official Marketplace listing');
-    }
+  const marketplaceLinks = readme.match(/https:\/\/marketplace\.visualstudio\.com\/items\?itemName=[^)"<\s]+/g) || [];
+  if (marketplaceLinks.some((link) => link !== marketplaceUrl)) {
+    errors.push('README.md Marketplace links must use the manifest publisher and extension name');
+  }
+  if (!security.includes(`| ${manifest.version} | Yes |`)) {
+    errors.push('SECURITY.md must mark the manifest version as supported');
   }
   if (!changelog.includes(`## ${manifest.version}`)) {
     errors.push('CHANGELOG.md must include the manifest version');
@@ -144,7 +143,7 @@ function validateMarketplace(root, options = {}) {
     errors.push('Marketplace release guide must publish the exact reviewed VSIX');
   }
 
-  for (const pattern of ['.env*', 'AGENTS.md', 'docs/**', 'scripts/**', 'test/**', 'media/switchboard-preview.png']) {
+  for (const pattern of ['.env*', 'AGENTS.md', 'docs/**', 'scripts/**', 'test/**', 'media/switchboard-screenshot.png']) {
     if (!vscodeIgnore.split(/\r?\n/).includes(pattern)) {
       errors.push(`.vscodeignore must exclude ${pattern}`);
     }

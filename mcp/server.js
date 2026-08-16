@@ -3,9 +3,9 @@ const readline = require('readline');
 const path = require('path');
 const { ProcessOwnershipStore } = require('../project-process');
 const { findProjectByFolder, upsertProject } = require('../project-store');
+const { version: SERVER_VERSION } = require('../package.json');
 
 const SERVER_NAME = 'switchboard-mcp-server';
-const SERVER_VERSION = '0.0.1';
 const LATEST_PROTOCOL_VERSION = '2025-11-25';
 const SUPPORTED_PROTOCOL_VERSIONS = new Set([
   '2025-11-25',

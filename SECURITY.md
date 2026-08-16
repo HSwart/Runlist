@@ -8,7 +8,7 @@ Security updates are provided for the latest published version of Switchboard.
 
 | Version | Supported |
 | --- | --- |
-| 0.0.1 | Yes |
+| 0.0.2 | Yes |
 | Earlier versions | No |
 
 ## Report a vulnerability privately

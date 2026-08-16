@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.0.2 — Marketplace release
 
 - Refresh detected-running and port-conflict status consistently across VS Code windows.
 - Add the current VS Code workspace directly from the project form.
