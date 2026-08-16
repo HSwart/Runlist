@@ -109,7 +109,7 @@ Runlist keeps the everyday controls simple:
 | **Preview app** | A chevron appears at the far right when any configured web service responds, even while another service is still starting. Runlist uses the first responding web service in the saved order. Expand it to load one live preview beneath the project; collapsing or losing that service unloads it. Some apps block embedded views, so Open in browser remains available. |
 | **Resource use** | Shows current CPU and memory inside an expanded preview when this VS Code window started the project. Runlist stops measuring when the preview closes or ownership is uncertain. |
 | **View output** | Summarizes a failed start above the unchanged raw log, highlights common log levels, opens web links, and lets you copy output from the latest run. If you scroll up, Runlist keeps your place and offers a **Latest** button when new output arrives. |
-| **…** | Opens the app, project folder, a terminal in that folder, recent output, edit screen, or remove action. |
+| **…** | Opens the app or project folder, opens a terminal in that folder, copies the saved project path, and provides recent output, edit, or remove actions. |
 
 Removing a project from Runlist does **not** delete the project or any of its files.
 

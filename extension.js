@@ -24,6 +24,7 @@ const {
   stoppableProjectIds
 } = require('./project-status');
 const {
+  copyProjectPath: writeProjectPathToClipboard,
   openProjectInNewWindow,
   openProjectTerminal,
   projectFolderIsAccessible
@@ -429,6 +430,9 @@ class RunlistViewProvider {
         break;
       case 'openProjectTerminal':
         await this.openProjectTerminal(message.id);
+        break;
+      case 'copyProjectPath':
+        await this.copyProjectPath(message.id);
         break;
       case 'copyServiceUrl':
         await this.copyServiceUrl(message.id, Number(message.port));
@@ -894,6 +898,23 @@ class RunlistViewProvider {
       openProjectTerminal(vscode, project.folder);
     } catch {
       await vscode.window.showErrorMessage(`Could not open a terminal for ${project.name}.`);
+      this.focusTarget = { type: 'project-menu', id };
+      this.renderProjectList();
+    }
+  }
+
+  async copyProjectPath(id) {
+    const project = this.projects.find((item) => item.id === id);
+    if (!project) {
+      return;
+    }
+
+    try {
+      await writeProjectPathToClipboard(vscode, project.folder);
+      vscode.window.showInformationMessage(`Copied ${project.name} path.`);
+    } catch {
+      vscode.window.showErrorMessage(`Could not copy the path for ${project.name}.`);
+    } finally {
       this.focusTarget = { type: 'project-menu', id };
       this.renderProjectList();
     }

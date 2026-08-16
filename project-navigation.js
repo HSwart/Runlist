@@ -26,7 +26,12 @@ function openProjectTerminal(vscode, folder) {
   return terminal;
 }
 
+function copyProjectPath(vscode, folder) {
+  return vscode.env.clipboard.writeText(folder);
+}
+
 module.exports = {
+  copyProjectPath,
   openProjectInNewWindow,
   openProjectTerminal,
   projectFolderIsAccessible
