@@ -2,6 +2,7 @@ const { stripVTControlCharacters } = require('util');
 
 const MAX_PROJECT_OUTPUT_CHARS = 20000;
 const MAX_FAILURE_MESSAGE_CHARS = 500;
+const MAX_OUTPUT_PEEK_LINE_CHARS = 400;
 
 function appendProjectOutput(current, chunk, limit = MAX_PROJECT_OUTPUT_CHARS) {
   const output = `${current || ''}${String(chunk || '')}`;
@@ -214,6 +215,34 @@ function formatProjectOutput(output) {
   return sanitizeProjectOutput(output).split(/\r?\n/).map(formatOutputLine);
 }
 
+function projectOutputPeek(output, limit = 3) {
+  if (!output || limit <= 0) {
+    return [];
+  }
+  const lines = sanitizeProjectOutput(output)
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim());
+  const useful = lines.filter((line) => !outputPeekNoise(line));
+  const selected = (useful.length ? useful : lines).slice(-limit);
+  return selected.map((line) => {
+    const entry = formatOutputLine(line);
+    const message = String(entry.message || '');
+    return {
+      ...entry,
+      message: message.length > MAX_OUTPUT_PEEK_LINE_CHARS
+        ? `${message.slice(0, MAX_OUTPUT_PEEK_LINE_CHARS - 1)}…`
+        : message
+    };
+  });
+}
+
+function outputPeekNoise(line) {
+  return /^\s*(?:\$\s|>\s+\S+@\S+\s+\S+)/.test(line)
+    || /^\s*\[[^\]\r\n]{1,40}\]\s+\$\s/.test(line)
+    || /^\s*Runlist:\s+start failed\s+[—-]\s+\$/i.test(line);
+}
+
 function startFailureSummary(output, details = {}) {
   const boundedOutput = appendProjectOutput('', output, MAX_PROJECT_OUTPUT_CHARS);
   const lines = sanitizeProjectOutput(boundedOutput)
@@ -324,9 +353,9 @@ function formatOutputLine(line) {
     return structuredEntry(message, fields.level, fields.time || fields.timestamp);
   }
 
-  const severityMatch = line.match(/^\s*\[?(error|warn(?:ing)?|info|debug|success)\]?\s*[:\-]?\s+(.+)$/i);
+  const severityMatch = line.match(/^\s*((?:\[[^\]\r\n]{1,40}\]\s*)*)\[?(error|warn(?:ing)?|info|debug|success)\]?\s*[:\-]?\s+(.+)$/i);
   if (severityMatch) {
-    return structuredEntry(severityMatch[2], severityMatch[1]);
+    return structuredEntry(`${severityMatch[1]}${severityMatch[3]}`.trim(), severityMatch[2]);
   }
 
   return { kind: 'raw', message: line };
@@ -401,6 +430,7 @@ module.exports = {
   createOutputUpdateScheduler,
   formatProjectOutput,
   listenToProjectOutput,
+  projectOutputPeek,
   sanitizeProjectOutput,
   startFailureSummary
 };

@@ -337,7 +337,7 @@ button:active:not(:disabled) {
   background: var(--vscode-textCodeBlock-background, var(--vscode-sideBarSectionHeader-background));
   border: 1px solid var(--vscode-widget-border, transparent);
   border-radius: 3px;
-  font-size: 10px;
+  font-size: 0.92em;
   line-height: 1.4;
 }
 
@@ -408,6 +408,85 @@ button:active:not(:disabled) {
 .timeline-output-note {
   margin: 5px 0 0 12px;
   overflow-wrap: anywhere;
+}
+
+.project-output-peek-slot:empty {
+  display: none;
+}
+
+.project-output-peek {
+  min-width: 0;
+  margin-top: 8px;
+  padding: 8px 9px;
+  color: var(--vscode-foreground);
+  background: var(--vscode-textCodeBlock-background, var(--vscode-sideBarSectionHeader-background));
+  border: 1px solid var(--vscode-widget-border, var(--vscode-contrastBorder, transparent));
+  border-radius: 3px;
+}
+
+.project-output-peek > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.85em;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.project-output-peek > header button {
+  flex: 0 0 auto;
+  padding: 0;
+  color: var(--vscode-textLink-foreground);
+  background: transparent;
+  border: 0;
+  font: inherit;
+  text-transform: none;
+}
+
+.project-output-peek ol {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.output-peek-line {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 7px;
+  font-family: var(--vscode-editor-font-family);
+  font-size: var(--vscode-editor-font-size, 11px);
+  line-height: 1.4;
+}
+
+.output-peek-meta {
+  display: inline-flex;
+  gap: 6px;
+  color: var(--vscode-descriptionForeground);
+  font-family: var(--vscode-font-family);
+  font-size: 0.82em;
+  font-variant-numeric: tabular-nums;
+  text-transform: uppercase;
+}
+
+.output-peek-line.warning .output-peek-meta span {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.output-peek-line.error .output-peek-meta span {
+  color: var(--vscode-errorForeground, #f14c4c);
+}
+
+.output-peek-message {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .project-actions {

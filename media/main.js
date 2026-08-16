@@ -5,6 +5,7 @@ let searchQuery = String(state.searchQuery || '');
 let outputFollowLatest = true;
 let previewLoadGeneration = 0;
 let previewLoadTimer;
+const pendingOutputPeeks = new Map();
 
 function normalizeSearchQuery(value) {
   return String(value || '').trim().toLocaleLowerCase();
@@ -211,6 +212,29 @@ function projectTimelineHtml(project, projectName) {
       ${(timeline.failed || timeline.attention) && !timeline.outputAvailable ? '<p class="timeline-output-note">Recent output is available in the VS Code window that started this project.</p>' : ''}
       ${outputLink}
     </div>`;
+}
+
+function outputPeekEntriesHtml(entries) {
+  return (entries || []).map((entry) => {
+    const level = entry.kind === 'structured' ? entry.level || 'log' : 'log';
+    const meta = entry.kind === 'structured' && (entry.time || entry.level)
+      ? `<span class="output-peek-meta">${entry.time ? `<time>${escapeHtml(entry.time)}</time>` : ''}${entry.level ? `<span>${escapeHtml(entry.level)}</span>` : ''}</span>`
+      : '';
+    return `<li class="output-peek-line ${escapeHtml(level)}">${meta}<span class="output-peek-message">${escapeHtml(entry.message)}</span></li>`;
+  }).join('');
+}
+
+function projectOutputPeekHtml(entries, projectId, projectName) {
+  if (!entries?.length) {
+    return '';
+  }
+  const safeProjectId = escapeHtml(String(projectId || ''));
+  const safeProjectName = escapeHtml(String(projectName || 'project'));
+  return `
+    <section class="project-output-peek" tabindex="0" aria-label="Latest output for ${safeProjectName}">
+      <header><span>Live output</span><button data-action="output" data-id="${safeProjectId}">View output</button></header>
+      <ol>${outputPeekEntriesHtml(entries)}</ol>
+    </section>`;
 }
 
 function statusSummaryHtml(projects) {
@@ -432,6 +456,7 @@ function renderList() {
               </div>` : ''}
             ${(project.timeline || project.previewUrl) ? `<div id="details-${projectId}" class="project-live-details" ${project.detailsExpanded ? '' : 'hidden'}>
             ${project.timeline ? projectTimelineHtml(project, projectName) : ''}
+            ${project.outputPeek !== undefined ? `<div class="project-output-peek-slot" data-output-peek-slot data-project-id="${projectId}" data-project-name="${projectName}">${projectOutputPeekHtml(project.outputPeek, project.id, project.name)}</div>` : ''}
             ${project.previewUrl ? `
               <section class="project-preview" aria-label="Preview of ${projectName}" ${project.previewExpanded ? '' : 'hidden'}>
                 ${project.previewExpanded ? `
@@ -979,6 +1004,10 @@ window.addEventListener('message', (event) => {
     }
     return;
   }
+  if (event.data?.type === 'projectOutputPeek') {
+    updateProjectOutputPeek(event.data.id, event.data.entries);
+    return;
+  }
   if (event.data?.type !== 'projectOutput') {
     return;
   }
@@ -1015,6 +1044,45 @@ window.addEventListener('message', (event) => {
   restoreOutputLinkFocus(output, focusedLink);
   updateOutputJumpButton();
 });
+
+function outputPeekInteractionActive(slot) {
+  if (slot.contains(document.activeElement)) {
+    return true;
+  }
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+    return false;
+  }
+  try {
+    return selection.getRangeAt(0).intersectsNode(slot);
+  } catch {
+    return false;
+  }
+}
+
+function updateProjectOutputPeek(id, entries) {
+  const key = String(id || '');
+  const slot = document.querySelector(`[data-output-peek-slot][data-project-id="${CSS.escape(key)}"]`);
+  if (!slot) {
+    pendingOutputPeeks.delete(key);
+    return;
+  }
+  if (outputPeekInteractionActive(slot)) {
+    pendingOutputPeeks.set(key, entries || []);
+    return;
+  }
+  pendingOutputPeeks.delete(key);
+  slot.innerHTML = projectOutputPeekHtml(entries || [], key, slot.dataset.projectName || 'project');
+}
+
+function flushPendingOutputPeeks() {
+  for (const [id, entries] of [...pendingOutputPeeks]) {
+    updateProjectOutputPeek(id, entries);
+  }
+}
+
+document.addEventListener('focusout', () => setTimeout(flushPendingOutputPeeks, 0));
+document.addEventListener('selectionchange', flushPendingOutputPeeks);
 
 function focusedOutputLink(output) {
   const active = document.activeElement;

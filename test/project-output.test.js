@@ -8,6 +8,7 @@ const {
   createOutputUpdateScheduler,
   formatProjectOutput,
   listenToProjectOutput,
+  projectOutputPeek,
   sanitizeProjectOutput,
   startFailureSummary
 } = require('../project-output');
@@ -15,6 +16,51 @@ const {
 test('combines project output and removes terminal color codes', () => {
   const output = appendProjectOutput('Ready\n', '\u001b[31mFailed\u001b[0m\n');
   assert.equal(sanitizeProjectOutput(output), 'Ready\nFailed\n');
+});
+
+test('shows the latest three meaningful sanitized output lines', () => {
+  const output = [
+    '$ concurrently "pnpm web" "pnpm api"',
+    '[web] $ pnpm dev:web',
+    '\u001b[32m[web] ready on http://localhost:5173\u001b[0m',
+    '[api] info: listening on 4311',
+    '[api] warning: cache cold',
+    '[api] error: database unavailable'
+  ].join('\r\n');
+
+  assert.deepEqual(projectOutputPeek(output), [
+    { kind: 'structured', level: 'info', message: '[api] listening on 4311', time: '' },
+    { kind: 'structured', level: 'warning', message: '[api] cache cold', time: '' },
+    { kind: 'structured', level: 'error', message: '[api] database unavailable', time: '' }
+  ]);
+});
+
+test('keeps useful Unicode and structured severity while suppressing wrapper echoes', () => {
+  const output = [
+    '> api@1.0.0 dev',
+    '[api] $ node server.js',
+    'info: Café ready ✅',
+    'warning: résumé cache is cold',
+    'error: Verbindung fehlgeschlagen'
+  ].join('\n');
+
+  assert.deepEqual(projectOutputPeek(output), [
+    { kind: 'structured', level: 'info', message: 'Café ready ✅', time: '' },
+    { kind: 'structured', level: 'warning', message: 'résumé cache is cold', time: '' },
+    { kind: 'structured', level: 'error', message: 'Verbindung fehlgeschlagen', time: '' }
+  ]);
+});
+
+test('bounds output peek work and individual DOM lines for verbose output', () => {
+  const output = `${'old\n'.repeat(10000)}${'x'.repeat(1000)}\nlatest`;
+  const started = Date.now();
+  const peek = projectOutputPeek(output);
+
+  assert.equal(peek.length, 3);
+  assert.equal(peek.at(-1).message, 'latest');
+  assert.equal(peek.at(-2).message.length, 400);
+  assert.match(peek.at(-2).message, /…$/);
+  assert.ok(Date.now() - started < 1000);
 });
 
 test('preserves split terminal color codes until the complete output is sanitized', () => {
@@ -284,4 +330,21 @@ test('renders an escaped accessible failure summary with a supported Latest icon
   assert.match(webview, /failure\.innerHTML = outputFailureSummaryHtml\(event\.data\.failureSummary\)/);
   assert.match(webview, /failureSummary[\s\S]*No command output was captured\./);
   assert.match(styles, /\.output-failure-summary \{[\s\S]*--vscode-inputValidation-errorBackground/);
+});
+
+test('renders an accessible bounded live peek without replacing active selection or focus', () => {
+  const extension = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const webview = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
+  const styles = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.css'), 'utf8');
+
+  assert.match(extension, /type: 'projectOutputPeek'[\s\S]*entries: projectOutputPeek\(rawOutput\)/);
+  assert.match(webview, /class="project-output-peek" tabindex="0" aria-label="Latest output for/);
+  assert.match(webview, /data-action="output"[\s\S]*View output/);
+  assert.match(webview, /slot\.contains\(document\.activeElement\)/);
+  assert.match(webview, /selection\.getRangeAt\(0\)\.intersectsNode\(slot\)/);
+  assert.match(webview, /pendingOutputPeeks\.set\(key, entries \|\| \[\]\)/);
+  assert.doesNotMatch(webview, /project-output-peek[^\n]*aria-live/);
+  assert.match(styles, /\.project-output-peek \{[\s\S]*--vscode-textCodeBlock-background/);
+  assert.match(styles, /\.output-peek-line\.warning[\s\S]*--vscode-editorWarning-foreground/);
+  assert.match(styles, /\.output-peek-line\.error[\s\S]*--vscode-errorForeground/);
 });

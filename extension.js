@@ -62,6 +62,7 @@ const {
   createOutputUpdateScheduler,
   formatProjectOutput,
   listenToProjectOutput,
+  projectOutputPeek,
   sanitizeProjectOutput,
   startFailureSummary
 } = require('./project-output');
@@ -615,7 +616,8 @@ class RunlistViewProvider {
     if (failureDetails) {
       this.projectFailureSummaries.set(id, startFailureSummary(output, failureDetails));
     }
-    if (this.mode === 'output' && this.selectedProjectId === id) {
+    if ((this.mode === 'output' && this.selectedProjectId === id)
+      || (this.mode === 'list' && this.expandedPreviewProjectId === id)) {
       this.outputUpdateScheduler.schedule(id);
     }
   }
@@ -702,10 +704,21 @@ class RunlistViewProvider {
   }
 
   sendProjectOutput(id) {
-    if (this.mode !== 'output' || this.selectedProjectId !== id) {
+    const showingFullOutput = this.mode === 'output' && this.selectedProjectId === id;
+    const showingPeek = this.mode === 'list' && this.expandedPreviewProjectId === id;
+    if (!showingFullOutput && !showingPeek) {
       return;
     }
     const rawOutput = this.projectOutputs.get(id) || '';
+    if (showingPeek) {
+      this.view?.webview.postMessage({
+        type: 'projectOutputPeek',
+        messageToken: this.webviewMessageToken,
+        id,
+        entries: projectOutputPeek(rawOutput)
+      });
+      return;
+    }
     this.view?.webview.postMessage({
       type: 'projectOutput',
       messageToken: this.webviewMessageToken,
@@ -1708,6 +1721,11 @@ class RunlistViewProvider {
       const detailsExpanded = this.expandedPreviewProjectId === project.id
         && (!canPreview || this.expandedPreviewServicePort === previewService.port);
       const previewExpanded = canPreview && detailsExpanded;
+      const outputPeekVisible = detailsExpanded
+        && ['starting', 'running', 'not-ready', 'not-responding'].includes(status)
+        && (this.managedProjectIds.has(project.id)
+          || this.processes.has(project.id)
+          || this.projectRuntime.has(project.id));
       const locallyOwned = this.processes.has(project.id);
       return {
         ...project,
@@ -1725,6 +1743,9 @@ class RunlistViewProvider {
         status,
         timeline,
         detailsExpanded,
+        outputPeek: outputPeekVisible
+          ? projectOutputPeek(this.projectOutputs.get(project.id))
+          : undefined,
         timelineExpanded: timelineVisible && detailsExpanded,
         previewExpanded,
         previewPort: previewService?.port,
