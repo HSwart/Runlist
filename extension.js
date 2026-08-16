@@ -17,6 +17,7 @@ const {
 const {
   projectStatus,
   reachableServiceUrls,
+  runningAppProjectIds,
   serviceHttpStatus,
   serviceReadinessDetails,
   serviceReadinessTimedOut,
@@ -2035,6 +2036,7 @@ class RunlistViewProvider {
         projectId: diagnosisProject.id
       } : undefined,
       projects: stateProjects,
+      runningAppIds: runningAppProjectIds(stateProjects),
       stopAllCount: stoppableProjectIds(stateProjects).length
     };
     const expandedPreview = stateProjects.find((project) => project.previewExpanded);

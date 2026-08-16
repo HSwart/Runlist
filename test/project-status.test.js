@@ -14,6 +14,7 @@ const {
   probeHttpService,
   projectStatus,
   reachableServiceUrls,
+  runningAppProjectIds,
   serviceUrl,
   serviceHttpStatus,
   serviceReadinessDetails,
@@ -463,4 +464,19 @@ test('selects only projects that can be stopped together', () => {
     'detected-with-custom-stop'
   ]);
   assert.deepEqual(stoppableProjectIds(), []);
+});
+
+test('selects only projects that belong in the running-app switcher', () => {
+  const projects = [
+    { id: 'running', status: 'running' },
+    { id: 'detected', status: 'active', httpUnresponsive: false },
+    { id: 'detected-unresponsive', status: 'active', httpUnresponsive: true },
+    { id: 'not-responding', status: 'not-responding' },
+    { id: 'starting', status: 'starting' },
+    { id: 'review', status: 'running', reviewRequired: true },
+    { id: 'stopped', status: 'stopped' }
+  ];
+
+  assert.deepEqual(runningAppProjectIds(projects), ['running', 'detected']);
+  assert.deepEqual(runningAppProjectIds(), []);
 });

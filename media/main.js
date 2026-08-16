@@ -5,6 +5,7 @@ let searchQuery = String(state.searchQuery || '');
 let outputFollowLatest = true;
 let previewLoadGeneration = 0;
 let previewLoadTimer;
+let runningAppNavigatorFrame;
 const pendingOutputPeeks = new Map();
 
 function normalizeSearchQuery(value) {
@@ -273,6 +274,9 @@ function renderList() {
     return;
   }
 
+  const runningAppIds = new Set((state.runningAppIds || []).map(String));
+  const runningApps = state.projects.filter((project) => runningAppIds.has(String(project.id)));
+
   app.innerHTML = `
     <header class="summary" aria-label="Project status summary">
       <span id="project-count"><strong>${state.projects.length}</strong> ${state.projects.length === 1 ? 'project' : 'projects'}</span>
@@ -290,6 +294,18 @@ function renderList() {
       <input id="project-search" type="search" value="${escapeHtml(searchQuery)}" placeholder="Search projects" aria-label="Search projects" autocomplete="off" spellcheck="false">
     </div>
     <span id="project-search-status" class="visually-hidden" aria-live="polite"></span>
+    ${runningApps.length > 1 ? `
+      <nav class="running-app-navigator" data-running-app-navigator aria-label="Running app navigator" hidden>
+        <span class="status-dot running" aria-hidden="true"></span>
+        <button class="running-app-current" data-action="show-running-app" aria-label="Show running app">
+          <span class="auto-scroll"><span class="auto-scroll-content" data-running-app-name></span></span>
+        </button>
+        <span class="running-app-position" data-running-app-position aria-hidden="true"></span>
+        <div class="running-app-navigation">
+          <button class="running-app-previous" data-action="previous-running-app" aria-label="Previous running app" title="Previous running app">${icon('chevron-down')}</button>
+          <button data-action="next-running-app" aria-label="Next running app" title="Next running app">${icon('chevron-down')}</button>
+        </div>
+      </nav>` : ''}
     <section class="project-list" aria-label="Projects">
       ${state.projects.map((project) => {
         const projectId = escapeHtml(project.id);
@@ -374,7 +390,7 @@ function renderList() {
               : '';
         const actionDisabled = projectStatus === 'stopping' || blocked || detectedWithoutStop;
         return `
-          <article class="project-row" data-project-id="${projectId}" aria-labelledby="project-${projectId}">
+          <article id="project-row-${projectId}" class="project-row" data-project-id="${projectId}" aria-labelledby="project-${projectId}" tabindex="-1">
             <div class="project-topline">
               <div class="project-heading">
                 <div class="project-title-line">
@@ -549,6 +565,105 @@ function applyProjectFilter(query) {
   scheduleAutoScrollUpdate();
 }
 
+function revealRunningApp(id) {
+  const project = state.projects.find((entry) => String(entry.id) === String(id));
+  const row = document.querySelector(`.project-row[data-project-id="${CSS.escape(String(id || ''))}"]`);
+  if (!project || !row) {
+    return;
+  }
+
+  if (row.hidden) {
+    const search = document.getElementById('project-search');
+    if (search) {
+      search.value = '';
+    }
+    vscode.postMessage({ type: 'setSearchQuery', query: '' });
+    applyProjectFilter('');
+  }
+
+  row.scrollIntoView({ block: 'nearest' });
+  row.focus({ preventScroll: true });
+  scheduleRunningAppNavigatorUpdate();
+}
+
+function runningAppRows() {
+  return (state.runningAppIds || []).map((id) => {
+    const project = state.projects.find((entry) => String(entry.id) === String(id));
+    const row = document.querySelector(`.project-row[data-project-id="${CSS.escape(String(id))}"]`);
+    return project && row ? { project, row } : undefined;
+  }).filter(Boolean);
+}
+
+function updateRunningAppNavigator() {
+  const navigator = document.querySelector('[data-running-app-navigator]');
+  const entries = runningAppRows();
+  if (!navigator || entries.length < 2) {
+    return;
+  }
+
+  const navigatorBounds = navigator.getBoundingClientRect();
+  const navigatorOffset = !navigator.hidden && navigatorBounds.top <= 0
+    ? navigator.offsetHeight
+    : 0;
+  const allFit = entries.every(({ row }) => {
+    if (row.hidden) {
+      return false;
+    }
+    const bounds = row.getBoundingClientRect();
+    return bounds.top - navigatorOffset >= 0
+      && bounds.bottom - navigatorOffset <= window.innerHeight;
+  });
+  navigator.hidden = allFit;
+  if (allFit) {
+    return;
+  }
+
+  const visibleEntries = entries.filter(({ row }) => !row.hidden);
+  const candidates = visibleEntries.length ? visibleEntries : entries;
+  const viewportMiddle = window.innerHeight / 2;
+  const current = candidates.reduce((closest, entry) => {
+    const bounds = entry.row.getBoundingClientRect();
+    const distance = Math.abs((bounds.top + bounds.bottom) / 2 - viewportMiddle);
+    return !closest || distance < closest.distance ? { entry, distance } : closest;
+  }, undefined)?.entry || entries[0];
+  const currentIndex = entries.indexOf(current);
+  const name = navigator.querySelector('[data-running-app-name]');
+  const position = navigator.querySelector('[data-running-app-position]');
+  const currentButton = navigator.querySelector('[data-action="show-running-app"]');
+  const currentChanged = currentButton?.dataset.id !== String(current.project.id);
+  if (name) {
+    name.textContent = current.project.name;
+  }
+  if (position) {
+    position.textContent = `${currentIndex + 1} of ${entries.length}`;
+  }
+  if (currentButton) {
+    currentButton.dataset.id = current.project.id;
+    currentButton.setAttribute('aria-label', `Show ${current.project.name}, running app ${currentIndex + 1} of ${entries.length}`);
+    currentButton.title = `Show ${current.project.name}`;
+  }
+  if (currentChanged) {
+    scheduleAutoScrollUpdate();
+  }
+}
+
+function scheduleRunningAppNavigatorUpdate() {
+  cancelAnimationFrame(runningAppNavigatorFrame);
+  runningAppNavigatorFrame = requestAnimationFrame(updateRunningAppNavigator);
+}
+
+function navigateRunningApps(direction) {
+  const navigator = document.querySelector('[data-running-app-navigator]');
+  const entries = runningAppRows();
+  if (!navigator || entries.length < 2) {
+    return;
+  }
+  const currentId = navigator.querySelector('[data-action="show-running-app"]')?.dataset.id;
+  const currentIndex = Math.max(0, entries.findIndex(({ project }) => String(project.id) === currentId));
+  const nextIndex = (currentIndex + direction + entries.length) % entries.length;
+  revealRunningApp(entries[nextIndex].project.id);
+}
+
 function updateAutoScroll() {
   document.querySelectorAll('.auto-scroll').forEach((container) => {
     const content = container.querySelector('.auto-scroll-content');
@@ -575,6 +690,8 @@ function scheduleAutoScrollUpdate() {
 }
 
 window.addEventListener('resize', scheduleAutoScrollUpdate);
+window.addEventListener('resize', scheduleRunningAppNavigatorUpdate);
+window.addEventListener('scroll', scheduleRunningAppNavigatorUpdate, { passive: true });
 
 function sharedPortWarningText(draft, serviceIndex) {
   const port = Number(draft?.services?.[serviceIndex]?.port);
@@ -948,6 +1065,9 @@ app.addEventListener('click', (event) => {
     'copy-output': () => vscode.postMessage({ type: 'copyOutput' }),
     edit: () => vscode.postMessage({ type: 'showEdit', id: button.dataset.id }),
     'toggle-pin': () => vscode.postMessage({ type: 'toggleProjectPin', id: button.dataset.id }),
+    'show-running-app': () => revealRunningApp(button.dataset.id),
+    'previous-running-app': () => navigateRunningApps(-1),
+    'next-running-app': () => navigateRunningApps(1),
     delete: () => vscode.postMessage({ type: 'deleteProject', id: button.dataset.id }),
     start: () => vscode.postMessage({ type: 'startProject', id: button.dataset.id }),
     stop: () => vscode.postMessage({ type: 'stopProject', id: button.dataset.id }),
@@ -1355,6 +1475,7 @@ if (state.mode === 'list') {
   renderList();
   document.getElementById('project-search')?.addEventListener('input', handleSearchInput);
   scheduleAutoScrollUpdate();
+  scheduleRunningAppNavigatorUpdate();
   initializeProjectPreview();
   initializeTimelineClock();
 } else if (state.mode === 'agents') {
