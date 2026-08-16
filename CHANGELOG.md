@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.0.5 — Live project cards
+
+- Follow a project's startup progress directly inside its expanded sidebar card.
+- See the latest three useful output lines while a project starts or runs, then open Recent Output for the complete retained log.
+- Switch safely between two Runlist-managed projects that need the same port by stopping the verified owner before starting the selected project.
+- Keep unknown, external, ambiguous, or ownership-uncertain port conflicts blocked without stopping another process.
+- Prepare a bounded, sanitized failed-start diagnosis request for Copilot, Codex, or Claude without sending anything automatically.
+- Keep any setup change proposed by a coding agent behind Runlist's existing review-and-approval step.
+
 ## 0.0.4 — Clearer starts and quicker access
 
 - Show a concise, useful failure summary when a project cannot start while keeping its complete recent output available.
