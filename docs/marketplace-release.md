@@ -4,7 +4,7 @@ Do not describe a Switchboard release as available in the Marketplace until that
 
 ## Permanent publisher
 
-Switchboard uses the permanent Marketplace publisher identifier `hankoswart`, displayed as **Hanko Swart**. The extension identifier is `hankoswart.switchboard`.
+Switchboard uses the permanent Marketplace publisher identifier `hankoswart`, displayed as **Hanko Swart**. The extension identifier is `hankoswart.switchboard-projects`.
 
 For each Marketplace release:
 
@@ -29,6 +29,6 @@ Official guidance:
 ## First listing and update-path check
 
 1. Publish reviewed version 0.0.2 under `hankoswart` with Marketplace installation wording that remains accurate before and after the listing becomes visible.
-2. Install it from the VS Code Extensions view and confirm the installed extension ID is `hankoswart.switchboard`.
+2. Install it from the VS Code Extensions view and confirm the installed extension ID is `hankoswart.switchboard-projects`.
 3. Prepare a later reviewed release.
 4. Publish that release and confirm VS Code updates the existing installation rather than creating a second extension.
