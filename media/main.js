@@ -215,6 +215,48 @@ function formatElapsed(milliseconds) {
   return `${minutes}m ${String(seconds % 60).padStart(2, '0')}s`;
 }
 
+function formatStartupDuration(milliseconds) {
+  if (milliseconds < 1000) {
+    return `${Math.max(0, Math.round(milliseconds))}ms`;
+  }
+  const seconds = milliseconds / 1000;
+  if (seconds < 10) {
+    return `${seconds.toFixed(1)}s`;
+  }
+  if (seconds < 60) {
+    return `${Math.round(seconds)}s`;
+  }
+  return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+}
+
+function startupHistoryHtml(project, projectName) {
+  const history = project.startupHistory || [];
+  if (!history.length || !project.detailsExpanded) {
+    return '';
+  }
+  const labels = {
+    ready: { code: 'OK', label: 'Ready' },
+    failed: { code: 'FAIL', label: 'Failed' },
+    'timed-out': { code: 'SLOW', label: 'Still starting' }
+  };
+  const readyCount = history.filter((entry) => entry.outcome === 'ready').length;
+  const summary = `Recent starts for ${project.name}, oldest to newest: ${history.map((entry) => {
+    const outcome = labels[entry.outcome] || labels.failed;
+    return `${outcome.label} after ${formatStartupDuration(entry.durationMs)}`;
+  }).join('; ')}.`;
+  return `
+    <section class="startup-history" role="group" aria-label="${escapeHtml(summary)}">
+      <header><strong>Recent starts</strong><span>${readyCount} of ${history.length} ready</span></header>
+      <div class="startup-history-ribbon" style="--startup-count: ${history.length}" aria-hidden="true">
+        ${history.map((entry) => {
+          const outcome = labels[entry.outcome] || labels.failed;
+          const duration = formatStartupDuration(entry.durationMs);
+          return `<span class="startup-history-entry ${escapeHtml(entry.outcome)}" title="${outcome.label} after ${escapeHtml(duration)}"><strong>${outcome.code}</strong><span>${escapeHtml(duration)}</span></span>`;
+        }).join('')}
+      </div>
+    </section>`;
+}
+
 function timelineElapsedLabel(timeline) {
   if (!Number.isFinite(timeline?.launchedAt)) {
     return timeline?.failed ? 'Start did not complete.' : 'Waiting to start…';
@@ -509,9 +551,14 @@ function renderList() {
                   return `<span${title}${ariaLabel}><span class="service-indicator ${indicator}" aria-hidden="true"></span>${escapeHtml(service.name)} <strong>:${escapeHtml(String(service.port))}</strong>${canCopyUrl ? `<button class="copy-url-button" data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(String(service.port))}" aria-label="${copyLabel}" title="${copyLabel}">${icon('copy')}</button>` : ''}</span>`;
                   }).join('')}
                 </div>
-                ${(project.timeline || project.previewUrl) ? `<button class="preview-toggle" data-action="toggle-preview" data-id="${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} ${project.timeline ? 'live project details' : 'preview'} for ${projectName}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" title="${project.detailsExpanded ? 'Collapse' : 'Expand'} ${project.timeline ? 'live project details' : 'app preview'}">${icon('chevron-down')}</button>` : ''}
+                ${(project.timeline || project.previewUrl || project.startupHistory?.length) ? `<button class="preview-toggle" data-action="toggle-preview" data-id="${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} ${project.timeline || project.startupHistory?.length ? 'project details' : 'preview'} for ${projectName}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" title="${project.detailsExpanded ? 'Collapse' : 'Expand'} ${project.timeline || project.startupHistory?.length ? 'project details' : 'app preview'}">${icon('chevron-down')}</button>` : ''}
               </div>` : ''}
-            ${(project.timeline || project.previewUrl) ? `<div id="details-${projectId}" class="project-live-details" ${project.detailsExpanded ? '' : 'hidden'}>
+            ${!project.services?.length && project.startupHistory?.length ? `
+              <div class="project-details-toggle-row">
+                <button class="preview-toggle" data-action="toggle-preview" data-id="${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} project details for ${projectName}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" title="${project.detailsExpanded ? 'Collapse' : 'Expand'} project details">${icon('chevron-down')}</button>
+              </div>` : ''}
+            ${(project.timeline || project.previewUrl || project.startupHistory?.length) ? `<div id="details-${projectId}" class="project-live-details" ${project.detailsExpanded ? '' : 'hidden'}>
+            ${startupHistoryHtml(project, projectName)}
             ${project.timeline ? projectTimelineHtml(project, projectName) : ''}
             ${project.outputPeek !== undefined ? `<div class="project-output-peek-slot" data-output-peek-slot data-project-id="${projectId}" data-project-name="${projectName}">${projectOutputPeekHtml(project.outputPeek, project.id, project.name)}</div>` : ''}
             ${project.previewUrl ? `
