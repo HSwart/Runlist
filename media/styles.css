@@ -312,6 +312,23 @@ button:active:not(:disabled) {
   height: 12px;
 }
 
+.project-readiness-detail {
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 5px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.project-readiness-detail strong {
+  color: var(--vscode-foreground);
+  font-weight: 600;
+}
+
 .project-actions {
   position: relative;
   display: flex;

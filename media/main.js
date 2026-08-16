@@ -133,6 +133,31 @@ function productIcon(name, className = 'product-icon') {
   return icon(name, className);
 }
 
+function readinessServiceList(services) {
+  return (services || [])
+    .map((service) => `${escapeHtml(String(service.name))} <strong>:${escapeHtml(String(service.port))}</strong>`)
+    .join(', ');
+}
+
+function readinessDetailsHtml(project, status) {
+  if (!['not-ready', 'not-responding'].includes(status)) {
+    return '';
+  }
+
+  const details = project.serviceReadiness || {};
+  const rows = [];
+  if (details.ready?.length) {
+    rows.push(`<span><strong>Ready:</strong> ${readinessServiceList(details.ready)}</span>`);
+  }
+  if (details.waiting?.length) {
+    rows.push(`<span><strong>Still checking:</strong> ${readinessServiceList(details.waiting)}</span>`);
+  }
+  if (details.notResponding?.length) {
+    rows.push(`<span><strong>Waiting for web response:</strong> ${readinessServiceList(details.notResponding)}</span>`);
+  }
+  return rows.length ? `<div class="project-readiness-detail">${rows.join('')}</div>` : '';
+}
+
 function statusSummaryHtml(projects) {
   const reviewCount = projects.filter((project) => project.reviewRequired).length;
   const runningCount = projects
@@ -154,7 +179,7 @@ function statusSummaryHtml(projects) {
   const conflictCount = projects
     .filter((project) => !project.reviewRequired
       && ['port-in-use', 'port-in-use-unknown'].includes(project.status)).length;
-  return `<span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running${startingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${startingCount} starting` : ''}${notReadyCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notReadyCount} not ready` : ''}${notRespondingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notRespondingCount} not responding` : ''}${stoppingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${stoppingCount} stopping` : ''} <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped${reviewCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${reviewCount} to review` : ''}${conflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${conflictCount} unavailable` : ''}`;
+  return `<span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running${startingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${startingCount} starting` : ''}${notReadyCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notReadyCount} taking longer` : ''}${notRespondingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notRespondingCount} not responding` : ''}${stoppingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${stoppingCount} stopping` : ''} <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped${reviewCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${reviewCount} to review` : ''}${conflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${conflictCount} unavailable` : ''}`;
 }
 
 function renderList() {
@@ -202,7 +227,7 @@ function renderList() {
         const statusLabels = {
           running: 'Running',
           starting: 'Starting…',
-          'not-ready': 'Service not ready',
+          'not-ready': 'Taking longer…',
           'not-responding': 'Web service not responding',
           stopping: 'Stopping…',
           active: project.httpUnresponsive ? 'Detected, web service not responding' : 'Detected running',
@@ -212,7 +237,7 @@ function renderList() {
           stopped: 'Stopped'
         };
         const conflicted = ['port-in-use', 'port-in-use-unknown'].includes(projectStatus);
-        const transitioning = ['starting', 'stopping'].includes(projectStatus);
+        const transitioning = ['starting', 'not-ready', 'stopping'].includes(projectStatus);
         const canOpen = ['running', 'active'].includes(projectStatus)
           && project.services?.length
           && project.primaryServiceOpen;
@@ -253,7 +278,7 @@ function renderList() {
           : projectStatus === 'not-responding'
             ? 'The launched process is still running and its configured port is open, but the web service did not respond.'
           : projectStatus === 'not-ready'
-            ? 'The launched process is still running, but not every configured service port became ready in time. View recent output for details.'
+            ? 'The launched process is still running. Runlist is continuing to check its configured services.'
           : projectStatus === 'port-in-use-unknown'
             ? `Port :${conflict?.port || 'unknown'} is shared with ${conflictProjectNames}. Runlist cannot identify the running owner.`
             : projectStatus === 'port-in-use'
@@ -271,6 +296,7 @@ function renderList() {
                   </h2>
                 </div>
                 <div class="project-status status-${statusClass}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : ''}<span class="auto-scroll"><span class="auto-scroll-content">${statusLabels[displayStatus]}</span></span></div>
+                ${!reviewRequired ? readinessDetailsHtml(project, projectStatus) : ''}
               </div>
               <div class="project-actions">
                 <button class="run-button ${reviewRequired ? 'review' : blocked ? 'blocked' : stopState || projectStatus === 'stopping' ? 'stop' : 'start'}" data-action="${action}" data-id="${projectId}" aria-label="${actionTitle}" title="${actionTitle}" ${actionDisabled && !reviewRequired ? 'disabled' : ''}>
