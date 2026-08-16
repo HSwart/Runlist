@@ -27,33 +27,27 @@ test('detects whether configured local service ports are accepting connections',
   assert.equal(await isPortOpen(port), false);
 });
 
-test('distinguishes a managed app from an occupied configured port', () => {
+test('detects an unmanaged app when all configured service ports are open', () => {
   assert.equal(projectStatus({
-    allPortsOpen: true,
-    anyPortOpen: true,
+    allOpen: true,
+    anyOpen: true,
+    hasServices: true,
+    managed: false
+  }), 'active');
+});
+
+test('preserves managed project status', () => {
+  assert.equal(projectStatus({
+    allOpen: true,
+    anyOpen: true,
     hasServices: true,
     managed: true
   }), 'running');
   assert.equal(projectStatus({
-    allPortsOpen: true,
-    anyPortOpen: true,
+    anyOpen: true,
     hasServices: true,
-    managed: false
-  }), 'active');
-  assert.equal(projectStatus({
-    allPortsOpen: true,
-    anyPortOpen: true,
-    hasServices: true,
-    knownConflict: true,
-    managed: false
-  }), 'port-in-use');
-  assert.equal(projectStatus({
-    allPortsOpen: true,
-    anyPortOpen: true,
-    ambiguousConflict: true,
-    hasServices: true,
-    managed: false
-  }), 'port-in-use-unknown');
+    managed: true
+  }), 'starting');
   assert.equal(projectStatus({
     hasServices: true,
     managed: true,
@@ -70,6 +64,32 @@ test('distinguishes a managed app from an occupied configured port', () => {
   }), 'running');
   assert.equal(projectStatus({ managed: true }), 'running');
   assert.equal(projectStatus({ stopping: true }), 'stopping');
+});
+
+test('treats partial unmanaged service availability as active', () => {
+  assert.equal(projectStatus({
+    allOpen: false,
+    anyOpen: true,
+    hasServices: true,
+    managed: false
+  }), 'active');
+});
+
+test('reports known and ambiguous port conflicts from refresh-shaped status', () => {
+  assert.equal(projectStatus({
+    allOpen: true,
+    anyOpen: true,
+    hasServices: true,
+    knownConflict: true,
+    managed: false
+  }), 'port-in-use');
+  assert.equal(projectStatus({
+    allOpen: false,
+    anyOpen: true,
+    ambiguousConflict: true,
+    hasServices: true,
+    managed: false
+  }), 'port-in-use-unknown');
 });
 
 test('builds the primary local service URL from the first configured port', () => {

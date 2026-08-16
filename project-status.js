@@ -41,8 +41,8 @@ async function areServicesRunning(services) {
 
 function projectStatus({
   ambiguousConflict = false,
-  allPortsOpen = false,
-  anyPortOpen = false,
+  allOpen = false,
+  anyOpen = false,
   hasServices = false,
   knownConflict = false,
   managed = false,
@@ -62,7 +62,7 @@ function projectStatus({
   if (!hasServices) {
     return managed || processActive ? 'running' : 'stopped';
   }
-  if (allPortsOpen) {
+  if (allOpen) {
     return managed
       ? 'running'
       : knownConflict
@@ -71,7 +71,7 @@ function projectStatus({
           ? 'port-in-use-unknown'
           : 'active';
   }
-  if (anyPortOpen) {
+  if (anyOpen) {
     return managed
       ? 'starting'
       : knownConflict
