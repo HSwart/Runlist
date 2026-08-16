@@ -161,13 +161,18 @@ function renderList() {
         const conflicted = ['port-in-use', 'port-in-use-unknown'].includes(projectStatus);
         const transitioning = ['starting', 'stopping'].includes(projectStatus);
         const canOpen = ['running', 'active'].includes(projectStatus) && project.services?.length;
+        const detectedWithoutStop = projectStatus === 'active' && !project.stopCommand;
+        const stopState = ['running', 'starting', 'not-ready', 'active'].includes(projectStatus);
         const canRestart = !reviewRequired
-          && ['running', 'not-ready', 'active'].includes(projectStatus);
-        const stopsProject = ['running', 'starting', 'not-ready', 'active'].includes(projectStatus);
+          && ['running', 'not-ready', 'active'].includes(projectStatus)
+          && !detectedWithoutStop;
+        const stopsProject = stopState && !detectedWithoutStop;
         const blocked = conflicted;
-        const action = reviewRequired ? 'edit' : stopsProject ? 'stop' : 'start';
+        const action = reviewRequired ? 'edit' : stopState ? 'stop' : 'start';
         const actionLabel = reviewRequired
           ? 'Review setup'
+          : detectedWithoutStop
+          ? 'Stop unavailable'
           : blocked
           ? 'Unavailable'
           : projectStatus === 'stopping'
@@ -177,6 +182,8 @@ function renderList() {
             : 'Start';
         const actionTitle = reviewRequired
           ? `Review setup for ${projectName}`
+          : detectedWithoutStop
+          ? `Switchboard did not start ${projectName}. Add a custom stop command to stop it safely.`
           : projectStatus === 'port-in-use-unknown'
           ? `Port :${conflict?.port || 'unknown'} owner is unknown — cannot safely start or stop ${projectName}`
           : blocked
@@ -193,7 +200,7 @@ function renderList() {
             : projectStatus === 'port-in-use'
               ? `${conflictOwnerName} is using port :${conflict?.port || 'unknown'}.`
               : '';
-        const actionDisabled = projectStatus === 'stopping' || blocked;
+        const actionDisabled = projectStatus === 'stopping' || blocked || detectedWithoutStop;
         return `
           <article class="project-row" data-project-id="${projectId}" aria-labelledby="project-${projectId}">
             <div class="project-topline">
@@ -202,8 +209,8 @@ function renderList() {
                 <div class="project-status status-${displayStatus}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : ''}<span class="auto-scroll"><span class="auto-scroll-content">${statusLabels[displayStatus]}</span></span></div>
               </div>
               <div class="project-actions">
-                <button class="run-button ${reviewRequired ? 'review' : blocked ? 'blocked' : stopsProject || projectStatus === 'stopping' ? 'stop' : 'start'}" data-action="${action}" data-id="${projectId}" aria-label="${actionTitle}" title="${actionTitle}" ${actionDisabled && !reviewRequired ? 'disabled' : ''}>
-                  ${reviewRequired ? icon('edit') : productIcon(stopsProject || projectStatus === 'stopping' ? 'stop' : 'play')}
+                <button class="run-button ${reviewRequired ? 'review' : blocked ? 'blocked' : stopState || projectStatus === 'stopping' ? 'stop' : 'start'}" data-action="${action}" data-id="${projectId}" aria-label="${actionTitle}" title="${actionTitle}" ${actionDisabled && !reviewRequired ? 'disabled' : ''}>
+                  ${reviewRequired ? icon('edit') : productIcon(stopState || projectStatus === 'stopping' ? 'stop' : 'play')}
                 </button>
                 <button class="more-button" data-action="toggle-menu" data-id="${projectId}" aria-label="More actions for ${projectName}" aria-haspopup="menu" aria-expanded="false">${icon('more')}</button>
                 <div class="action-menu" data-menu-id="${projectId}" role="menu" aria-label="Actions for ${projectName}" hidden>
@@ -415,9 +422,9 @@ function renderProjectForm(mode) {
         ${fieldError('stop-command')}
         <p class="field-hint">Leave empty to stop only the process tree Switchboard started.</p>
 
-        <fieldset id="services" class="service-editor" ${errors.services ? 'aria-invalid="true" aria-describedby="services-hint services-error" tabindex="-1"' : 'aria-describedby="services-hint"'}>
+        <fieldset id="services" class="service-editor" ${state.servicesLocked ? 'disabled' : ''} ${errors.services ? 'aria-invalid="true" aria-describedby="services-hint services-error" tabindex="-1"' : 'aria-describedby="services-hint"'}>
           <legend>Services <span class="optional-label">Optional</span></legend>
-          <p id="services-hint" class="field-hint">Names and ports confirm what is running. An optional HTTP or HTTPS URL changes where Open app goes. Up to 32 services.</p>
+          <p id="services-hint" class="field-hint">${state.servicesLocked ? 'Stop this project before changing its services.' : 'Names and ports confirm what is running. An optional HTTP or HTTPS URL changes where Open app goes. Up to 32 services.'}</p>
           ${errors.services ? `<p id="services-error" class="field-error" role="alert">${escapeHtml(errors.services)}</p>` : ''}
           <div class="service-list-header" aria-hidden="true"><span>Name</span><span>Port</span></div>
           <div class="service-list">

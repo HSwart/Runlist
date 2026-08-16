@@ -2,15 +2,21 @@
 
 ## Unreleased
 
+- Refresh detected-running and port-conflict status consistently across VS Code windows.
+- Add the current VS Code workspace directly from the project form.
+- Configure multiple named services and optional HTTP or HTTPS URLs for each project.
+- Keep projects in **Starting…** until every configured service is ready, with a clear **Service not ready** state after 30 seconds.
 - Stop the exact process trees Switchboard launched by default.
 - Keep the optional custom stop command for projects with a special shutdown workflow.
+- Restart a running project safely from its More actions menu.
+- Prevent unsafe Stop, Restart, deletion, and service-edit actions when Switchboard cannot guarantee process ownership.
 - Prepare Marketplace metadata, package contents, installation guidance, and guarded release validation without publishing.
 
 ## 0.0.1 — First public release
 
 ### Keep local projects together
 
-- Save each project's folder, friendly name, start command, stop command, and local service port.
+- Save each project's folder, friendly name, start command, optional custom stop command, and local services.
 - Search projects by name or folder.
 - Edit or remove a saved project without changing its files.
 - Open a project in a new VS Code window or open its first configured local service in the browser.

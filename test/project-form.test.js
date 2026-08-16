@@ -4,6 +4,7 @@ const {
   MAX_SERVICES,
   projectFormChanged,
   projectFormServices,
+  projectServicesChanged,
   projectFormValues,
   projectSaveError,
   validateProjectForm
@@ -50,6 +51,11 @@ test('normalizes and compares every stored service', () => {
     { name: 'api', port: '4000', url: 'https://api.local/docs' }
   ]);
   assert.equal(projectFormChanged(form, stored), false);
+  assert.equal(projectServicesChanged(form, stored), false);
+  assert.equal(projectServicesChanged({
+    ...form,
+    services: [{ name: 'web', port: '3001' }]
+  }, stored), true);
   assert.equal(projectFormChanged({ ...form, name: 'Renamed' }, stored), true);
   assert.equal(projectFormChanged({
     ...form,

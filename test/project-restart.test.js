@@ -8,7 +8,8 @@ test('exposes an accessible single-project Restart overflow action', () => {
   const script = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
 
   assert.match(script, /data-action="restart" data-id="\$\{projectId\}" role="menuitem" aria-label="Restart \$\{projectName\}"/);
-  assert.match(script, /\['running', 'not-ready', 'active'\]\.includes\(projectStatus\)/);
+  assert.match(script, /const detectedWithoutStop = projectStatus === 'active' && !project\.stopCommand/);
+  assert.match(script, /\['running', 'not-ready', 'active'\]\.includes\(projectStatus\)[\s\S]*&& !detectedWithoutStop/);
   assert.match(script, /\$\{canRestart \? '' : 'disabled'\}/);
   assert.match(script, /restart: \(\) => vscode\.postMessage\(\{ type: 'restartProject', id: button\.dataset\.id \}\)/);
 });
@@ -109,4 +110,27 @@ test('ignores a stale Restart request while a shared transition is active', asyn
 
   assert.equal(result, false);
   assert.equal(stops, 0);
+});
+
+test('holds process ownership while deleting a saved project', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const refreshOwnership = source.indexOf('const latestSharedOwnership = this.processOwnership.snapshot().get(id)');
+  const reserveDeletion = source.indexOf('const deletionConflict = this.processOwnership.reserve(id)', refreshOwnership);
+  const removeSavedProject = source.indexOf('removeProject(this.projectsFile, id)', reserveDeletion);
+  const releaseDeletion = source.indexOf('this.processOwnership.release(id)', removeSavedProject);
+
+  assert.ok(refreshOwnership >= 0);
+  assert.ok(refreshOwnership < reserveDeletion);
+  assert.ok(reserveDeletion < removeSavedProject);
+  assert.ok(removeSavedProject < releaseDeletion);
+});
+
+test('prevents service metadata changes while a project is running', () => {
+  const extensionSource = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const webviewSource = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
+
+  assert.match(extensionSource, /servicesLocked && projectServicesChanged\(validation\.values, existingProject\)/);
+  assert.match(extensionSource, /servicesLocked: this\.mode === 'edit'[\s\S]*'running', 'starting', 'not-ready', 'stopping', 'active'/);
+  assert.match(webviewSource, /<fieldset id="services"[^>]*\$\{state\.servicesLocked \? 'disabled' : ''\}/);
+  assert.match(webviewSource, /Stop this project before changing its services\./);
 });

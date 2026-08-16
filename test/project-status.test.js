@@ -130,7 +130,8 @@ test('selects only projects that can be stopped together', () => {
     { id: 'running', status: 'running' },
     { id: 'starting', status: 'starting' },
     { id: 'not-ready', status: 'not-ready' },
-    { id: 'active', status: 'active' },
+    { id: 'detected-without-stop', status: 'active' },
+    { id: 'detected-with-custom-stop', status: 'active', stopCommand: 'docker compose down' },
     { id: 'pending-review', status: 'running', reviewRequired: true },
     { id: 'stopping', status: 'stopping' },
     { id: 'stopped', status: 'stopped' },
@@ -138,6 +139,11 @@ test('selects only projects that can be stopped together', () => {
     { id: 'unknown-owner', status: 'port-in-use-unknown' }
   ];
 
-  assert.deepEqual(stoppableProjectIds(projects), ['running', 'starting', 'not-ready', 'active']);
+  assert.deepEqual(stoppableProjectIds(projects), [
+    'running',
+    'starting',
+    'not-ready',
+    'detected-with-custom-stop'
+  ]);
   assert.deepEqual(stoppableProjectIds(), []);
 });

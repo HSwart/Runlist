@@ -107,6 +107,10 @@ function projectFormChanged(input, baseline) {
   return JSON.stringify(current) !== JSON.stringify(original);
 }
 
+function projectServicesChanged(input, baseline) {
+  return JSON.stringify(projectFormServices(input)) !== JSON.stringify(projectFormServices(baseline));
+}
+
 function projectSaveError(error) {
   const message = String(error?.message || 'Could not save this project.');
   const serviceField = message.match(/services\[(\d+)\]\.(name|port|url)/);
@@ -135,6 +139,7 @@ module.exports = {
   MAX_SERVICES,
   projectFormChanged,
   projectFormServices,
+  projectServicesChanged,
   projectFormValues,
   projectSaveError,
   validateProjectForm

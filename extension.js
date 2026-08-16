@@ -40,6 +40,7 @@ const {
 const {
   projectFormChanged,
   projectFormServices,
+  projectServicesChanged,
   projectFormValues,
   projectSaveError,
   validateProjectForm
@@ -643,6 +644,15 @@ class SwitchboardViewProvider {
     const startCommand = validation.values.startCommand.trim();
     const stopCommand = validation.values.stopCommand.trim();
     const services = projectFormServices(validation.values);
+    const existingProject = this.projects.find((item) => item.id === projectId);
+    const servicesLocked = existingProject
+      && ['running', 'starting', 'not-ready', 'stopping', 'active'].includes(this.getProjectStatus(projectId));
+    if (servicesLocked && projectServicesChanged(validation.values, existingProject)) {
+      this.formErrors = { services: 'Stop this project before changing its services.' };
+      this.focusTarget = { type: 'field', id: 'services' };
+      this.render();
+      return;
+    }
 
     try {
       const saved = upsertProject(this.projectsFile, {
@@ -699,6 +709,10 @@ class SwitchboardViewProvider {
     }
 
     const latestProject = this.projects.find((item) => item.id === id);
+    if (!latestProject) {
+      return;
+    }
+    const latestSharedOwnership = this.processOwnership.snapshot().get(id);
     const hadTrackedProcess = this.processes.has(id);
     try {
       if (hadTrackedProcess) {
@@ -711,7 +725,7 @@ class SwitchboardViewProvider {
         if (!stopped) {
           return;
         }
-      } else if (sharedOwnership) {
+      } else if (latestSharedOwnership) {
         const stopRequested = await this.stopProject(id, latestProject);
         if (!stopRequested || !await this.waitForProjectStopCompletion(id)) {
           vscode.window.showErrorMessage(
@@ -724,34 +738,44 @@ class SwitchboardViewProvider {
       vscode.window.showErrorMessage(`Could not stop ${project.name}: ${error.message}`);
       return;
     }
-    this.processOwnership.release(id);
-
-    removeProject(this.projectsFile, id);
-    const remainingProjects = projects.filter((item) => item.id !== id);
-    const adjacentProject = remainingProjects[projectIndex] || remainingProjects[projectIndex - 1];
-    this.managedProjectIds.delete(id);
-    this.statusRevision += 1;
-    this.portReservations.releaseShared(id);
-    this.releaseStartReservation(id);
-    this.projectStatuses.delete(id);
-    this.projectPortConflicts.delete(id);
-    this.startReadinessDeadlines.delete(id);
-    this.readinessWarnings.delete(id);
-    this.stoppingProjectIds.delete(id);
-    this.remoteStopRequests.delete(id);
-    this.projectOutputs.delete(id);
-    if (this.selectedProjectId === id) {
-      this.outputUpdateScheduler.cancel();
+    const deletionConflict = this.processOwnership.reserve(id);
+    if (deletionConflict) {
+      vscode.window.showErrorMessage(
+        `Could not delete ${project.name}: it started in another VS Code window while deletion was in progress.`
+      );
+      return;
     }
-    this.mode = 'list';
-    this.draft = {};
-    this.formBaseline = {};
-    this.formErrors = {};
-    this.focusTarget = adjacentProject
-      ? { type: 'project-menu', id: adjacentProject.id }
-      : { type: 'action', action: 'show-add' };
-    this.selectedProjectId = undefined;
-    this.render();
+
+    try {
+      removeProject(this.projectsFile, id);
+      const remainingProjects = projects.filter((item) => item.id !== id);
+      const adjacentProject = remainingProjects[projectIndex] || remainingProjects[projectIndex - 1];
+      this.managedProjectIds.delete(id);
+      this.statusRevision += 1;
+      this.portReservations.releaseShared(id);
+      this.releaseStartReservation(id);
+      this.projectStatuses.delete(id);
+      this.projectPortConflicts.delete(id);
+      this.startReadinessDeadlines.delete(id);
+      this.readinessWarnings.delete(id);
+      this.stoppingProjectIds.delete(id);
+      this.remoteStopRequests.delete(id);
+      this.projectOutputs.delete(id);
+      if (this.selectedProjectId === id) {
+        this.outputUpdateScheduler.cancel();
+      }
+      this.mode = 'list';
+      this.draft = {};
+      this.formBaseline = {};
+      this.formErrors = {};
+      this.focusTarget = adjacentProject
+        ? { type: 'project-menu', id: adjacentProject.id }
+        : { type: 'action', action: 'show-add' };
+      this.selectedProjectId = undefined;
+      this.render();
+    } finally {
+      this.processOwnership.release(id);
+    }
   }
 
   async waitForProjectStopCompletion(id) {
@@ -975,11 +999,16 @@ class SwitchboardViewProvider {
   }
 
   async restartProject(id) {
+    const project = this.projects.find((candidate) => candidate.id === id);
+    if (!project) {
+      return false;
+    }
     return restartProjectSafely(this.restartingProjectIds, id, {
       canRestart: () => {
         const sharedState = this.processOwnership.snapshot().get(id)?.state
           || this.portReservations.snapshot().get(id);
         return ['running', 'not-ready', 'active'].includes(this.getProjectStatus(id))
+          && (this.getProjectStatus(id) !== 'active' || Boolean(project.stopCommand))
           && !['starting', 'stopping'].includes(sharedState);
       },
       stop: () => this.stopProject(id),
@@ -1169,6 +1198,9 @@ class SwitchboardViewProvider {
       formErrors: this.formErrors,
       reviewRequired: this.mode === 'edit'
         && Boolean(projects.find((project) => project.id === this.selectedProjectId)?.reviewRequired),
+      servicesLocked: this.mode === 'edit'
+        && ['running', 'starting', 'not-ready', 'stopping', 'active']
+          .includes(this.getProjectStatus(this.selectedProjectId)),
       projectOutput: outputProject ? {
         entries: formatProjectOutput(rawProjectOutput),
         name: outputProject.name,
