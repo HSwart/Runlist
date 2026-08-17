@@ -8,6 +8,13 @@ function previewFrameSource(value) {
   return new URL(safeUrl).origin;
 }
 
+function previewFrameSources(values) {
+  const sources = [...new Set((values || [])
+    .map(previewFrameSource)
+    .filter((source) => source !== "'none'"))];
+  return sources.length ? sources.join(' ') : "'none'";
+}
+
 function projectPreviewService(project, status, serviceUrls, conflicted = false) {
   if (!project || project.reviewRequired || conflicted
     || !['running', 'starting', 'not-ready', 'not-responding', 'active'].includes(status)) {
@@ -28,4 +35,9 @@ function projectPreviewUrl(project, status, serviceUrls, conflicted = false) {
   return projectPreviewService(project, status, serviceUrls, conflicted)?.url;
 }
 
-module.exports = { previewFrameSource, projectPreviewService, projectPreviewUrl };
+module.exports = {
+  previewFrameSource,
+  previewFrameSources,
+  projectPreviewService,
+  projectPreviewUrl
+};

@@ -4,6 +4,7 @@ const path = require('node:path');
 const test = require('node:test');
 const {
   previewFrameSource,
+  previewFrameSources,
   projectPreviewService,
   projectPreviewUrl
 } = require('../preview-security');
@@ -68,6 +69,20 @@ test('limits preview CSP sources to a safe HTTP or HTTPS origin', () => {
   assert.equal(previewFrameSource(), "'none'");
 });
 
+test('allows only unique safe origins needed by visible preview frames', () => {
+  assert.equal(
+    previewFrameSources([
+      'http://127.0.0.1:4310/dashboard',
+      'http://127.0.0.1:4310/health',
+      'https://localhost:4311/path',
+      'file:///tmp/app',
+      undefined
+    ]),
+    'http://127.0.0.1:4310 https://localhost:4311'
+  );
+  assert.equal(previewFrameSources(['javascript:alert(1)']), "'none'");
+});
+
 test('renders one lazy, sandboxed, accessible expandable preview', () => {
   const root = path.join(__dirname, '..');
   const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
@@ -80,7 +95,7 @@ test('renders one lazy, sandboxed, accessible expandable preview', () => {
   assert.match(extension, /previewExpanded = canPreview && detailsExpanded/);
   assert.match(extension, /this\.expandedPreviewProjectId = undefined;[\s\S]*this\.expandedPreviewServicePort = undefined;[\s\S]*type: 'project-control'/);
   assert.match(extension, /this\.startAttempts\.set\(id, attempt\);[\s\S]*this\.projectServiceUrls\.delete\(id\);[\s\S]*this\.projectStatuses\.set\(id, 'starting'\)/);
-  assert.match(extension, /frame-src \$\{frameSource\}/);
+  assert.match(extension, /frame-src \$\{frameSources\}/);
   assert.match(extension, /this\.focusTarget = \{ type: 'project-control', id: previousId \}/);
   assert.match(webview, /data-action="toggle-preview"[^>]*aria-expanded="\$\{project\.detailsExpanded\}"[^>]*aria-controls="details-/);
   assert.match(webview, /title="\$\{project\.detailsExpanded \? 'Collapse' : 'Expand'\} \$\{project\.timeline \|\| project\.startupHistory\?\.length \? 'project details' : 'app preview'\}">\$\{icon\('chevron-down'\)\}/);
