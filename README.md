@@ -25,7 +25,7 @@ Runlist keeps a reusable list of local projects from different repositories insi
 - When service ports are configured, see project status, copy a responding web service's URL, and open the first service at its localhost address or optional HTTP/HTTPS URL. Services with an Open URL are also checked for an HTTP response.
 - Expand a running web app into stable Overview, Output, Preview, and History tabs, with refresh, copy, and browser actions.
 - Open an eligible responding local web app on a phone by scanning a QR code generated entirely on your computer.
-- See current CPU and memory use for the process tree Runlist started while its app preview is expanded.
+- See current CPU and memory use for the process tree Runlist started while its project details are expanded.
 - Open any saved project folder in a new VS Code window.
 - Expand a starting or running project to follow its startup timeline and the latest three useful output lines, then open the complete Recent Output screen when you need more detail.
 - View readable recent output from the latest run, including a concise failure summary when startup exits, follow new lines, and open web links without leaving the sidebar.

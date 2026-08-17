@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.0.6 — Live apps
+
+- Keep expanded project details stable with separate Overview, Output, Preview, and History tabs.
+- Move between off-screen running projects with a compact navigator that stays hidden when the visible list is short.
+- See a live runtime pulse with CPU, memory, and recent HTTP response-time samples while project details are open.
+- Preview the first responding web app without leaving the sidebar, then refresh it, copy its URL, or open it in the browser.
+- Open an eligible local web app on a phone using a private-network URL and QR code generated entirely on the computer.
+- Review the five most recent completed starts in a compact history grid, including average ready time and inspectable failure summaries.
+- Keep configured local addresses visible in the project row and automatically scroll details that do not fit the sidebar.
+
 ## 0.0.5 — Live project cards
 
 - Follow a project's startup progress directly inside its expanded sidebar card.
