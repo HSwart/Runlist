@@ -139,12 +139,35 @@ test('finds safe reachable URLs for individual open services', async () => {
     'http://localhost:4310',
     'https://admin.local/dashboard'
   ]);
-  assert.deepEqual(reachable, [
+  assert.deepEqual(reachable.map(({ port, url }) => ({ port, url })), [
     { port: 4310, url: 'http://localhost:4310/' },
     { port: 4311, url: 'https://admin.local/dashboard' }
   ]);
+  assert.ok(reachable.every(({ responseTimeMs }) => Number.isFinite(responseTimeMs)
+    && responseTimeMs >= 1));
   assert.equal(serviceUrl({ name: 'web', port: 4310 }), 'http://127.0.0.1:4310');
   assert.equal(serviceUrl({ name: 'unsafe', port: 4312, url: 'javascript:alert(1)' }), undefined);
+});
+
+test('measures a successful existing HTTP reachability probe without another request', async () => {
+  const clock = [100, 137];
+  let probes = 0;
+  const [reachable] = await reachableServiceUrls([
+    { name: 'web', port: 4310 }
+  ], [4310], {
+    now: () => clock.shift(),
+    probe: async () => {
+      probes += 1;
+      return true;
+    }
+  });
+
+  assert.equal(probes, 1);
+  assert.deepEqual(reachable, {
+    port: 4310,
+    url: 'http://127.0.0.1:4310/',
+    responseTimeMs: 37
+  });
 });
 
 test('bounds service URL forwarding and reachability checks', async () => {

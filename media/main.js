@@ -32,6 +32,13 @@ function formatMemory(value) {
     : `${Math.max(0, Math.round(megabytes))} MB`;
 }
 
+function formatResponseTime(value) {
+  if (!Number.isFinite(value)) {
+    return 'Unavailable';
+  }
+  return value >= 1000 ? `${(value / 1000).toFixed(1)} s` : `${Math.round(value)} ms`;
+}
+
 function runtimePulsePoints(samples, key) {
   const values = (samples || []).map((sample, index) => ({
     index,
@@ -61,26 +68,44 @@ function runtimePulseSvg(samples, key) {
   if (!points) {
     return '';
   }
-  return `<svg class="runtime-pulse ${key === 'cpuPercent' ? 'cpu' : 'memory'}" viewBox="0 0 48 12" preserveAspectRatio="none" aria-hidden="true" focusable="false"><polyline class="runtime-pulse-line" points="${points}" vector-effect="non-scaling-stroke"></polyline></svg>`;
+  const pulseClass = key === 'cpuPercent' ? 'cpu' : key === 'memoryBytes' ? 'memory' : 'http';
+  return `<svg class="runtime-pulse ${pulseClass}" viewBox="0 0 48 12" preserveAspectRatio="none" aria-hidden="true" focusable="false"><polyline class="runtime-pulse-line" points="${points}" vector-effect="non-scaling-stroke"></polyline></svg>`;
 }
 
-function resourceMetricsContent(metrics, runtimePulse = []) {
+function httpResponseContent(httpResponsePulse = []) {
+  const latest = httpResponsePulse.at(-1)?.responseTimeMs;
+  return Number.isFinite(latest)
+    ? `<span class="resource-reading http"><span><strong>HTTP</strong> <span data-http-response>${escapeHtml(formatResponseTime(latest))}</span></span>${runtimePulseSvg(httpResponsePulse, 'responseTimeMs')}</span>`
+    : '';
+}
+
+function resourceMetricsContent(metrics, runtimePulse = [], httpResponsePulse = []) {
+  let processMetrics;
   if (!metrics?.available) {
     const message = escapeHtml(metrics?.message || 'Resource use is unavailable.');
-    return `<span class="resource-unavailable" title="${message}">Resource use unavailable</span>`;
+    processMetrics = `<span class="resource-unavailable" title="${message}">Resource use unavailable</span>`;
+  } else {
+    const cpu = metrics.measuring ? 'Measuring…' : formatCpuPercent(metrics.cpuPercent);
+    const memory = metrics.measuring ? 'Measuring…' : formatMemory(metrics.memoryBytes);
+    processMetrics = `<span class="resource-reading"><span><strong>CPU</strong> <span data-resource-cpu>${escapeHtml(cpu)}</span></span>${runtimePulseSvg(runtimePulse, 'cpuPercent')}</span><span class="resource-reading"><span><strong>Memory</strong> <span data-resource-memory>${escapeHtml(memory)}</span></span>${runtimePulseSvg(runtimePulse, 'memoryBytes')}</span>`;
   }
-  const cpu = metrics.measuring ? 'Measuring…' : formatCpuPercent(metrics.cpuPercent);
-  const memory = metrics.measuring ? 'Measuring…' : formatMemory(metrics.memoryBytes);
-  return `<span class="resource-reading"><span><strong>CPU</strong> <span data-resource-cpu>${escapeHtml(cpu)}</span></span>${runtimePulseSvg(runtimePulse, 'cpuPercent')}</span><span class="resource-reading"><span><strong>Memory</strong> <span data-resource-memory>${escapeHtml(memory)}</span></span>${runtimePulseSvg(runtimePulse, 'memoryBytes')}</span>`;
+  return `${processMetrics}${httpResponseContent(httpResponsePulse)}`;
 }
 
-function resourceMetricsLabel(metrics) {
+function resourceMetricsLabel(metrics, httpResponsePulse = []) {
+  const parts = [];
   if (!metrics?.available) {
-    return metrics?.message || 'Resource use unavailable.';
+    parts.push(metrics?.message || 'Resource use unavailable.');
+  } else {
+    const cpu = metrics.measuring ? 'measuring' : formatCpuPercent(metrics.cpuPercent);
+    const memory = metrics.measuring ? 'measuring' : formatMemory(metrics.memoryBytes);
+    parts.push(`Resource use: CPU ${cpu}; memory ${memory}.`);
   }
-  const cpu = metrics.measuring ? 'measuring' : formatCpuPercent(metrics.cpuPercent);
-  const memory = metrics.measuring ? 'measuring' : formatMemory(metrics.memoryBytes);
-  return `Resource use: CPU ${cpu}; memory ${memory}.`;
+  const latest = httpResponsePulse.at(-1)?.responseTimeMs;
+  if (Number.isFinite(latest)) {
+    parts.push(`HTTP response time ${formatResponseTime(latest)}.`);
+  }
+  return parts.join(' ');
 }
 
 function escapeHtml(value = '') {
@@ -580,8 +605,8 @@ function renderList() {
                     <button data-action="open" data-id="${projectId}" aria-label="Open ${projectName} in browser" title="Open in browser">${icon('external')}</button>
                   </div>
                 </header>
-                <div class="resource-metrics" data-resource-metrics data-project-id="${projectId}" role="group" aria-label="${escapeHtml(resourceMetricsLabel(project.resourceMetrics))}">
-                  ${resourceMetricsContent(project.resourceMetrics, project.runtimePulse)}
+                <div class="resource-metrics" data-resource-metrics data-project-id="${projectId}" role="group" aria-label="${escapeHtml(resourceMetricsLabel(project.resourceMetrics, project.httpResponsePulse))}">
+                  ${resourceMetricsContent(project.resourceMetrics, project.runtimePulse, project.httpResponsePulse)}
                 </div>
                 <div class="preview-frame-wrap">
                   <iframe class="preview-frame" data-preview-frame data-src="${escapeHtml(project.previewUrl)}" title="${projectName} app preview" sandbox="allow-forms allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
@@ -1318,10 +1343,40 @@ window.addEventListener('message', (event) => {
     return;
   }
   if (event.data?.type === 'projectMetrics') {
+    const project = state.projects.find((item) => String(item.id) === String(event.data.id));
+    if (project) {
+      project.resourceMetrics = event.data.metrics;
+      project.runtimePulse = event.data.runtimePulse;
+      project.httpResponsePulse = event.data.httpResponsePulse;
+    }
     const metrics = document.querySelector(`[data-resource-metrics][data-project-id="${CSS.escape(String(event.data.id || ''))}"]`);
     if (metrics) {
-      metrics.innerHTML = resourceMetricsContent(event.data.metrics, event.data.runtimePulse);
-      metrics.setAttribute('aria-label', resourceMetricsLabel(event.data.metrics));
+      metrics.innerHTML = resourceMetricsContent(
+        event.data.metrics,
+        event.data.runtimePulse,
+        event.data.httpResponsePulse
+      );
+      metrics.setAttribute(
+        'aria-label',
+        resourceMetricsLabel(event.data.metrics, event.data.httpResponsePulse)
+      );
+    }
+    return;
+  }
+  if (event.data?.type === 'projectHttpPulse') {
+    const project = state.projects.find((item) => String(item.id) === String(event.data.id));
+    const metrics = document.querySelector(`[data-resource-metrics][data-project-id="${CSS.escape(String(event.data.id || ''))}"]`);
+    if (project && metrics) {
+      project.httpResponsePulse = event.data.httpResponsePulse;
+      metrics.innerHTML = resourceMetricsContent(
+        project.resourceMetrics,
+        project.runtimePulse,
+        project.httpResponsePulse
+      );
+      metrics.setAttribute(
+        'aria-label',
+        resourceMetricsLabel(project.resourceMetrics, project.httpResponsePulse)
+      );
     }
     return;
   }
