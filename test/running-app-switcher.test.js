@@ -30,7 +30,7 @@ test('loads one safe thumbnail only while the overflow navigator is visible', ()
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
 
   assert.match(extension, /previewFrameSources\(\[[\s\S]*expandedPreview\?\.previewUrl[\s\S]*runningAppIdSet/);
-  assert.match(webview, /data-running-app-frame[^>]*sandbox="allow-forms allow-scripts allow-same-origin"[^>]*referrerpolicy="no-referrer"[^>]*loading="lazy"/);
+  assert.match(webview, /data-running-app-frame[^>]*aria-hidden="true"[^>]*tabindex="-1"[^>]*sandbox="allow-forms allow-scripts allow-same-origin"[^>]*referrerpolicy="no-referrer"[^>]*loading="lazy"/);
   assert.match(webview, /navigator\.hidden = allFit;[\s\S]*if \(allFit\) \{[\s\S]*unloadRunningAppThumbnail\(navigator\)/);
   assert.match(webview, /function updateRunningAppThumbnail\(navigator, project\)[\s\S]*const url = project\.previewUrl[\s\S]*frame\.src = url/);
   assert.match(webview, /if \(!url\) \{[\s\S]*unloadRunningAppThumbnail\(navigator\)/);

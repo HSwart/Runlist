@@ -382,7 +382,7 @@ function renderList() {
           </div>
         </div>
         <div class="running-app-thumbnail" data-running-app-thumbnail>
-          <iframe data-running-app-frame title="Running app preview" sandbox="allow-forms allow-scripts allow-same-origin" referrerpolicy="no-referrer" loading="lazy"></iframe>
+          <iframe data-running-app-frame title="Running app preview" aria-hidden="true" tabindex="-1" sandbox="allow-forms allow-scripts allow-same-origin" referrerpolicy="no-referrer" loading="lazy"></iframe>
           <button class="running-app-thumbnail-target" data-action="show-running-app" aria-label="Show running app" title="Double-click to open in browser"></button>
           <span class="running-app-thumbnail-unavailable" data-running-app-thumbnail-unavailable hidden>No web preview</span>
           <button class="running-app-open" data-action="open" aria-label="Open running app in browser" title="Open in browser">${icon('external')}</button>
