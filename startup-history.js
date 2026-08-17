@@ -93,6 +93,18 @@ function clearStartupHistory(projectsFile, projectId) {
   }
 }
 
+function averageReadyDuration(history) {
+  const durations = (Array.isArray(history) ? history : [])
+    .filter((entry) => entry?.outcome === 'ready'
+      && Number.isFinite(entry.durationMs)
+      && entry.durationMs >= 0)
+    .map((entry) => entry.durationMs);
+  if (!durations.length) {
+    return undefined;
+  }
+  return Math.round(durations.reduce((total, duration) => total + duration, 0) / durations.length);
+}
+
 function readHistoryFiles(directory) {
   let fileNames;
   try {
@@ -155,6 +167,7 @@ function normalizeFailureSummary(value) {
 
 module.exports = {
   appendStartupHistory,
+  averageReadyDuration,
   clearStartupHistory,
   MAX_STARTUP_FAILURE_SUMMARY_CHARS,
   MAX_STARTUP_HISTORY,

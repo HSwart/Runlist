@@ -6,6 +6,7 @@ const path = require('node:path');
 const test = require('node:test');
 const {
   appendStartupHistory,
+  averageReadyDuration,
   clearStartupHistory,
   MAX_STARTUP_FAILURE_SUMMARY_CHARS,
   MAX_STARTUP_HISTORY,
@@ -15,6 +16,22 @@ const {
   startupHistoryDirectory,
   startupHistoryEntry
 } = require('../startup-history');
+
+test('averages only valid ready durations with deterministic rounding', () => {
+  assert.equal(averageReadyDuration([
+    { outcome: 'ready', durationMs: 1000 },
+    { outcome: 'failed', durationMs: 20 },
+    { outcome: 'ready', durationMs: 2001 },
+    { outcome: 'stopped', durationMs: 10 },
+    { outcome: 'ready', durationMs: -1 },
+    { outcome: 'ready', durationMs: Number.NaN },
+    { outcome: 'ready' }
+  ]), 1501);
+  assert.equal(averageReadyDuration([{ outcome: 'ready', durationMs: 1250 }]), 1250);
+  assert.equal(averageReadyDuration([{ outcome: 'ready', durationMs: 0 }]), 0);
+  assert.equal(averageReadyDuration([{ outcome: 'failed', durationMs: 500 }]), undefined);
+  assert.equal(averageReadyDuration(undefined), undefined);
+});
 
 test('classifies completed managed-start outcomes and attaches details only to failures', () => {
   assert.deepEqual(startupHistoryEntry('ready', 1000, 3500), {
@@ -167,13 +184,17 @@ test('wires bounded outcomes and an accessible non-color-only ribbon into the li
   assert.match(extension, /showStartFailure\(project, details[\s\S]*startFailureSummary[\s\S]*recordStartupOutcome\(project\.id, 'failed'[\s\S]*summary\.message\)/);
   assert.match(extension, /metadata\.historyOutcome !== 'timed-out'[\s\S]*replaceTimedOutStartupHistory/);
   assert.match(extension, /clearStartupHistory\(this\.projectsFile, id\)/);
+  assert.match(extension, /averageReadyDurationMs: averageReadyDuration\(startupHistory\)/);
   assert.match(webview, /class="startup-history" role="group" aria-label=/);
   assert.doesNotMatch(webview, /class="startup-history-ribbon" aria-hidden="true"/);
   assert.match(webview, /code: 'OK'[\s\S]*code: 'FAIL'[\s\S]*code: 'SLOW'/);
   assert.match(webview, /if \(!entry\.failureSummary\)[\s\S]*<span class="startup-history-entry[\s\S]*data-action="show-startup-failure"/);
   assert.match(webview, /escapeHtml\(selectedFailure\.failureSummary\)/);
+  assert.match(webview, /Number\.isFinite\(project\.averageReadyDurationMs\)[\s\S]*averageReadyDuration !== undefined[\s\S]*aria-label="Average ready time:[\s\S]*Avg ready/);
   assert.match(webview, /function closeStartupFailure[\s\S]*renderList\(\)[\s\S]*data-action="show-startup-failure"[\s\S]*\.focus\(\)/);
   assert.match(webview, /if \(!history\.length \|\| !project\.detailsExpanded\) \{[\s\S]*return ''/);
   assert.match(webview, /!project\.services\?\.length && project\.startupHistory\?\.length[\s\S]*project-details-toggle-row/);
   assert.match(styles, /grid-template-columns: repeat\(auto-fit, minmax\(52px, 1fr\)\)/);
+  assert.match(styles, /\.startup-history > header[\s\S]*flex-wrap: wrap/);
+  assert.match(styles, /\.startup-history-stats[\s\S]*flex-wrap: wrap/);
 });

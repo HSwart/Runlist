@@ -41,6 +41,7 @@ const {
 const { HttpResponseHistory, RuntimePulseHistory } = require('./runtime-pulse');
 const {
   appendStartupHistory,
+  averageReadyDuration,
   clearStartupHistory,
   readStartupHistory,
   replaceTimedOutStartupHistory,
@@ -2123,6 +2124,7 @@ class RunlistViewProvider {
         previewUrl: previewService?.url,
         phoneHandoff,
         startupHistory,
+        averageReadyDurationMs: averageReadyDuration(startupHistory),
         resourceMetrics: previewExpanded
           ? this.projectMetrics.get(project.id) || (locallyOwned
             ? { available: true, measuring: true }
