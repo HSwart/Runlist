@@ -1,8 +1,10 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { redactSensitiveText } = require('./project-diagnostics');
 
 const MAX_STARTUP_HISTORY = 5;
+const MAX_STARTUP_FAILURE_SUMMARY_CHARS = 240;
 const STARTUP_OUTCOMES = new Set(['ready', 'failed', 'timed-out']);
 
 function startupHistoryDirectory(projectsFile, projectId) {
@@ -10,18 +12,22 @@ function startupHistoryDirectory(projectsFile, projectId) {
   return path.join(path.dirname(projectsFile), 'startup-history', key);
 }
 
-function startupHistoryEntry(outcome, launchedAt, completedAt = Date.now()) {
+function startupHistoryEntry(outcome, launchedAt, completedAt = Date.now(), failureSummary) {
   if (!STARTUP_OUTCOMES.has(outcome)
     || !Number.isFinite(launchedAt)
     || !Number.isFinite(completedAt)
     || completedAt < launchedAt) {
     return undefined;
   }
-  return {
+  const entry = {
     outcome,
     completedAt: Math.round(completedAt),
     durationMs: Math.round(completedAt - launchedAt)
   };
+  const normalizedSummary = outcome === 'failed'
+    ? normalizeFailureSummary(failureSummary)
+    : undefined;
+  return normalizedSummary ? { ...entry, failureSummary: normalizedSummary } : entry;
 }
 
 function appendStartupHistory(projectsFile, projectId, entry) {
@@ -53,6 +59,30 @@ function readStartupHistory(projectsFile, projectId) {
   return readHistoryFiles(startupHistoryDirectory(projectsFile, projectId))
     .slice(-MAX_STARTUP_HISTORY)
     .map(({ entry }) => entry);
+}
+
+function replaceTimedOutStartupHistory(projectsFile, projectId, launchedAt, failedEntry) {
+  const normalized = normalizeEntry(failedEntry);
+  if (normalized?.outcome !== 'failed' || !Number.isFinite(launchedAt)) {
+    throw new TypeError('Failed startup history entry is invalid.');
+  }
+
+  const directory = startupHistoryDirectory(projectsFile, projectId);
+  const launchedAtMs = Math.round(launchedAt);
+  const previous = readHistoryFiles(directory).reverse().find(({ entry }) => (
+    entry.outcome === 'timed-out'
+      && entry.completedAt - entry.durationMs === launchedAtMs
+  ));
+  if (!previous) {
+    appendStartupHistory(projectsFile, projectId, normalized);
+    return false;
+  }
+
+  const targetPath = path.join(directory, previous.fileName);
+  const temporaryPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(temporaryPath, JSON.stringify(normalized), { encoding: 'utf8', mode: 0o600 });
+  fs.renameSync(temporaryPath, targetPath);
+  return true;
 }
 
 function clearStartupHistory(projectsFile, projectId) {
@@ -93,18 +123,44 @@ function normalizeEntry(value) {
     || value.durationMs < 0) {
     return undefined;
   }
-  return {
+  const entry = {
     outcome: value.outcome,
     completedAt: Math.round(value.completedAt),
     durationMs: Math.round(value.durationMs)
   };
+  const failureSummary = value.outcome === 'failed'
+    ? normalizeFailureSummary(value.failureSummary)
+    : undefined;
+  return failureSummary ? { ...entry, failureSummary } : entry;
+}
+
+function normalizeFailureSummary(value) {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const summary = redactSensitiveText(value).replace(/\s+/g, ' ').trim();
+  if (!summary) {
+    return undefined;
+  }
+  if (summary.length <= MAX_STARTUP_FAILURE_SUMMARY_CHARS) {
+    return summary;
+  }
+  let end = MAX_STARTUP_FAILURE_SUMMARY_CHARS - 1;
+  const lastCode = summary.charCodeAt(end - 1);
+  if (lastCode >= 0xd800 && lastCode <= 0xdbff) {
+    end -= 1;
+  }
+  return `${summary.slice(0, end)}…`;
 }
 
 module.exports = {
   appendStartupHistory,
   clearStartupHistory,
+  MAX_STARTUP_FAILURE_SUMMARY_CHARS,
   MAX_STARTUP_HISTORY,
+  normalizeFailureSummary,
   readStartupHistory,
+  replaceTimedOutStartupHistory,
   startupHistoryDirectory,
   startupHistoryEntry
 };

@@ -4,6 +4,7 @@ const app = document.getElementById('app');
 const persistedWebviewState = vscode.getState() || {};
 const detailTabState = { ...(persistedWebviewState.detailTabs || {}) };
 const phoneHandoffState = { ...(persistedWebviewState.phoneHandoffs || {}) };
+const startupFailureState = { ...(persistedWebviewState.startupFailures || {}) };
 let searchQuery = String(state.searchQuery || '');
 let outputFollowLatest = true;
 let previewLoadGeneration = 0;
@@ -298,6 +299,11 @@ function startupHistoryHtml(project, projectName) {
     'timed-out': { code: 'SLOW', label: 'Still starting' }
   };
   const readyCount = history.filter((entry) => entry.outcome === 'ready').length;
+  const selectedFailureKey = startupFailureState[project.id];
+  const selectedFailure = history.find((entry, index) => (
+    entry.failureSummary && startupHistoryEntryKey(entry, index) === selectedFailureKey
+  ));
+  const failureDetailId = `startup-failure-${escapeHtml(String(project.id))}`;
   const summary = `Recent starts for ${project.name}, oldest to newest: ${history.map((entry) => {
     const outcome = labels[entry.outcome] || labels.failed;
     return `${outcome.label} after ${formatStartupDuration(entry.durationMs)}`;
@@ -305,14 +311,28 @@ function startupHistoryHtml(project, projectName) {
   return `
     <section class="startup-history" role="group" aria-label="${escapeHtml(summary)}">
       <header><strong>Recent starts</strong><span>${readyCount} of ${history.length} ready</span></header>
-      <div class="startup-history-ribbon" aria-hidden="true">
-        ${history.map((entry) => {
+      <div class="startup-history-ribbon">
+        ${history.map((entry, index) => {
           const outcome = labels[entry.outcome] || labels.failed;
           const duration = formatStartupDuration(entry.durationMs);
-          return `<span class="startup-history-entry ${escapeHtml(entry.outcome)}" title="${outcome.label} after ${escapeHtml(duration)}"><strong>${outcome.code}</strong><span>${escapeHtml(duration)}</span></span>`;
+          const content = `<strong>${outcome.code}</strong><span>${escapeHtml(duration)}</span>`;
+          if (!entry.failureSummary) {
+            return `<span class="startup-history-entry ${escapeHtml(entry.outcome)}" title="${outcome.label} after ${escapeHtml(duration)}">${content}</span>`;
+          }
+          const entryKey = startupHistoryEntryKey(entry, index);
+          const selected = entryKey === selectedFailureKey;
+          return `<button type="button" class="startup-history-entry inspectable ${escapeHtml(entry.outcome)}" data-action="show-startup-failure" data-id="${escapeHtml(String(project.id))}" data-entry-key="${entryKey}" aria-label="View details for failed start after ${escapeHtml(duration)}" aria-expanded="${selected}" aria-controls="${failureDetailId}" title="View failure details">${content}</button>`;
         }).join('')}
       </div>
+      ${selectedFailure ? `<section id="${failureDetailId}" class="startup-failure-detail" tabindex="-1" aria-label="Failure details for ${projectName}">
+        <header><strong>Why it failed</strong><button type="button" class="icon-button" data-action="close-startup-failure" data-id="${escapeHtml(String(project.id))}" data-entry-key="${selectedFailureKey}" aria-label="Close failure details">${icon('close')}</button></header>
+        <p>${escapeHtml(selectedFailure.failureSummary)}</p>
+      </section>` : ''}
     </section>`;
+}
+
+function startupHistoryEntryKey(entry, index) {
+  return `${Math.round(entry.completedAt)}-${Math.round(entry.durationMs)}-${index}`;
 }
 
 function timelineElapsedLabel(timeline) {
@@ -380,7 +400,8 @@ function saveWebviewState() {
   vscode.setState({
     ...persistedWebviewState,
     detailTabs: detailTabState,
-    phoneHandoffs: phoneHandoffState
+    phoneHandoffs: phoneHandoffState,
+    startupFailures: startupFailureState
   });
 }
 
@@ -509,6 +530,13 @@ function renderList() {
     }
     if ((!project.previewExpanded || !project.phoneHandoff) && phoneHandoffState[project.id]) {
       delete phoneHandoffState[project.id];
+      webviewStateChanged = true;
+    }
+    const selectedFailureKey = startupFailureState[project.id];
+    if (selectedFailureKey && (!project.detailsExpanded || !project.startupHistory?.some((entry, index) => (
+      entry.failureSummary && startupHistoryEntryKey(entry, index) === selectedFailureKey
+    )))) {
+      delete startupFailureState[project.id];
       webviewStateChanged = true;
     }
   }
@@ -1319,6 +1347,29 @@ function togglePhoneHandoff(id, button) {
   }
 }
 
+function showStartupFailure(id, entryKey) {
+  const project = state.projects.find((item) => String(item.id) === String(id));
+  const entry = project?.startupHistory?.find((item, index) => (
+    item.failureSummary && startupHistoryEntryKey(item, index) === entryKey
+  ));
+  if (!project?.detailsExpanded || !entry) {
+    return;
+  }
+  startupFailureState[project.id] = entryKey;
+  saveWebviewState();
+  renderList();
+  requestAnimationFrame(() => document.getElementById(`startup-failure-${String(id)}`)?.focus());
+}
+
+function closeStartupFailure(id, entryKey) {
+  delete startupFailureState[id];
+  saveWebviewState();
+  renderList();
+  requestAnimationFrame(() => document.querySelector(
+    `[data-action="show-startup-failure"][data-id="${CSS.escape(String(id))}"][data-entry-key="${CSS.escape(String(entryKey))}"]`
+  )?.focus());
+}
+
 app.addEventListener('click', (event) => {
   const button = event.target.closest('[data-action]');
   if (!button) {
@@ -1374,6 +1425,8 @@ app.addEventListener('click', (event) => {
       url: button.dataset.url
     }),
     'toggle-phone-handoff': () => togglePhoneHandoff(button.dataset.id, button),
+    'show-startup-failure': () => showStartupFailure(button.dataset.id, button.dataset.entryKey),
+    'close-startup-failure': () => closeStartupFailure(button.dataset.id, button.dataset.entryKey),
     'toggle-preview': () => {
       const project = state.projects.find((item) => String(item.id) === String(button.dataset.id));
       if (project?.detailsExpanded) {
