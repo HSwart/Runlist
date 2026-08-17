@@ -9,6 +9,7 @@ const {
   readOwnedProcessTree,
   windowsProcessScript
 } = require('../process-metrics');
+const { HttpResponseHistory, RuntimePulseHistory } = require('../runtime-pulse');
 
 function row(pid, identity, cpuSeconds, memoryBytes) {
   return { pid, identity, cpuSeconds, memoryBytes };
@@ -91,6 +92,81 @@ test('reports unavailable metrics when an owned process exits or the platform ca
   });
 });
 
+test('keeps a bounded in-memory pulse and clears it when metrics are unavailable', () => {
+  const pulse = new RuntimePulseHistory(3);
+  for (let index = 0; index < 5; index += 1) {
+    pulse.append('project', {
+      available: true,
+      cpuPercent: index * 10,
+      memoryBytes: (index + 1) * 1024
+    });
+  }
+
+  assert.deepEqual(pulse.get('project'), [
+    { cpuPercent: 20, memoryBytes: 3072 },
+    { cpuPercent: 30, memoryBytes: 4096 },
+    { cpuPercent: 40, memoryBytes: 5120 }
+  ]);
+  assert.deepEqual(pulse.append('project', { available: false }), []);
+  assert.deepEqual(pulse.get('project'), []);
+});
+
+test('keeps bounded HTTP response samples and clears unavailable health', () => {
+  const pulse = new HttpResponseHistory(3);
+  for (let index = 0; index < 5; index += 1) {
+    pulse.append('project', 10 + index);
+  }
+
+  assert.deepEqual(pulse.get('project'), [
+    { responseTimeMs: 12 },
+    { responseTimeMs: 13 },
+    { responseTimeMs: 14 }
+  ]);
+  assert.deepEqual(pulse.append('project', undefined), []);
+  assert.deepEqual(pulse.get('project'), []);
+});
+
+test('resets HTTP response samples when the expanded service target changes or collapses', () => {
+  const pulse = new HttpResponseHistory(3);
+  pulse.setTarget('project', 4310, 'http://localhost:4310/');
+  pulse.record('running', [{
+    port: 4310,
+    url: 'http://localhost:4310/',
+    responseTimeMs: 42
+  }]);
+  assert.deepEqual(pulse.get('project'), [{ responseTimeMs: 42 }]);
+
+  pulse.setTarget('project', 4310, 'http://localhost:4310/admin');
+  assert.deepEqual(pulse.get('project'), []);
+  assert.deepEqual(pulse.currentTarget(), {
+    projectId: 'project',
+    port: 4310,
+    url: 'http://localhost:4310/admin'
+  });
+
+  pulse.setTarget(undefined, undefined, undefined);
+  assert.equal(pulse.currentTarget(), undefined);
+  assert.deepEqual(pulse.get('project'), []);
+});
+
+test('clears HTTP response samples when health is unavailable', () => {
+  for (const [status, responses] of [
+    ['stopped', [{ port: 4310, url: 'http://localhost:4310/', responseTimeMs: 20 }]],
+    ['not-ready', [{ port: 4310, url: 'http://localhost:4310/', responseTimeMs: 20 }]],
+    ['running', []]
+  ]) {
+    const pulse = new HttpResponseHistory(3);
+    pulse.setTarget('project', 4310, 'http://localhost:4310/');
+    pulse.record('running', [{
+      port: 4310,
+      url: 'http://localhost:4310/',
+      responseTimeMs: 18
+    }]);
+    assert.deepEqual(pulse.record(status, responses), []);
+    assert.deepEqual(pulse.get('project'), []);
+  }
+});
+
 test('uses exact POSIX process-group queries and ignores rows outside that group', async () => {
   const calls = [];
   const rows = await readOwnedProcessTree(41, 'darwin', {
@@ -143,9 +219,38 @@ test('renders accessible metrics only inside the expanded preview and stops samp
   assert.match(extension, /this\.processOwnership\.owns\(id, child\.pid\)/);
   assert.match(extension, /RESOURCE_SAMPLE_INTERVAL_MS = 5000/);
   assert.match(extension, /this\.syncResourceSampling\(expandedPreview\?\.id\)/);
+  assert.match(extension, /const projectId = this\.resourceSampleProjectId;[\s\S]*this\.runtimePulseHistory\.clear\(projectId\)/);
   assert.match(extension, /stopResourceSampling\(\)[\s\S]*clearInterval\(this\.resourceSampleTimer\)/);
   assert.match(webview, /data-resource-metrics[\s\S]*role="group"[\s\S]*aria-label=/);
   assert.match(webview, /project\.previewExpanded \? `[\s\S]*resource-metrics/);
+  assert.match(webview, /class="runtime-pulse[\s\S]*aria-hidden="true"[\s\S]*focusable="false"/);
+  assert.match(webview, /resourceMetricsContent\([\s\S]*event\.data\.metrics,[\s\S]*event\.data\.runtimePulse,[\s\S]*event\.data\.httpResponsePulse/);
   assert.match(extension, /messageToken: this\.webviewMessageToken/);
   assert.match(webview, /event\.data\?\.messageToken !== state\.messageToken/);
+});
+
+test('reuses health polling for an accessible expanded HTTP response pulse', () => {
+  const root = path.join(__dirname, '..');
+  const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
+
+  assert.match(extension, /this\.httpResponseHistory\.record\([\s\S]*activeCheck\?\.\[6\]/);
+  assert.match(extension, /syncHttpResponsePulseTarget\([\s\S]*expandedPreview\?\.previewPort,[\s\S]*expandedPreview\?\.previewUrl/);
+  assert.match(extension, /serviceUrls\.map\(\(\{ port, url \}\) => \(\{ port, url \}\)\)/);
+  assert.match(webview, /<strong>HTTP<\/strong>[\s\S]*data-http-response/);
+  assert.match(webview, /HTTP response time \$\{formatResponseTime\(latest\)\}/);
+  assert.match(webview, /event\.data\?\.type === 'projectHttpPulse'/);
+});
+
+test('keeps the CPU and memory explanation when HTTP timing is available', () => {
+  const webview = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
+
+  assert.match(
+    webview,
+    /if \(metrics\?\.available\)[\s\S]*else \{\s*const message = unavailableResourceText\(metrics\);[\s\S]*return `\$\{processMetrics\}\$\{httpContent\}`;/
+  );
+  assert.match(
+    webview,
+    /if \(metrics\?\.available\)[\s\S]*else \{\s*parts\.push\(unavailableResourceText\(metrics\)\);[\s\S]*HTTP response time/
+  );
 });

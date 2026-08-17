@@ -1,10 +1,15 @@
 const vscode = acquireVsCodeApi();
 const state = window.runlistState;
 const app = document.getElementById('app');
+const persistedWebviewState = vscode.getState() || {};
+const detailTabState = { ...(persistedWebviewState.detailTabs || {}) };
+const phoneHandoffState = { ...(persistedWebviewState.phoneHandoffs || {}) };
+const startupFailureState = { ...(persistedWebviewState.startupFailures || {}) };
 let searchQuery = String(state.searchQuery || '');
 let outputFollowLatest = true;
 let previewLoadGeneration = 0;
 let previewLoadTimer;
+let runningAppNavigatorFrame;
 const pendingOutputPeeks = new Map();
 
 function normalizeSearchQuery(value) {
@@ -31,23 +36,92 @@ function formatMemory(value) {
     : `${Math.max(0, Math.round(megabytes))} MB`;
 }
 
-function resourceMetricsContent(metrics) {
-  if (!metrics?.available) {
-    const message = escapeHtml(metrics?.message || 'Resource use is unavailable.');
-    return `<span class="resource-unavailable" title="${message}">Resource use unavailable</span>`;
+function formatResponseTime(value) {
+  if (!Number.isFinite(value)) {
+    return 'Unavailable';
   }
-  const cpu = metrics.measuring ? 'Measuring…' : formatCpuPercent(metrics.cpuPercent);
-  const memory = metrics.measuring ? 'Measuring…' : formatMemory(metrics.memoryBytes);
-  return `<span><strong>CPU</strong> <span data-resource-cpu>${escapeHtml(cpu)}</span></span><span><strong>Memory</strong> <span data-resource-memory>${escapeHtml(memory)}</span></span>`;
+  return value >= 1000 ? `${(value / 1000).toFixed(1)} s` : `${Math.round(value)} ms`;
 }
 
-function resourceMetricsLabel(metrics) {
-  if (!metrics?.available) {
-    return metrics?.message || 'Resource use unavailable.';
+function runtimePulsePoints(samples, key) {
+  const values = (samples || []).map((sample, index) => ({
+    index,
+    value: Number(sample?.[key])
+  })).filter((sample) => Number.isFinite(sample.value));
+  if (values.length < 2) {
+    return '';
   }
-  const cpu = metrics.measuring ? 'measuring' : formatCpuPercent(metrics.cpuPercent);
-  const memory = metrics.measuring ? 'measuring' : formatMemory(metrics.memoryBytes);
-  return `Resource use: CPU ${cpu}; memory ${memory}.`;
+
+  const width = 48;
+  const height = 12;
+  const minimum = Math.min(...values.map((sample) => sample.value));
+  const maximum = Math.max(...values.map((sample) => sample.value));
+  const range = maximum - minimum;
+  const sampleCount = Math.max(2, (samples || []).length);
+  return values.map((sample) => {
+    const x = (sample.index / (sampleCount - 1)) * width;
+    const y = range === 0
+      ? height / 2
+      : height - (((sample.value - minimum) / range) * (height - 2)) - 1;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+}
+
+function runtimePulseSvg(samples, key) {
+  const points = runtimePulsePoints(samples, key);
+  if (!points) {
+    return '';
+  }
+  const pulseClass = key === 'cpuPercent' ? 'cpu' : key === 'memoryBytes' ? 'memory' : 'http';
+  return `<svg class="runtime-pulse ${pulseClass}" viewBox="0 0 48 12" preserveAspectRatio="none" aria-hidden="true" focusable="false"><polyline class="runtime-pulse-line" points="${points}" vector-effect="non-scaling-stroke"></polyline></svg>`;
+}
+
+function httpResponseContent(httpResponsePulse = []) {
+  const latest = httpResponsePulse.at(-1)?.responseTimeMs;
+  return Number.isFinite(latest)
+    ? `<span class="resource-reading http"><span><strong>HTTP</strong> <span data-http-response>${escapeHtml(formatResponseTime(latest))}</span></span>${runtimePulseSvg(httpResponsePulse, 'responseTimeMs')}</span>`
+    : '';
+}
+
+function unavailableResourceText(metrics) {
+  const message = String(metrics?.message || '');
+  if (message.includes('window that started')) {
+    return 'Start this project in this VS Code window to measure CPU and memory.';
+  }
+  if (message.includes('ownership')) {
+    return 'CPU and memory stopped because this process is no longer owned here.';
+  }
+  return 'CPU and memory are not available for this run.';
+}
+
+function resourceMetricsContent(metrics, runtimePulse = [], httpResponsePulse = []) {
+  const httpContent = httpResponseContent(httpResponsePulse);
+  let processMetrics = '';
+  if (metrics?.available) {
+    const cpu = metrics.measuring ? 'Measuring…' : formatCpuPercent(metrics.cpuPercent);
+    const memory = metrics.measuring ? 'Measuring…' : formatMemory(metrics.memoryBytes);
+    processMetrics = `<span class="resource-reading"><span><strong>CPU</strong> <span data-resource-cpu>${escapeHtml(cpu)}</span></span>${runtimePulseSvg(runtimePulse, 'cpuPercent')}</span><span class="resource-reading"><span><strong>Memory</strong> <span data-resource-memory>${escapeHtml(memory)}</span></span>${runtimePulseSvg(runtimePulse, 'memoryBytes')}</span>`;
+  } else {
+    const message = unavailableResourceText(metrics);
+    processMetrics = `<span class="resource-unavailable" title="${escapeHtml(message)}">${escapeHtml(message)}</span>`;
+  }
+  return `${processMetrics}${httpContent}`;
+}
+
+function resourceMetricsLabel(metrics, httpResponsePulse = []) {
+  const parts = [];
+  const latest = httpResponsePulse.at(-1)?.responseTimeMs;
+  if (metrics?.available) {
+    const cpu = metrics.measuring ? 'measuring' : formatCpuPercent(metrics.cpuPercent);
+    const memory = metrics.measuring ? 'measuring' : formatMemory(metrics.memoryBytes);
+    parts.push(`Resource use: CPU ${cpu}; memory ${memory}.`);
+  } else {
+    parts.push(unavailableResourceText(metrics));
+  }
+  if (Number.isFinite(latest)) {
+    parts.push(`HTTP response time ${formatResponseTime(latest)}.`);
+  }
+  return parts.join(' ');
 }
 
 function escapeHtml(value = '') {
@@ -134,7 +208,7 @@ function icon(name, className = 'icon') {
     pin: { viewBox: '0 0 16 16', body: '<path d="M14 5v7h-.278c-.406 0-.778-.086-1.117-.258A2.528 2.528 0 0 1 11.73 11H8.87a3.463 3.463 0 0 1-.546.828 3.685 3.685 0 0 1-.735.633c-.27.177-.565.31-.882.398a3.875 3.875 0 0 1-.985.141h-.5V9H2l-1-.5L2 8h3.222V4h.5c.339 0 .664.047.977.14.312.094.607.227.883.4A3.404 3.404 0 0 1 8.87 6h2.859a2.56 2.56 0 0 1 .875-.734c.338-.172.71-.26 1.117-.266H14zm-.778 1.086a1.222 1.222 0 0 0-.32.156 1.491 1.491 0 0 0-.43.461L12.285 7H8.183l-.117-.336a2.457 2.457 0 0 0-.711-1.047C7.027 5.331 6.427 5.09 6 5v7c.427-.088 1.027-.33 1.355-.617.328-.287.565-.636.71-1.047L8.184 10h4.102l.18.297c.057.094.122.177.195.25.073.073.153.143.242.21.088.069.195.12.32.157V6.086z"/>' },
     pinned: { viewBox: '0 0 16 16', body: '<path d="M10.0589 2.44511C9.34701 1.73063 8.14697 1.90829 7.67261 2.79839L5.6526 6.58878L2.8419 7.52568C2.6775 7.58048 2.5532 7.71649 2.51339 7.88514C2.47357 8.0538 2.52392 8.23104 2.64646 8.35357L4.79291 10.5L2.14645 13.1465L2 14L2.85356 13.8536L5.50002 11.2071L7.64646 13.3536C7.76899 13.4761 7.94623 13.5265 8.11489 13.4866C8.28354 13.4468 8.41955 13.3225 8.47435 13.1581L9.41143 10.3469L13.1897 8.32423C14.0759 7.84982 14.2538 6.6551 13.5443 5.94305L10.0589 2.44511ZM8.55511 3.2687C8.71323 2.972 9.11324 2.91278 9.35055 3.15094L12.836 6.64889C13.0725 6.88624 13.0131 7.28448 12.7178 7.44262L8.76403 9.55921C8.65137 9.61952 8.56608 9.72068 8.52567 9.84191L7.7815 12.0744L3.92562 8.21853L6.15812 7.47436C6.27966 7.43385 6.38101 7.34823 6.44126 7.23518L8.55511 3.2687Z"/>' },
     play: { viewBox: '0 0 16 16', body: '<path d="M4.74514 3.06414C4.41183 2.87665 4 3.11751 4 3.49993V12.5002C4 12.8826 4.41182 13.1235 4.74512 12.936L12.7454 8.43601C13.0852 8.24486 13.0852 7.75559 12.7454 7.56443L4.74514 3.06414ZM3 3.49993C3 2.35268 4.2355 1.63011 5.23541 2.19257L13.2357 6.69286C14.2551 7.26633 14.2551 8.73415 13.2356 9.30759L5.23537 13.8076C4.23546 14.37 3 13.6474 3 12.5002V3.49993Z"/>' },
-    refresh: { viewBox: '0 0 16 16', body: '<path d="M13.6 3.4A6 6 0 1 0 14 11h-1.13A5 5 0 1 1 13 6.17V8h1V3h-5v1h3.88A5.98 5.98 0 0 1 13.6 3.4Z"/>' },
+    refresh: { viewBox: '0 0 16 16', body: '<path d="M3 8C3 5.23858 5.23858 3 8 3C9.63527 3 11.0878 3.78495 12.0005 5H10C9.72386 5 9.5 5.22386 9.5 5.5C9.5 5.77614 9.72386 6 10 6H12.8904C12.8973 6.00014 12.9041 6.00014 12.911 6H13C13.2761 6 13.5 5.77614 13.5 5.5V2.5C13.5 2.22386 13.2761 2 13 2C12.7239 2 12.5 2.22386 12.5 2.5V4.03138C11.4009 2.78613 9.79253 2 8 2C4.68629 2 2 4.68629 2 8C2 11.3137 4.68629 14 8 14C11.1301 14 13.6999 11.6035 13.9756 8.54488C14.0003 8.26985 13.7975 8.0268 13.5225 8.00202C13.2474 7.97723 13.0044 8.1801 12.9796 8.45512C12.75 11.003 10.6079 13 8 13C5.23858 13 3 10.7614 3 8Z"/>' },
     search: { viewBox: '0 0 16 16', body: '<path d="M10.0195 10.7266C9.06578 11.5217 7.83875 12 6.5 12C3.46243 12 1 9.53757 1 6.5C1 3.46243 3.46243 1 6.5 1C9.53757 1 12 3.46243 12 6.5C12 7.83875 11.5217 9.06578 10.7266 10.0195L13.8535 13.1464C14.0488 13.3417 14.0488 13.6583 13.8535 13.8536C13.6583 14.0488 13.3417 14.0488 13.1464 13.8536L10.0195 10.7266ZM11 6.5C11 4.01472 8.98528 2 6.5 2C4.01472 2 2 4.01472 2 6.5C2 8.98528 4.01472 11 6.5 11C8.98528 11 11 8.98528 11 6.5Z"/>' },
     stop: { viewBox: '0 0 16 16', body: '<path fill-rule="evenodd" clip-rule="evenodd" d="M5.5 5C5.22386 5 5 5.22386 5 5.5V10.5C5 10.7761 5.22386 11 5.5 11H10.5C10.7761 11 11 10.7761 11 10.5V5.5C11 5.22386 10.7761 5 10.5 5H5.5ZM4 5.5C4 4.67157 4.67157 4 5.5 4H10.5C11.3284 4 12 4.67157 12 5.5V10.5C12 11.3284 11.3284 12 10.5 12H5.5C4.67157 12 4 11.3284 4 10.5V5.5Z"/>' },
     terminal: { viewBox: '0 0 24 24', body: '<path d="M18.75 1.5H5.25C3.1815 1.5 1.5 3.183 1.5 5.25V18.75C1.5 20.8185 3.1815 22.5 5.25 22.5H18.75C20.8185 22.5 22.5 20.8185 22.5 18.75V5.25C22.5 3.183 20.8185 1.5 18.75 1.5ZM21 18.75C21 19.9905 19.9905 21 18.75 21H5.25C4.0095 21 3 19.9905 3 18.75V5.25C3 4.0095 4.0095 3 5.25 3H18.75C19.9905 3 21 4.0095 21 5.25V18.75ZM10.281 13.281L5.781 17.781C5.634 17.928 5.442 18 5.25 18C5.058 18 4.866 17.9265 4.719 17.781C4.4265 17.4885 4.4265 17.013 4.719 16.7205L8.688 12.7515L4.719 8.7825C4.4265 8.49 4.4265 8.0145 4.719 7.722C5.0115 7.4295 5.487 7.4295 5.7795 7.722L10.2795 12.222C10.572 12.5145 10.572 12.99 10.2795 13.2825L10.281 13.281ZM19.5 17.25C19.5 17.664 19.164 18 18.75 18H11.25C10.836 18 10.5 17.664 10.5 17.25C10.5 16.836 10.836 16.5 11.25 16.5H18.75C19.164 16.5 19.5 16.836 19.5 17.25Z"/>' },
@@ -152,6 +226,24 @@ function readinessServiceList(services) {
   return (services || [])
     .map((service) => `${escapeHtml(String(service.name))} <strong>:${escapeHtml(String(service.port))}</strong>`)
     .join(', ');
+}
+
+function serviceLocalAddress(service) {
+  const fullUrl = service.url || `http://localhost:${service.port}`;
+  try {
+    const parsed = new URL(fullUrl);
+    const host = parsed.host.replace(/^127\.0\.0\.1(?=:|$)/, 'localhost');
+    const path = parsed.pathname === '/' ? '' : parsed.pathname;
+    return {
+      fullUrl,
+      label: `${host}${path}`
+    };
+  } catch {
+    return {
+      fullUrl: `localhost:${service.port}`,
+      label: `localhost:${service.port}`
+    };
+  }
 }
 
 function readinessDetailsHtml(project, status) {
@@ -180,6 +272,70 @@ function formatElapsed(milliseconds) {
   }
   const minutes = Math.floor(seconds / 60);
   return `${minutes}m ${String(seconds % 60).padStart(2, '0')}s`;
+}
+
+function formatStartupDuration(milliseconds) {
+  if (milliseconds < 1000) {
+    return `${Math.max(0, Math.round(milliseconds))}ms`;
+  }
+  const seconds = milliseconds / 1000;
+  if (seconds < 10) {
+    return `${seconds.toFixed(1)}s`;
+  }
+  if (seconds < 60) {
+    return `${Math.round(seconds)}s`;
+  }
+  return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+}
+
+function startupHistoryHtml(project, projectName) {
+  const history = project.startupHistory || [];
+  if (!history.length || !project.detailsExpanded) {
+    return '';
+  }
+  const labels = {
+    ready: { code: 'OK', label: 'Ready' },
+    failed: { code: 'FAIL', label: 'Failed' },
+    'timed-out': { code: 'SLOW', label: 'Still starting' }
+  };
+  const readyCount = history.filter((entry) => entry.outcome === 'ready').length;
+  const averageReadyDuration = Number.isFinite(project.averageReadyDurationMs)
+    ? formatStartupDuration(project.averageReadyDurationMs)
+    : undefined;
+  const selectedFailureKey = startupFailureState[project.id];
+  const selectedFailure = history.find((entry, index) => (
+    entry.failureSummary && startupHistoryEntryKey(entry, index) === selectedFailureKey
+  ));
+  const failureDetailId = `startup-failure-${escapeHtml(String(project.id))}`;
+  const summary = `Recent starts for ${project.name}, oldest to newest: ${history.map((entry) => {
+    const outcome = labels[entry.outcome] || labels.failed;
+    return `${outcome.label} after ${formatStartupDuration(entry.durationMs)}`;
+  }).join('; ')}.`;
+  return `
+    <section class="startup-history" role="group" aria-label="${escapeHtml(summary)}">
+      <header><strong>Recent starts</strong><span class="startup-history-stats">${averageReadyDuration !== undefined ? `<span aria-label="Average ready time: ${escapeHtml(averageReadyDuration)}">Avg ready ${escapeHtml(averageReadyDuration)}</span>` : ''}<span>${readyCount} of ${history.length} ready</span></span></header>
+      <div class="startup-history-ribbon">
+        ${history.map((entry, index) => {
+          const outcome = labels[entry.outcome] || labels.failed;
+          const duration = formatStartupDuration(entry.durationMs);
+          const content = `<strong>${outcome.code}</strong><span>${escapeHtml(duration)}</span>`;
+          if (!entry.failureSummary) {
+            return `<span class="startup-history-entry ${escapeHtml(entry.outcome)}" title="${outcome.label} after ${escapeHtml(duration)}">${content}</span>`;
+          }
+          const entryKey = startupHistoryEntryKey(entry, index);
+          const selected = entryKey === selectedFailureKey;
+          return `<button type="button" class="startup-history-entry inspectable ${escapeHtml(entry.outcome)}" data-action="show-startup-failure" data-id="${escapeHtml(String(project.id))}" data-entry-key="${entryKey}" aria-label="View details for failed start after ${escapeHtml(duration)}" aria-expanded="${selected}" aria-controls="${failureDetailId}" title="View failure details">${content}</button>`;
+        }).join('')}
+      </div>
+      ${selectedFailure ? `<section id="${failureDetailId}" class="startup-failure-detail" tabindex="-1" aria-label="Failure details for ${projectName}">
+        <header><strong>Why it failed</strong><button type="button" class="icon-button" data-action="close-startup-failure" data-id="${escapeHtml(String(project.id))}" data-entry-key="${selectedFailureKey}" aria-label="Close failure details">${icon('close')}</button></header>
+        <p>${escapeHtml(selectedFailure.failureSummary)}</p>
+      </section>` : ''}
+    </section>`;
+}
+
+function startupHistoryEntryKey(entry, index) {
+  return `${Math.round(entry.completedAt)}-${Math.round(entry.durationMs)}-${index}`;
 }
 
 function timelineElapsedLabel(timeline) {
@@ -225,16 +381,123 @@ function outputPeekEntriesHtml(entries) {
 }
 
 function projectOutputPeekHtml(entries, projectId, projectName) {
-  if (!entries?.length) {
-    return '';
-  }
   const safeProjectId = escapeHtml(String(projectId || ''));
   const safeProjectName = escapeHtml(String(projectName || 'project'));
   return `
     <section class="project-output-peek" tabindex="0" aria-label="Latest output for ${safeProjectName}">
       <header><span>Live output</span><button data-action="output" data-id="${safeProjectId}">View output</button></header>
-      <ol>${outputPeekEntriesHtml(entries)}</ol>
+      ${entries?.length
+        ? `<ol>${outputPeekEntriesHtml(entries)}</ol>`
+        : '<p class="output-peek-empty">No output yet.</p>'}
     </section>`;
+}
+
+const DETAIL_TAB_LABELS = {
+  overview: 'Overview',
+  output: 'Output',
+  preview: 'Preview',
+  history: 'History'
+};
+
+function saveWebviewState() {
+  vscode.setState({
+    ...persistedWebviewState,
+    detailTabs: detailTabState,
+    phoneHandoffs: phoneHandoffState,
+    startupFailures: startupFailureState
+  });
+}
+
+function saveDetailTabState() {
+  saveWebviewState();
+}
+
+function selectedProjectDetailTab(project) {
+  const tabs = project.detailTabs || ['overview'];
+  const savedTab = detailTabState[project.id];
+  const selected = tabs.includes(savedTab)
+    ? savedTab
+    : tabs.includes(project.defaultDetailTab)
+      ? project.defaultDetailTab
+      : 'overview';
+  detailTabState[project.id] = selected;
+  return selected;
+}
+
+function projectDetailTabsHtml(project, projectName) {
+  if (!project.detailsExpanded) {
+    return '';
+  }
+  const projectId = escapeHtml(String(project.id));
+  const tabs = project.detailTabs || ['overview'];
+  const selectedTab = selectedProjectDetailTab(project);
+  const tabButtons = tabs.map((tab) => {
+    const label = DETAIL_TAB_LABELS[tab];
+    return `<button id="detail-tab-${projectId}-${tab}" class="project-detail-tab" role="tab" data-action="select-detail-tab" data-id="${projectId}" data-tab="${tab}" aria-selected="${tab === selectedTab}" aria-controls="detail-panel-${projectId}-${tab}" tabindex="${tab === selectedTab ? '0' : '-1'}">${label}</button>`;
+  }).join('');
+  const runtime = project.previewExpanded ? `
+    <section class="project-runtime" aria-label="Runtime for ${projectName}">
+      <h3>Runtime</h3>
+      <div class="resource-metrics" data-resource-metrics data-project-id="${projectId}" role="group" aria-label="${escapeHtml(resourceMetricsLabel(project.resourceMetrics, project.httpResponsePulse))}">
+        ${resourceMetricsContent(project.resourceMetrics, project.runtimePulse, project.httpResponsePulse)}
+      </div>
+    </section>` : '';
+  const overviewContent = `${project.timeline ? projectTimelineHtml(project, projectName) : ''}${runtime}`
+    || '<p class="project-detail-empty">No startup details yet.</p>';
+  const outputContent = project.outputPeek !== undefined
+    ? `<div class="project-output-peek-slot" data-output-peek-slot data-project-id="${projectId}" data-project-name="${projectName}">${projectOutputPeekHtml(project.outputPeek, project.id, project.name)}</div>`
+    : '';
+  const phoneHandoffOpen = Boolean(project.phoneHandoff && phoneHandoffState[project.id]);
+  const phoneHandoffContent = project.phoneHandoff ? `
+      <div class="preview-help-row">
+        <p class="preview-help">If the app blocks this view, use Open in browser.</p>
+        <button class="phone-handoff-toggle" data-action="toggle-phone-handoff" data-id="${projectId}" aria-expanded="${phoneHandoffOpen}" aria-controls="phone-handoff-${projectId}">${phoneHandoffOpen ? 'Hide phone code' : 'Open on phone'}</button>
+      </div>
+      <section id="phone-handoff-${projectId}" class="phone-handoff" tabindex="-1" aria-label="Open ${projectName} on your phone" ${phoneHandoffOpen ? '' : 'hidden'}>
+        <div class="phone-handoff-code">${project.phoneHandoff.qrSvg}</div>
+        <div class="phone-handoff-copy">
+          <strong>Open on your phone</strong>
+          <p>Scan while your phone is on the same network.</p>
+          <code>${escapeHtml(project.phoneHandoff.url)}</code>
+          <button data-action="copy-phone-url" data-id="${projectId}" data-url="${escapeHtml(project.phoneHandoff.url)}">Copy phone URL</button>
+        </div>
+      </section>` : '<p class="preview-help">If the app blocks this view, use Open in browser.</p>';
+  const previewContent = project.previewExpanded ? `
+    <section class="project-preview" aria-label="Preview of ${projectName}">
+      <header class="preview-toolbar">
+        <span>Live app</span>
+        <div class="preview-actions">
+          <button data-action="refresh-preview" data-id="${projectId}" aria-label="Refresh ${projectName} preview" title="Refresh preview">${icon('refresh')}</button>
+          <button data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(String(project.previewPort))}" aria-label="Copy ${projectName} URL" title="Copy URL">${icon('copy')}</button>
+          <button data-action="open" data-id="${projectId}" aria-label="Open ${projectName} in browser" title="Open in browser">${icon('external')}</button>
+        </div>
+      </header>
+      <div class="preview-frame-wrap">
+        <iframe class="preview-frame" data-preview-frame data-src="${escapeHtml(project.previewUrl)}" title="${projectName} app preview" sandbox="allow-forms allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
+        <div class="preview-loading" data-preview-loading role="status">Loading preview…</div>
+        <div class="preview-fallback" data-preview-fallback hidden>
+          <strong>Preview unavailable</strong>
+          <span>This app may block embedded views.</span>
+        </div>
+      </div>
+      ${phoneHandoffContent}
+    </section>` : '';
+  const historyContent = project.startupHistory?.length
+    ? startupHistoryHtml(project, projectName)
+    : '<p class="project-detail-empty">No completed starts yet.</p>';
+  const panels = {
+    overview: overviewContent,
+    output: outputContent,
+    preview: previewContent,
+    history: historyContent
+  };
+  return `
+    <div class="project-detail-workspace">
+      <div class="project-detail-tabs" role="tablist" aria-label="Details for ${projectName}">${tabButtons}</div>
+      <div class="project-detail-viewport">
+        ${tabs.map((tab) => `<section id="detail-panel-${projectId}-${tab}" class="project-detail-panel" role="tabpanel" aria-labelledby="detail-tab-${projectId}-${tab}" data-detail-panel="${tab}" tabindex="0" ${tab === selectedTab ? '' : 'hidden'}>${panels[tab]}</section>`).join('')}
+      </div>
+    </div>`;
 }
 
 function statusSummaryHtml(projects) {
@@ -262,6 +525,27 @@ function statusSummaryHtml(projects) {
 }
 
 function renderList() {
+  let webviewStateChanged = false;
+  for (const project of state.projects) {
+    if (!project.detailsExpanded && detailTabState[project.id]) {
+      delete detailTabState[project.id];
+      webviewStateChanged = true;
+    }
+    if ((!project.previewExpanded || !project.phoneHandoff) && phoneHandoffState[project.id]) {
+      delete phoneHandoffState[project.id];
+      webviewStateChanged = true;
+    }
+    const selectedFailureKey = startupFailureState[project.id];
+    if (selectedFailureKey && (!project.detailsExpanded || !project.startupHistory?.some((entry, index) => (
+      entry.failureSummary && startupHistoryEntryKey(entry, index) === selectedFailureKey
+    )))) {
+      delete startupFailureState[project.id];
+      webviewStateChanged = true;
+    }
+  }
+  if (webviewStateChanged) {
+    saveWebviewState();
+  }
   if (state.projects.length === 0) {
     app.innerHTML = `
       <section class="empty-state">
@@ -272,6 +556,9 @@ function renderList() {
       </section>`;
     return;
   }
+
+  const runningAppIds = new Set((state.runningAppIds || []).map(String));
+  const runningApps = state.projects.filter((project) => runningAppIds.has(String(project.id)));
 
   app.innerHTML = `
     <header class="summary" aria-label="Project status summary">
@@ -290,6 +577,26 @@ function renderList() {
       <input id="project-search" type="search" value="${escapeHtml(searchQuery)}" placeholder="Search projects" aria-label="Search projects" autocomplete="off" spellcheck="false">
     </div>
     <span id="project-search-status" class="visually-hidden" aria-live="polite"></span>
+    ${runningApps.length > 1 ? `
+      <nav class="running-app-navigator" data-running-app-navigator aria-label="Running app navigator" hidden>
+        <div class="running-app-bar">
+          <span class="status-dot running" aria-hidden="true"></span>
+          <button class="running-app-current" data-action="show-running-app" aria-label="Show running app">
+            <span class="auto-scroll"><span class="auto-scroll-content" data-running-app-name></span></span>
+          </button>
+          <span class="running-app-position" data-running-app-position aria-hidden="true"></span>
+          <div class="running-app-navigation">
+            <button class="running-app-previous" data-action="previous-running-app" aria-label="Previous running app" title="Previous running app">${icon('chevron-down')}</button>
+            <button data-action="next-running-app" aria-label="Next running app" title="Next running app">${icon('chevron-down')}</button>
+          </div>
+        </div>
+        <div class="running-app-thumbnail" data-running-app-thumbnail>
+          <iframe data-running-app-frame title="Running app preview" aria-hidden="true" tabindex="-1" sandbox="allow-forms allow-scripts allow-same-origin" referrerpolicy="no-referrer" loading="lazy"></iframe>
+          <button class="running-app-thumbnail-target" data-action="show-running-app" aria-label="Show running app" title="Double-click to open in browser"></button>
+          <span class="running-app-thumbnail-unavailable" data-running-app-thumbnail-unavailable hidden>No web preview</span>
+          <button class="running-app-open" data-action="open" aria-label="Open running app in browser" title="Open in browser">${icon('external')}</button>
+        </div>
+      </nav>` : ''}
     <section class="project-list" aria-label="Projects">
       ${state.projects.map((project) => {
         const projectId = escapeHtml(project.id);
@@ -374,7 +681,7 @@ function renderList() {
               : '';
         const actionDisabled = projectStatus === 'stopping' || blocked || detectedWithoutStop;
         return `
-          <article class="project-row" data-project-id="${projectId}" aria-labelledby="project-${projectId}">
+          <article id="project-row-${projectId}" class="project-row" data-project-id="${projectId}" aria-labelledby="project-${projectId}" tabindex="-1">
             <div class="project-topline">
               <div class="project-heading">
                 <div class="project-title-line">
@@ -434,7 +741,7 @@ function renderList() {
             </div>
             ${project.services?.length ? `
               <div class="project-services-row">
-                <div class="project-services" aria-label="Service ports">
+                <div class="project-services" aria-label="Service addresses">
                   ${project.services.map((service) => {
                   const portOpen = project.openPorts?.includes(service.port);
                   const canCopyUrl = project.serviceUrls?.some((entry) => entry.port === service.port)
@@ -458,40 +765,17 @@ function renderList() {
                     ? ` aria-label="${escapeHtml(service.name)} on port ${escapeHtml(String(service.port))}: web service not responding"`
                     : '';
                   const copyLabel = `Copy ${escapeHtml(service.name)} URL`;
-                  return `<span${title}${ariaLabel}><span class="service-indicator ${indicator}" aria-hidden="true"></span>${escapeHtml(service.name)} <strong>:${escapeHtml(String(service.port))}</strong>${canCopyUrl ? `<button class="copy-url-button" data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(String(service.port))}" aria-label="${copyLabel}" title="${copyLabel}">${icon('copy')}</button>` : ''}</span>`;
+                  const address = serviceLocalAddress(service);
+                  return `<span${title}${ariaLabel}><span class="service-indicator ${indicator}" aria-hidden="true"></span><span class="service-name">${escapeHtml(service.name)}</span><span class="service-separator" aria-hidden="true">·</span><span class="service-address auto-scroll" title="${escapeHtml(address.fullUrl)}"><span class="auto-scroll-content">${escapeHtml(address.label)}</span></span>${canCopyUrl ? `<button class="copy-url-button" data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(String(service.port))}" aria-label="${copyLabel}" title="${copyLabel}">${icon('copy')}</button>` : ''}</span>`;
                   }).join('')}
                 </div>
-                ${(project.timeline || project.previewUrl) ? `<button class="preview-toggle" data-action="toggle-preview" data-id="${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} ${project.timeline ? 'live project details' : 'preview'} for ${projectName}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" title="${project.detailsExpanded ? 'Collapse' : 'Expand'} ${project.timeline ? 'live project details' : 'app preview'}">${icon('chevron-down')}</button>` : ''}
+                ${(project.timeline || project.previewUrl || project.startupHistory?.length) ? `<button class="preview-toggle" data-action="toggle-preview" data-id="${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} ${project.timeline || project.startupHistory?.length ? 'project details' : 'preview'} for ${projectName}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" title="${project.detailsExpanded ? 'Collapse' : 'Expand'} ${project.timeline || project.startupHistory?.length ? 'project details' : 'app preview'}">${icon('chevron-down')}</button>` : ''}
               </div>` : ''}
-            ${(project.timeline || project.previewUrl) ? `<div id="details-${projectId}" class="project-live-details" ${project.detailsExpanded ? '' : 'hidden'}>
-            ${project.timeline ? projectTimelineHtml(project, projectName) : ''}
-            ${project.outputPeek !== undefined ? `<div class="project-output-peek-slot" data-output-peek-slot data-project-id="${projectId}" data-project-name="${projectName}">${projectOutputPeekHtml(project.outputPeek, project.id, project.name)}</div>` : ''}
-            ${project.previewUrl ? `
-              <section class="project-preview" aria-label="Preview of ${projectName}" ${project.previewExpanded ? '' : 'hidden'}>
-                ${project.previewExpanded ? `
-                <header class="preview-toolbar">
-                  <span>Preview</span>
-                  <div class="preview-actions">
-                    <button data-action="refresh-preview" data-id="${projectId}" aria-label="Refresh ${projectName} preview" title="Refresh preview">${icon('refresh')}</button>
-                    <button data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(String(project.previewPort))}" aria-label="Copy ${projectName} URL" title="Copy URL">${icon('copy')}</button>
-                    <button data-action="open" data-id="${projectId}" aria-label="Open ${projectName} in browser" title="Open in browser">${icon('external')}</button>
-                  </div>
-                </header>
-                <div class="resource-metrics" data-resource-metrics data-project-id="${projectId}" role="group" aria-label="${escapeHtml(resourceMetricsLabel(project.resourceMetrics))}">
-                  ${resourceMetricsContent(project.resourceMetrics)}
-                </div>
-                <div class="preview-frame-wrap">
-                  <iframe class="preview-frame" data-preview-frame data-src="${escapeHtml(project.previewUrl)}" title="${projectName} app preview" sandbox="allow-forms allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
-                  <div class="preview-loading" data-preview-loading role="status">Loading preview…</div>
-                  <div class="preview-fallback" data-preview-fallback hidden>
-                    <strong>Preview unavailable</strong>
-                    <span>This app may block embedded views.</span>
-                  </div>
-                </div>
-                <p class="preview-help">If the app blocks this view, use Open in browser.</p>
-                ` : ''}
-              </section>` : ''}
-            </div>` : ''}
+            ${!project.services?.length && project.startupHistory?.length ? `
+              <div class="project-details-toggle-row">
+                <button class="preview-toggle" data-action="toggle-preview" data-id="${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} project details for ${projectName}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" title="${project.detailsExpanded ? 'Collapse' : 'Expand'} project details">${icon('chevron-down')}</button>
+              </div>` : ''}
+            ${(project.timeline || project.previewUrl || project.startupHistory?.length) ? `<div id="details-${projectId}" class="project-live-details" ${project.detailsExpanded ? '' : 'hidden'}>${projectDetailTabsHtml(project, projectName)}</div>` : ''}
           </article>`;
       }).join('')}
       <div class="search-empty" data-search-empty hidden>
@@ -549,6 +833,156 @@ function applyProjectFilter(query) {
   scheduleAutoScrollUpdate();
 }
 
+function revealRunningApp(id) {
+  const project = state.projects.find((entry) => String(entry.id) === String(id));
+  const row = document.querySelector(`.project-row[data-project-id="${CSS.escape(String(id || ''))}"]`);
+  if (!project || !row) {
+    return;
+  }
+
+  if (row.hidden) {
+    const search = document.getElementById('project-search');
+    if (search) {
+      search.value = '';
+    }
+    vscode.postMessage({ type: 'setSearchQuery', query: '' });
+    applyProjectFilter('');
+  }
+
+  row.scrollIntoView({ block: 'nearest' });
+  row.focus({ preventScroll: true });
+  scheduleRunningAppNavigatorUpdate();
+}
+
+function runningAppRows() {
+  return (state.runningAppIds || []).map((id) => {
+    const project = state.projects.find((entry) => String(entry.id) === String(id));
+    const row = document.querySelector(`.project-row[data-project-id="${CSS.escape(String(id))}"]`);
+    return project && row ? { project, row } : undefined;
+  }).filter(Boolean);
+}
+
+function updateRunningAppNavigator() {
+  const navigator = document.querySelector('[data-running-app-navigator]');
+  const entries = runningAppRows();
+  if (!navigator || entries.length < 2) {
+    return;
+  }
+
+  const navigatorBounds = navigator.getBoundingClientRect();
+  const navigatorOffset = !navigator.hidden && navigatorBounds.top <= 0
+    ? navigator.offsetHeight
+    : 0;
+  const allFit = entries.every(({ row }) => {
+    if (row.hidden) {
+      return false;
+    }
+    const bounds = row.getBoundingClientRect();
+    return bounds.top - navigatorOffset >= 0
+      && bounds.bottom - navigatorOffset <= window.innerHeight;
+  });
+  navigator.hidden = allFit;
+  if (allFit) {
+    unloadRunningAppThumbnail(navigator);
+    return;
+  }
+
+  const visibleEntries = entries.filter(({ row }) => !row.hidden);
+  const candidates = visibleEntries.length ? visibleEntries : entries;
+  const viewportMiddle = window.innerHeight / 2;
+  const current = candidates.reduce((closest, entry) => {
+    const bounds = entry.row.getBoundingClientRect();
+    const distance = Math.abs((bounds.top + bounds.bottom) / 2 - viewportMiddle);
+    return !closest || distance < closest.distance ? { entry, distance } : closest;
+  }, undefined)?.entry || entries[0];
+  const currentIndex = entries.indexOf(current);
+  const name = navigator.querySelector('[data-running-app-name]');
+  const position = navigator.querySelector('[data-running-app-position]');
+  const currentButton = navigator.querySelector('[data-action="show-running-app"]');
+  const thumbnailTarget = navigator.querySelector('.running-app-thumbnail-target');
+  const openButton = navigator.querySelector('.running-app-open');
+  const currentChanged = currentButton?.dataset.id !== String(current.project.id);
+  if (name) {
+    name.textContent = current.project.name;
+  }
+  if (position) {
+    position.textContent = `${currentIndex + 1} of ${entries.length}`;
+  }
+  if (currentButton) {
+    currentButton.dataset.id = current.project.id;
+    currentButton.setAttribute('aria-label', `Show ${current.project.name}, running app ${currentIndex + 1} of ${entries.length}`);
+    currentButton.title = `Show ${current.project.name}`;
+  }
+  if (thumbnailTarget) {
+    thumbnailTarget.dataset.id = current.project.id;
+    thumbnailTarget.dataset.canOpen = String(Boolean(current.project.previewUrl));
+    thumbnailTarget.setAttribute(
+      'aria-label',
+      current.project.previewUrl
+        ? `Show ${current.project.name}; double-click to open in browser`
+        : `Show ${current.project.name}`
+    );
+    thumbnailTarget.title = current.project.previewUrl
+      ? 'Double-click to open in browser'
+      : `Show ${current.project.name}`;
+  }
+  if (openButton) {
+    openButton.dataset.id = current.project.id;
+    openButton.hidden = !current.project.previewUrl;
+    openButton.setAttribute('aria-label', `Open ${current.project.name} in browser`);
+  }
+  updateRunningAppThumbnail(navigator, current.project);
+  if (currentChanged) {
+    scheduleAutoScrollUpdate();
+  }
+}
+
+function unloadRunningAppThumbnail(navigator) {
+  const frame = navigator?.querySelector('[data-running-app-frame]');
+  if (frame) {
+    frame.removeAttribute('src');
+    delete frame.dataset.url;
+    frame.title = 'Running app preview';
+  }
+}
+
+function updateRunningAppThumbnail(navigator, project) {
+  const frame = navigator.querySelector('[data-running-app-frame]');
+  const unavailable = navigator.querySelector('[data-running-app-thumbnail-unavailable]');
+  const url = project.previewUrl;
+  if (!frame || !unavailable) {
+    return;
+  }
+  unavailable.hidden = Boolean(url);
+  frame.hidden = !url;
+  if (!url) {
+    unloadRunningAppThumbnail(navigator);
+    return;
+  }
+  frame.title = `${project.name} live thumbnail`;
+  if (frame.dataset.url !== url) {
+    frame.dataset.url = url;
+    frame.src = url;
+  }
+}
+
+function scheduleRunningAppNavigatorUpdate() {
+  cancelAnimationFrame(runningAppNavigatorFrame);
+  runningAppNavigatorFrame = requestAnimationFrame(updateRunningAppNavigator);
+}
+
+function navigateRunningApps(direction) {
+  const navigator = document.querySelector('[data-running-app-navigator]');
+  const entries = runningAppRows();
+  if (!navigator || entries.length < 2) {
+    return;
+  }
+  const currentId = navigator.querySelector('[data-action="show-running-app"]')?.dataset.id;
+  const currentIndex = Math.max(0, entries.findIndex(({ project }) => String(project.id) === currentId));
+  const nextIndex = (currentIndex + direction + entries.length) % entries.length;
+  revealRunningApp(entries[nextIndex].project.id);
+}
+
 function updateAutoScroll() {
   document.querySelectorAll('.auto-scroll').forEach((container) => {
     const content = container.querySelector('.auto-scroll-content');
@@ -575,6 +1009,8 @@ function scheduleAutoScrollUpdate() {
 }
 
 window.addEventListener('resize', scheduleAutoScrollUpdate);
+window.addEventListener('resize', scheduleRunningAppNavigatorUpdate);
+window.addEventListener('scroll', scheduleRunningAppNavigatorUpdate, { passive: true });
 
 function sharedPortWarningText(draft, serviceIndex) {
   const port = Number(draft?.services?.[serviceIndex]?.port);
@@ -868,6 +1304,75 @@ function updateServiceDraft(services, focusId) {
   requestAnimationFrame(() => document.getElementById(focusId)?.focus());
 }
 
+function selectProjectDetailTab(id, tab, focus = false) {
+  const project = state.projects.find((item) => String(item.id) === String(id));
+  if (!project?.detailsExpanded || !project.detailTabs?.includes(tab)) {
+    return;
+  }
+  detailTabState[project.id] = tab;
+  saveDetailTabState();
+  const row = document.querySelector(`.project-row[data-project-id="${CSS.escape(String(id))}"]`);
+  row?.querySelectorAll('[role="tab"]').forEach((button) => {
+    const selected = button.dataset.tab === tab;
+    button.setAttribute('aria-selected', String(selected));
+    button.tabIndex = selected ? 0 : -1;
+    if (selected && focus) {
+      button.focus();
+    }
+  });
+  row?.querySelectorAll('[data-detail-panel]').forEach((panel) => {
+    panel.hidden = panel.dataset.detailPanel !== tab;
+  });
+  if (tab === 'preview') {
+    row?.querySelectorAll('[data-detail-panel="preview"] [data-preview-frame]')
+      .forEach(loadProjectPreview);
+  }
+  scheduleAutoScrollUpdate();
+  scheduleRunningAppNavigatorUpdate();
+}
+
+function togglePhoneHandoff(id, button) {
+  const project = state.projects.find((item) => String(item.id) === String(id));
+  if (!project?.previewExpanded || !project.phoneHandoff) {
+    return;
+  }
+  const open = !phoneHandoffState[project.id];
+  phoneHandoffState[project.id] = open;
+  saveWebviewState();
+  const panel = document.getElementById(`phone-handoff-${String(id)}`);
+  button.setAttribute('aria-expanded', String(open));
+  button.textContent = open ? 'Hide phone code' : 'Open on phone';
+  if (panel) {
+    panel.hidden = !open;
+    if (open) {
+      panel.focus();
+    }
+  }
+}
+
+function showStartupFailure(id, entryKey) {
+  const project = state.projects.find((item) => String(item.id) === String(id));
+  const entry = project?.startupHistory?.find((item, index) => (
+    item.failureSummary && startupHistoryEntryKey(item, index) === entryKey
+  ));
+  if (!project?.detailsExpanded || !entry) {
+    return;
+  }
+  startupFailureState[project.id] = entryKey;
+  saveWebviewState();
+  renderList();
+  requestAnimationFrame(() => document.getElementById(`startup-failure-${String(id)}`)?.focus());
+}
+
+function closeStartupFailure(id, entryKey) {
+  delete startupFailureState[id];
+  saveWebviewState();
+  renderList();
+  requestAnimationFrame(() => document.querySelector(
+    `[data-action="show-startup-failure"][data-id="${CSS.escape(String(id))}"][data-entry-key="${CSS.escape(String(entryKey))}"]`
+  )?.focus());
+}
+
 app.addEventListener('click', (event) => {
   const button = event.target.closest('[data-action]');
   if (!button) {
@@ -917,10 +1422,26 @@ app.addEventListener('click', (event) => {
       id: button.dataset.id,
       port: Number(button.dataset.port)
     }),
-    'toggle-preview': () => vscode.postMessage({
-      type: 'toggleProjectPreview',
-      id: button.dataset.id
+    'copy-phone-url': () => vscode.postMessage({
+      type: 'copyPhoneUrl',
+      id: button.dataset.id,
+      url: button.dataset.url
     }),
+    'toggle-phone-handoff': () => togglePhoneHandoff(button.dataset.id, button),
+    'show-startup-failure': () => showStartupFailure(button.dataset.id, button.dataset.entryKey),
+    'close-startup-failure': () => closeStartupFailure(button.dataset.id, button.dataset.entryKey),
+    'toggle-preview': () => {
+      const project = state.projects.find((item) => String(item.id) === String(button.dataset.id));
+      if (project?.detailsExpanded) {
+        delete detailTabState[project.id];
+        saveDetailTabState();
+      }
+      vscode.postMessage({
+        type: 'toggleProjectPreview',
+        id: button.dataset.id
+      });
+    },
+    'select-detail-tab': () => selectProjectDetailTab(button.dataset.id, button.dataset.tab),
     'refresh-preview': () => refreshProjectPreview(button.dataset.id),
     'open-vscode': () => {
       closeMenus();
@@ -948,6 +1469,9 @@ app.addEventListener('click', (event) => {
     'copy-output': () => vscode.postMessage({ type: 'copyOutput' }),
     edit: () => vscode.postMessage({ type: 'showEdit', id: button.dataset.id }),
     'toggle-pin': () => vscode.postMessage({ type: 'toggleProjectPin', id: button.dataset.id }),
+    'show-running-app': () => revealRunningApp(button.dataset.id),
+    'previous-running-app': () => navigateRunningApps(-1),
+    'next-running-app': () => navigateRunningApps(1),
     delete: () => vscode.postMessage({ type: 'deleteProject', id: button.dataset.id }),
     start: () => vscode.postMessage({ type: 'startProject', id: button.dataset.id }),
     stop: () => vscode.postMessage({ type: 'stopProject', id: button.dataset.id }),
@@ -966,6 +1490,13 @@ app.addEventListener('click', (event) => {
   actions[button.dataset.action]?.();
 });
 
+app.addEventListener('dblclick', (event) => {
+  const target = event.target.closest('.running-app-thumbnail-target[data-id]');
+  if (target?.dataset.canOpen === 'true') {
+    vscode.postMessage({ type: 'openProject', id: target.dataset.id });
+  }
+});
+
 function loadProjectPreview(frame) {
   const wrapper = frame.closest('.preview-frame-wrap');
   const loading = wrapper?.querySelector('[data-preview-loading]');
@@ -974,6 +1505,10 @@ function loadProjectPreview(frame) {
   if (!wrapper || !source) {
     return;
   }
+  if (frame.dataset.loadedSource === source) {
+    return;
+  }
+  frame.dataset.loadedSource = source;
 
   wrapper.classList.remove('loaded');
   loading.hidden = false;
@@ -1010,12 +1545,14 @@ function loadProjectPreview(frame) {
 function refreshProjectPreview(id) {
   const frame = document.querySelector(`.project-row[data-project-id="${CSS.escape(id)}"] [data-preview-frame]`);
   if (frame) {
+    delete frame.dataset.loadedSource;
     loadProjectPreview(frame);
   }
 }
 
 function initializeProjectPreview() {
-  document.querySelectorAll('[data-preview-frame]').forEach(loadProjectPreview);
+  document.querySelectorAll('.project-detail-panel:not([hidden]) [data-preview-frame]')
+    .forEach(loadProjectPreview);
 }
 
 let timelineClock;
@@ -1053,10 +1590,40 @@ window.addEventListener('message', (event) => {
     return;
   }
   if (event.data?.type === 'projectMetrics') {
+    const project = state.projects.find((item) => String(item.id) === String(event.data.id));
+    if (project) {
+      project.resourceMetrics = event.data.metrics;
+      project.runtimePulse = event.data.runtimePulse;
+      project.httpResponsePulse = event.data.httpResponsePulse;
+    }
     const metrics = document.querySelector(`[data-resource-metrics][data-project-id="${CSS.escape(String(event.data.id || ''))}"]`);
     if (metrics) {
-      metrics.innerHTML = resourceMetricsContent(event.data.metrics);
-      metrics.setAttribute('aria-label', resourceMetricsLabel(event.data.metrics));
+      metrics.innerHTML = resourceMetricsContent(
+        event.data.metrics,
+        event.data.runtimePulse,
+        event.data.httpResponsePulse
+      );
+      metrics.setAttribute(
+        'aria-label',
+        resourceMetricsLabel(event.data.metrics, event.data.httpResponsePulse)
+      );
+    }
+    return;
+  }
+  if (event.data?.type === 'projectHttpPulse') {
+    const project = state.projects.find((item) => String(item.id) === String(event.data.id));
+    const metrics = document.querySelector(`[data-resource-metrics][data-project-id="${CSS.escape(String(event.data.id || ''))}"]`);
+    if (project && metrics) {
+      project.httpResponsePulse = event.data.httpResponsePulse;
+      metrics.innerHTML = resourceMetricsContent(
+        project.resourceMetrics,
+        project.runtimePulse,
+        project.httpResponsePulse
+      );
+      metrics.setAttribute(
+        'aria-label',
+        resourceMetricsLabel(project.resourceMetrics, project.httpResponsePulse)
+      );
     }
     return;
   }
@@ -1237,7 +1804,8 @@ app.addEventListener('focusin', (event) => {
       type: 'action',
       action: element.dataset.action,
       id: element.dataset.id,
-      agent: element.dataset.agent
+      agent: element.dataset.agent,
+      tab: element.dataset.tab
     };
   }
   if (target) {
@@ -1253,6 +1821,21 @@ function handleSearchInput(event) {
 }
 
 document.addEventListener('keydown', (event) => {
+  const tab = event.target.closest('[role="tab"]');
+  if (tab && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+    const tabs = [...tab.closest('[role="tablist"]').querySelectorAll('[role="tab"]')];
+    const currentIndex = tabs.indexOf(tab);
+    const nextIndex = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? tabs.length - 1
+        : event.key === 'ArrowRight'
+          ? (currentIndex + 1) % tabs.length
+          : (currentIndex - 1 + tabs.length) % tabs.length;
+    event.preventDefault();
+    selectProjectDetailTab(tabs[nextIndex].dataset.id, tabs[nextIndex].dataset.tab, true);
+  }
+
   const menu = event.target.closest('.action-menu');
   if (menu && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
     const items = [...menu.querySelectorAll('button:not(:disabled)')];
@@ -1346,6 +1929,9 @@ function applyInitialFocus() {
     if (target.agent) {
       selector += `[data-agent="${CSS.escape(target.agent)}"]`;
     }
+    if (target.tab) {
+      selector += `[data-tab="${CSS.escape(target.tab)}"]`;
+    }
     element = document.querySelector(selector);
   }
   requestAnimationFrame(() => element?.focus());
@@ -1355,6 +1941,7 @@ if (state.mode === 'list') {
   renderList();
   document.getElementById('project-search')?.addEventListener('input', handleSearchInput);
   scheduleAutoScrollUpdate();
+  scheduleRunningAppNavigatorUpdate();
   initializeProjectPreview();
   initializeTimelineClock();
 } else if (state.mode === 'agents') {

@@ -17,6 +17,7 @@ const {
 const {
   projectStatus,
   reachableServiceUrls,
+  runningAppProjectIds,
   serviceHttpStatus,
   serviceReadinessDetails,
   serviceReadinessTimedOut,
@@ -30,8 +31,22 @@ const {
   openProjectTerminal,
   projectFolderIsAccessible
 } = require('./project-navigation');
-const { previewFrameSource, projectPreviewService } = require('./preview-security');
+const { previewFrameSources, projectPreviewService } = require('./preview-security');
+const { createPhoneHandoff } = require('./phone-handoff');
 const { OwnedProcessMetrics } = require('./process-metrics');
+const {
+  availableProjectDetailTabs,
+  preferredProjectDetailTab
+} = require('./project-detail-tabs');
+const { HttpResponseHistory, RuntimePulseHistory } = require('./runtime-pulse');
+const {
+  appendStartupHistory,
+  averageReadyDuration,
+  clearStartupHistory,
+  readStartupHistory,
+  replaceTimedOutStartupHistory,
+  startupHistoryEntry
+} = require('./startup-history');
 const {
   canUseCurrentWorkspace,
   selectCurrentWorkspaceFolder
@@ -114,6 +129,8 @@ class RunlistViewProvider {
     this.processes = new Map();
     this.ownedProcessMetrics = new OwnedProcessMetrics();
     this.projectMetrics = new Map();
+    this.runtimePulseHistory = new RuntimePulseHistory();
+    this.httpResponseHistory = new HttpResponseHistory();
     this.resourceSampleTimer = undefined;
     this.resourceSampleProjectId = undefined;
     this.resourceSampleGeneration = 0;
@@ -355,17 +372,30 @@ class RunlistViewProvider {
           this.startReadinessDeadlines.delete(id);
           this.readinessWarnings.delete(id);
           if (this.managedProjectIds.has(id)) {
+            const readyAt = processRuntime.get(id)?.readyAt || Date.now();
+            this.recordStartupOutcome(id, 'ready', readyAt);
             this.processOwnership.setState(id, 'running', {
-              readyAt: processRuntime.get(id)?.readyAt || Date.now()
+              readyAt
             });
             this.portReservations.setState(id, 'running');
           }
         } else if (['not-ready', 'not-responding'].includes(status)
           && this.managedProjectIds.has(id)) {
+          this.recordStartupOutcome(id, 'timed-out');
           this.processOwnership.setState(id, status);
           this.portReservations.setState(id, status);
           this.notifyServiceNotReady(projectsById.get(id), status, readinessDetails);
         }
+      }
+
+      const httpResponseTarget = this.httpResponseHistory.currentTarget();
+      if (httpResponseTarget) {
+        const activeCheck = checks.find(([id]) => id === httpResponseTarget.projectId);
+        const httpResponsePulse = this.httpResponseHistory.record(
+          activeCheck?.[1],
+          activeCheck?.[6]
+        );
+        this.publishProjectHttpPulse(httpResponseTarget.projectId, httpResponsePulse);
       }
 
       const nextStatuses = new Map(checks.map(([id, status]) => [id, status]));
@@ -379,7 +409,10 @@ class RunlistViewProvider {
       const nextWebPorts = new Map(checks
         .map(([id, , , , , webPorts]) => [id, webPorts]));
       const nextServiceUrls = new Map(checks
-        .map(([id, , , , , , serviceUrls]) => [id, serviceUrls]));
+        .map(([id, , , , , , serviceUrls]) => [
+          id,
+          serviceUrls.map(({ port, url }) => ({ port, url }))
+        ]));
       const nextRuntime = this.processOwnership.snapshot();
       const runtimeChanged = nextRuntime.size !== this.projectRuntime.size
         || [...nextRuntime].some(([id, runtime]) => {
@@ -489,6 +522,9 @@ class RunlistViewProvider {
         break;
       case 'copyServiceUrl':
         await this.copyServiceUrl(message.id, Number(message.port));
+        break;
+      case 'copyPhoneUrl':
+        await this.copyPhoneUrl(message.id, message.url);
         break;
       case 'toggleProjectPreview':
         this.toggleProjectPreview(message.id);
@@ -692,6 +728,36 @@ class RunlistViewProvider {
     });
   }
 
+  recordStartupOutcome(id, outcome, completedAt = Date.now(), failureSummary) {
+    const metadata = this.projectAttemptMetadata.get(id);
+    if (!metadata) {
+      return;
+    }
+    const entry = startupHistoryEntry(outcome, metadata.launchedAt, completedAt, failureSummary);
+    if (!entry) {
+      return;
+    }
+    if (metadata.historyRecorded) {
+      if (metadata.historyOutcome !== 'timed-out' || outcome !== 'failed') {
+        return;
+      }
+      try {
+        replaceTimedOutStartupHistory(this.projectsFile, id, metadata.launchedAt, entry);
+        metadata.historyOutcome = 'failed';
+      } catch {
+        // Startup history is optional and must never affect project lifecycle actions.
+      }
+      return;
+    }
+    metadata.historyRecorded = true;
+    metadata.historyOutcome = outcome;
+    try {
+      appendStartupHistory(this.projectsFile, id, entry);
+    } catch {
+      // Startup history is optional and must never affect project lifecycle actions.
+    }
+  }
+
   notifyServiceNotReady(project, status = 'not-ready', readinessDetails = {}) {
     if (this.readinessWarnings.has(project.id)) {
       return;
@@ -734,8 +800,9 @@ class RunlistViewProvider {
 
   showStartFailure(project, details = {}) {
     const normalizedDetails = typeof details === 'string' ? { detail: details } : details;
-    this.recordTimelineFailure(project.id, normalizedDetails);
     const summary = startFailureSummary(this.projectOutputs.get(project.id), normalizedDetails);
+    this.recordStartupOutcome(project.id, 'failed', Date.now(), summary.message);
+    this.recordTimelineFailure(project.id, normalizedDetails);
     this.projectFailureDetails.set(project.id, normalizedDetails);
     this.projectFailureSummaries.set(project.id, summary);
     this.persistStartFailure(project, normalizedDetails, summary);
@@ -902,6 +969,35 @@ class RunlistViewProvider {
     vscode.window.showInformationMessage(`Copied ${service.name} URL.`);
   }
 
+  async copyPhoneUrl(id, requestedUrl) {
+    const project = this.projects.find((item) => item.id === id);
+    const status = this.getProjectStatus(id);
+    const previewService = projectPreviewService(
+      project,
+      status,
+      this.projectServiceUrls.get(id),
+      this.projectPortConflicts.has(id)
+    );
+    const service = project?.services?.find((item) => item.port === previewService?.port);
+    if (!service) {
+      return;
+    }
+
+    const portStatus = await servicePortStatus([service]);
+    const [reachable] = await reachableServiceUrls([service], portStatus.openPorts, {
+      resolveUrl: (url) => this.externalServiceUrl(url)
+    });
+    const phoneHandoff = createPhoneHandoff(reachable?.url);
+    if (!phoneHandoff || phoneHandoff.url !== requestedUrl) {
+      vscode.window.showInformationMessage('The local network address changed. Reopen Open on phone and try again.');
+      await this.refreshProjectStatuses();
+      return;
+    }
+
+    await vscode.env.clipboard.writeText(phoneHandoff.url);
+    vscode.window.showInformationMessage('Copied phone URL.');
+  }
+
   toggleProjectPreview(id) {
     const project = this.projects.find((item) => item.id === id);
     const status = this.getProjectStatus(id);
@@ -912,7 +1008,8 @@ class RunlistViewProvider {
       this.projectPortConflicts.has(id)
     );
     const hasTimeline = this.projectHasLiveTimeline(id, project, status);
-    if (!previewService && !hasTimeline) {
+    const hasHistory = readStartupHistory(this.projectsFile, id).length > 0;
+    if (!previewService && !hasTimeline && !hasHistory) {
       return;
     }
 
@@ -928,6 +1025,11 @@ class RunlistViewProvider {
         this.expandedPreviewServicePort = undefined;
       }
     }
+    this.syncHttpResponsePulseTarget(
+      this.expandedPreviewProjectId,
+      this.expandedPreviewServicePort,
+      this.expandedPreviewProjectId ? previewService?.url : undefined
+    );
     this.focusTarget = { type: 'action', action: 'toggle-preview', id };
     this.renderProjectList();
   }
@@ -982,25 +1084,50 @@ class RunlistViewProvider {
   }
 
   stopResourceSampling() {
+    const projectId = this.resourceSampleProjectId;
     clearInterval(this.resourceSampleTimer);
     this.resourceSampleTimer = undefined;
     this.resourceSampleProjectId = undefined;
     this.resourceSampleGeneration += 1;
+    if (projectId) {
+      this.runtimePulseHistory.clear(projectId);
+    }
   }
 
   publishProjectMetrics(id, metrics) {
     this.projectMetrics.set(id, metrics);
+    const runtimePulse = this.runtimePulseHistory.append(id, metrics);
     void this.view?.webview.postMessage({
       type: 'projectMetrics',
       messageToken: this.webviewMessageToken,
       id,
-      metrics
+      metrics,
+      runtimePulse,
+      httpResponsePulse: this.httpResponseHistory.get(id)
+    });
+  }
+
+  syncHttpResponsePulseTarget(id, port, url) {
+    this.httpResponseHistory.setTarget(id, port, url);
+  }
+
+  publishProjectHttpPulse(id, httpResponsePulse) {
+    void this.view?.webview.postMessage({
+      type: 'projectHttpPulse',
+      messageToken: this.webviewMessageToken,
+      id,
+      httpResponsePulse
     });
   }
 
   forgetProjectMetrics(id) {
     this.ownedProcessMetrics.untrack(id);
     this.projectMetrics.delete(id);
+    this.runtimePulseHistory.clear(id);
+    this.httpResponseHistory.clear(id);
+    if (this.httpResponseHistory.currentTarget()?.projectId === id) {
+      this.httpResponseHistory.setTarget(undefined, undefined, undefined);
+    }
     if (this.resourceSampleProjectId === id) {
       this.stopResourceSampling();
     }
@@ -1271,7 +1398,9 @@ class RunlistViewProvider {
       if (this.expandedPreviewProjectId === id) {
         this.expandedPreviewProjectId = undefined;
         this.expandedPreviewServicePort = undefined;
+        this.syncHttpResponsePulseTarget(undefined, undefined, undefined);
       }
+      this.httpResponseHistory.clear(id);
       this.startReadinessDeadlines.delete(id);
       this.readinessWarnings.delete(id);
       this.stoppingProjectIds.delete(id);
@@ -1280,6 +1409,7 @@ class RunlistViewProvider {
       this.projectFailureSummaries.delete(id);
       this.projectFailureDetails.delete(id);
       clearProjectDiagnostics(this.projectsFile, id);
+      clearStartupHistory(this.projectsFile, id);
       if (this.selectedProjectId === id) {
         this.outputUpdateScheduler.cancel();
       }
@@ -1454,6 +1584,8 @@ class RunlistViewProvider {
       this.projectOutputs.set(id, '');
       this.projectFailureSummaries.delete(id);
       this.projectFailureDetails.delete(id);
+      const launchedAt = Date.now();
+      this.projectAttemptMetadata.set(id, { launchedAt });
       const child = spawn(project.startCommand, {
         cwd: project.folder,
         shell: true,
@@ -1462,12 +1594,10 @@ class RunlistViewProvider {
         ...projectProcessSpawnOptions()
       });
 
-      const launchedAt = Date.now();
       this.processes.set(id, child);
-      this.projectAttemptMetadata.set(id, {
-        launchedAt,
-        ...(hasServices ? {} : { readyAt: launchedAt })
-      });
+      if (!hasServices) {
+        this.projectAttemptMetadata.get(id).readyAt = launchedAt;
+      }
       this.projectMetrics.delete(id);
       this.ownedProcessMetrics.track(id, child.pid);
       this.processOwnership.setProcess(id, child.pid, {
@@ -1499,6 +1629,7 @@ class RunlistViewProvider {
       child.once('exit', (code, signal) => {
         if (this.processes.get(id) === child) {
           const stoppedIntentionally = this.stoppingProjectIds.has(id);
+          const startFailed = startExitFailed({ code, hasServices, stoppedIntentionally });
           this.statusRevision += 1;
           this.processes.delete(id);
           this.forgetProjectMetrics(id);
@@ -1510,7 +1641,7 @@ class RunlistViewProvider {
           this.projectStatuses.set(id, 'stopped');
           this.startReadinessDeadlines.delete(id);
           this.readinessWarnings.delete(id);
-          if (startExitFailed({ code, hasServices, stoppedIntentionally })) {
+          if (startFailed) {
             this.showStartFailure(project, { code, signal });
           } else {
             this.projectAttemptMetadata.delete(id);
@@ -1951,11 +2082,23 @@ class RunlistViewProvider {
       const detailsExpanded = this.expandedPreviewProjectId === project.id
         && (!canPreview || this.expandedPreviewServicePort === previewService.port);
       const previewExpanded = canPreview && detailsExpanded;
+      const phoneHandoff = previewExpanded
+        ? createPhoneHandoff(previewService.url)
+        : undefined;
       const outputPeekVisible = detailsExpanded
         && ['starting', 'running', 'not-ready', 'not-responding'].includes(status)
         && (this.managedProjectIds.has(project.id)
           || this.processes.has(project.id)
           || this.projectRuntime.has(project.id));
+      const outputPeek = outputPeekVisible
+        ? projectOutputPeek(this.projectOutputs.get(project.id))
+        : undefined;
+      const startupHistory = readStartupHistory(this.projectsFile, project.id);
+      const detailTabs = availableProjectDetailTabs({
+        outputAvailable: outputPeek !== undefined,
+        previewAvailable: previewExpanded,
+        historyAvailable: startupHistory.length > 0
+      });
       const locallyOwned = this.processes.has(project.id);
       return {
         ...project,
@@ -1974,13 +2117,14 @@ class RunlistViewProvider {
         timeline,
         detailsExpanded,
         handoffInProgress: this.handoffProjectIds.has(project.id),
-        outputPeek: outputPeekVisible
-          ? projectOutputPeek(this.projectOutputs.get(project.id))
-          : undefined,
+        outputPeek,
         timelineExpanded: timelineVisible && detailsExpanded,
         previewExpanded,
         previewPort: previewService?.port,
         previewUrl: previewService?.url,
+        phoneHandoff,
+        startupHistory,
+        averageReadyDurationMs: averageReadyDuration(startupHistory),
         resourceMetrics: previewExpanded
           ? this.projectMetrics.get(project.id) || (locallyOwned
             ? { available: true, measuring: true }
@@ -1989,6 +2133,14 @@ class RunlistViewProvider {
                 message: 'Resource use is available in the VS Code window that started this project.'
               })
           : undefined,
+        runtimePulse: previewExpanded
+          ? this.runtimePulseHistory.get(project.id)
+          : undefined,
+        httpResponsePulse: previewExpanded
+          ? this.httpResponseHistory.get(project.id)
+          : undefined,
+        detailTabs,
+        defaultDetailTab: preferredProjectDetailTab(detailTabs),
         webPorts,
         httpUnresponsive: webPorts.some((port) => openPorts.includes(port)
           && !respondingPorts.includes(port)),
@@ -2000,6 +2152,7 @@ class RunlistViewProvider {
       const previousId = this.expandedPreviewProjectId;
       this.expandedPreviewProjectId = undefined;
       this.expandedPreviewServicePort = undefined;
+      this.syncHttpResponsePulseTarget(undefined, undefined, undefined);
       this.focusTarget = { type: 'project-control', id: previousId };
     }
     const state = {
@@ -2035,17 +2188,24 @@ class RunlistViewProvider {
         projectId: diagnosisProject.id
       } : undefined,
       projects: stateProjects,
+      runningAppIds: runningAppProjectIds(stateProjects),
       stopAllCount: stoppableProjectIds(stateProjects).length
     };
     const expandedPreview = stateProjects.find((project) => project.previewExpanded);
-    const frameSource = previewFrameSource(expandedPreview?.previewUrl);
+    const runningAppIdSet = new Set(state.runningAppIds.map(String));
+    const frameSources = previewFrameSources([
+      expandedPreview?.previewUrl,
+      ...stateProjects
+        .filter((project) => runningAppIdSet.has(String(project.id)))
+        .map((project) => project.previewUrl)
+    ]);
 
     this.view.webview.html = `<!doctype html>
       <html lang="en">
         <head>
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this.view.webview.cspSource}; script-src 'nonce-${nonce}'; frame-src ${frameSource};">
+          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this.view.webview.cspSource}; script-src 'nonce-${nonce}'; frame-src ${frameSources};">
           <link rel="stylesheet" href="${stylesUri}">
           <title>Runlist</title>
         </head>
@@ -2057,6 +2217,11 @@ class RunlistViewProvider {
       </html>`;
     this.focusTarget = undefined;
     this.syncResourceSampling(expandedPreview?.id);
+    this.syncHttpResponsePulseTarget(
+      expandedPreview?.id,
+      expandedPreview?.previewPort,
+      expandedPreview?.previewUrl
+    );
   }
 
   dispose() {
@@ -2146,7 +2311,7 @@ function validFocusTarget(target) {
     return undefined;
   }
   const clean = { type: target.type };
-  for (const key of ['id', 'action', 'agent']) {
+  for (const key of ['id', 'action', 'agent', 'tab']) {
     if (typeof target[key] === 'string' && target[key].length <= 200) {
       clean[key] = target[key];
     }
