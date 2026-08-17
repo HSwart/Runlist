@@ -111,23 +111,16 @@ test('uses the selected preview service for copy and browser actions', () => {
   assert.doesNotMatch(webview, /project\.services\[0\]\.port/);
 });
 
-test('switches the same safe preview between desktop and mobile locally', () => {
+test('keeps the app preview focused on one responsive desktop view', () => {
   const root = path.join(__dirname, '..');
   const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
   const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
 
-  assert.match(extension, /this\.previewMode = 'desktop'/);
-  assert.match(extension, /setProjectPreviewMode\(id, mode\)[\s\S]*this\.expandedPreviewServicePort === undefined[\s\S]*\['desktop', 'mobile'\]\.includes\(mode\)/);
-  assert.match(extension, /previewMode: previewExpanded \? this\.previewMode : undefined/);
-  assert.match(extension, /setProjectPreviewMode[\s\S]*this\.focusTarget = \{ type: 'action', action: `set-preview-\$\{mode\}`, id \}/);
-  assert.match(extension, /!stateProjects\.some\(\(project\) => project\.previewExpanded\)[\s\S]*this\.previewMode = 'desktop'/);
-  assert.match(webview, /class="preview-mode-switch" role="group" aria-label="Preview size for \$\{projectName\}"/);
-  assert.match(webview, /data-action="set-preview-desktop"[\s\S]*aria-pressed="\$\{project\.previewMode !== 'mobile'\}"/);
-  assert.match(webview, /data-action="set-preview-mobile"[\s\S]*aria-pressed="\$\{project\.previewMode === 'mobile'\}"/);
-  assert.match(webview, /class="preview-frame-wrap \$\{project\.previewMode === 'mobile' \? 'mobile' : 'desktop'\}"[\s\S]*data-src="\$\{escapeHtml\(project\.previewUrl\)\}"/);
-  assert.match(webview, /title="\$\{projectName\} \$\{project\.previewMode === 'mobile' \? 'mobile' : 'desktop'\} app preview"/);
-  assert.match(webview, /type: 'setProjectPreviewMode'[\s\S]*mode: 'mobile'/);
-  assert.match(styles, /\.preview-frame-wrap\.mobile \{[\s\S]*width: min\(100%, 240px\)[\s\S]*aspect-ratio: 9 \/ 16/);
-  assert.match(styles, /\.preview-frame-wrap\.mobile \.preview-frame \{[\s\S]*width: 100%[\s\S]*transform: none/);
+  assert.match(webview, /class="preview-frame-wrap">[\s\S]*data-src="\$\{escapeHtml\(project\.previewUrl\)\}"/);
+  assert.match(webview, /title="\$\{projectName\} app preview"/);
+  assert.match(styles, /\.preview-frame-wrap \{[\s\S]*width: 100%[\s\S]*aspect-ratio: 16 \/ 10/);
+  assert.doesNotMatch(extension, /previewMode|setProjectPreviewMode/);
+  assert.doesNotMatch(webview, /preview-mode-switch|set-preview-mobile|set-preview-desktop/);
+  assert.doesNotMatch(styles, /preview-frame-wrap\.mobile/);
 });

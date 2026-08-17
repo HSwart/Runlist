@@ -962,38 +962,6 @@ button:active:not(:disabled) {
   background: var(--vscode-toolbar-hoverBackground);
 }
 
-.preview-mode-switch {
-  width: fit-content;
-  max-width: 100%;
-  display: inline-flex;
-  margin: 0 0 7px;
-  padding: 1px;
-  background: var(--vscode-input-background);
-  border: 1px solid var(--vscode-widget-border, var(--vscode-contrastBorder));
-  border-radius: 4px;
-}
-
-.preview-mode-switch button {
-  min-width: 58px;
-  min-height: 22px;
-  padding: 2px 8px;
-  color: var(--vscode-descriptionForeground);
-  background: transparent;
-  border: 0;
-  border-radius: 2px;
-  font-size: 10px;
-}
-
-.preview-mode-switch button:hover {
-  color: var(--vscode-foreground);
-  background: var(--vscode-toolbar-hoverBackground);
-}
-
-.preview-mode-switch button[aria-pressed="true"] {
-  color: var(--vscode-foreground);
-  background: var(--vscode-button-secondaryBackground);
-}
-
 .resource-metrics {
   display: flex;
   flex-wrap: wrap;
@@ -1066,19 +1034,6 @@ button:active:not(:disabled) {
   background: var(--vscode-editor-background);
   border: 1px solid var(--vscode-widget-border, var(--vscode-contrastBorder));
   border-radius: 4px;
-}
-
-.preview-frame-wrap.mobile {
-  width: min(100%, 240px);
-  aspect-ratio: 9 / 16;
-  margin-inline: auto;
-  border-radius: 10px;
-}
-
-.preview-frame-wrap.mobile .preview-frame {
-  width: 100%;
-  height: 100%;
-  transform: none;
 }
 
 .preview-frame {

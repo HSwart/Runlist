@@ -119,7 +119,6 @@ class RunlistViewProvider {
     this.selectedProjectId = undefined;
     this.expandedPreviewProjectId = undefined;
     this.expandedPreviewServicePort = undefined;
-    this.previewMode = 'desktop';
     this.processes = new Map();
     this.ownedProcessMetrics = new OwnedProcessMetrics();
     this.projectMetrics = new Map();
@@ -505,9 +504,6 @@ class RunlistViewProvider {
         break;
       case 'toggleProjectPreview':
         this.toggleProjectPreview(message.id);
-        break;
-      case 'setProjectPreviewMode':
-        this.setProjectPreviewMode(message.id, message.mode);
         break;
       case 'toggleProjectPin':
         this.toggleProjectPin(message.id);
@@ -955,10 +951,8 @@ class RunlistViewProvider {
       && (!previewService || this.expandedPreviewServicePort === previewService.port)) {
       this.expandedPreviewProjectId = undefined;
       this.expandedPreviewServicePort = undefined;
-      this.previewMode = 'desktop';
     } else {
       this.expandedPreviewProjectId = id;
-      this.previewMode = 'desktop';
       if (previewService) {
         this.expandedPreviewServicePort = previewService.port;
       } else {
@@ -966,17 +960,6 @@ class RunlistViewProvider {
       }
     }
     this.focusTarget = { type: 'action', action: 'toggle-preview', id };
-    this.renderProjectList();
-  }
-
-  setProjectPreviewMode(id, mode) {
-    if (this.expandedPreviewProjectId !== id
-      || this.expandedPreviewServicePort === undefined
-      || !['desktop', 'mobile'].includes(mode)) {
-      return;
-    }
-    this.previewMode = mode;
-    this.focusTarget = { type: 'action', action: `set-preview-${mode}`, id };
     this.renderProjectList();
   }
 
@@ -1326,7 +1309,6 @@ class RunlistViewProvider {
       if (this.expandedPreviewProjectId === id) {
         this.expandedPreviewProjectId = undefined;
         this.expandedPreviewServicePort = undefined;
-        this.previewMode = 'desktop';
       }
       this.startReadinessDeadlines.delete(id);
       this.readinessWarnings.delete(id);
@@ -2045,7 +2027,6 @@ class RunlistViewProvider {
         previewExpanded,
         previewPort: previewService?.port,
         previewUrl: previewService?.url,
-        previewMode: previewExpanded ? this.previewMode : undefined,
         startupHistory,
         resourceMetrics: previewExpanded
           ? this.projectMetrics.get(project.id) || (locallyOwned
@@ -2069,12 +2050,7 @@ class RunlistViewProvider {
       const previousId = this.expandedPreviewProjectId;
       this.expandedPreviewProjectId = undefined;
       this.expandedPreviewServicePort = undefined;
-      this.previewMode = 'desktop';
       this.focusTarget = { type: 'project-control', id: previousId };
-    }
-    if (this.expandedPreviewServicePort !== undefined
-      && !stateProjects.some((project) => project.previewExpanded)) {
-      this.previewMode = 'desktop';
     }
     const state = {
       agentConnections: this.agentConnections,
