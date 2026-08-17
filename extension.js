@@ -32,6 +32,7 @@ const {
   projectFolderIsAccessible
 } = require('./project-navigation');
 const { previewFrameSources, projectPreviewService } = require('./preview-security');
+const { createPhoneHandoff } = require('./phone-handoff');
 const { OwnedProcessMetrics } = require('./process-metrics');
 const {
   availableProjectDetailTabs,
@@ -520,6 +521,9 @@ class RunlistViewProvider {
       case 'copyServiceUrl':
         await this.copyServiceUrl(message.id, Number(message.port));
         break;
+      case 'copyPhoneUrl':
+        await this.copyPhoneUrl(message.id, message.url);
+        break;
       case 'toggleProjectPreview':
         this.toggleProjectPreview(message.id);
         break;
@@ -948,6 +952,35 @@ class RunlistViewProvider {
 
     await vscode.env.clipboard.writeText(reachable.url);
     vscode.window.showInformationMessage(`Copied ${service.name} URL.`);
+  }
+
+  async copyPhoneUrl(id, requestedUrl) {
+    const project = this.projects.find((item) => item.id === id);
+    const status = this.getProjectStatus(id);
+    const previewService = projectPreviewService(
+      project,
+      status,
+      this.projectServiceUrls.get(id),
+      this.projectPortConflicts.has(id)
+    );
+    const service = project?.services?.find((item) => item.port === previewService?.port);
+    if (!service) {
+      return;
+    }
+
+    const portStatus = await servicePortStatus([service]);
+    const [reachable] = await reachableServiceUrls([service], portStatus.openPorts, {
+      resolveUrl: (url) => this.externalServiceUrl(url)
+    });
+    const phoneHandoff = createPhoneHandoff(reachable?.url);
+    if (!phoneHandoff || phoneHandoff.url !== requestedUrl) {
+      vscode.window.showInformationMessage('The local network address changed. Reopen Open on phone and try again.');
+      await this.refreshProjectStatuses();
+      return;
+    }
+
+    await vscode.env.clipboard.writeText(phoneHandoff.url);
+    vscode.window.showInformationMessage('Copied phone URL.');
   }
 
   toggleProjectPreview(id) {
@@ -2039,6 +2072,9 @@ class RunlistViewProvider {
       const detailsExpanded = this.expandedPreviewProjectId === project.id
         && (!canPreview || this.expandedPreviewServicePort === previewService.port);
       const previewExpanded = canPreview && detailsExpanded;
+      const phoneHandoff = previewExpanded
+        ? createPhoneHandoff(previewService.url)
+        : undefined;
       const outputPeekVisible = detailsExpanded
         && ['starting', 'running', 'not-ready', 'not-responding'].includes(status)
         && (this.managedProjectIds.has(project.id)
@@ -2076,6 +2112,7 @@ class RunlistViewProvider {
         previewExpanded,
         previewPort: previewService?.port,
         previewUrl: previewService?.url,
+        phoneHandoff,
         startupHistory,
         resourceMetrics: previewExpanded
           ? this.projectMetrics.get(project.id) || (locallyOwned

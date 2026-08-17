@@ -1279,6 +1279,114 @@ button:active:not(:disabled) {
   line-height: 1.4;
 }
 
+.preview-help-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.preview-help-row .preview-help {
+  flex: 1 1 auto;
+}
+
+.phone-handoff-toggle {
+  flex: 0 0 auto;
+  margin-top: 5px;
+  padding: 2px 0;
+  color: var(--vscode-textLink-foreground);
+  background: transparent;
+  border: 0;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.phone-handoff-toggle:hover {
+  color: var(--vscode-textLink-activeForeground);
+  text-decoration: underline;
+}
+
+.phone-handoff {
+  min-width: 0;
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  margin-top: 8px;
+  padding: 10px;
+  background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background));
+  border: 1px solid var(--vscode-widget-border, var(--vscode-contrastBorder));
+  border-radius: 4px;
+}
+
+.phone-handoff[hidden] {
+  display: none;
+}
+
+.phone-handoff:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -2px;
+}
+
+.phone-handoff-code {
+  width: min(152px, 72%);
+  padding: 5px;
+  background: white;
+  border-radius: 3px;
+}
+
+.phone-handoff-code svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.phone-handoff-copy {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  text-align: center;
+}
+
+.phone-handoff-copy strong {
+  color: var(--vscode-foreground);
+  font-size: 11px;
+}
+
+.phone-handoff-copy p {
+  margin: 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.phone-handoff-copy code {
+  padding: 6px;
+  overflow-wrap: anywhere;
+  color: var(--vscode-textPreformat-foreground, var(--vscode-foreground));
+  background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background));
+  border: 1px solid var(--vscode-widget-border, transparent);
+  border-radius: 3px;
+  text-align: left;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.phone-handoff-copy button {
+  justify-self: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+  border: 1px solid transparent;
+  border-radius: 2px;
+  font-size: 10px;
+}
+
+.phone-handoff-copy button:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
 .add-screen,
 .agent-screen,
 .diagnosis-screen,
