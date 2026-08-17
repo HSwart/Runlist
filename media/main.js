@@ -3,6 +3,7 @@ const state = window.runlistState;
 const app = document.getElementById('app');
 const persistedWebviewState = vscode.getState() || {};
 const detailTabState = { ...(persistedWebviewState.detailTabs || {}) };
+const phoneHandoffState = { ...(persistedWebviewState.phoneHandoffs || {}) };
 let searchQuery = String(state.searchQuery || '');
 let outputFollowLatest = true;
 let previewLoadGeneration = 0;
@@ -375,8 +376,16 @@ const DETAIL_TAB_LABELS = {
   history: 'History'
 };
 
+function saveWebviewState() {
+  vscode.setState({
+    ...persistedWebviewState,
+    detailTabs: detailTabState,
+    phoneHandoffs: phoneHandoffState
+  });
+}
+
 function saveDetailTabState() {
-  vscode.setState({ ...persistedWebviewState, detailTabs: detailTabState });
+  saveWebviewState();
 }
 
 function selectedProjectDetailTab(project) {
@@ -414,6 +423,21 @@ function projectDetailTabsHtml(project, projectName) {
   const outputContent = project.outputPeek !== undefined
     ? `<div class="project-output-peek-slot" data-output-peek-slot data-project-id="${projectId}" data-project-name="${projectName}">${projectOutputPeekHtml(project.outputPeek, project.id, project.name)}</div>`
     : '';
+  const phoneHandoffOpen = Boolean(project.phoneHandoff && phoneHandoffState[project.id]);
+  const phoneHandoffContent = project.phoneHandoff ? `
+      <div class="preview-help-row">
+        <p class="preview-help">If the app blocks this view, use Open in browser.</p>
+        <button class="phone-handoff-toggle" data-action="toggle-phone-handoff" data-id="${projectId}" aria-expanded="${phoneHandoffOpen}" aria-controls="phone-handoff-${projectId}">${phoneHandoffOpen ? 'Hide phone code' : 'Open on phone'}</button>
+      </div>
+      <section id="phone-handoff-${projectId}" class="phone-handoff" tabindex="-1" aria-label="Open ${projectName} on your phone" ${phoneHandoffOpen ? '' : 'hidden'}>
+        <div class="phone-handoff-code">${project.phoneHandoff.qrSvg}</div>
+        <div class="phone-handoff-copy">
+          <strong>Open on your phone</strong>
+          <p>Scan while your phone is on the same network.</p>
+          <code>${escapeHtml(project.phoneHandoff.url)}</code>
+          <button data-action="copy-phone-url" data-id="${projectId}" data-url="${escapeHtml(project.phoneHandoff.url)}">Copy phone URL</button>
+        </div>
+      </section>` : '<p class="preview-help">If the app blocks this view, use Open in browser.</p>';
   const previewContent = project.previewExpanded ? `
     <section class="project-preview" aria-label="Preview of ${projectName}">
       <header class="preview-toolbar">
@@ -432,7 +456,7 @@ function projectDetailTabsHtml(project, projectName) {
           <span>This app may block embedded views.</span>
         </div>
       </div>
-      <p class="preview-help">If the app blocks this view, use Open in browser.</p>
+      ${phoneHandoffContent}
     </section>` : '';
   const historyContent = project.startupHistory?.length
     ? startupHistoryHtml(project, projectName)
@@ -477,15 +501,19 @@ function statusSummaryHtml(projects) {
 }
 
 function renderList() {
-  let detailTabsChanged = false;
+  let webviewStateChanged = false;
   for (const project of state.projects) {
     if (!project.detailsExpanded && detailTabState[project.id]) {
       delete detailTabState[project.id];
-      detailTabsChanged = true;
+      webviewStateChanged = true;
+    }
+    if ((!project.previewExpanded || !project.phoneHandoff) && phoneHandoffState[project.id]) {
+      delete phoneHandoffState[project.id];
+      webviewStateChanged = true;
     }
   }
-  if (detailTabsChanged) {
-    saveDetailTabState();
+  if (webviewStateChanged) {
+    saveWebviewState();
   }
   if (state.projects.length === 0) {
     app.innerHTML = `
@@ -1272,6 +1300,25 @@ function selectProjectDetailTab(id, tab, focus = false) {
   scheduleRunningAppNavigatorUpdate();
 }
 
+function togglePhoneHandoff(id, button) {
+  const project = state.projects.find((item) => String(item.id) === String(id));
+  if (!project?.previewExpanded || !project.phoneHandoff) {
+    return;
+  }
+  const open = !phoneHandoffState[project.id];
+  phoneHandoffState[project.id] = open;
+  saveWebviewState();
+  const panel = document.getElementById(`phone-handoff-${String(id)}`);
+  button.setAttribute('aria-expanded', String(open));
+  button.textContent = open ? 'Hide phone code' : 'Open on phone';
+  if (panel) {
+    panel.hidden = !open;
+    if (open) {
+      panel.focus();
+    }
+  }
+}
+
 app.addEventListener('click', (event) => {
   const button = event.target.closest('[data-action]');
   if (!button) {
@@ -1321,6 +1368,12 @@ app.addEventListener('click', (event) => {
       id: button.dataset.id,
       port: Number(button.dataset.port)
     }),
+    'copy-phone-url': () => vscode.postMessage({
+      type: 'copyPhoneUrl',
+      id: button.dataset.id,
+      url: button.dataset.url
+    }),
+    'toggle-phone-handoff': () => togglePhoneHandoff(button.dataset.id, button),
     'toggle-preview': () => {
       const project = state.projects.find((item) => String(item.id) === String(button.dataset.id));
       if (project?.detailsExpanded) {
