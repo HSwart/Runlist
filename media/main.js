@@ -370,14 +370,22 @@ function renderList() {
     <span id="project-search-status" class="visually-hidden" aria-live="polite"></span>
     ${runningApps.length > 1 ? `
       <nav class="running-app-navigator" data-running-app-navigator aria-label="Running app navigator" hidden>
-        <span class="status-dot running" aria-hidden="true"></span>
-        <button class="running-app-current" data-action="show-running-app" aria-label="Show running app">
-          <span class="auto-scroll"><span class="auto-scroll-content" data-running-app-name></span></span>
-        </button>
-        <span class="running-app-position" data-running-app-position aria-hidden="true"></span>
-        <div class="running-app-navigation">
-          <button class="running-app-previous" data-action="previous-running-app" aria-label="Previous running app" title="Previous running app">${icon('chevron-down')}</button>
-          <button data-action="next-running-app" aria-label="Next running app" title="Next running app">${icon('chevron-down')}</button>
+        <div class="running-app-bar">
+          <span class="status-dot running" aria-hidden="true"></span>
+          <button class="running-app-current" data-action="show-running-app" aria-label="Show running app">
+            <span class="auto-scroll"><span class="auto-scroll-content" data-running-app-name></span></span>
+          </button>
+          <span class="running-app-position" data-running-app-position aria-hidden="true"></span>
+          <div class="running-app-navigation">
+            <button class="running-app-previous" data-action="previous-running-app" aria-label="Previous running app" title="Previous running app">${icon('chevron-down')}</button>
+            <button data-action="next-running-app" aria-label="Next running app" title="Next running app">${icon('chevron-down')}</button>
+          </div>
+        </div>
+        <div class="running-app-thumbnail" data-running-app-thumbnail>
+          <iframe data-running-app-frame title="Running app preview" sandbox="allow-forms allow-scripts allow-same-origin" referrerpolicy="no-referrer" loading="lazy"></iframe>
+          <button class="running-app-thumbnail-target" data-action="show-running-app" aria-label="Show running app" title="Double-click to open in browser"></button>
+          <span class="running-app-thumbnail-unavailable" data-running-app-thumbnail-unavailable hidden>No web preview</span>
+          <button class="running-app-open" data-action="open" aria-label="Open running app in browser" title="Open in browser">${icon('external')}</button>
         </div>
       </nav>` : ''}
     <section class="project-list" aria-label="Projects">
@@ -694,6 +702,7 @@ function updateRunningAppNavigator() {
   });
   navigator.hidden = allFit;
   if (allFit) {
+    unloadRunningAppThumbnail(navigator);
     return;
   }
 
@@ -709,6 +718,8 @@ function updateRunningAppNavigator() {
   const name = navigator.querySelector('[data-running-app-name]');
   const position = navigator.querySelector('[data-running-app-position]');
   const currentButton = navigator.querySelector('[data-action="show-running-app"]');
+  const thumbnailTarget = navigator.querySelector('.running-app-thumbnail-target');
+  const openButton = navigator.querySelector('.running-app-open');
   const currentChanged = currentButton?.dataset.id !== String(current.project.id);
   if (name) {
     name.textContent = current.project.name;
@@ -721,8 +732,56 @@ function updateRunningAppNavigator() {
     currentButton.setAttribute('aria-label', `Show ${current.project.name}, running app ${currentIndex + 1} of ${entries.length}`);
     currentButton.title = `Show ${current.project.name}`;
   }
+  if (thumbnailTarget) {
+    thumbnailTarget.dataset.id = current.project.id;
+    thumbnailTarget.dataset.canOpen = String(Boolean(current.project.previewUrl));
+    thumbnailTarget.setAttribute(
+      'aria-label',
+      current.project.previewUrl
+        ? `Show ${current.project.name}; double-click to open in browser`
+        : `Show ${current.project.name}`
+    );
+    thumbnailTarget.title = current.project.previewUrl
+      ? 'Double-click to open in browser'
+      : `Show ${current.project.name}`;
+  }
+  if (openButton) {
+    openButton.dataset.id = current.project.id;
+    openButton.hidden = !current.project.previewUrl;
+    openButton.setAttribute('aria-label', `Open ${current.project.name} in browser`);
+  }
+  updateRunningAppThumbnail(navigator, current.project);
   if (currentChanged) {
     scheduleAutoScrollUpdate();
+  }
+}
+
+function unloadRunningAppThumbnail(navigator) {
+  const frame = navigator?.querySelector('[data-running-app-frame]');
+  if (frame) {
+    frame.removeAttribute('src');
+    delete frame.dataset.url;
+    frame.title = 'Running app preview';
+  }
+}
+
+function updateRunningAppThumbnail(navigator, project) {
+  const frame = navigator.querySelector('[data-running-app-frame]');
+  const unavailable = navigator.querySelector('[data-running-app-thumbnail-unavailable]');
+  const url = project.previewUrl;
+  if (!frame || !unavailable) {
+    return;
+  }
+  unavailable.hidden = Boolean(url);
+  frame.hidden = !url;
+  if (!url) {
+    unloadRunningAppThumbnail(navigator);
+    return;
+  }
+  frame.title = `${project.name} live thumbnail`;
+  if (frame.dataset.url !== url) {
+    frame.dataset.url = url;
+    frame.src = url;
   }
 }
 
@@ -1163,6 +1222,13 @@ app.addEventListener('click', (event) => {
   };
 
   actions[button.dataset.action]?.();
+});
+
+app.addEventListener('dblclick', (event) => {
+  const target = event.target.closest('.running-app-thumbnail-target[data-id]');
+  if (target?.dataset.canOpen === 'true') {
+    vscode.postMessage({ type: 'openProject', id: target.dataset.id });
+  }
 });
 
 function loadProjectPreview(frame) {

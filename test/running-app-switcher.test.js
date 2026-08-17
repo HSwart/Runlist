@@ -20,8 +20,29 @@ test('renders one accessible running-app navigator only for overflowing running 
   assert.match(webview, /navigator\.hidden = allFit;[\s\S]*if \(allFit\)[\s\S]*return/);
   assert.doesNotMatch(webview, /running-app-select/);
   assert.match(styles, /\.running-app-navigator[\s\S]*position: sticky/);
-  assert.match(styles, /grid-template-columns: auto minmax\(0, 1fr\) auto auto/);
+  assert.match(styles, /\.running-app-bar[\s\S]*grid-template-columns: auto minmax\(0, 1fr\) auto auto/);
   assert.match(styles, /\.running-app-current[\s\S]*min-width: 0/);
+});
+
+test('loads one safe thumbnail only while the overflow navigator is visible', () => {
+  const root = path.join(__dirname, '..');
+  const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
+
+  assert.match(extension, /previewFrameSources\(\[[\s\S]*expandedPreview\?\.previewUrl[\s\S]*runningAppIdSet/);
+  assert.match(webview, /data-running-app-frame[^>]*sandbox="allow-forms allow-scripts allow-same-origin"[^>]*referrerpolicy="no-referrer"[^>]*loading="lazy"/);
+  assert.match(webview, /navigator\.hidden = allFit;[\s\S]*if \(allFit\) \{[\s\S]*unloadRunningAppThumbnail\(navigator\)/);
+  assert.match(webview, /function updateRunningAppThumbnail\(navigator, project\)[\s\S]*const url = project\.previewUrl[\s\S]*frame\.src = url/);
+  assert.match(webview, /if \(!url\) \{[\s\S]*unloadRunningAppThumbnail\(navigator\)/);
+});
+
+test('opens a thumbnail through explicit and double-click actions without changing runtime', () => {
+  const webview = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
+
+  assert.match(webview, /class="running-app-open" data-action="open"[^>]*aria-label="Open running app in browser"/);
+  assert.match(webview, /app\.addEventListener\('dblclick',[\s\S]*\.running-app-thumbnail-target\[data-id\][\s\S]*type: 'openProject'/);
+  assert.match(webview, /thumbnailTarget\.dataset\.canOpen = String\(Boolean\(current\.project\.previewUrl\)\)/);
+  assert.match(webview, /target\?\.dataset\.canOpen === 'true'/);
 });
 
 test('reveals and focuses a selected running project without changing its runtime', () => {

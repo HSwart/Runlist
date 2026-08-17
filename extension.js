@@ -31,7 +31,7 @@ const {
   openProjectTerminal,
   projectFolderIsAccessible
 } = require('./project-navigation');
-const { previewFrameSource, projectPreviewService } = require('./preview-security');
+const { previewFrameSources, projectPreviewService } = require('./preview-security');
 const { OwnedProcessMetrics } = require('./process-metrics');
 const { RuntimePulseHistory } = require('./runtime-pulse');
 const {
@@ -2089,14 +2089,20 @@ class RunlistViewProvider {
       stopAllCount: stoppableProjectIds(stateProjects).length
     };
     const expandedPreview = stateProjects.find((project) => project.previewExpanded);
-    const frameSource = previewFrameSource(expandedPreview?.previewUrl);
+    const runningAppIdSet = new Set(state.runningAppIds.map(String));
+    const frameSources = previewFrameSources([
+      expandedPreview?.previewUrl,
+      ...stateProjects
+        .filter((project) => runningAppIdSet.has(String(project.id)))
+        .map((project) => project.previewUrl)
+    ]);
 
     this.view.webview.html = `<!doctype html>
       <html lang="en">
         <head>
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this.view.webview.cspSource}; script-src 'nonce-${nonce}'; frame-src ${frameSource};">
+          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this.view.webview.cspSource}; script-src 'nonce-${nonce}'; frame-src ${frameSources};">
           <link rel="stylesheet" href="${stylesUri}">
           <title>Runlist</title>
         </head>
