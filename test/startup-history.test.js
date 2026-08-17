@@ -128,5 +128,5 @@ test('wires bounded outcomes and an accessible non-color-only ribbon into the li
   assert.match(webview, /code: 'OK'[\s\S]*code: 'FAIL'[\s\S]*code: 'SLOW'/);
   assert.match(webview, /if \(!history\.length \|\| !project\.detailsExpanded\) \{[\s\S]*return ''/);
   assert.match(webview, /!project\.services\?\.length && project\.startupHistory\?\.length[\s\S]*project-details-toggle-row/);
-  assert.match(styles, /grid-template-columns: repeat\(var\(--startup-count\), minmax\(0, 1fr\)\)/);
+  assert.match(styles, /grid-template-columns: repeat\(auto-fit, minmax\(52px, 1fr\)\)/);
 });

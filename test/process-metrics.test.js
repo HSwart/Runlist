@@ -241,3 +241,16 @@ test('reuses health polling for an accessible expanded HTTP response pulse', () 
   assert.match(webview, /HTTP response time \$\{formatResponseTime\(latest\)\}/);
   assert.match(webview, /event\.data\?\.type === 'projectHttpPulse'/);
 });
+
+test('keeps the CPU and memory explanation when HTTP timing is available', () => {
+  const webview = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
+
+  assert.match(
+    webview,
+    /if \(metrics\?\.available\)[\s\S]*else \{\s*const message = unavailableResourceText\(metrics\);[\s\S]*return `\$\{processMetrics\}\$\{httpContent\}`;/
+  );
+  assert.match(
+    webview,
+    /if \(metrics\?\.available\)[\s\S]*else \{\s*parts\.push\(unavailableResourceText\(metrics\)\);[\s\S]*HTTP response time/
+  );
+});

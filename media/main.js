@@ -1,6 +1,8 @@
 const vscode = acquireVsCodeApi();
 const state = window.runlistState;
 const app = document.getElementById('app');
+const persistedWebviewState = vscode.getState() || {};
+const detailTabState = { ...(persistedWebviewState.detailTabs || {}) };
 let searchQuery = String(state.searchQuery || '');
 let outputFollowLatest = true;
 let previewLoadGeneration = 0;
@@ -79,29 +81,41 @@ function httpResponseContent(httpResponsePulse = []) {
     : '';
 }
 
+function unavailableResourceText(metrics) {
+  const message = String(metrics?.message || '');
+  if (message.includes('window that started')) {
+    return 'Start this project in this VS Code window to measure CPU and memory.';
+  }
+  if (message.includes('ownership')) {
+    return 'CPU and memory stopped because this process is no longer owned here.';
+  }
+  return 'CPU and memory are not available for this run.';
+}
+
 function resourceMetricsContent(metrics, runtimePulse = [], httpResponsePulse = []) {
-  let processMetrics;
-  if (!metrics?.available) {
-    const message = escapeHtml(metrics?.message || 'Resource use is unavailable.');
-    processMetrics = `<span class="resource-unavailable" title="${message}">Resource use unavailable</span>`;
-  } else {
+  const httpContent = httpResponseContent(httpResponsePulse);
+  let processMetrics = '';
+  if (metrics?.available) {
     const cpu = metrics.measuring ? 'Measuring…' : formatCpuPercent(metrics.cpuPercent);
     const memory = metrics.measuring ? 'Measuring…' : formatMemory(metrics.memoryBytes);
     processMetrics = `<span class="resource-reading"><span><strong>CPU</strong> <span data-resource-cpu>${escapeHtml(cpu)}</span></span>${runtimePulseSvg(runtimePulse, 'cpuPercent')}</span><span class="resource-reading"><span><strong>Memory</strong> <span data-resource-memory>${escapeHtml(memory)}</span></span>${runtimePulseSvg(runtimePulse, 'memoryBytes')}</span>`;
+  } else {
+    const message = unavailableResourceText(metrics);
+    processMetrics = `<span class="resource-unavailable" title="${escapeHtml(message)}">${escapeHtml(message)}</span>`;
   }
-  return `${processMetrics}${httpResponseContent(httpResponsePulse)}`;
+  return `${processMetrics}${httpContent}`;
 }
 
 function resourceMetricsLabel(metrics, httpResponsePulse = []) {
   const parts = [];
-  if (!metrics?.available) {
-    parts.push(metrics?.message || 'Resource use unavailable.');
-  } else {
+  const latest = httpResponsePulse.at(-1)?.responseTimeMs;
+  if (metrics?.available) {
     const cpu = metrics.measuring ? 'measuring' : formatCpuPercent(metrics.cpuPercent);
     const memory = metrics.measuring ? 'measuring' : formatMemory(metrics.memoryBytes);
     parts.push(`Resource use: CPU ${cpu}; memory ${memory}.`);
+  } else {
+    parts.push(unavailableResourceText(metrics));
   }
-  const latest = httpResponsePulse.at(-1)?.responseTimeMs;
   if (Number.isFinite(latest)) {
     parts.push(`HTTP response time ${formatResponseTime(latest)}.`);
   }
@@ -192,7 +206,7 @@ function icon(name, className = 'icon') {
     pin: { viewBox: '0 0 16 16', body: '<path d="M14 5v7h-.278c-.406 0-.778-.086-1.117-.258A2.528 2.528 0 0 1 11.73 11H8.87a3.463 3.463 0 0 1-.546.828 3.685 3.685 0 0 1-.735.633c-.27.177-.565.31-.882.398a3.875 3.875 0 0 1-.985.141h-.5V9H2l-1-.5L2 8h3.222V4h.5c.339 0 .664.047.977.14.312.094.607.227.883.4A3.404 3.404 0 0 1 8.87 6h2.859a2.56 2.56 0 0 1 .875-.734c.338-.172.71-.26 1.117-.266H14zm-.778 1.086a1.222 1.222 0 0 0-.32.156 1.491 1.491 0 0 0-.43.461L12.285 7H8.183l-.117-.336a2.457 2.457 0 0 0-.711-1.047C7.027 5.331 6.427 5.09 6 5v7c.427-.088 1.027-.33 1.355-.617.328-.287.565-.636.71-1.047L8.184 10h4.102l.18.297c.057.094.122.177.195.25.073.073.153.143.242.21.088.069.195.12.32.157V6.086z"/>' },
     pinned: { viewBox: '0 0 16 16', body: '<path d="M10.0589 2.44511C9.34701 1.73063 8.14697 1.90829 7.67261 2.79839L5.6526 6.58878L2.8419 7.52568C2.6775 7.58048 2.5532 7.71649 2.51339 7.88514C2.47357 8.0538 2.52392 8.23104 2.64646 8.35357L4.79291 10.5L2.14645 13.1465L2 14L2.85356 13.8536L5.50002 11.2071L7.64646 13.3536C7.76899 13.4761 7.94623 13.5265 8.11489 13.4866C8.28354 13.4468 8.41955 13.3225 8.47435 13.1581L9.41143 10.3469L13.1897 8.32423C14.0759 7.84982 14.2538 6.6551 13.5443 5.94305L10.0589 2.44511ZM8.55511 3.2687C8.71323 2.972 9.11324 2.91278 9.35055 3.15094L12.836 6.64889C13.0725 6.88624 13.0131 7.28448 12.7178 7.44262L8.76403 9.55921C8.65137 9.61952 8.56608 9.72068 8.52567 9.84191L7.7815 12.0744L3.92562 8.21853L6.15812 7.47436C6.27966 7.43385 6.38101 7.34823 6.44126 7.23518L8.55511 3.2687Z"/>' },
     play: { viewBox: '0 0 16 16', body: '<path d="M4.74514 3.06414C4.41183 2.87665 4 3.11751 4 3.49993V12.5002C4 12.8826 4.41182 13.1235 4.74512 12.936L12.7454 8.43601C13.0852 8.24486 13.0852 7.75559 12.7454 7.56443L4.74514 3.06414ZM3 3.49993C3 2.35268 4.2355 1.63011 5.23541 2.19257L13.2357 6.69286C14.2551 7.26633 14.2551 8.73415 13.2356 9.30759L5.23537 13.8076C4.23546 14.37 3 13.6474 3 12.5002V3.49993Z"/>' },
-    refresh: { viewBox: '0 0 16 16', body: '<path d="M13.6 3.4A6 6 0 1 0 14 11h-1.13A5 5 0 1 1 13 6.17V8h1V3h-5v1h3.88A5.98 5.98 0 0 1 13.6 3.4Z"/>' },
+    refresh: { viewBox: '0 0 16 16', body: '<path d="M3 8C3 5.23858 5.23858 3 8 3C9.63527 3 11.0878 3.78495 12.0005 5H10C9.72386 5 9.5 5.22386 9.5 5.5C9.5 5.77614 9.72386 6 10 6H12.8904C12.8973 6.00014 12.9041 6.00014 12.911 6H13C13.2761 6 13.5 5.77614 13.5 5.5V2.5C13.5 2.22386 13.2761 2 13 2C12.7239 2 12.5 2.22386 12.5 2.5V4.03138C11.4009 2.78613 9.79253 2 8 2C4.68629 2 2 4.68629 2 8C2 11.3137 4.68629 14 8 14C11.1301 14 13.6999 11.6035 13.9756 8.54488C14.0003 8.26985 13.7975 8.0268 13.5225 8.00202C13.2474 7.97723 13.0044 8.1801 12.9796 8.45512C12.75 11.003 10.6079 13 8 13C5.23858 13 3 10.7614 3 8Z"/>' },
     search: { viewBox: '0 0 16 16', body: '<path d="M10.0195 10.7266C9.06578 11.5217 7.83875 12 6.5 12C3.46243 12 1 9.53757 1 6.5C1 3.46243 3.46243 1 6.5 1C9.53757 1 12 3.46243 12 6.5C12 7.83875 11.5217 9.06578 10.7266 10.0195L13.8535 13.1464C14.0488 13.3417 14.0488 13.6583 13.8535 13.8536C13.6583 14.0488 13.3417 14.0488 13.1464 13.8536L10.0195 10.7266ZM11 6.5C11 4.01472 8.98528 2 6.5 2C4.01472 2 2 4.01472 2 6.5C2 8.98528 4.01472 11 6.5 11C8.98528 11 11 8.98528 11 6.5Z"/>' },
     stop: { viewBox: '0 0 16 16', body: '<path fill-rule="evenodd" clip-rule="evenodd" d="M5.5 5C5.22386 5 5 5.22386 5 5.5V10.5C5 10.7761 5.22386 11 5.5 11H10.5C10.7761 11 11 10.7761 11 10.5V5.5C11 5.22386 10.7761 5 10.5 5H5.5ZM4 5.5C4 4.67157 4.67157 4 5.5 4H10.5C11.3284 4 12 4.67157 12 5.5V10.5C12 11.3284 11.3284 12 10.5 12H5.5C4.67157 12 4 11.3284 4 10.5V5.5Z"/>' },
     terminal: { viewBox: '0 0 24 24', body: '<path d="M18.75 1.5H5.25C3.1815 1.5 1.5 3.183 1.5 5.25V18.75C1.5 20.8185 3.1815 22.5 5.25 22.5H18.75C20.8185 22.5 22.5 20.8185 22.5 18.75V5.25C22.5 3.183 20.8185 1.5 18.75 1.5ZM21 18.75C21 19.9905 19.9905 21 18.75 21H5.25C4.0095 21 3 19.9905 3 18.75V5.25C3 4.0095 4.0095 3 5.25 3H18.75C19.9905 3 21 4.0095 21 5.25V18.75ZM10.281 13.281L5.781 17.781C5.634 17.928 5.442 18 5.25 18C5.058 18 4.866 17.9265 4.719 17.781C4.4265 17.4885 4.4265 17.013 4.719 16.7205L8.688 12.7515L4.719 8.7825C4.4265 8.49 4.4265 8.0145 4.719 7.722C5.0115 7.4295 5.487 7.4295 5.7795 7.722L10.2795 12.222C10.572 12.5145 10.572 12.99 10.2795 13.2825L10.281 13.281ZM19.5 17.25C19.5 17.664 19.164 18 18.75 18H11.25C10.836 18 10.5 17.664 10.5 17.25C10.5 16.836 10.836 16.5 11.25 16.5H18.75C19.164 16.5 19.5 16.836 19.5 17.25Z"/>' },
@@ -210,6 +224,24 @@ function readinessServiceList(services) {
   return (services || [])
     .map((service) => `${escapeHtml(String(service.name))} <strong>:${escapeHtml(String(service.port))}</strong>`)
     .join(', ');
+}
+
+function serviceLocalAddress(service) {
+  const fullUrl = service.url || `http://localhost:${service.port}`;
+  try {
+    const parsed = new URL(fullUrl);
+    const host = parsed.host.replace(/^127\.0\.0\.1(?=:|$)/, 'localhost');
+    const path = parsed.pathname === '/' ? '' : parsed.pathname;
+    return {
+      fullUrl,
+      label: `${host}${path}`
+    };
+  } catch {
+    return {
+      fullUrl: `localhost:${service.port}`,
+      label: `localhost:${service.port}`
+    };
+  }
 }
 
 function readinessDetailsHtml(project, status) {
@@ -272,7 +304,7 @@ function startupHistoryHtml(project, projectName) {
   return `
     <section class="startup-history" role="group" aria-label="${escapeHtml(summary)}">
       <header><strong>Recent starts</strong><span>${readyCount} of ${history.length} ready</span></header>
-      <div class="startup-history-ribbon" style="--startup-count: ${history.length}" aria-hidden="true">
+      <div class="startup-history-ribbon" aria-hidden="true">
         ${history.map((entry) => {
           const outcome = labels[entry.outcome] || labels.failed;
           const duration = formatStartupDuration(entry.durationMs);
@@ -325,16 +357,99 @@ function outputPeekEntriesHtml(entries) {
 }
 
 function projectOutputPeekHtml(entries, projectId, projectName) {
-  if (!entries?.length) {
-    return '';
-  }
   const safeProjectId = escapeHtml(String(projectId || ''));
   const safeProjectName = escapeHtml(String(projectName || 'project'));
   return `
     <section class="project-output-peek" tabindex="0" aria-label="Latest output for ${safeProjectName}">
       <header><span>Live output</span><button data-action="output" data-id="${safeProjectId}">View output</button></header>
-      <ol>${outputPeekEntriesHtml(entries)}</ol>
+      ${entries?.length
+        ? `<ol>${outputPeekEntriesHtml(entries)}</ol>`
+        : '<p class="output-peek-empty">No output yet.</p>'}
     </section>`;
+}
+
+const DETAIL_TAB_LABELS = {
+  overview: 'Overview',
+  output: 'Output',
+  preview: 'Preview',
+  history: 'History'
+};
+
+function saveDetailTabState() {
+  vscode.setState({ ...persistedWebviewState, detailTabs: detailTabState });
+}
+
+function selectedProjectDetailTab(project) {
+  const tabs = project.detailTabs || ['overview'];
+  const savedTab = detailTabState[project.id];
+  const selected = tabs.includes(savedTab)
+    ? savedTab
+    : tabs.includes(project.defaultDetailTab)
+      ? project.defaultDetailTab
+      : 'overview';
+  detailTabState[project.id] = selected;
+  return selected;
+}
+
+function projectDetailTabsHtml(project, projectName) {
+  if (!project.detailsExpanded) {
+    return '';
+  }
+  const projectId = escapeHtml(String(project.id));
+  const tabs = project.detailTabs || ['overview'];
+  const selectedTab = selectedProjectDetailTab(project);
+  const tabButtons = tabs.map((tab) => {
+    const label = DETAIL_TAB_LABELS[tab];
+    return `<button id="detail-tab-${projectId}-${tab}" class="project-detail-tab" role="tab" data-action="select-detail-tab" data-id="${projectId}" data-tab="${tab}" aria-selected="${tab === selectedTab}" aria-controls="detail-panel-${projectId}-${tab}" tabindex="${tab === selectedTab ? '0' : '-1'}">${label}</button>`;
+  }).join('');
+  const runtime = project.previewExpanded ? `
+    <section class="project-runtime" aria-label="Runtime for ${projectName}">
+      <h3>Runtime</h3>
+      <div class="resource-metrics" data-resource-metrics data-project-id="${projectId}" role="group" aria-label="${escapeHtml(resourceMetricsLabel(project.resourceMetrics, project.httpResponsePulse))}">
+        ${resourceMetricsContent(project.resourceMetrics, project.runtimePulse, project.httpResponsePulse)}
+      </div>
+    </section>` : '';
+  const overviewContent = `${project.timeline ? projectTimelineHtml(project, projectName) : ''}${runtime}`
+    || '<p class="project-detail-empty">No startup details yet.</p>';
+  const outputContent = project.outputPeek !== undefined
+    ? `<div class="project-output-peek-slot" data-output-peek-slot data-project-id="${projectId}" data-project-name="${projectName}">${projectOutputPeekHtml(project.outputPeek, project.id, project.name)}</div>`
+    : '';
+  const previewContent = project.previewExpanded ? `
+    <section class="project-preview" aria-label="Preview of ${projectName}">
+      <header class="preview-toolbar">
+        <span>Live app</span>
+        <div class="preview-actions">
+          <button data-action="refresh-preview" data-id="${projectId}" aria-label="Refresh ${projectName} preview" title="Refresh preview">${icon('refresh')}</button>
+          <button data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(String(project.previewPort))}" aria-label="Copy ${projectName} URL" title="Copy URL">${icon('copy')}</button>
+          <button data-action="open" data-id="${projectId}" aria-label="Open ${projectName} in browser" title="Open in browser">${icon('external')}</button>
+        </div>
+      </header>
+      <div class="preview-frame-wrap">
+        <iframe class="preview-frame" data-preview-frame data-src="${escapeHtml(project.previewUrl)}" title="${projectName} app preview" sandbox="allow-forms allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
+        <div class="preview-loading" data-preview-loading role="status">Loading preview…</div>
+        <div class="preview-fallback" data-preview-fallback hidden>
+          <strong>Preview unavailable</strong>
+          <span>This app may block embedded views.</span>
+        </div>
+      </div>
+      <p class="preview-help">If the app blocks this view, use Open in browser.</p>
+    </section>` : '';
+  const historyContent = project.startupHistory?.length
+    ? startupHistoryHtml(project, projectName)
+    : '<p class="project-detail-empty">No completed starts yet.</p>';
+  const panels = {
+    overview: overviewContent,
+    output: outputContent,
+    preview: previewContent,
+    history: historyContent
+  };
+  return `
+    <div class="project-detail-workspace">
+      <div class="project-detail-tabs" role="tablist" aria-label="Details for ${projectName}">${tabButtons}</div>
+      <div class="project-detail-viewport">
+        ${tabs.map((tab) => `<section id="detail-panel-${projectId}-${tab}" class="project-detail-panel" role="tabpanel" aria-labelledby="detail-tab-${projectId}-${tab}" data-detail-panel="${tab}" tabindex="0" ${tab === selectedTab ? '' : 'hidden'}>${panels[tab]}</section>`).join('')}
+      </div>
+    </div>`;
 }
 
 function statusSummaryHtml(projects) {
@@ -362,6 +477,16 @@ function statusSummaryHtml(projects) {
 }
 
 function renderList() {
+  let detailTabsChanged = false;
+  for (const project of state.projects) {
+    if (!project.detailsExpanded && detailTabState[project.id]) {
+      delete detailTabState[project.id];
+      detailTabsChanged = true;
+    }
+  }
+  if (detailTabsChanged) {
+    saveDetailTabState();
+  }
   if (state.projects.length === 0) {
     app.innerHTML = `
       <section class="empty-state">
@@ -557,7 +682,7 @@ function renderList() {
             </div>
             ${project.services?.length ? `
               <div class="project-services-row">
-                <div class="project-services" aria-label="Service ports">
+                <div class="project-services" aria-label="Service addresses">
                   ${project.services.map((service) => {
                   const portOpen = project.openPorts?.includes(service.port);
                   const canCopyUrl = project.serviceUrls?.some((entry) => entry.port === service.port)
@@ -581,7 +706,8 @@ function renderList() {
                     ? ` aria-label="${escapeHtml(service.name)} on port ${escapeHtml(String(service.port))}: web service not responding"`
                     : '';
                   const copyLabel = `Copy ${escapeHtml(service.name)} URL`;
-                  return `<span${title}${ariaLabel}><span class="service-indicator ${indicator}" aria-hidden="true"></span>${escapeHtml(service.name)} <strong>:${escapeHtml(String(service.port))}</strong>${canCopyUrl ? `<button class="copy-url-button" data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(String(service.port))}" aria-label="${copyLabel}" title="${copyLabel}">${icon('copy')}</button>` : ''}</span>`;
+                  const address = serviceLocalAddress(service);
+                  return `<span${title}${ariaLabel}><span class="service-indicator ${indicator}" aria-hidden="true"></span><span class="service-name">${escapeHtml(service.name)}</span><span class="service-separator" aria-hidden="true">·</span><span class="service-address auto-scroll" title="${escapeHtml(address.fullUrl)}"><span class="auto-scroll-content">${escapeHtml(address.label)}</span></span>${canCopyUrl ? `<button class="copy-url-button" data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(String(service.port))}" aria-label="${copyLabel}" title="${copyLabel}">${icon('copy')}</button>` : ''}</span>`;
                   }).join('')}
                 </div>
                 ${(project.timeline || project.previewUrl || project.startupHistory?.length) ? `<button class="preview-toggle" data-action="toggle-preview" data-id="${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} ${project.timeline || project.startupHistory?.length ? 'project details' : 'preview'} for ${projectName}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" title="${project.detailsExpanded ? 'Collapse' : 'Expand'} ${project.timeline || project.startupHistory?.length ? 'project details' : 'app preview'}">${icon('chevron-down')}</button>` : ''}
@@ -590,36 +716,7 @@ function renderList() {
               <div class="project-details-toggle-row">
                 <button class="preview-toggle" data-action="toggle-preview" data-id="${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} project details for ${projectName}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" title="${project.detailsExpanded ? 'Collapse' : 'Expand'} project details">${icon('chevron-down')}</button>
               </div>` : ''}
-            ${(project.timeline || project.previewUrl || project.startupHistory?.length) ? `<div id="details-${projectId}" class="project-live-details" ${project.detailsExpanded ? '' : 'hidden'}>
-            ${startupHistoryHtml(project, projectName)}
-            ${project.timeline ? projectTimelineHtml(project, projectName) : ''}
-            ${project.outputPeek !== undefined ? `<div class="project-output-peek-slot" data-output-peek-slot data-project-id="${projectId}" data-project-name="${projectName}">${projectOutputPeekHtml(project.outputPeek, project.id, project.name)}</div>` : ''}
-            ${project.previewUrl ? `
-              <section class="project-preview" aria-label="Preview of ${projectName}" ${project.previewExpanded ? '' : 'hidden'}>
-                ${project.previewExpanded ? `
-                <header class="preview-toolbar">
-                  <span>Preview</span>
-                  <div class="preview-actions">
-                    <button data-action="refresh-preview" data-id="${projectId}" aria-label="Refresh ${projectName} preview" title="Refresh preview">${icon('refresh')}</button>
-                    <button data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(String(project.previewPort))}" aria-label="Copy ${projectName} URL" title="Copy URL">${icon('copy')}</button>
-                    <button data-action="open" data-id="${projectId}" aria-label="Open ${projectName} in browser" title="Open in browser">${icon('external')}</button>
-                  </div>
-                </header>
-                <div class="resource-metrics" data-resource-metrics data-project-id="${projectId}" role="group" aria-label="${escapeHtml(resourceMetricsLabel(project.resourceMetrics, project.httpResponsePulse))}">
-                  ${resourceMetricsContent(project.resourceMetrics, project.runtimePulse, project.httpResponsePulse)}
-                </div>
-                <div class="preview-frame-wrap">
-                  <iframe class="preview-frame" data-preview-frame data-src="${escapeHtml(project.previewUrl)}" title="${projectName} app preview" sandbox="allow-forms allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
-                  <div class="preview-loading" data-preview-loading role="status">Loading preview…</div>
-                  <div class="preview-fallback" data-preview-fallback hidden>
-                    <strong>Preview unavailable</strong>
-                    <span>This app may block embedded views.</span>
-                  </div>
-                </div>
-                <p class="preview-help">If the app blocks this view, use Open in browser.</p>
-                ` : ''}
-              </section>` : ''}
-            </div>` : ''}
+            ${(project.timeline || project.previewUrl || project.startupHistory?.length) ? `<div id="details-${projectId}" class="project-live-details" ${project.detailsExpanded ? '' : 'hidden'}>${projectDetailTabsHtml(project, projectName)}</div>` : ''}
           </article>`;
       }).join('')}
       <div class="search-empty" data-search-empty hidden>
@@ -1148,6 +1245,33 @@ function updateServiceDraft(services, focusId) {
   requestAnimationFrame(() => document.getElementById(focusId)?.focus());
 }
 
+function selectProjectDetailTab(id, tab, focus = false) {
+  const project = state.projects.find((item) => String(item.id) === String(id));
+  if (!project?.detailsExpanded || !project.detailTabs?.includes(tab)) {
+    return;
+  }
+  detailTabState[project.id] = tab;
+  saveDetailTabState();
+  const row = document.querySelector(`.project-row[data-project-id="${CSS.escape(String(id))}"]`);
+  row?.querySelectorAll('[role="tab"]').forEach((button) => {
+    const selected = button.dataset.tab === tab;
+    button.setAttribute('aria-selected', String(selected));
+    button.tabIndex = selected ? 0 : -1;
+    if (selected && focus) {
+      button.focus();
+    }
+  });
+  row?.querySelectorAll('[data-detail-panel]').forEach((panel) => {
+    panel.hidden = panel.dataset.detailPanel !== tab;
+  });
+  if (tab === 'preview') {
+    row?.querySelectorAll('[data-detail-panel="preview"] [data-preview-frame]')
+      .forEach(loadProjectPreview);
+  }
+  scheduleAutoScrollUpdate();
+  scheduleRunningAppNavigatorUpdate();
+}
+
 app.addEventListener('click', (event) => {
   const button = event.target.closest('[data-action]');
   if (!button) {
@@ -1197,10 +1321,18 @@ app.addEventListener('click', (event) => {
       id: button.dataset.id,
       port: Number(button.dataset.port)
     }),
-    'toggle-preview': () => vscode.postMessage({
-      type: 'toggleProjectPreview',
-      id: button.dataset.id
-    }),
+    'toggle-preview': () => {
+      const project = state.projects.find((item) => String(item.id) === String(button.dataset.id));
+      if (project?.detailsExpanded) {
+        delete detailTabState[project.id];
+        saveDetailTabState();
+      }
+      vscode.postMessage({
+        type: 'toggleProjectPreview',
+        id: button.dataset.id
+      });
+    },
+    'select-detail-tab': () => selectProjectDetailTab(button.dataset.id, button.dataset.tab),
     'refresh-preview': () => refreshProjectPreview(button.dataset.id),
     'open-vscode': () => {
       closeMenus();
@@ -1264,6 +1396,10 @@ function loadProjectPreview(frame) {
   if (!wrapper || !source) {
     return;
   }
+  if (frame.dataset.loadedSource === source) {
+    return;
+  }
+  frame.dataset.loadedSource = source;
 
   wrapper.classList.remove('loaded');
   loading.hidden = false;
@@ -1300,12 +1436,14 @@ function loadProjectPreview(frame) {
 function refreshProjectPreview(id) {
   const frame = document.querySelector(`.project-row[data-project-id="${CSS.escape(id)}"] [data-preview-frame]`);
   if (frame) {
+    delete frame.dataset.loadedSource;
     loadProjectPreview(frame);
   }
 }
 
 function initializeProjectPreview() {
-  document.querySelectorAll('[data-preview-frame]').forEach(loadProjectPreview);
+  document.querySelectorAll('.project-detail-panel:not([hidden]) [data-preview-frame]')
+    .forEach(loadProjectPreview);
 }
 
 let timelineClock;
@@ -1557,7 +1695,8 @@ app.addEventListener('focusin', (event) => {
       type: 'action',
       action: element.dataset.action,
       id: element.dataset.id,
-      agent: element.dataset.agent
+      agent: element.dataset.agent,
+      tab: element.dataset.tab
     };
   }
   if (target) {
@@ -1573,6 +1712,21 @@ function handleSearchInput(event) {
 }
 
 document.addEventListener('keydown', (event) => {
+  const tab = event.target.closest('[role="tab"]');
+  if (tab && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+    const tabs = [...tab.closest('[role="tablist"]').querySelectorAll('[role="tab"]')];
+    const currentIndex = tabs.indexOf(tab);
+    const nextIndex = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? tabs.length - 1
+        : event.key === 'ArrowRight'
+          ? (currentIndex + 1) % tabs.length
+          : (currentIndex - 1 + tabs.length) % tabs.length;
+    event.preventDefault();
+    selectProjectDetailTab(tabs[nextIndex].dataset.id, tabs[nextIndex].dataset.tab, true);
+  }
+
   const menu = event.target.closest('.action-menu');
   if (menu && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
     const items = [...menu.querySelectorAll('button:not(:disabled)')];
@@ -1665,6 +1819,9 @@ function applyInitialFocus() {
     }
     if (target.agent) {
       selector += `[data-agent="${CSS.escape(target.agent)}"]`;
+    }
+    if (target.tab) {
+      selector += `[data-tab="${CSS.escape(target.tab)}"]`;
     }
     element = document.querySelector(selector);
   }
