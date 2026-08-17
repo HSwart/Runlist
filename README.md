@@ -20,10 +20,10 @@ Runlist keeps a reusable list of local projects from different repositories insi
 - Search saved projects by name or folder.
 - Pin important projects so they stay at the top of the list.
 - Give projects a friendly name without renaming their folders.
-- Keep configured service names and ports visible at a glance.
+- Keep configured service names and local addresses visible at a glance.
 - When another Runlist-owned project needs the same port, switch safely by stopping it before starting the selected project.
 - When service ports are configured, see project status, copy a responding web service's URL, and open the first service at its localhost address or optional HTTP/HTTPS URL. Services with an Open URL are also checked for an HTTP response.
-- Expand a running web app to see a compact live preview with refresh, copy, and browser actions.
+- Expand a running web app into stable Overview, Output, Preview, and History tabs, with refresh, copy, and browser actions.
 - See current CPU and memory use for the process tree Runlist started while its app preview is expanded.
 - Open any saved project folder in a new VS Code window.
 - Expand a starting or running project to follow its startup timeline and the latest three useful output lines, then open the complete Recent Output screen when you need more detail.
@@ -112,11 +112,12 @@ Runlist keeps the everyday controls simple:
 | **Stop all running** | Appears when two or more projects are running and stops them together. |
 | **Port in use** | Prevents conflicting projects from starting and identifies the owning project when possible. |
 | **Switch projects** | When two Runlist-owned projects need the same port, offers one action to stop the running project and start the selected one. Unknown or external port owners are never stopped. |
-| **Copy URL** | Appears beside the responding first service, and beside other responding services with an Open URL. It copies the same safe URL Runlist would open. |
-| **Preview app** | A chevron appears at the far right when any configured web service responds, even while another service is still starting. Runlist uses the first responding web service in the saved order. Expand it to load one live preview beneath the project. Collapsing or losing that service unloads the preview. Some apps block embedded views, so Open in browser remains available. |
-| **Runtime pulse** | Shows current CPU, memory, and the latest HTTP response time inside an expanded preview. CPU and memory are available when this VS Code window started the project; HTTP timing reuses Runlist's existing local health check. Samples stay in memory only while the preview is open. |
-| **Recent starts** | Shows up to five completed Runlist-managed starts in an expanded project card, including whether each became ready, failed, or was still starting after the readiness timeout. Only the outcome, completion time, and startup duration are retained. |
-| **Expand details** | Shows the project's startup progress and up to three useful live output lines without turning the sidebar into a terminal. **View output** opens the complete retained output. |
+| **Service addresses** | Shows each saved service with a compact local address such as `localhost:4310`. Green means the service is available; amber means a web port is open but not responding. |
+| **Copy URL** | Appears beside the responding first service, and beside other responding services with an Open URL. It copies the same safe full URL Runlist would open. |
+| **Preview app** | A chevron appears at the far right when any configured web service responds, even while another service is still starting. Runlist uses the first responding web service in the saved order. Expand the row and use its Preview tab to load one live preview. Some apps block embedded views, so Open in browser remains available. |
+| **Runtime pulse** | Shows current CPU, memory, and the latest HTTP response time in Overview. CPU and memory are measured when this VS Code window started the project; HTTP timing reuses Runlist's existing local health check. Samples stay in memory only while the project details are open. |
+| **Recent starts** | Shows up to five completed Runlist-managed starts in History, including whether each became ready, failed, or was still starting after the readiness timeout. Only the outcome, completion time, and startup duration are retained. |
+| **Expand details** | Keeps startup progress and runtime information in Overview, bounded live lines in Output, the app in Preview, and past outcomes in History. The stable workspace prevents growing output or history from pushing the preview around. **View output** opens the complete retained output. |
 | **View output** | Summarizes a failed start above the unchanged raw log, highlights common log levels, opens web links, and lets you copy output from the latest run. If you scroll up, Runlist keeps your place and offers a **Latest** button when new output arrives. |
 | **Ask your agent** | Appears only for a retained failed start. It copies a request that lets a connected agent retrieve bounded, sanitized diagnostics for that one project through Runlist. |
 | **…** | Opens the app or project folder, opens a terminal in that folder, copies the saved project path, and provides recent output, edit, or remove actions. |

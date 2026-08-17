@@ -33,6 +33,10 @@ const {
 } = require('./project-navigation');
 const { previewFrameSources, projectPreviewService } = require('./preview-security');
 const { OwnedProcessMetrics } = require('./process-metrics');
+const {
+  availableProjectDetailTabs,
+  preferredProjectDetailTab
+} = require('./project-detail-tabs');
 const { HttpResponseHistory, RuntimePulseHistory } = require('./runtime-pulse');
 const {
   appendStartupHistory,
@@ -2040,8 +2044,16 @@ class RunlistViewProvider {
         && (this.managedProjectIds.has(project.id)
           || this.processes.has(project.id)
           || this.projectRuntime.has(project.id));
-      const locallyOwned = this.processes.has(project.id);
+      const outputPeek = outputPeekVisible
+        ? projectOutputPeek(this.projectOutputs.get(project.id))
+        : undefined;
       const startupHistory = readStartupHistory(this.projectsFile, project.id);
+      const detailTabs = availableProjectDetailTabs({
+        outputAvailable: outputPeek !== undefined,
+        previewAvailable: previewExpanded,
+        historyAvailable: startupHistory.length > 0
+      });
+      const locallyOwned = this.processes.has(project.id);
       return {
         ...project,
         pinned: project.pinned === true,
@@ -2059,9 +2071,7 @@ class RunlistViewProvider {
         timeline,
         detailsExpanded,
         handoffInProgress: this.handoffProjectIds.has(project.id),
-        outputPeek: outputPeekVisible
-          ? projectOutputPeek(this.projectOutputs.get(project.id))
-          : undefined,
+        outputPeek,
         timelineExpanded: timelineVisible && detailsExpanded,
         previewExpanded,
         previewPort: previewService?.port,
@@ -2081,6 +2091,8 @@ class RunlistViewProvider {
         httpResponsePulse: previewExpanded
           ? this.httpResponseHistory.get(project.id)
           : undefined,
+        detailTabs,
+        defaultDetailTab: preferredProjectDetailTab(detailTabs),
         webPorts,
         httpUnresponsive: webPorts.some((port) => openPorts.includes(port)
           && !respondingPorts.includes(port)),
@@ -2251,7 +2263,7 @@ function validFocusTarget(target) {
     return undefined;
   }
   const clean = { type: target.type };
-  for (const key of ['id', 'action', 'agent']) {
+  for (const key of ['id', 'action', 'agent', 'tab']) {
     if (typeof target[key] === 'string' && target[key].length <= 200) {
       clean[key] = target[key];
     }
