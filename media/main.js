@@ -572,15 +572,11 @@ function renderList() {
                     <button data-action="open" data-id="${projectId}" aria-label="Open ${projectName} in browser" title="Open in browser">${icon('external')}</button>
                   </div>
                 </header>
-                <div class="preview-mode-switch" role="group" aria-label="Preview size for ${projectName}">
-                  <button data-action="set-preview-desktop" data-id="${projectId}" aria-pressed="${project.previewMode !== 'mobile'}">Desktop</button>
-                  <button data-action="set-preview-mobile" data-id="${projectId}" aria-pressed="${project.previewMode === 'mobile'}">Mobile</button>
-                </div>
                 <div class="resource-metrics" data-resource-metrics data-project-id="${projectId}" role="group" aria-label="${escapeHtml(resourceMetricsLabel(project.resourceMetrics))}">
                   ${resourceMetricsContent(project.resourceMetrics, project.runtimePulse)}
                 </div>
-                <div class="preview-frame-wrap ${project.previewMode === 'mobile' ? 'mobile' : 'desktop'}">
-                  <iframe class="preview-frame" data-preview-frame data-src="${escapeHtml(project.previewUrl)}" title="${projectName} ${project.previewMode === 'mobile' ? 'mobile' : 'desktop'} app preview" sandbox="allow-forms allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
+                <div class="preview-frame-wrap">
+                  <iframe class="preview-frame" data-preview-frame data-src="${escapeHtml(project.previewUrl)}" title="${projectName} app preview" sandbox="allow-forms allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
                   <div class="preview-loading" data-preview-loading role="status">Loading preview…</div>
                   <div class="preview-fallback" data-preview-fallback hidden>
                     <strong>Preview unavailable</strong>
@@ -1120,16 +1116,6 @@ app.addEventListener('click', (event) => {
     'toggle-preview': () => vscode.postMessage({
       type: 'toggleProjectPreview',
       id: button.dataset.id
-    }),
-    'set-preview-desktop': () => vscode.postMessage({
-      type: 'setProjectPreviewMode',
-      id: button.dataset.id,
-      mode: 'desktop'
-    }),
-    'set-preview-mobile': () => vscode.postMessage({
-      type: 'setProjectPreviewMode',
-      id: button.dataset.id,
-      mode: 'mobile'
     }),
     'refresh-preview': () => refreshProjectPreview(button.dataset.id),
     'open-vscode': () => {
