@@ -9,7 +9,7 @@ const {
   readOwnedProcessTree,
   windowsProcessScript
 } = require('../process-metrics');
-const { RuntimePulseHistory } = require('../runtime-pulse');
+const { HttpResponseHistory, RuntimePulseHistory } = require('../runtime-pulse');
 
 function row(pid, identity, cpuSeconds, memoryBytes) {
   return { pid, identity, cpuSeconds, memoryBytes };
@@ -111,6 +111,21 @@ test('keeps a bounded in-memory pulse and clears it when metrics are unavailable
   assert.deepEqual(pulse.get('project'), []);
 });
 
+test('keeps bounded HTTP response samples and clears unavailable health', () => {
+  const pulse = new HttpResponseHistory(3);
+  for (let index = 0; index < 5; index += 1) {
+    pulse.append('project', 10 + index);
+  }
+
+  assert.deepEqual(pulse.get('project'), [
+    { responseTimeMs: 12 },
+    { responseTimeMs: 13 },
+    { responseTimeMs: 14 }
+  ]);
+  assert.deepEqual(pulse.append('project', undefined), []);
+  assert.deepEqual(pulse.get('project'), []);
+});
+
 test('uses exact POSIX process-group queries and ignores rows outside that group', async () => {
   const calls = [];
   const rows = await readOwnedProcessTree(41, 'darwin', {
@@ -168,7 +183,20 @@ test('renders accessible metrics only inside the expanded preview and stops samp
   assert.match(webview, /data-resource-metrics[\s\S]*role="group"[\s\S]*aria-label=/);
   assert.match(webview, /project\.previewExpanded \? `[\s\S]*resource-metrics/);
   assert.match(webview, /class="runtime-pulse[\s\S]*aria-hidden="true"[\s\S]*focusable="false"/);
-  assert.match(webview, /resourceMetricsContent\(event\.data\.metrics, event\.data\.runtimePulse\)/);
+  assert.match(webview, /resourceMetricsContent\([\s\S]*event\.data\.metrics,[\s\S]*event\.data\.runtimePulse,[\s\S]*event\.data\.httpResponsePulse/);
   assert.match(extension, /messageToken: this\.webviewMessageToken/);
   assert.match(webview, /event\.data\?\.messageToken !== state\.messageToken/);
+});
+
+test('reuses health polling for an accessible expanded HTTP response pulse', () => {
+  const root = path.join(__dirname, '..');
+  const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
+
+  assert.match(extension, /activeResponse = activeCheck\?\.\[6\][\s\S]*this\.httpResponseHistory\.append/);
+  assert.match(extension, /syncHttpResponsePulseTarget\([\s\S]*expandedPreview\?\.previewPort/);
+  assert.match(extension, /serviceUrls\.map\(\(\{ port, url \}\) => \(\{ port, url \}\)\)/);
+  assert.match(webview, /<strong>HTTP<\/strong>[\s\S]*data-http-response/);
+  assert.match(webview, /HTTP response time \$\{formatResponseTime\(latest\)\}/);
+  assert.match(webview, /event\.data\?\.type === 'projectHttpPulse'/);
 });

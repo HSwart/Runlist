@@ -1091,6 +1091,10 @@ button:active:not(:disabled) {
   stroke: var(--vscode-charts-purple, var(--vscode-charts-blue, var(--vscode-progressBar-background)));
 }
 
+.runtime-pulse.http .runtime-pulse-line {
+  stroke: var(--vscode-charts-green, var(--vscode-testing-iconPassed, #73c991));
+}
+
 @keyframes runtime-pulse-arrive {
   from { opacity: 0.45; }
   to { opacity: 1; }

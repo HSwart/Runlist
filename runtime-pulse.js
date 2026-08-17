@@ -1,5 +1,37 @@
 const DEFAULT_RUNTIME_PULSE_LIMIT = 12;
 
+class HttpResponseHistory {
+  constructor(limit = DEFAULT_RUNTIME_PULSE_LIMIT) {
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw new TypeError('HTTP response history limit must be a positive integer.');
+    }
+    this.limit = limit;
+    this.history = new Map();
+  }
+
+  append(projectId, responseTimeMs) {
+    if (!Number.isFinite(responseTimeMs) || responseTimeMs < 0) {
+      this.clear(projectId);
+      return [];
+    }
+    const samples = this.history.get(projectId) || [];
+    samples.push({ responseTimeMs: Math.max(1, Math.round(responseTimeMs)) });
+    if (samples.length > this.limit) {
+      samples.splice(0, samples.length - this.limit);
+    }
+    this.history.set(projectId, samples);
+    return this.get(projectId);
+  }
+
+  get(projectId) {
+    return (this.history.get(projectId) || []).map((sample) => ({ ...sample }));
+  }
+
+  clear(projectId) {
+    this.history.delete(projectId);
+  }
+}
+
 class RuntimePulseHistory {
   constructor(limit = DEFAULT_RUNTIME_PULSE_LIMIT) {
     if (!Number.isInteger(limit) || limit < 1) {
@@ -48,5 +80,6 @@ class RuntimePulseHistory {
 
 module.exports = {
   DEFAULT_RUNTIME_PULSE_LIMIT,
+  HttpResponseHistory,
   RuntimePulseHistory
 };

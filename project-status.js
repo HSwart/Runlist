@@ -172,6 +172,7 @@ async function reachableServiceUrls(services, openPorts, options = {}) {
   const timeout = Number.isFinite(options.timeout)
     ? Math.max(1, options.timeout)
     : HTTP_PROBE_TIMEOUT_MS;
+  const now = options.now || Date.now;
 
   const results = await Promise.all(configured.map(async ({ service, url }) => {
     try {
@@ -181,12 +182,17 @@ async function reachableServiceUrls(services, openPorts, options = {}) {
         return undefined;
       }
       const remaining = Math.max(1, deadline - Date.now());
+      const probeStartedAt = now();
       const responding = await valueWithin(
         () => probe(resolvedUrl, { timeout: remaining }),
         remaining
       );
       return responding !== TIMED_OUT && responding
-        ? { port: service.port, url: safeServiceUrl(resolvedUrl) }
+        ? {
+            port: service.port,
+            url: safeServiceUrl(resolvedUrl),
+            responseTimeMs: Math.max(1, now() - probeStartedAt)
+          }
         : undefined;
     } catch {
       return undefined;
