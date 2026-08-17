@@ -7,6 +7,43 @@ class HttpResponseHistory {
     }
     this.limit = limit;
     this.history = new Map();
+    this.target = undefined;
+  }
+
+  setTarget(projectId, port, url) {
+    const next = projectId && Number.isInteger(port) && typeof url === 'string'
+      ? { projectId, port, url }
+      : undefined;
+    if (this.target?.projectId === next?.projectId
+      && this.target?.port === next?.port
+      && this.target?.url === next?.url) {
+      return;
+    }
+    if (this.target?.projectId) {
+      this.clear(this.target.projectId);
+    }
+    if (next?.projectId) {
+      this.clear(next.projectId);
+    }
+    this.target = next;
+  }
+
+  currentTarget() {
+    return this.target ? { ...this.target } : undefined;
+  }
+
+  record(status, responses) {
+    const target = this.target;
+    if (!target) {
+      return [];
+    }
+    const response = (responses || []).find((item) => item.port === target.port
+      && item.url === target.url);
+    if (!['running', 'active'].includes(status) || !response) {
+      this.clear(target.projectId);
+      return [];
+    }
+    return this.append(target.projectId, response.responseTimeMs);
   }
 
   append(projectId, responseTimeMs) {

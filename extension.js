@@ -124,8 +124,6 @@ class RunlistViewProvider {
     this.projectMetrics = new Map();
     this.runtimePulseHistory = new RuntimePulseHistory();
     this.httpResponseHistory = new HttpResponseHistory();
-    this.httpResponseProjectId = undefined;
-    this.httpResponseServicePort = undefined;
     this.resourceSampleTimer = undefined;
     this.resourceSampleProjectId = undefined;
     this.resourceSampleGeneration = 0;
@@ -383,21 +381,14 @@ class RunlistViewProvider {
         }
       }
 
-      if (this.httpResponseProjectId) {
-        const activeCheck = checks.find(([id]) => id === this.httpResponseProjectId);
-        const activeStatus = activeCheck?.[1];
-        const activeResponse = activeCheck?.[6]
-          ?.find((service) => service.port === this.httpResponseServicePort);
-        let httpResponsePulse = [];
-        if (['running', 'active'].includes(activeStatus) && activeResponse) {
-          httpResponsePulse = this.httpResponseHistory.append(
-            this.httpResponseProjectId,
-            activeResponse.responseTimeMs
-          );
-        } else {
-          this.httpResponseHistory.clear(this.httpResponseProjectId);
-        }
-        this.publishProjectHttpPulse(this.httpResponseProjectId, httpResponsePulse);
+      const httpResponseTarget = this.httpResponseHistory.currentTarget();
+      if (httpResponseTarget) {
+        const activeCheck = checks.find(([id]) => id === httpResponseTarget.projectId);
+        const httpResponsePulse = this.httpResponseHistory.record(
+          activeCheck?.[1],
+          activeCheck?.[6]
+        );
+        this.publishProjectHttpPulse(httpResponseTarget.projectId, httpResponsePulse);
       }
 
       const nextStatuses = new Map(checks.map(([id, status]) => [id, status]));
@@ -984,7 +975,8 @@ class RunlistViewProvider {
     }
     this.syncHttpResponsePulseTarget(
       this.expandedPreviewProjectId,
-      this.expandedPreviewServicePort
+      this.expandedPreviewServicePort,
+      this.expandedPreviewProjectId ? previewService?.url : undefined
     );
     this.focusTarget = { type: 'action', action: 'toggle-preview', id };
     this.renderProjectList();
@@ -1063,18 +1055,8 @@ class RunlistViewProvider {
     });
   }
 
-  syncHttpResponsePulseTarget(id, port) {
-    if (this.httpResponseProjectId === id && this.httpResponseServicePort === port) {
-      return;
-    }
-    if (this.httpResponseProjectId) {
-      this.httpResponseHistory.clear(this.httpResponseProjectId);
-    }
-    if (id) {
-      this.httpResponseHistory.clear(id);
-    }
-    this.httpResponseProjectId = id;
-    this.httpResponseServicePort = port;
+  syncHttpResponsePulseTarget(id, port, url) {
+    this.httpResponseHistory.setTarget(id, port, url);
   }
 
   publishProjectHttpPulse(id, httpResponsePulse) {
@@ -1091,9 +1073,8 @@ class RunlistViewProvider {
     this.projectMetrics.delete(id);
     this.runtimePulseHistory.clear(id);
     this.httpResponseHistory.clear(id);
-    if (this.httpResponseProjectId === id) {
-      this.httpResponseProjectId = undefined;
-      this.httpResponseServicePort = undefined;
+    if (this.httpResponseHistory.currentTarget()?.projectId === id) {
+      this.httpResponseHistory.setTarget(undefined, undefined, undefined);
     }
     if (this.resourceSampleProjectId === id) {
       this.stopResourceSampling();
@@ -1365,7 +1346,7 @@ class RunlistViewProvider {
       if (this.expandedPreviewProjectId === id) {
         this.expandedPreviewProjectId = undefined;
         this.expandedPreviewServicePort = undefined;
-        this.syncHttpResponsePulseTarget(undefined, undefined);
+        this.syncHttpResponsePulseTarget(undefined, undefined, undefined);
       }
       this.httpResponseHistory.clear(id);
       this.startReadinessDeadlines.delete(id);
@@ -2111,7 +2092,7 @@ class RunlistViewProvider {
       const previousId = this.expandedPreviewProjectId;
       this.expandedPreviewProjectId = undefined;
       this.expandedPreviewServicePort = undefined;
-      this.syncHttpResponsePulseTarget(undefined, undefined);
+      this.syncHttpResponsePulseTarget(undefined, undefined, undefined);
       this.focusTarget = { type: 'project-control', id: previousId };
     }
     const state = {
@@ -2176,7 +2157,11 @@ class RunlistViewProvider {
       </html>`;
     this.focusTarget = undefined;
     this.syncResourceSampling(expandedPreview?.id);
-    this.syncHttpResponsePulseTarget(expandedPreview?.id, expandedPreview?.previewPort);
+    this.syncHttpResponsePulseTarget(
+      expandedPreview?.id,
+      expandedPreview?.previewPort,
+      expandedPreview?.previewUrl
+    );
   }
 
   dispose() {

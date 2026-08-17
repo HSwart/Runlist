@@ -126,6 +126,47 @@ test('keeps bounded HTTP response samples and clears unavailable health', () => 
   assert.deepEqual(pulse.get('project'), []);
 });
 
+test('resets HTTP response samples when the expanded service target changes or collapses', () => {
+  const pulse = new HttpResponseHistory(3);
+  pulse.setTarget('project', 4310, 'http://localhost:4310/');
+  pulse.record('running', [{
+    port: 4310,
+    url: 'http://localhost:4310/',
+    responseTimeMs: 42
+  }]);
+  assert.deepEqual(pulse.get('project'), [{ responseTimeMs: 42 }]);
+
+  pulse.setTarget('project', 4310, 'http://localhost:4310/admin');
+  assert.deepEqual(pulse.get('project'), []);
+  assert.deepEqual(pulse.currentTarget(), {
+    projectId: 'project',
+    port: 4310,
+    url: 'http://localhost:4310/admin'
+  });
+
+  pulse.setTarget(undefined, undefined, undefined);
+  assert.equal(pulse.currentTarget(), undefined);
+  assert.deepEqual(pulse.get('project'), []);
+});
+
+test('clears HTTP response samples when health is unavailable', () => {
+  for (const [status, responses] of [
+    ['stopped', [{ port: 4310, url: 'http://localhost:4310/', responseTimeMs: 20 }]],
+    ['not-ready', [{ port: 4310, url: 'http://localhost:4310/', responseTimeMs: 20 }]],
+    ['running', []]
+  ]) {
+    const pulse = new HttpResponseHistory(3);
+    pulse.setTarget('project', 4310, 'http://localhost:4310/');
+    pulse.record('running', [{
+      port: 4310,
+      url: 'http://localhost:4310/',
+      responseTimeMs: 18
+    }]);
+    assert.deepEqual(pulse.record(status, responses), []);
+    assert.deepEqual(pulse.get('project'), []);
+  }
+});
+
 test('uses exact POSIX process-group queries and ignores rows outside that group', async () => {
   const calls = [];
   const rows = await readOwnedProcessTree(41, 'darwin', {
@@ -193,8 +234,8 @@ test('reuses health polling for an accessible expanded HTTP response pulse', () 
   const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
 
-  assert.match(extension, /activeResponse = activeCheck\?\.\[6\][\s\S]*this\.httpResponseHistory\.append/);
-  assert.match(extension, /syncHttpResponsePulseTarget\([\s\S]*expandedPreview\?\.previewPort/);
+  assert.match(extension, /this\.httpResponseHistory\.record\([\s\S]*activeCheck\?\.\[6\]/);
+  assert.match(extension, /syncHttpResponsePulseTarget\([\s\S]*expandedPreview\?\.previewPort,[\s\S]*expandedPreview\?\.previewUrl/);
   assert.match(extension, /serviceUrls\.map\(\(\{ port, url \}\) => \(\{ port, url \}\)\)/);
   assert.match(webview, /<strong>HTTP<\/strong>[\s\S]*data-http-response/);
   assert.match(webview, /HTTP response time \$\{formatResponseTime\(latest\)\}/);
