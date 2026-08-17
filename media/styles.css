@@ -1065,6 +1065,59 @@ button:active:not(:disabled) {
   white-space: nowrap;
 }
 
+.startup-history-entry.inspectable {
+  cursor: pointer;
+}
+
+.startup-history-entry.inspectable:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.startup-history-entry.inspectable:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -2px;
+}
+
+.startup-failure-detail {
+  margin-top: 6px;
+  padding: 7px;
+  color: var(--vscode-foreground);
+  background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background));
+  border: 1px solid var(--vscode-widget-border, var(--vscode-contrastBorder));
+  border-radius: 3px;
+}
+
+.startup-failure-detail:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -2px;
+}
+
+.startup-failure-detail > header {
+  min-height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.startup-failure-detail > header strong {
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.startup-failure-detail .icon-button {
+  width: 20px;
+  height: 20px;
+}
+
+.startup-failure-detail p {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
 .project-services strong {
   color: inherit;
   font-weight: 600;

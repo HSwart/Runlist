@@ -43,6 +43,7 @@ const {
   appendStartupHistory,
   clearStartupHistory,
   readStartupHistory,
+  replaceTimedOutStartupHistory,
   startupHistoryEntry
 } = require('./startup-history');
 const {
@@ -726,16 +727,29 @@ class RunlistViewProvider {
     });
   }
 
-  recordStartupOutcome(id, outcome, completedAt = Date.now()) {
+  recordStartupOutcome(id, outcome, completedAt = Date.now(), failureSummary) {
     const metadata = this.projectAttemptMetadata.get(id);
-    if (!metadata || metadata.historyRecorded) {
+    if (!metadata) {
       return;
     }
-    const entry = startupHistoryEntry(outcome, metadata.launchedAt, completedAt);
+    const entry = startupHistoryEntry(outcome, metadata.launchedAt, completedAt, failureSummary);
     if (!entry) {
       return;
     }
+    if (metadata.historyRecorded) {
+      if (metadata.historyOutcome !== 'timed-out' || outcome !== 'failed') {
+        return;
+      }
+      try {
+        replaceTimedOutStartupHistory(this.projectsFile, id, metadata.launchedAt, entry);
+        metadata.historyOutcome = 'failed';
+      } catch {
+        // Startup history is optional and must never affect project lifecycle actions.
+      }
+      return;
+    }
     metadata.historyRecorded = true;
+    metadata.historyOutcome = outcome;
     try {
       appendStartupHistory(this.projectsFile, id, entry);
     } catch {
@@ -785,9 +799,9 @@ class RunlistViewProvider {
 
   showStartFailure(project, details = {}) {
     const normalizedDetails = typeof details === 'string' ? { detail: details } : details;
-    this.recordStartupOutcome(project.id, 'failed');
-    this.recordTimelineFailure(project.id, normalizedDetails);
     const summary = startFailureSummary(this.projectOutputs.get(project.id), normalizedDetails);
+    this.recordStartupOutcome(project.id, 'failed', Date.now(), summary.message);
+    this.recordTimelineFailure(project.id, normalizedDetails);
     this.projectFailureDetails.set(project.id, normalizedDetails);
     this.projectFailureSummaries.set(project.id, summary);
     this.persistStartFailure(project, normalizedDetails, summary);
@@ -1597,7 +1611,6 @@ class RunlistViewProvider {
       this.statusRevision += 1;
       listenToProjectOutput(child, (chunk) => this.addProjectOutput(id, chunk));
       child.once('error', (error) => {
-        this.recordStartupOutcome(id, 'failed');
         this.statusRevision += 1;
         this.processes.delete(id);
         this.forgetProjectMetrics(id);
@@ -1616,9 +1629,6 @@ class RunlistViewProvider {
         if (this.processes.get(id) === child) {
           const stoppedIntentionally = this.stoppingProjectIds.has(id);
           const startFailed = startExitFailed({ code, hasServices, stoppedIntentionally });
-          if (startFailed) {
-            this.recordStartupOutcome(id, 'failed');
-          }
           this.statusRevision += 1;
           this.processes.delete(id);
           this.forgetProjectMetrics(id);
@@ -1643,7 +1653,6 @@ class RunlistViewProvider {
       this.renderProjectList();
       return true;
     } catch (error) {
-      this.recordStartupOutcome(id, 'failed');
       this.statusRevision += 1;
       this.managedProjectIds.delete(id);
       this.processOwnership.release(id);
