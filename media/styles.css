@@ -1009,10 +1009,20 @@ button:active:not(:disabled) {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 5px;
   color: var(--vscode-descriptionForeground);
   font-size: 10px;
+}
+
+.startup-history-stats {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  margin-left: auto;
+  text-align: right;
 }
 
 .startup-history > header strong {

@@ -299,6 +299,9 @@ function startupHistoryHtml(project, projectName) {
     'timed-out': { code: 'SLOW', label: 'Still starting' }
   };
   const readyCount = history.filter((entry) => entry.outcome === 'ready').length;
+  const averageReadyDuration = Number.isFinite(project.averageReadyDurationMs)
+    ? formatStartupDuration(project.averageReadyDurationMs)
+    : undefined;
   const selectedFailureKey = startupFailureState[project.id];
   const selectedFailure = history.find((entry, index) => (
     entry.failureSummary && startupHistoryEntryKey(entry, index) === selectedFailureKey
@@ -310,7 +313,7 @@ function startupHistoryHtml(project, projectName) {
   }).join('; ')}.`;
   return `
     <section class="startup-history" role="group" aria-label="${escapeHtml(summary)}">
-      <header><strong>Recent starts</strong><span>${readyCount} of ${history.length} ready</span></header>
+      <header><strong>Recent starts</strong><span class="startup-history-stats">${averageReadyDuration !== undefined ? `<span aria-label="Average ready time: ${escapeHtml(averageReadyDuration)}">Avg ready ${escapeHtml(averageReadyDuration)}</span>` : ''}<span>${readyCount} of ${history.length} ready</span></span></header>
       <div class="startup-history-ribbon">
         ${history.map((entry, index) => {
           const outcome = labels[entry.outcome] || labels.failed;
