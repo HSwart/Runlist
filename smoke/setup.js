@@ -22,6 +22,7 @@ async function run() {
 
   const fixturePath = path.join(extension.extensionPath, 'smoke', 'fixtures', 'ready.js');
   const failurePath = path.join(extension.extensionPath, 'smoke', 'fixtures', 'failure.js');
+  const stopPath = path.join(extension.extensionPath, 'smoke', 'fixtures', 'stop.js');
   const port = await availablePort();
 
   const manual = await saveProject(api.provider, {
@@ -35,6 +36,12 @@ async function run() {
     name: 'Ready smoke project',
     folder: projectFolder(workspacePath, 'ready'),
     startCommand: command(nodePath, fixturePath, smokeRoot, String(port)),
+    stopCommand: command(
+      nodePath,
+      stopPath,
+      path.join(smokeRoot, 'ready.pid'),
+      path.join(smokeRoot, 'custom-stop.used')
+    ),
     services: [{ name: 'web', port: String(port), url: '' }]
   });
   await saveProject(api.provider, {

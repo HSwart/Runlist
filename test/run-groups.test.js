@@ -225,6 +225,30 @@ test('coordinates the same group across independent VS Code hosts', async (t) =>
   assert.equal((await firstRun).status, 'started');
 });
 
+test('keeps a cross-window group lease alive while readiness is still pending', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-group-heartbeat-'));
+  let now = 1000;
+  const sharedOptions = {
+    heartbeatIntervalMs: 5,
+    ownerHeartbeatTimeoutMs: 20,
+    isProcessAlive: () => true,
+    now: () => now
+  };
+  const firstCoordinator = new RunGroupCoordinator(root, { ...sharedOptions, pid: 1101 });
+  const secondCoordinator = new RunGroupCoordinator(root, { ...sharedOptions, pid: 2202 });
+  t.after(() => {
+    firstCoordinator.dispose();
+    secondCoordinator.dispose();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  assert.equal(firstCoordinator.acquire('shared'), true);
+  now = 5000;
+  await new Promise((resolve) => setTimeout(resolve, 15));
+
+  assert.equal(secondCoordinator.acquire('shared'), false);
+});
+
 test('creates a group in the exact order selected through native controls', async () => {
   const projects = [{ id: 'first', name: 'First' }, { id: 'second', name: 'Second' }];
   const actions = ['create', 'add', 'second', 'add', 'first', 'save'];

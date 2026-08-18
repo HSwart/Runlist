@@ -24,6 +24,31 @@ test('delegates start and stop mechanics through one lifecycle boundary', async 
   ]);
 });
 
+test('blocks new starts and waits for lifecycle work already in flight during shutdown', async () => {
+  let finishStop;
+  const stop = new Promise((resolve) => { finishStop = resolve; });
+  let starts = 0;
+  const lifecycle = new ProjectLifecycleCoordinator({
+    startProjectProcess: async () => { starts += 1; return true; },
+    stopProjectProcess: async () => stop
+  });
+
+  const stopping = lifecycle.stop('project-1');
+  lifecycle.beginShutdown();
+  let shutdownFinished = false;
+  const shutdown = lifecycle.waitForIdle().then(() => { shutdownFinished = true; });
+  await Promise.resolve();
+
+  assert.equal(shutdownFinished, false);
+  assert.equal(await lifecycle.start('project-2'), false);
+  assert.equal(starts, 0);
+
+  finishStop(true);
+  assert.equal(await stopping, true);
+  await shutdown;
+  assert.equal(shutdownFinished, true);
+});
+
 test('waits for readiness and stop completion using provider state', async () => {
   let readyRefreshes = 0;
   let stopSnapshots = 0;

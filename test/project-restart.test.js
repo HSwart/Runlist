@@ -127,13 +127,17 @@ test('ignores a stale Restart request while a shared transition is active', asyn
 
 test('holds process ownership while deleting a saved project', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
-  const refreshOwnership = source.indexOf('const latestSharedOwnership = this.processOwnership.snapshot().get(id)');
+  const refreshOwnership = source.indexOf('const latestProcessRuntime = this.processOwnership.snapshot()');
+  const verifyPortOwnership = source.indexOf('hasUnownedPortReservation(id', refreshOwnership);
+  const latestOwnership = source.indexOf('const latestSharedOwnership = latestProcessRuntime.get(id)', verifyPortOwnership);
   const reserveDeletion = source.indexOf('const deletionConflict = this.processOwnership.reserve(id)', refreshOwnership);
   const removeSavedProject = source.indexOf('removeProject(this.projectsFile, id)', reserveDeletion);
   const releaseDeletion = source.indexOf('this.processOwnership.release(id)', removeSavedProject);
 
   assert.ok(refreshOwnership >= 0);
-  assert.ok(refreshOwnership < reserveDeletion);
+  assert.ok(refreshOwnership < verifyPortOwnership);
+  assert.ok(verifyPortOwnership < latestOwnership);
+  assert.ok(latestOwnership < reserveDeletion);
   assert.ok(reserveDeletion < removeSavedProject);
   assert.ok(removeSavedProject < releaseDeletion);
   assert.match(source, /if \(hadTrackedProcess\)[\s\S]*cleanupTrackedProcessForDeletion[\s\S]*this\.processOwnership\.release\(id\)/);
@@ -181,7 +185,8 @@ test('treats a custom stop command as the complete stop strategy', () => {
 test('routes remote custom stops through the launching VS Code window', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const consumeRequests = source.indexOf('this.processOwnership.consumeStopRequests()');
-  const dispatchToOwner = source.indexOf('void this.stopProject(id, project', consumeRequests);
+  const dispatchToOwner = source.indexOf('void Promise.resolve(this.stopProject(id, project', consumeRequests);
+  const completeRequest = source.indexOf('this.processOwnership.completeStopRequest(id)', dispatchToOwner);
   const stopProject = source.indexOf('async stopProject(id, projectSnapshot, options = {})');
   const sharedOwnership = source.indexOf('const sharedOwnership = this.processOwnership.snapshot().get(id)', stopProject);
   const requestRemoteStop = source.indexOf('return this.stopOwnedProjectProcess(id, stopProject, options);', sharedOwnership);
@@ -189,6 +194,7 @@ test('routes remote custom stops through the launching VS Code window', () => {
 
   assert.ok(consumeRequests >= 0);
   assert.ok(consumeRequests < dispatchToOwner);
+  assert.ok(dispatchToOwner < completeRequest);
   assert.ok(stopProject < sharedOwnership);
   assert.ok(sharedOwnership < requestRemoteStop);
   assert.ok(requestRemoteStop < runCustomStop);

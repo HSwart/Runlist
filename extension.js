@@ -15,6 +15,8 @@ const {
   installAgentSkill
 } = require('./skill-installation');
 const {
+  hasUnownedPortReservation,
+  managedRuntimeProjectIds,
   projectStatus,
   reachableServiceUrls,
   runningAppProjectIds,
@@ -62,6 +64,7 @@ const {
   shutdownTrackedProcesses,
   shouldRequestRemoteCustomStop,
   startExitFailed,
+  terminateProcessTree,
   terminateTrackedProcess
 } = require('./project-process');
 const {
@@ -261,6 +264,7 @@ class RunlistViewProvider {
       window: vscode.window,
       workspace: vscode.workspace,
       isProjectActive: (project) => activeStatuses.has(this.getProjectStatus(project.id)),
+      reserveUpdatedProjects: (ids) => this.reserveProjectUpdates(ids),
       onImported: () => this.renderProjectList()
     });
   }
@@ -386,9 +390,15 @@ class RunlistViewProvider {
     this.statusRefreshInFlight = true;
     const revision = this.statusRevision;
     try {
+      await Promise.all([
+        this.portReservations.reconcileProcessIdentities(),
+        this.processOwnership.reconcileProcessIdentities()
+      ]);
       for (const id of this.processOwnership.consumeStopRequests()) {
         const project = this.projects.find((candidate) => candidate.id === id);
-        void this.stopProject(id, project || { id, name: 'this project' });
+        void Promise.resolve(this.stopProject(id, project || { id, name: 'this project' }))
+          .finally(() => this.processOwnership.completeStopRequest(id))
+          .catch(() => {});
       }
       const now = Date.now();
       const projects = this.projects;
@@ -400,9 +410,16 @@ class RunlistViewProvider {
           && ownership.state !== 'stopping')
         .map(([id]) => id));
       for (const [id, request] of [...this.remoteStopRequests]) {
-        if (processRuntime.get(id)?.state !== 'stopping') {
+        const ownership = processRuntime.get(id);
+        if (!ownership) {
           this.remoteStopRequests.delete(id);
           this.stoppingProjectIds.delete(id);
+        } else if (ownership.state !== 'stopping') {
+          this.remoteStopRequests.delete(id);
+          this.stoppingProjectIds.delete(id);
+          vscode.window.showErrorMessage(
+            `Could not confirm that ${request.projectName} stopped: its launching VS Code window left the process ownership unchanged.`
+          );
         } else if (now - request.requestedAt >= REMOTE_STOP_TIMEOUT_MS) {
           this.processOwnership.cancelStopRequest(id);
           this.remoteStopRequests.delete(id);
@@ -412,21 +429,18 @@ class RunlistViewProvider {
           );
         }
       }
-      const sharedRuntime = new Map([
-        ...portRuntime,
-        ...[...processRuntime].map(([id, ownership]) => [id, ownership.state])
-      ]);
+      const managedProjectIds = managedRuntimeProjectIds({
+        localProcessIds: this.processes.keys(),
+        processRuntime,
+        startAttemptIds: this.startAttempts.keys()
+      });
       for (const id of [...this.managedProjectIds]) {
-        if (!sharedRuntime.has(id)) {
+        if (!managedProjectIds.has(id)) {
           this.managedProjectIds.delete(id);
           this.portReservations.release(id);
           this.startReadinessDeadlines.delete(id);
         }
       }
-      const managedProjectIds = new Set([
-        ...this.managedProjectIds,
-        ...sharedRuntime.keys()
-      ]);
       const checks = await Promise.all(projects.map(async (project) => {
         const hasServices = Boolean(project.services?.length);
         const portStatus = hasServices
@@ -443,7 +457,7 @@ class RunlistViewProvider {
             ])
           : [{ allResponding: true, respondingPorts: [], unresponsivePorts: [], webPorts: [] }, []];
         const ownership = processRuntime.get(project.id);
-        const sharedState = sharedRuntime.get(project.id);
+        const sharedState = ownership?.state;
         const readinessDeadline = ownership?.readinessDeadline
           || this.startReadinessDeadlines.get(project.id);
         const allReady = portStatus.allOpen && httpStatus.allResponding;
@@ -1434,7 +1448,18 @@ class RunlistViewProvider {
       return;
     }
 
-    const sharedOwnership = this.processOwnership.snapshot().get(id);
+    const processRuntime = this.processOwnership.snapshot();
+    if (hasUnownedPortReservation(id, {
+      localProcessIds: this.processes.keys(),
+      portRuntime: this.portReservations.snapshot(),
+      processRuntime
+    })) {
+      vscode.window.showErrorMessage(
+        `Could not delete ${project.name}: Runlist cannot verify the process behind its saved port reservation. Nothing was stopped or deleted.`
+      );
+      return;
+    }
+    const sharedOwnership = processRuntime.get(id);
     const detail = this.processes.has(id) || sharedOwnership
       ? 'This removes the saved project from Runlist and stops its running process. Project files are not deleted.'
       : 'This removes the saved project from Runlist. Project files are not deleted.';
@@ -1457,7 +1482,18 @@ class RunlistViewProvider {
     if (!latestProject) {
       return;
     }
-    const latestSharedOwnership = this.processOwnership.snapshot().get(id);
+    const latestProcessRuntime = this.processOwnership.snapshot();
+    if (hasUnownedPortReservation(id, {
+      localProcessIds: this.processes.keys(),
+      portRuntime: this.portReservations.snapshot(),
+      processRuntime: latestProcessRuntime
+    })) {
+      vscode.window.showErrorMessage(
+        `Could not delete ${project.name}: its process ownership changed while deletion was in progress. Nothing was stopped or deleted.`
+      );
+      return;
+    }
+    const latestSharedOwnership = latestProcessRuntime.get(id);
     const hadTrackedProcess = this.processes.has(id);
     try {
       if (hadTrackedProcess) {
@@ -1553,6 +1589,32 @@ class RunlistViewProvider {
   releaseStartReservation(id) {
     this.startAttempts.delete(id);
     this.portReservations.release(id);
+  }
+
+  reserveProjectUpdates(ids) {
+    const reservedIds = [];
+    const release = () => {
+      for (const id of reservedIds) {
+        this.processOwnership.release(id);
+      }
+    };
+
+    for (const id of ids) {
+      if (hasUnownedPortReservation(id, {
+        localProcessIds: this.processes.keys(),
+        portRuntime: this.portReservations.snapshot(),
+        processRuntime: this.processOwnership.snapshot()
+      })) {
+        release();
+        return false;
+      }
+      if (this.processOwnership.reserve(id)) {
+        release();
+        return false;
+      }
+      reservedIds.push(id);
+    }
+    return release;
   }
 
   async startProject(id, options = {}) {
@@ -1825,7 +1887,7 @@ class RunlistViewProvider {
       return true;
     }
 
-    if (this.getProjectStatus(id) === 'stopping') {
+    if (this.stoppingProjectIds.has(id)) {
       return false;
     }
 
@@ -2027,9 +2089,26 @@ class RunlistViewProvider {
         resolve(succeeded);
       };
       const stopTimeout = setTimeout(() => {
-        stopProcess.kill();
-        vscode.window.showErrorMessage(`Could not stop ${project.name}: the custom stop command did not finish.`);
-        finalize(false);
+        if (finalized) {
+          return;
+        }
+        finalized = true;
+        clearTimeout(stopTimeout);
+        void terminateProcessTree(stopProcess.pid)
+          .then(() => {
+            vscode.window.showErrorMessage(
+              `Could not stop ${project.name}: the custom stop command did not finish.`
+            );
+          })
+          .catch((error) => {
+            vscode.window.showErrorMessage(
+              `Could not stop ${project.name}: the custom stop command did not finish, and Runlist could not clean up its process tree: ${error.message}`
+            );
+          })
+          .finally(() => {
+            this.finishStopping(project.id, false);
+            resolve(false);
+          });
       }, CUSTOM_STOP_TIMEOUT_MS);
 
       stopProcess.once('error', (error) => {
@@ -2304,19 +2383,43 @@ class RunlistViewProvider {
     if (this.shutdownPromise) {
       return this.shutdownPromise;
     }
+    this.lifecycle.beginShutdown();
     this.stopResourceSampling();
-    this.runGroupCoordinator.dispose();
-    for (const id of [...this.startAttempts.keys()]) {
-      if (!this.processes.has(id)) {
-        this.processOwnership.release(id);
-        this.releaseStartReservation(id);
+
+    this.shutdownPromise = (async () => {
+      for (const id of [...this.startAttempts.keys()]) {
+        if (!this.processes.has(id)) {
+          this.processOwnership.release(id);
+          this.releaseStartReservation(id);
+        }
       }
-    }
-    this.shutdownPromise = shutdownTrackedProcesses(
-      this.processes,
-      this.processOwnership,
-      this.portReservations
-    );
+
+      await this.lifecycle.waitForIdle();
+      const ownership = this.processOwnership.snapshot();
+      await Promise.allSettled([...this.processes.keys()].map((id) => {
+        const persisted = ownership.get(id);
+        const savedProject = this.projects.find((project) => project.id === id);
+        const project = projectStopStrategy(savedProject || {
+          id,
+          name: 'this project',
+          folder: persisted?.cwd,
+          stopCommand: persisted?.stopCommand || ''
+        }, persisted);
+        if (!project?.stopCommand) {
+          return undefined;
+        }
+        return this.lifecycle.stop(id, { ...project, reviewRequired: false }, {
+          approvedLaunchStop: true
+        });
+      }));
+      await this.lifecycle.waitForIdle();
+      this.runGroupCoordinator.dispose();
+      return shutdownTrackedProcesses(
+        this.processes,
+        this.processOwnership,
+        this.portReservations
+      );
+    })();
     return this.shutdownPromise;
   }
 }

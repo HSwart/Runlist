@@ -27,6 +27,11 @@ async function run() {
     () => !processIsAlive(preReloadPid),
     'Closing the first extension host left its owned process running.'
   );
+  assert.equal(
+    fs.existsSync(path.join(smokeRoot, 'custom-stop.used')),
+    true,
+    'Reload shutdown bypassed the project custom stop command.'
+  );
   await waitFor(
     async () => {
       await api.provider.refreshProjectStatuses();
@@ -59,7 +64,6 @@ async function run() {
     assert.equal(processIsAlive(fixturePid), true, 'The ready fixture exited before Stop was tested.');
     assert.equal(processIsAlive(unrelated.pid), true, 'The unrelated sentinel exited before Stop was tested.');
 
-    fs.rmSync(fixturePidPath, { force: true });
     assert.equal(await api.provider.restartProject(ready.id), true, 'Runlist did not restart its ready fixture.');
     await waitFor(
       async () => {
@@ -74,6 +78,8 @@ async function run() {
     assert.notEqual(restartedPid, fixturePid, 'Restart reused the previous fixture process.');
     assert.equal(processIsAlive(fixturePid), false, 'Restart left the previous fixture process running.');
 
+    api.provider.projectStatuses.set(ready.id, 'stopping');
+    api.provider.stoppingProjectIds.delete(ready.id);
     assert.equal(await api.provider.stopProject(ready.id), true, 'Runlist did not stop its restarted fixture.');
     await waitFor(() => !processIsAlive(restartedPid), 'Stop left a descendant of the owned fixture running.');
     assert.equal(processIsAlive(unrelated.pid), true, 'Lifecycle actions terminated an unrelated process.');

@@ -185,3 +185,26 @@ test('rejects a stale preview without replacing newer project data', (t) => {
     'newer-id'
   ]);
 });
+
+test('rechecks and reserves updated projects immediately before applying an import', (t) => {
+  const fixture = transferFixture(t);
+  const existing = project('existing-id', 'Existing', fixture.folder('existing'));
+  writeProjects(fixture.projectsFile, [existing]);
+  const preview = previewProjectImport(readProjects(fixture.projectsFile), [
+    project('incoming-id', 'Changed', existing.folder)
+  ]);
+  const beforeApply = fs.readFileSync(fixture.projectsFile, 'utf8');
+  const requestedReservations = [];
+
+  assert.throws(
+    () => applyProjectImport(fixture.projectsFile, preview, {
+      reserveUpdatedProjects: (ids) => {
+        requestedReservations.push(ids);
+        return false;
+      }
+    }),
+    (error) => error instanceof ProjectTransferError && error.code === 'ACTIVE_IMPORT'
+  );
+  assert.deepEqual(requestedReservations, [['existing-id']]);
+  assert.equal(fs.readFileSync(fixture.projectsFile, 'utf8'), beforeApply);
+});

@@ -392,12 +392,36 @@ function runningAppProjectIds(projects) {
     .map((project) => project.id);
 }
 
+function managedRuntimeProjectIds({
+  localProcessIds = [],
+  processRuntime = new Map(),
+  startAttemptIds = []
+} = {}) {
+  return new Set([
+    ...localProcessIds,
+    ...processRuntime.keys(),
+    ...startAttemptIds
+  ]);
+}
+
+function hasUnownedPortReservation(projectId, {
+  localProcessIds = [],
+  portRuntime = new Map(),
+  processRuntime = new Map()
+} = {}) {
+  return portRuntime.has(projectId)
+    && !new Set(localProcessIds).has(projectId)
+    && !processRuntime.has(projectId);
+}
+
 module.exports = {
   areServicesRunning,
+  hasUnownedPortReservation,
   httpServiceUrl,
   isPortOpen,
   isPrimaryServiceOpen,
   isPrimaryServiceResponding,
+  managedRuntimeProjectIds,
   primaryServiceUrl,
   probeHttpService,
   projectStatus,

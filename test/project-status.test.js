@@ -7,9 +7,11 @@ const test = require('node:test');
 const {
   areServicesRunning,
   httpServiceUrl,
+  hasUnownedPortReservation,
   isPortOpen,
   isPrimaryServiceOpen,
   isPrimaryServiceResponding,
+  managedRuntimeProjectIds,
   primaryServiceUrl,
   probeHttpService,
   projectStatus,
@@ -23,6 +25,42 @@ const {
   servicePortStatus,
   stoppableProjectIds
 } = require('../project-status');
+
+test('does not treat a port-only reservation as a managed process', () => {
+  assert.deepEqual([...managedRuntimeProjectIds({
+    localProcessIds: [],
+    processRuntime: new Map(),
+    startAttemptIds: [],
+    portRuntime: new Map([['port-only', 'running']])
+  })], []);
+  assert.deepEqual([...managedRuntimeProjectIds({
+    localProcessIds: ['local'],
+    processRuntime: new Map([['remote', { state: 'running' }]]),
+    startAttemptIds: ['starting'],
+    portRuntime: new Map([['port-only', 'running']])
+  })].sort(), ['local', 'remote', 'starting']);
+});
+
+test('flags a port reservation without process ownership as unsafe for deletion', () => {
+  const portRuntime = new Map([['port-only', 'running'], ['owned', 'running']]);
+  const processRuntime = new Map([['owned', { state: 'running' }]]);
+
+  assert.equal(hasUnownedPortReservation('port-only', {
+    localProcessIds: [],
+    portRuntime,
+    processRuntime
+  }), true);
+  assert.equal(hasUnownedPortReservation('owned', {
+    localProcessIds: [],
+    portRuntime,
+    processRuntime
+  }), false);
+  assert.equal(hasUnownedPortReservation('local', {
+    localProcessIds: ['local'],
+    portRuntime: new Map([['local', 'starting']]),
+    processRuntime: new Map()
+  }), false);
+});
 
 async function listen(server, host = '127.0.0.1') {
   await new Promise((resolve) => server.listen(0, host, resolve));

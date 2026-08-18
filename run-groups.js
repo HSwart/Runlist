@@ -3,24 +3,30 @@ const { ProcessOwnershipStore } = require('./project-process');
 class RunGroupCoordinator {
   constructor(directory, options = {}) {
     this.ownership = new ProcessOwnershipStore(directory, options);
-    this.held = new Set();
+    this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 2000;
+    this.held = new Map();
   }
 
   acquire(groupId) {
     const acquired = !this.ownership.reserve(groupId);
     if (acquired) {
-      this.held.add(groupId);
+      const timer = setInterval(() => {
+        this.ownership.setState(groupId, 'running');
+      }, this.heartbeatIntervalMs);
+      timer.unref?.();
+      this.held.set(groupId, timer);
     }
     return acquired;
   }
 
   release(groupId) {
+    clearInterval(this.held.get(groupId));
     this.held.delete(groupId);
     return this.ownership.release(groupId);
   }
 
   dispose() {
-    for (const groupId of [...this.held]) {
+    for (const groupId of [...this.held.keys()]) {
       this.release(groupId);
     }
   }

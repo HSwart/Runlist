@@ -97,6 +97,8 @@ test('previews and applies confirmed imports while keeping changes blocked for r
   let previewDetail = '';
   let importedNotifications = 0;
   let rendered = 0;
+  let releasedReservations = 0;
+  const reservedUpdates = [];
 
   const result = await runProjectTransferWorkflow({
     projectsFile: fixture.projectsFile,
@@ -119,6 +121,10 @@ test('previews and applies confirmed imports while keeping changes blocked for r
         }
       }
     },
+    reserveUpdatedProjects: (ids) => {
+      reservedUpdates.push(ids);
+      return () => { releasedReservations += 1; };
+    },
     onImported: () => { rendered += 1; }
   });
 
@@ -128,6 +134,8 @@ test('previews and applies confirmed imports while keeping changes blocked for r
   assert.match(previewDetail, /Invalid \(1\)/);
   assert.equal(importedNotifications, 1);
   assert.equal(rendered, 1);
+  assert.deepEqual(reservedUpdates, [['current-id']]);
+  assert.equal(releasedReservations, 1);
   assert.deepEqual(readProjects(fixture.projectsFile).map((item) => ({
     id: item.id,
     name: item.name,

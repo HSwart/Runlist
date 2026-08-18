@@ -154,6 +154,56 @@ test('keeps a reservation after the extension host crashes while its child is al
   assert.equal(observer.reserve(projects[1]), undefined);
 });
 
+test('does not let a delayed child identity overwrite a newer port reservation generation', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-port-generation-'));
+  const reservations = new PortReservationStore(directory, {
+    pid: 101,
+    isProcessAlive: () => true
+  });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  assert.equal(reservations.reserve(projects[0]), undefined);
+  const firstGeneration = reservations.capture('alpha');
+  assert.equal(reservations.setProcess('alpha', 303, undefined, firstGeneration), 1);
+  reservations.release('alpha');
+
+  assert.equal(reservations.reserve(projects[0]), undefined);
+  const secondGeneration = reservations.capture('alpha');
+  assert.equal(reservations.setProcess('alpha', 404, undefined, secondGeneration), 1);
+  assert.equal(reservations.setProcess('alpha', 303, '303:old', firstGeneration), 0);
+
+  const lock = JSON.parse(fs.readFileSync(path.join(directory, 'port-3000.lock'), 'utf8'));
+  assert.equal(lock.childPid, 404);
+  assert.equal(lock.childIdentity, undefined);
+});
+
+test('removes an unavailable host reservation when its child PID identity was reused', async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-port-child-identity-'));
+  let now = 1000;
+  const owner = new PortReservationStore(directory, {
+    pid: 101,
+    now: () => now,
+    ownerHeartbeatTimeoutMs: 5000,
+    isProcessAlive: (pid) => [101, 303].includes(pid),
+    readProcessIdentity: async () => '303:original'
+  });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  owner.reserve(projects[0]);
+  owner.setProcess('alpha', 303, '303:original', owner.capture('alpha'));
+  now = 7001;
+  const observer = new PortReservationStore(directory, {
+    pid: 202,
+    now: () => now,
+    ownerHeartbeatTimeoutMs: 5000,
+    isProcessAlive: (pid) => pid === 303,
+    readProcessIdentity: async () => '303:replacement'
+  });
+
+  assert.equal(await observer.reconcileProcessIdentities(), 1);
+  assert.equal(observer.snapshot().has('alpha'), false);
+});
+
 test('expires a reservation after a reused host PID stops heartbeating', (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-port-heartbeat-'));
   let now = 1000;

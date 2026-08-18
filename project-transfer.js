@@ -150,16 +150,35 @@ function previewProjectImport(currentProjects, importedProjects, options = {}) {
   };
 }
 
-function applyProjectImport(filePath, preview) {
-  const currentProjects = readProjects(filePath);
-  if (projectListFingerprint(currentProjects) !== preview.fingerprint) {
+function applyProjectImport(filePath, preview, options = {}) {
+  const updatedProjectIds = preview.entries
+    .filter((entry) => entry.status === 'update')
+    .map((entry) => entry.project.id);
+  const reservation = updatedProjectIds.length && options.reserveUpdatedProjects
+    ? options.reserveUpdatedProjects(updatedProjectIds)
+    : undefined;
+  if (reservation === false) {
     throw transferError(
-      'STALE_IMPORT',
-      'Runlist projects changed after the import preview. Review the file again.'
+      'ACTIVE_IMPORT',
+      'A project changed state after the import preview. Stop it and review the file again.'
     );
   }
-  writeProjects(filePath, preview.nextProjects);
-  return preview.nextProjects;
+
+  try {
+    const currentProjects = readProjects(filePath);
+    if (projectListFingerprint(currentProjects) !== preview.fingerprint) {
+      throw transferError(
+        'STALE_IMPORT',
+        'Runlist projects changed after the import preview. Review the file again.'
+      );
+    }
+    writeProjects(filePath, preview.nextProjects);
+    return preview.nextProjects;
+  } finally {
+    if (typeof reservation === 'function') {
+      reservation();
+    }
+  }
 }
 
 async function runProjectTransferWorkflow(options) {
@@ -167,6 +186,7 @@ async function runProjectTransferWorkflow(options) {
     isProjectActive,
     onImported,
     projectsFile,
+    reserveUpdatedProjects,
     window,
     workspace
   } = options;
@@ -199,6 +219,7 @@ async function runProjectTransferWorkflow(options) {
         isProjectActive,
         onImported,
         projectsFile,
+        reserveUpdatedProjects,
         window,
         workspace
       });
@@ -300,7 +321,9 @@ async function importProjects(options) {
     return { status: 'cancelled', preview };
   }
 
-  const projects = applyProjectImport(options.projectsFile, preview);
+  const projects = applyProjectImport(options.projectsFile, preview, {
+    reserveUpdatedProjects: options.reserveUpdatedProjects
+  });
   await options.onImported?.(projects);
   await options.window.showInformationMessage(
     `Imported ${label}. Review each changed setup before running its commands.`

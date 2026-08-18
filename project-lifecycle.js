@@ -25,17 +25,46 @@ class ProjectLifecycleCoordinator {
     this.statusPollIntervalMs = options.statusPollIntervalMs ?? 2000;
     this.remoteStopTimeoutMs = options.remoteStopTimeoutMs ?? 38000;
     this.servicePortStatus = options.servicePortStatus;
+    this.operations = new Set();
+    this.shuttingDown = false;
   }
 
   start(id, options = {}) {
-    return this.host.startProjectProcess(id, options);
+    if (this.shuttingDown) {
+      return Promise.resolve(false);
+    }
+    return this.track(this.host.startProjectProcess(id, options));
   }
 
   stop(id, projectSnapshot, options = {}) {
-    return this.host.stopProjectProcess(id, projectSnapshot, options);
+    return this.track(this.host.stopProjectProcess(id, projectSnapshot, options));
   }
 
-  async startGroup(id) {
+  beginShutdown() {
+    this.shuttingDown = true;
+  }
+
+  async waitForIdle() {
+    while (this.operations.size) {
+      await Promise.allSettled([...this.operations]);
+    }
+  }
+
+  track(operation) {
+    const promise = Promise.resolve(operation);
+    this.operations.add(promise);
+    void promise.finally(() => this.operations.delete(promise)).catch(() => undefined);
+    return promise;
+  }
+
+  startGroup(id) {
+    if (this.shuttingDown) {
+      return Promise.resolve(false);
+    }
+    return this.track(this.startGroupOperation(id));
+  }
+
+  async startGroupOperation(id) {
     const group = this.host.groups.find((candidate) => candidate.id === id);
     if (!group) {
       return false;
@@ -70,7 +99,11 @@ class ProjectLifecycleCoordinator {
     return result.status === 'started';
   }
 
-  async stopGroup(id) {
+  stopGroup(id) {
+    return this.track(this.stopGroupOperation(id));
+  }
+
+  async stopGroupOperation(id) {
     const group = this.host.groups.find((candidate) => candidate.id === id);
     if (!group) {
       return false;
@@ -159,7 +192,14 @@ class ProjectLifecycleCoordinator {
     }
   }
 
-  async handoff(id) {
+  handoff(id) {
+    if (this.shuttingDown) {
+      return Promise.resolve(false);
+    }
+    return this.track(this.handoffOperation(id));
+  }
+
+  async handoffOperation(id) {
     const requestedProject = this.host.projects.find((project) => project.id === id);
     if (!requestedProject || requestedProject.reviewRequired) {
       return false;
@@ -246,6 +286,9 @@ class ProjectLifecycleCoordinator {
   }
 
   restart(id) {
+    if (this.shuttingDown) {
+      return Promise.resolve(false);
+    }
     const project = this.host.projects.find((candidate) => candidate.id === id);
     if (!project) {
       return false;
@@ -254,7 +297,7 @@ class ProjectLifecycleCoordinator {
       project,
       this.host.processOwnership.snapshot().get(id)
     );
-    return restartProjectSafely(this.host.restartingProjectIds, id, {
+    return this.track(restartProjectSafely(this.host.restartingProjectIds, id, {
       canRestart: () => {
         const status = this.host.getProjectStatus(id);
         const sharedState = this.host.processOwnership.snapshot().get(id)?.state
@@ -267,7 +310,7 @@ class ProjectLifecycleCoordinator {
       stop: () => this.host.stopProject(id, runtimeProject),
       waitForStop: () => this.host.waitForProjectStopCompletion(id),
       start: () => this.host.startProject(id)
-    });
+    }));
   }
 
   stopAll() {

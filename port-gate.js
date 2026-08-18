@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { readRootProcess } = require('./process-metrics');
 
 const OWNER_HEARTBEAT_TIMEOUT_MS = 10000;
 const INVALID_RECORD_GRACE_MS = 2000;
@@ -39,7 +40,9 @@ class PortReservationStore {
   constructor(directory, options = {}) {
     this.directory = directory;
     this.pid = options.pid || process.pid;
+    this.platform = options.platform || process.platform;
     this.isProcessAlive = options.isProcessAlive || processIsAlive;
+    this.readProcessIdentity = options.readProcessIdentity || readProcessIdentity;
     this.now = options.now || Date.now;
     this.ownerHeartbeatTimeoutMs = options.ownerHeartbeatTimeoutMs ?? OWNER_HEARTBEAT_TIMEOUT_MS;
     this.invalidRecordGraceMs = options.invalidRecordGraceMs ?? INVALID_RECORD_GRACE_MS;
@@ -118,12 +121,22 @@ class PortReservationStore {
     }
   }
 
-  setProcess(projectId, childPid, childIdentity) {
+  capture(projectId) {
+    return new Map([...this.locks]
+      .filter(([, lock]) => lock.projectId === projectId)
+      .map(([port, lock]) => [port, lock.token]));
+  }
+
+  setProcess(projectId, childPid, childIdentity, expectedGeneration) {
     let updated = 0;
     for (const filename of this.lockFiles()) {
       const lockPath = path.join(this.directory, filename);
       const lock = readLock(lockPath);
-      if (lock?.projectId === projectId) {
+      const port = Number(filename.match(/\d+/)?.[0]);
+      const expectedToken = expectedGeneration instanceof Map
+        ? expectedGeneration.get(port)
+        : this.locks.get(port)?.token;
+      if (lock?.projectId === projectId && expectedToken && lock.token === expectedToken) {
         writeJsonAtomically(lockPath, {
           ...lock,
           heartbeatAt: this.now(),
@@ -134,6 +147,39 @@ class PortReservationStore {
       }
     }
     return updated;
+  }
+
+  async reconcileProcessIdentities() {
+    const candidates = this.lockFiles().map((filename) => {
+      const lockPath = path.join(this.directory, filename);
+      return { lockPath, lock: readLock(lockPath) };
+    }).filter(({ lock }) => lock
+      && typeof lock.childIdentity === 'string'
+      && Number.isInteger(lock.childPid)
+      && !this.hostOwnerIsAvailable(lock)
+      && this.isProcessAlive(lock.childPid));
+    const identities = new Map();
+    let removed = 0;
+    for (const { lockPath, lock } of candidates) {
+      let identity = identities.get(lock.childPid);
+      if (!identities.has(lock.childPid)) {
+        identity = await Promise.resolve(this.readProcessIdentity(lock.childPid, this.platform))
+          .catch(() => undefined);
+        identities.set(lock.childPid, identity);
+      }
+      if (!identity || identity === lock.childIdentity) {
+        continue;
+      }
+      const current = readLock(lockPath);
+      if (current?.token === lock.token
+        && current.childPid === lock.childPid
+        && current.childIdentity === lock.childIdentity
+        && !this.hostOwnerIsAvailable(current)) {
+        tryUnlink(lockPath);
+        removed += 1;
+      }
+    }
+    return removed;
   }
 
   snapshot() {
@@ -235,10 +281,14 @@ class PortReservationStore {
   }
 
   lockOwnerIsAlive(lock) {
+    return Boolean(this.hostOwnerIsAvailable(lock)
+      || (lock.childPid && this.isProcessAlive(lock.childPid)));
+  }
+
+  hostOwnerIsAvailable(lock) {
     const heartbeatCurrent = !Number.isFinite(lock.heartbeatAt)
       || this.now() - lock.heartbeatAt <= this.ownerHeartbeatTimeoutMs;
-    return Boolean((lock.pid && heartbeatCurrent && this.isProcessAlive(lock.pid))
-      || (lock.childPid && this.isProcessAlive(lock.childPid)));
+    return Boolean(lock.pid && heartbeatCurrent && this.isProcessAlive(lock.pid));
   }
 
   lockFiles() {
@@ -289,6 +339,10 @@ function processIsAlive(pid) {
   } catch (error) {
     return error.code === 'EPERM';
   }
+}
+
+async function readProcessIdentity(pid, platform) {
+  return (await readRootProcess(pid, platform))?.identity;
 }
 
 function releaseProjectPorts(reservations, projectId) {

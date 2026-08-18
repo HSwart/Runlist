@@ -226,14 +226,17 @@ test('launches POSIX commands in an owned process group and keeps Windows launch
 
 test('runs explicit custom stop commands through the platform shell', () => {
   assert.deepEqual(customStopSpawnOptions('linux'), {
+    detached: true,
     shell: true,
     stdio: ['ignore', 'ignore', 'pipe']
   });
   assert.deepEqual(customStopSpawnOptions('darwin'), {
+    detached: true,
     shell: true,
     stdio: ['ignore', 'ignore', 'pipe']
   });
   assert.deepEqual(customStopSpawnOptions('win32'), {
+    detached: false,
     shell: true,
     stdio: ['ignore', 'ignore', 'pipe'],
     windowsHide: true
@@ -518,6 +521,9 @@ test('coordinates owned process stopping across VS Code hosts without sharing ki
   assert.deepEqual(otherWindow.requestStop('project-1'), { kind: 'requested' });
   assert.deepEqual(owner.consumeStopRequests(), ['project-1']);
   assert.deepEqual(owner.consumeStopRequests(), []);
+  assert.equal(otherWindow.snapshot().get('project-1').state, 'stopping');
+  assert.equal(owner.completeStopRequest('project-1'), true);
+  assert.equal(otherWindow.snapshot().get('project-1').state, 'running');
   assert.equal(owner.release('project-1'), true);
   assert.equal(otherWindow.snapshot().has('project-1'), false);
 });
@@ -589,6 +595,37 @@ test('persists process identity and refuses recovered termination after PID reus
     owner.terminateOwnedProcess('project-1'),
     /process identity changed/i
   );
+});
+
+test('removes unavailable ownership when the persisted child PID identity was reused', async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-process-reconcile-'));
+  let now = 1000;
+  const owner = new ProcessOwnershipStore(directory, {
+    pid: 101,
+    now: () => now,
+    ownerHeartbeatTimeoutMs: 5000,
+    isProcessAlive: (pid) => [101, 303].includes(pid),
+    readProcessIdentity: async () => '303:original'
+  });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  owner.reserve('project-1');
+  owner.setProcess('project-1', 303, {
+    childIdentity: '303:original',
+    identityRequired: true
+  });
+  now = 7001;
+  const observer = new ProcessOwnershipStore(directory, {
+    pid: 202,
+    now: () => now,
+    ownerHeartbeatTimeoutMs: 5000,
+    isProcessAlive: (pid) => pid === 303,
+    readProcessIdentity: async () => '303:replacement'
+  });
+
+  assert.equal(await observer.reconcileProcessIdentities(), 1);
+  assert.equal(observer.snapshot().has('project-1'), false);
+  assert.equal(observer.reserve('project-1'), undefined);
 });
 
 test('recovers an exact owned process tree from persisted ownership details', async (t) => {

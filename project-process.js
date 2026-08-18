@@ -15,9 +15,9 @@ function projectProcessSpawnOptions(platform = process.platform) {
 
 function customStopSpawnOptions(platform = process.platform) {
   return {
+    ...projectProcessSpawnOptions(platform),
     shell: true,
-    stdio: ['ignore', 'ignore', 'pipe'],
-    ...(platform === 'win32' ? { windowsHide: true } : {})
+    stdio: ['ignore', 'ignore', 'pipe']
   };
 }
 
@@ -144,6 +144,7 @@ function projectStopStrategy(project, ownership) {
 function recordStartedProcess(processOwnership, portReservations, project, child, details = {}) {
   const identity = processOwnership.trackProcessIdentity(project.id, child.pid);
   child.runlistIdentity = identity;
+  const portGeneration = portReservations.capture(project.id);
   const recorded = processOwnership.setProcess(project.id, child.pid, {
     ...details,
     cwd: project.folder,
@@ -154,7 +155,7 @@ function recordStartedProcess(processOwnership, portReservations, project, child
     throw new Error('Runlist lost process ownership while recording the launched process.');
   }
 
-  const recordedPorts = portReservations.setProcess(project.id, child.pid);
+  const recordedPorts = portReservations.setProcess(project.id, child.pid, undefined, portGeneration);
   const expectedPorts = new Set((project.services || [])
     .map((service) => service.port)
     .filter((port) => Number.isInteger(port))).size;
@@ -163,7 +164,7 @@ function recordStartedProcess(processOwnership, portReservations, project, child
   }
   void identity.then((value) => {
     if (value) {
-      portReservations.setProcess(project.id, child.pid, value);
+      portReservations.setProcess(project.id, child.pid, value, portGeneration);
     }
   }).catch(() => undefined);
   return identity;
@@ -288,6 +289,7 @@ class ProcessOwnershipStore {
     this.invalidRecordGraceMs = options.invalidRecordGraceMs ?? INVALID_RECORD_GRACE_MS;
     this.owned = new Map();
     this.pendingProcessIdentities = new Map();
+    this.consumedStopRequests = new Map();
     fs.mkdirSync(directory, { recursive: true });
   }
 
@@ -397,7 +399,7 @@ class ProcessOwnershipStore {
   }
 
   setState(projectId, state, details = {}) {
-    this.updateOwned(projectId, (ownership) => ({
+    return this.updateOwned(projectId, (ownership) => ({
       ...ownership,
       ...(Number.isFinite(details.readyAt)
         ? { readyAt: details.readyAt }
@@ -477,7 +479,42 @@ class ProcessOwnershipStore {
     }
     this.owned.delete(projectId);
     this.pendingProcessIdentities.delete(projectId);
+    this.consumedStopRequests.delete(projectId);
     return true;
+  }
+
+  async reconcileProcessIdentities() {
+    const candidates = fs.readdirSync(this.directory)
+      .filter((name) => name.endsWith('.json'))
+      .map((filename) => {
+        const ownershipPath = path.join(this.directory, filename);
+        return { ownershipPath, ownership: readJson(ownershipPath) };
+      })
+      .filter(({ ownership }) => validOwnership(ownership)
+        && typeof ownership.childIdentity === 'string'
+        && Number.isInteger(ownership.childPid)
+        && !this.ownerIsAvailable(ownership)
+        && this.isProcessAlive(ownership.childPid));
+    let removed = 0;
+    for (const { ownershipPath, ownership } of candidates) {
+      const identity = await Promise.resolve(this.readProcessIdentity(
+        ownership.childPid,
+        this.platform
+      )).catch(() => undefined);
+      if (!identity || identity === ownership.childIdentity) {
+        continue;
+      }
+      const current = readJson(ownershipPath);
+      if (current?.token === ownership.token
+        && current.childPid === ownership.childPid
+        && current.childIdentity === ownership.childIdentity
+        && !this.ownerIsAvailable(current)) {
+        tryUnlink(ownershipPath);
+        tryUnlink(this.stopRequestPath(ownership.projectId));
+        removed += 1;
+      }
+    }
+    return removed;
   }
 
   snapshot() {
@@ -572,13 +609,32 @@ class ProcessOwnershipStore {
       const requestPath = this.stopRequestPath(projectId);
       const request = readJson(requestPath);
       if (request?.token === owned.token) {
-        projectIds.push(projectId);
+        const requestKey = `${request.token}:${request.requesterPid}:${request.requestedAt}`;
+        if (this.consumedStopRequests.get(projectId) !== requestKey) {
+          this.consumedStopRequests.set(projectId, requestKey);
+          projectIds.push(projectId);
+        }
+      } else {
+        this.consumedStopRequests.delete(projectId);
       }
-      if (request) {
+      if (request && request.token !== owned.token) {
         tryUnlink(requestPath);
       }
     }
     return projectIds;
+  }
+
+  completeStopRequest(projectId) {
+    const owned = this.owned.get(projectId);
+    const requestPath = this.stopRequestPath(projectId);
+    const request = readJson(requestPath);
+    if (!owned || request?.token !== owned.token) {
+      this.consumedStopRequests.delete(projectId);
+      return false;
+    }
+    tryUnlink(requestPath);
+    this.consumedStopRequests.delete(projectId);
+    return true;
   }
 
   updateOwned(projectId, update) {
