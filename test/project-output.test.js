@@ -327,7 +327,7 @@ test('renders an escaped accessible failure summary with a supported Latest icon
   assert.doesNotMatch(webview, /icon\('arrow-down'/);
   assert.match(webview, /outputFailureSummaryHtml[\s\S]*escapeHtml\(summary\.message\)/);
   assert.match(webview, /class="output-failure-summary" role="status" aria-live="polite"/);
-  assert.match(webview, /failure\.innerHTML = outputFailureSummaryHtml\(event\.data\.failureSummary\)/);
+  assert.match(webview, /failure\.innerHTML = outputFailureSummaryHtml\(message\.failureSummary\)/);
   assert.match(webview, /failureSummary[\s\S]*No command output was captured\./);
   assert.match(styles, /\.output-failure-summary \{[\s\S]*--vscode-inputValidation-errorBackground/);
 });

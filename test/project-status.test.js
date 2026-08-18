@@ -395,6 +395,23 @@ test('represents clean exits and no-service projects with process state', () => 
   assert.equal(projectStatus({ hasServices: false, managed: false, processActive: false }), 'stopped');
 });
 
+test('distinguishes a live process whose launching host is unavailable', () => {
+  assert.equal(projectStatus({
+    allOpen: true,
+    anyOpen: true,
+    hasServices: true,
+    managed: true,
+    ownerAvailable: false,
+    processActive: true
+  }), 'ownership-lost');
+  assert.equal(projectStatus({
+    hasServices: false,
+    managed: true,
+    ownerAvailable: false,
+    processActive: true
+  }), 'ownership-lost');
+});
+
 test('uses a safe primary service URL override or derives localhost from its port', () => {
   assert.equal(primaryServiceUrl([{
     name: 'web',
@@ -438,7 +455,7 @@ test('shows a clear nonresponding state without changing stop safety', () => {
   assert.match(webview, /project\.httpUnresponsive \? 'Detected, web service not responding' : 'Detected running'/);
   assert.match(webview, /const statusClass = projectStatus === 'active' && project\.httpUnresponsive[\s\S]*\? 'not-responding'[\s\S]*: displayStatus/);
   assert.match(webview, /project-status status-\$\{statusClass\}/);
-  assert.match(webview, /\['running', 'starting', 'not-ready', 'not-responding', 'active'\]\.includes\(projectStatus\)/);
+  assert.match(webview, /\['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active'\]\.includes\(projectStatus\)/);
   assert.match(webview, /aria-label="\$\{escapeHtml\(service\.name\)\} on port/);
   assert.match(styles, /\.service-indicator\.not-responding/);
 });
@@ -476,7 +493,9 @@ test('selects only projects that can be stopped together', () => {
     { id: 'stopping', status: 'stopping' },
     { id: 'stopped', status: 'stopped' },
     { id: 'conflict', status: 'port-in-use' },
-    { id: 'unknown-owner', status: 'port-in-use-unknown' }
+    { id: 'unknown-owner', status: 'port-in-use-unknown' },
+    { id: 'ownership-lost', status: 'ownership-lost' },
+    { id: 'ownership-lost-custom', status: 'ownership-lost', stopCommand: 'docker compose down' }
   ];
 
   assert.deepEqual(stoppableProjectIds(projects), [
@@ -484,7 +503,8 @@ test('selects only projects that can be stopped together', () => {
     'starting',
     'not-ready',
     'not-responding',
-    'detected-with-custom-stop'
+    'detected-with-custom-stop',
+    'ownership-lost-custom'
   ]);
   assert.deepEqual(stoppableProjectIds(), []);
 });

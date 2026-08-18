@@ -7,6 +7,12 @@ const { spawn } = require('node:child_process');
 const test = require('node:test');
 const { MAX_DIAGNOSTIC_OUTPUT_CHARS, writeProjectDiagnostics } = require('../project-diagnostics');
 const { ProcessOwnershipStore } = require('../project-process');
+const {
+  clearProjectRepairProposal,
+  projectConfigurationRevision,
+  readProjectRepairProposal
+} = require('../project-repair');
+const { readProjects, upsertProject } = require('../project-store');
 
 test('serves the setup tool over MCP stdio', async (t) => {
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-mcp-'));
@@ -39,6 +45,10 @@ test('serves the setup tool over MCP stdio', async (t) => {
   fs.copyFileSync(
     path.join(__dirname, '..', 'project-diagnostics.js'),
     path.join(installedRoot, 'project-diagnostics.js')
+  );
+  fs.copyFileSync(
+    path.join(__dirname, '..', 'project-repair.js'),
+    path.join(installedRoot, 'project-repair.js')
   );
   fs.copyFileSync(
     path.join(__dirname, '..', 'package.json'),
@@ -84,7 +94,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.match(initialized.result.instructions, /custom project name/i);
 
   const listed = await request('tools/list');
-  assert.equal(listed.result.tools.length, 2);
+  assert.equal(listed.result.tools.length, 3);
   assert.equal(listed.result.tools[0].name, 'runlist_setup_project');
   assert.match(listed.result.tools[0].description, /custom name/i);
   assert.match(listed.result.tools[0].description, /reviews and approves/i);
@@ -98,6 +108,13 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.equal(listed.result.tools[1].annotations.readOnlyHint, true);
   assert.equal(listed.result.tools[1].annotations.openWorldHint, false);
   assert.deepEqual(listed.result.tools[1].inputSchema.required, ['projectId']);
+  assert.equal(listed.result.tools[2].name, 'runlist_propose_project_repair');
+  assert.equal(listed.result.tools[2].annotations.readOnlyHint, false);
+  assert.equal(listed.result.tools[2].annotations.openWorldHint, false);
+  assert.deepEqual(
+    listed.result.tools[2].inputSchema.required,
+    ['projectId', 'projectRevision', 'failedAt', 'proposal']
+  );
 
   const called = await request('tools/call', {
     name: 'runlist_setup_project',
@@ -121,7 +138,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
     { name: 'web', port: 3000, url: 'https://app.local/dashboard' },
     { name: 'api', port: 4000 }
   ]);
-  const storedProjects = JSON.parse(fs.readFileSync(projectsFile, 'utf8'));
+  let storedProjects = readProjects(projectsFile);
   assert.equal(storedProjects.length, 1);
   assert.equal(storedProjects[0].reviewRequired, true);
 
@@ -132,8 +149,8 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.equal(reviewBlockedDiagnostics.result.isError, true);
   assert.match(reviewBlockedDiagnostics.result.content[0].text, /Review and approve/i);
 
-  storedProjects[0].reviewRequired = false;
-  fs.writeFileSync(projectsFile, `${JSON.stringify(storedProjects, null, 2)}\n`);
+  upsertProject(projectsFile, storedProjects[0], { reviewRequired: false });
+  storedProjects = readProjects(projectsFile);
 
   const missingDiagnostics = await request('tools/call', {
     name: 'runlist_get_project_diagnostics',
@@ -149,8 +166,12 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.equal(unknownDiagnostics.result.isError, true);
   assert.match(unknownDiagnostics.result.content[0].text, /was not found/i);
 
-  storedProjects[0].startCommand = 'API_KEY=command-secret npm run dev';
-  fs.writeFileSync(projectsFile, `${JSON.stringify(storedProjects, null, 2)}\n`);
+  upsertProject(projectsFile, {
+    ...storedProjects[0],
+    startCommand: 'API_KEY=command-secret npm run dev'
+  }, { reviewRequired: false });
+  storedProjects = readProjects(projectsFile);
+  const diagnosticRevision = projectConfigurationRevision(storedProjects[0]);
   writeProjectDiagnostics(projectsFile, storedProjects[0].id, {
     platform: 'win32',
     lifecycleState: 'stopped',
@@ -161,7 +182,8 @@ test('serves the setup tool over MCP stdio', async (t) => {
       outcome: 'Exited with code 1'
     },
     output: `\u001b[31mAPI_KEY=output-secret\u001b[0m\n${'x'.repeat(MAX_DIAGNOSTIC_OUTPUT_CHARS + 100)}`,
-    failedAt: 1234
+    failedAt: 1234,
+    projectRevision: diagnosticRevision
   });
   const diagnostics = await request('tools/call', {
     name: 'runlist_get_project_diagnostics',
@@ -173,17 +195,52 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.equal(diagnostics.result.structuredContent.observedLifecycleState, 'stopped');
   assert.equal(diagnostics.result.structuredContent.exitCode, 1);
   assert.equal(diagnostics.result.structuredContent.signal, null);
+  assert.equal(diagnostics.result.structuredContent.projectRevision, diagnosticRevision);
   assert.equal(diagnostics.result.structuredContent.outputTruncated, true);
   assert.ok(diagnostics.result.structuredContent.retainedOutput.length <= MAX_DIAGNOSTIC_OUTPUT_CHARS);
   assert.doesNotMatch(JSON.stringify(diagnostics.result), /command-secret|output-secret|summary-secret|\u001b/);
   assert.match(diagnostics.result.structuredContent.project.startCommand, /\[redacted\]/);
   assert.match(diagnostics.result.structuredContent.failureSummary.message, /\[redacted\]/);
 
+  const beforeProposal = fs.readFileSync(projectsFile, 'utf8');
+  const proposed = await request('tools/call', {
+    name: 'runlist_propose_project_repair',
+    arguments: {
+      projectId: storedProjects[0].id,
+      projectRevision: diagnosticRevision,
+      failedAt: 1234,
+      proposal: { startCommand: 'npm run dev -- --host' }
+    }
+  });
+  assert.equal(proposed.result.isError, false);
+  assert.equal(proposed.result.structuredContent.projectId, storedProjects[0].id);
+  assert.equal(proposed.result.structuredContent.projectRevision, diagnosticRevision);
+  assert.match(proposed.result.content[0].text, /review.*Runlist/i);
+  assert.equal(fs.readFileSync(projectsFile, 'utf8'), beforeProposal);
+  assert.equal(
+    readProjectRepairProposal(projectsFile, storedProjects[0].id).proposedProject.startCommand,
+    'npm run dev -- --host'
+  );
+  clearProjectRepairProposal(projectsFile, storedProjects[0].id);
+
+  const malformedProposal = await request('tools/call', {
+    name: 'runlist_propose_project_repair',
+    arguments: {
+      projectId: storedProjects[0].id,
+      projectRevision: diagnosticRevision,
+      failedAt: 1234,
+      proposal: { unsupported: true }
+    }
+  });
+  assert.equal(malformedProposal.result.isError, true);
+  assert.match(malformedProposal.result.content[0].text, /unsupported proposal field/i);
+
   writeProjectDiagnostics(projectsFile, storedProjects[0].id, {
     lifecycleState: 'stopped',
     signal: 'SIGTERM',
     summary: { message: 'spawn failed' },
-    output: ''
+    output: '',
+    projectRevision: diagnosticRevision
   });
   const noOutputDiagnostics = await request('tools/call', {
     name: 'runlist_get_project_diagnostics',

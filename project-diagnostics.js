@@ -57,6 +57,9 @@ function writeProjectDiagnostics(projectsFile, projectId, details = {}) {
   const summary = details.summary || {};
   const record = {
     projectId: String(projectId),
+    ...(typeof details.projectRevision === 'string' && /^[a-f0-9]{64}$/.test(details.projectRevision)
+      ? { projectRevision: details.projectRevision }
+      : {}),
     platform: String(details.platform || process.platform).slice(0, 32),
     lifecycleState: String(details.lifecycleState || 'stopped').slice(0, 64),
     exitCode: Number.isInteger(details.exitCode) ? details.exitCode : null,

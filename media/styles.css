@@ -74,6 +74,76 @@ button:active:not(:disabled) {
   white-space: nowrap;
 }
 
+.run-groups {
+  min-width: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-widget-border));
+}
+
+.run-groups h2 {
+  margin: 0 0 6px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.run-group-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.run-group-details {
+  min-width: 0;
+  display: grid;
+  flex: 1;
+  gap: 2px;
+}
+
+.run-group-details strong,
+.run-group-details span,
+.run-group-details small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.run-group-details span,
+.run-group-details small {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+
+.run-group-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.run-group-actions button {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 5px;
+  color: var(--vscode-icon-foreground);
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+}
+
+.run-group-actions button:hover:not(:disabled) {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.run-group-actions button:disabled {
+  cursor: default;
+  color: var(--vscode-disabledForeground);
+}
+
 .bulk-actions {
   display: flex;
   justify-content: flex-end;
@@ -457,6 +527,7 @@ button:active:not(:disabled) {
 
 .project-status.status-port-in-use,
 .project-status.status-port-in-use-unknown,
+.project-status.status-ownership-lost,
 .project-status.status-not-ready,
 .project-status.status-not-responding,
 .project-status.status-review-required {
@@ -1895,6 +1966,79 @@ input[aria-invalid='true'] {
 
 .diagnosis-review-note {
   margin: 12px 0 0;
+}
+
+.repair-refresh-button {
+  margin-top: 8px;
+}
+
+.repair-proposal {
+  margin-top: 14px;
+}
+
+.repair-stale {
+  padding: 8px;
+  color: var(--vscode-inputValidation-errorForeground, var(--vscode-foreground));
+  background: var(--vscode-inputValidation-errorBackground, var(--vscode-textBlockQuote-background));
+  border-left: 2px solid var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.repair-comparison {
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 3px;
+}
+
+.repair-comparison-heading,
+.repair-comparison-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(52px, 0.7fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px;
+  padding: 7px;
+  border-bottom: 1px solid var(--vscode-widget-border);
+  font-size: 10px;
+}
+
+.repair-comparison-row:last-child {
+  border-bottom: 0;
+}
+
+.repair-comparison-heading {
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-sideBarSectionHeader-background, transparent);
+}
+
+.repair-comparison-row > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.repair-change {
+  grid-column: 1 / -1;
+  width: fit-content;
+  padding: 1px 4px;
+  color: var(--vscode-descriptionForeground);
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 2px;
+  text-transform: capitalize;
+}
+
+.repair-change.added {
+  color: var(--vscode-testing-iconPassed, #4caf78);
+}
+
+.repair-change.removed,
+.repair-change.changed {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.repair-actions {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
 }
 
 .output-panel-wrap {

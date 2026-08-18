@@ -30,6 +30,8 @@ Runlist keeps a reusable list of local projects from different repositories insi
 - Expand a starting or running project to follow its startup timeline and the latest three useful output lines, then open the complete Recent Output screen when you need more detail.
 - View readable recent output from the latest run, including a concise failure summary when startup exits, follow new lines, and open web links without leaving the sidebar.
 - After a failed start, prepare a bounded, sanitized diagnosis request for a connected coding agent without sending anything automatically.
+- Export one or all project setups, or import a file after a preview; imported changes stay blocked until you review and approve them.
+- Save run groups to start each member in its saved order; if one fails, Runlist rolls back only the projects that group run started, in reverse order.
 - Edit or remove a saved project without touching its files.
 
 > Runlist remembers the setup. You decide what runs.
@@ -65,6 +67,8 @@ Your project is now ready whenever you need it. Select the **Start** icon to run
 
 If Runlist is open in more than one VS Code window, starting or stopping a project in one window updates its status in the others automatically.
 
+Reloading or closing the VS Code window waits for Runlist to stop the process trees that window launched. If the window exits unexpectedly and ownership can no longer be verified, Runlist shows **Running — control unavailable** instead of terminating an uncertain process. A configured custom stop command remains available as the explicit recovery path.
+
 Configured service ports are lightweight details, not a port-management system. Projects may save the same service ports because they can still run at different times. Runlist points this out while you add or edit a project, checks every configured port again before starting, and blocks the start if another app is already using one.
 
 If another Runlist project owns a port, Runlist names it. If a shared port is occupied but its owner cannot be identified safely, both Start and Stop remain unavailable until that port is free. Runlist never changes ports or stops an unknown process automatically.
@@ -93,7 +97,7 @@ You can also describe what you want naturally. For example:
 
 The agent can propose a new project or an update to one already in Runlist. The project then shows **Review setup** in the sidebar. Check its folder and exact commands, then select **Approve setup** before Start or Stop becomes available. Agent-proposed commands never run without this approval.
 
-When a start fails, open **View output** and select **Ask your agent**. Runlist first shows exactly which saved details and retained output the agent can retrieve. Select **Copy diagnosis request**, then paste it into your agent chat. Nothing is sent automatically, and any setup change the agent proposes still returns to Runlist for your review and approval.
+When a start fails, open **View output** and select **Ask your agent**. Runlist first shows exactly which saved details and retained output the agent can retrieve. Select **Copy diagnosis request**, then paste it into your agent chat. Nothing is sent automatically. If the agent prepares a repair proposal, select **Refresh proposal** to compare every current and proposed setup field, then approve or reject the complete change. Approval saves the setup but does not run it; **Retry start** remains a separate action.
 
 After updating Runlist, return to **Agent connections** and select **Refresh setup** so the agent uses the current connection and skill. Runlist will not replace a different skill you created with the same name.
 
@@ -111,6 +115,7 @@ Runlist keeps the everyday controls simple:
 | **Stop icon** | Stops the process tree Runlist launched, or runs the optional custom stop command when one is configured. |
 | **Restart** | In a project's More actions menu, safely stops that project before starting it again and checking service readiness. |
 | **Stop all running** | Appears when two or more projects are running and stops them together. |
+| **Run groups** | Saves a small ordered set of projects. Start waits for each project to become ready before continuing; failure rollback and Stop group use reverse order and stop only Runlist-owned processes. |
 | **Port in use** | Prevents conflicting projects from starting and identifies the owning project when possible. |
 | **Switch projects** | When two Runlist-owned projects need the same port, offers one action to stop the running project and start the selected one. Unknown or external port owners are never stopped. |
 | **Service addresses** | Shows each saved service with a compact local address such as `localhost:4310`. Green means the service is available; amber means a web port is open but not responding. |
@@ -122,11 +127,16 @@ Runlist keeps the everyday controls simple:
 | **Expand details** | Keeps startup progress and runtime information in Overview, bounded live lines in Output, the app in Preview, and past outcomes in History. The stable workspace prevents growing output or history from pushing the preview around. **View output** opens the complete retained output. |
 | **View output** | Summarizes a failed start above the unchanged raw log, highlights common log levels, opens web links, and lets you copy output from the latest run. If you scroll up, Runlist keeps your place and offers a **Latest** button when new output arrives. |
 | **Ask your agent** | Appears only for a retained failed start. It copies a request that lets a connected agent retrieve bounded, sanitized diagnostics for that one project through Runlist. |
+| **Import or export** | Uses a JSON file to move one or all saved setups. Runlist previews additions, updates, skipped entries, and invalid entries before import; changed commands require review before they can run. Exported files include saved command text, so store and share them carefully. |
 | **…** | Opens the app or project folder, opens a terminal in that folder, copies the saved project path, and provides recent output, edit, or remove actions. |
 
 Removing a project from Runlist does **not** delete the project or any of its files.
 
 If Runlist finds a configured service already running but did not start it itself, the project is labelled **Detected running** so its state is clear.
+
+## Contributing
+
+Run the isolated VS Code extension-host smoke suite with `npm run test:smoke`. The first run downloads a VS Code test runtime when a supported local installation is not available.
 
 ## Your projects stay local
 

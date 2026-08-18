@@ -327,6 +327,7 @@ function projectStatus({
   hasServices = false,
   knownConflict = false,
   managed = false,
+  ownerAvailable,
   httpUnresponsive = false,
   processActive = false,
   readinessTimedOut = false,
@@ -334,6 +335,9 @@ function projectStatus({
 }) {
   if (stopping) {
     return 'stopping';
+  }
+  if (managed && processActive && ownerAvailable === false) {
+    return 'ownership-lost';
   }
   if (!hasServices) {
     return processActive ? 'running' : 'stopped';
@@ -376,7 +380,7 @@ function stoppableProjectIds(projects) {
   return (projects || [])
     .filter((project) => !project.reviewRequired
       && (['running', 'starting', 'not-ready', 'not-responding'].includes(project.status)
-        || (project.status === 'active' && Boolean(project.stopCommand))))
+        || (['active', 'ownership-lost'].includes(project.status) && Boolean(project.stopCommand))))
     .map((project) => project.id);
 }
 

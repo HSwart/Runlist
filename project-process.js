@@ -81,6 +81,24 @@ async function terminateTrackedProcess(processes, id, options = {}) {
   return true;
 }
 
+function shutdownTrackedProcesses(processes, processOwnership, portReservations, options = {}) {
+  const terminate = options.terminateTrackedProcess || terminateTrackedProcess;
+  const terminationOptions = options.terminationOptions || {};
+  return Promise.allSettled([...processes.keys()].map(async (id) => {
+    await terminate(processes, id, terminationOptions);
+    processOwnership.release(id);
+    portReservations.release(id);
+    return true;
+  }));
+}
+
+function shouldRequestRemoteCustomStop(project, ownership, hasLocalProcess, locallyOwnedWithoutHandle) {
+  return Boolean(project?.stopCommand
+    && ownership?.ownerAvailable
+    && !hasLocalProcess
+    && !locallyOwnedWithoutHandle);
+}
+
 async function restartProjectSafely(restartingProjectIds, id, actions) {
   if (restartingProjectIds.has(id) || (actions.canRestart && !actions.canRestart())) {
     return false;
@@ -93,8 +111,7 @@ async function restartProjectSafely(restartingProjectIds, id, actions) {
     if (!await actions.waitForStop()) {
       return false;
     }
-    await actions.start();
-    return true;
+    return await actions.start() !== false;
   } finally {
     restartingProjectIds.delete(id);
   }
@@ -485,6 +502,8 @@ module.exports = {
   ProcessOwnershipStore,
   projectProcessSpawnOptions,
   restartProjectSafely,
+  shutdownTrackedProcesses,
+  shouldRequestRemoteCustomStop,
   startExitFailed,
   terminateProcessTree,
   terminateTrackedProcess

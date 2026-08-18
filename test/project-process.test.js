@@ -9,10 +9,93 @@ const {
   customStopSpawnOptions,
   ProcessOwnershipStore,
   projectProcessSpawnOptions,
+  shutdownTrackedProcesses,
+  shouldRequestRemoteCustomStop,
   startExitFailed,
   terminateProcessTree,
   terminateTrackedProcess
 } = require('../project-process');
+
+test('runs a custom stop locally when the launching host is unavailable', () => {
+  const project = { stopCommand: 'docker compose down' };
+
+  assert.equal(shouldRequestRemoteCustomStop(project, {
+    ownerAvailable: true,
+    processActive: true
+  }, false, false), true);
+  assert.equal(shouldRequestRemoteCustomStop(project, {
+    ownerAvailable: false,
+    processActive: true
+  }, false, false), false);
+  assert.equal(shouldRequestRemoteCustomStop(project, {
+    ownerAvailable: true,
+    processActive: true
+  }, true, false), false);
+});
+
+test('keeps ownership and port reservations until reload shutdown confirms the process stopped', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-process-shutdown-'));
+  const ownership = new ProcessOwnershipStore(path.join(root, 'ownership'), {
+    pid: 101,
+    isProcessAlive: () => true
+  });
+  const { PortReservationStore } = require('../port-gate');
+  const reservations = new PortReservationStore(path.join(root, 'ports'), {
+    pid: 101,
+    isProcessAlive: () => true
+  });
+  const project = { id: 'project-1', services: [{ name: 'web', port: 4310 }] };
+  const processes = new Map([['project-1', { pid: 303 }]]);
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  ownership.reserve(project.id);
+  ownership.setProcess(project.id, 303);
+  reservations.reserve(project);
+  let finishTermination;
+  const termination = new Promise((resolve) => { finishTermination = resolve; });
+
+  const shutdown = shutdownTrackedProcesses(processes, ownership, reservations, {
+    terminateTrackedProcess: async () => termination
+  });
+  await Promise.resolve();
+
+  assert.equal(ownership.snapshot().has(project.id), true);
+  assert.equal(reservations.snapshot().has(project.id), true);
+
+  finishTermination();
+  assert.deepEqual(await shutdown, [{ status: 'fulfilled', value: true }]);
+  assert.equal(ownership.snapshot().has(project.id), false);
+  assert.equal(reservations.snapshot().has(project.id), false);
+});
+
+test('preserves ownership and port reservations when reload shutdown cannot stop the process', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-process-shutdown-failure-'));
+  const ownership = new ProcessOwnershipStore(path.join(root, 'ownership'), {
+    pid: 101,
+    isProcessAlive: () => true
+  });
+  const { PortReservationStore } = require('../port-gate');
+  const reservations = new PortReservationStore(path.join(root, 'ports'), {
+    pid: 101,
+    isProcessAlive: () => true
+  });
+  const project = { id: 'project-1', services: [{ name: 'web', port: 4310 }] };
+  const processes = new Map([['project-1', { pid: 303 }]]);
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  ownership.reserve(project.id);
+  ownership.setProcess(project.id, 303);
+  reservations.reserve(project);
+
+  const [result] = await shutdownTrackedProcesses(processes, ownership, reservations, {
+    terminateTrackedProcess: async () => { throw new Error('still running'); }
+  });
+
+  assert.equal(result.status, 'rejected');
+  assert.match(result.reason.message, /still running/);
+  assert.equal(ownership.snapshot().has(project.id), true);
+  assert.equal(reservations.snapshot().has(project.id), true);
+});
 
 test('launches POSIX commands in an owned process group and keeps Windows launches attached', () => {
   assert.deepEqual(projectProcessSpawnOptions('linux'), { detached: true });

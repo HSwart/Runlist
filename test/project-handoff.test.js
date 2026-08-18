@@ -112,13 +112,15 @@ test('rejects duplicate handoffs for the same requested project', async () => {
 
 test('wires one accessible handoff action through the guarded stop and start paths', () => {
   const extension = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const lifecycle = fs.readFileSync(path.join(__dirname, '..', 'project-lifecycle.js'), 'utf8');
   const webview = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
 
   assert.match(webview, /const handoffLabel = `Stop \$\{conflictOwnerName\} and start \$\{projectName\}`/);
   assert.match(webview, /class="handoff-button" data-action="handoff"[\s\S]*aria-label="\$\{handoffLabel\}"/);
   assert.match(webview, /handoff: \(\) => \{[\s\S]*type: 'handoffProject'/);
   assert.match(webview, /const indicator = conflicted[\s\S]*\? 'conflict'[\s\S]*: webNotResponding/);
-  assert.match(extension, /handoffProjectSafely\(this\.handoffProjectIds, id/);
-  assert.match(extension, /stop: \(conflict\) => this\.stopProject\(conflict\.owner\.id[\s\S]*expectedOwnershipToken/);
-  assert.match(extension, /start: \(\) => this\.startProject\(id,[\s\S]*ownershipReserved: true/);
+  assert.match(extension, /handoffProject\(id\)[\s\S]*this\.lifecycle\.handoff\(id\)/);
+  assert.match(lifecycle, /handoffProjectSafely\(this\.host\.handoffProjectIds, id/);
+  assert.match(lifecycle, /stop: \(conflict\) => this\.host\.stopProject\(conflict\.owner\.id[\s\S]*expectedOwnershipToken/);
+  assert.match(lifecycle, /start: \(\) => this\.host\.startProject\(id,[\s\S]*ownershipReserved: true/);
 });

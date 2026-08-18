@@ -11,3 +11,26 @@ test('ships as a local UI extension with a Marketplace icon', () => {
   assert.equal(manifest.icon, 'media/runlist.png');
   assert.equal(fs.existsSync(path.join(root, manifest.icon)), true);
 });
+
+test('contributes one native project transfer command to the Runlist view', () => {
+  const root = path.join(__dirname, '..');
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const command = manifest.contributes.commands.find((item) => (
+    item.command === 'runlist.transferProjects'
+  ));
+  const menu = manifest.contributes.menus['view/title'].find((item) => (
+    item.command === 'runlist.transferProjects'
+  ));
+
+  assert.deepEqual(command, {
+    command: 'runlist.transferProjects',
+    title: 'Import or Export Projects',
+    icon: '$(files)'
+  });
+  assert.deepEqual(menu, {
+    command: 'runlist.transferProjects',
+    when: 'view == runlist.projects',
+    group: 'navigation@3'
+  });
+  assert.ok(manifest.activationEvents.includes('onCommand:runlist.transferProjects'));
+});

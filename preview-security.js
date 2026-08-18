@@ -17,7 +17,7 @@ function previewFrameSources(values) {
 
 function projectPreviewService(project, status, serviceUrls, conflicted = false) {
   if (!project || project.reviewRequired || conflicted
-    || !['running', 'starting', 'not-ready', 'not-responding', 'active'].includes(status)) {
+    || !['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active'].includes(status)) {
     return undefined;
   }
   const reachableByPort = new Map((serviceUrls || [])

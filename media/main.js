@@ -1,5 +1,6 @@
 const vscode = acquireVsCodeApi();
 const state = window.runlistState;
+const { createWebviewMessageRouter } = window.RunlistMessageRouter;
 const app = document.getElementById('app');
 const persistedWebviewState = vscode.getState() || {};
 const detailTabState = { ...(persistedWebviewState.detailTabs || {}) };
@@ -516,12 +517,44 @@ function statusSummaryHtml(projects) {
         || (project.status === 'active' && project.httpUnresponsive))).length;
   const stoppingCount = projects
     .filter((project) => !project.reviewRequired && project.status === 'stopping').length;
+  const ownershipLostCount = projects
+    .filter((project) => !project.reviewRequired && project.status === 'ownership-lost').length;
   const stoppedCount = projects
     .filter((project) => !project.reviewRequired && project.status === 'stopped').length;
   const conflictCount = projects
     .filter((project) => !project.reviewRequired
       && ['port-in-use', 'port-in-use-unknown'].includes(project.status)).length;
-  return `<span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running${startingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${startingCount} starting` : ''}${notReadyCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notReadyCount} taking longer` : ''}${notRespondingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notRespondingCount} not responding` : ''}${stoppingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${stoppingCount} stopping` : ''} <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped${reviewCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${reviewCount} to review` : ''}${conflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${conflictCount} unavailable` : ''}`;
+  return `<span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running${startingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${startingCount} starting` : ''}${notReadyCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notReadyCount} taking longer` : ''}${notRespondingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notRespondingCount} not responding` : ''}${stoppingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${stoppingCount} stopping` : ''}${ownershipLostCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${ownershipLostCount} control unavailable` : ''} <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped${reviewCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${reviewCount} to review` : ''}${conflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${conflictCount} unavailable` : ''}`;
+}
+
+function runGroupsHtml() {
+  if (!state.groups?.length) {
+    return '';
+  }
+  return `
+    <section class="run-groups" aria-label="Run groups">
+      <h2>Run groups</h2>
+      ${state.groups.map((group) => {
+        const groupId = escapeHtml(group.id);
+        const groupName = escapeHtml(group.name);
+        const memberNames = group.memberNames.map(escapeHtml).join(' → ') || 'No saved projects';
+        const actionLabel = group.canStop ? `Stop group ${groupName}` : `Start group ${groupName}`;
+        return `
+          <div class="run-group-row">
+            <div class="run-group-details">
+              <strong>${groupName}</strong>
+              <span title="${memberNames}">${memberNames}</span>
+              ${group.progress ? `<small role="status" aria-live="polite">${escapeHtml(group.progress)}</small>` : ''}
+            </div>
+            <div class="run-group-actions">
+              ${group.canStop
+                ? `<button data-action="stop-group" data-id="${groupId}" aria-label="Stop group ${groupName}" title="${actionLabel}" ${group.busy ? 'disabled' : ''}>${productIcon('stop')}</button>`
+                : `<button data-action="start-group" data-id="${groupId}" aria-label="Start group ${groupName}" title="${actionLabel}" ${group.busy || !group.projectIds.length ? 'disabled' : ''}>${productIcon(group.busy ? 'loading' : 'play')}</button>`}
+              <button data-action="manage-group" data-id="${groupId}" aria-label="Manage group ${groupName}" title="Manage ${groupName}" ${group.busy ? 'disabled' : ''}>${icon('more')}</button>
+            </div>
+          </div>`;
+      }).join('')}
+    </section>`;
 }
 
 function renderList() {
@@ -548,6 +581,7 @@ function renderList() {
   }
   if (state.projects.length === 0) {
     app.innerHTML = `
+      ${runGroupsHtml()}
       <section class="empty-state">
         ${icon('folder', 'empty-icon')}
         <h2>No projects yet</h2>
@@ -565,6 +599,7 @@ function renderList() {
       <span id="project-count"><strong>${state.projects.length}</strong> ${state.projects.length === 1 ? 'project' : 'projects'}</span>
       <span id="summary-status" class="summary-status">${statusSummaryHtml(state.projects)}</span>
     </header>
+    ${runGroupsHtml()}
     ${state.stopAllCount > 1 ? `
       <div class="bulk-actions">
         <button class="stop-all-button" data-action="stop-all" aria-label="Stop all ${state.stopAllCount} running projects">
@@ -615,6 +650,7 @@ function renderList() {
           starting: 'Starting…',
           'not-ready': 'Taking longer…',
           'not-responding': 'Web service not responding',
+          'ownership-lost': 'Running — control unavailable',
           stopping: 'Stopping…',
           active: project.httpUnresponsive ? 'Detected, web service not responding' : 'Detected running',
           'port-in-use': conflict?.ownerName ? `Port in use by ${conflictOwnerName}` : 'Port in use',
@@ -630,16 +666,18 @@ function renderList() {
         const transitioning = ['starting', 'not-ready', 'stopping'].includes(projectStatus);
         const canOpen = Boolean(project.previewUrl);
         const detectedWithoutStop = projectStatus === 'active' && !project.stopCommand;
-        const stopState = ['running', 'starting', 'not-ready', 'not-responding', 'active'].includes(projectStatus);
+        const ownershipLostWithoutStop = projectStatus === 'ownership-lost' && !project.stopCommand;
+        const stopState = ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active'].includes(projectStatus);
         const canRestart = !reviewRequired
-          && ['running', 'not-ready', 'not-responding', 'active'].includes(projectStatus)
-          && !detectedWithoutStop;
-        const stopsProject = stopState && !detectedWithoutStop;
+          && ['running', 'not-ready', 'not-responding', 'ownership-lost', 'active'].includes(projectStatus)
+          && !detectedWithoutStop
+          && !ownershipLostWithoutStop;
+        const stopsProject = stopState && !detectedWithoutStop && !ownershipLostWithoutStop;
         const blocked = conflicted;
         const action = reviewRequired ? 'edit' : stopState ? 'stop' : 'start';
         const actionLabel = reviewRequired
           ? 'Review setup'
-          : detectedWithoutStop
+          : detectedWithoutStop || ownershipLostWithoutStop
           ? 'Stop unavailable'
           : blocked
           ? 'Unavailable'
@@ -652,6 +690,8 @@ function renderList() {
           ? `Review setup for ${projectName}`
           : detectedWithoutStop
           ? `Runlist did not start ${projectName}. Add a custom stop command to stop it safely.`
+          : ownershipLostWithoutStop
+          ? `The VS Code window that started ${projectName} is unavailable. Add a custom stop command to stop it safely.`
           : projectStatus === 'port-in-use-unknown'
           ? `Port :${conflict?.port || 'unknown'} owner is unknown — cannot safely start or stop ${projectName}`
           : blocked
@@ -674,12 +714,16 @@ function renderList() {
             ? 'The launched process is still running and its configured port is open, but the web service did not respond.'
           : projectStatus === 'not-ready'
             ? 'The launched process is still running. Runlist is continuing to check its configured services.'
+          : projectStatus === 'ownership-lost'
+            ? project.stopCommand
+              ? 'The launching VS Code window is unavailable. Runlist can use your custom stop command.'
+              : 'The launching VS Code window is unavailable. Runlist will not stop an unverified process.'
           : projectStatus === 'port-in-use-unknown'
             ? `Port :${conflict?.port || 'unknown'} is shared with ${conflictProjectNames}. Runlist cannot identify the running owner.`
             : projectStatus === 'port-in-use'
               ? `${conflictOwnerName} is using port :${conflict?.port || 'unknown'}.`
               : '';
-        const actionDisabled = projectStatus === 'stopping' || blocked || detectedWithoutStop;
+        const actionDisabled = projectStatus === 'stopping' || blocked || detectedWithoutStop || ownershipLostWithoutStop;
         return `
           <article id="project-row-${projectId}" class="project-row" data-project-id="${projectId}" aria-labelledby="project-${projectId}" tabindex="-1">
             <div class="project-topline">
@@ -1201,6 +1245,48 @@ function renderProjectDiagnosis() {
     app.innerHTML = '<section class="diagnosis-screen"><p class="screen-copy">These diagnostics are no longer available.</p></section>';
     return;
   }
+  if (diagnosis.approved) {
+    app.innerHTML = `
+      <section class="diagnosis-screen">
+        <header class="screen-header">
+          <h2>Repair approved</h2>
+          <button class="icon-button" data-action="close-screen" aria-label="Close approved repair">${icon('close')}</button>
+        </header>
+        <div class="diagnosis-notice" role="status" aria-live="polite">
+          <strong>${escapeHtml(diagnosis.name)} is updated</strong>
+          <p>The reviewed setup is saved. Runlist has not started it.</p>
+        </div>
+        <div class="repair-actions">
+          <button class="primary-button" data-action="retry-repair">Retry start</button>
+          <button class="secondary-button" data-action="close-screen">Done</button>
+        </div>
+      </section>`;
+    return;
+  }
+  const repairHtml = diagnosis.repair ? `
+    <section class="repair-proposal" aria-labelledby="repair-proposal-heading">
+      <h3 id="repair-proposal-heading" class="diagnosis-heading">Repair proposal</h3>
+      ${diagnosis.repair.stale ? `
+        <p class="repair-stale" role="alert">This proposal is stale because the saved setup or retained failed start changed. It cannot be approved.</p>` : ''}
+      <div class="repair-comparison" role="table" aria-label="Current and proposed project setup">
+        <div class="repair-comparison-heading" role="row">
+          <strong role="columnheader">Field</strong>
+          <strong role="columnheader">Current</strong>
+          <strong role="columnheader">Proposed</strong>
+        </div>
+        ${diagnosis.repair.comparison.map((item) => `
+          <div class="repair-comparison-row" role="row">
+            <strong role="rowheader">${escapeHtml(item.field)}</strong>
+            <span role="cell">${escapeHtml(item.current)}</span>
+            <span role="cell">${escapeHtml(item.proposed)}</span>
+            <small class="repair-change ${escapeHtml(item.change)}">${escapeHtml(item.change)}</small>
+          </div>`).join('')}
+      </div>
+      <div class="repair-actions">
+        <button class="primary-button" data-action="approve-repair" ${diagnosis.repair.stale ? 'disabled' : ''}>Approve complete proposal</button>
+        <button class="secondary-button" data-action="reject-repair">Reject proposal</button>
+      </div>
+    </section>` : '';
   app.innerHTML = `
     <section class="diagnosis-screen">
       <header class="screen-header">
@@ -1224,13 +1310,15 @@ function renderProjectDiagnosis() {
       <p class="diagnosis-exclusion">Runlist does not provide environment variables, source files, shell history, process environments, or unconfigured network data.</p>
       <button class="primary-button diagnosis-copy-button" data-action="copy-diagnosis-request">Copy diagnosis request</button>
       <p id="diagnosis-copy-status" class="diagnosis-copy-status" aria-live="polite">Copy the request, then paste it into your agent chat.</p>
+      <button class="secondary-button repair-refresh-button" data-action="refresh-repair">Refresh proposal</button>
+      ${repairHtml}
       ${diagnosis.agentReady ? '' : `
         <div class="diagnosis-setup">
           <strong>Need to connect an agent?</strong>
           <p>Use Runlist's existing Agent connections screen for Copilot, Codex, or Claude.</p>
           <button class="secondary-button" data-action="show-agent-connections">Open Agent connections</button>
         </div>`}
-      <p class="diagnosis-review-note">Any command or service change proposed by an agent still requires your review and approval in Runlist.</p>
+      <p class="diagnosis-review-note">A proposal never changes the saved setup or retries the project until you explicitly approve and then choose Retry start.</p>
     </section>`;
 }
 
@@ -1412,6 +1500,7 @@ app.addEventListener('click', (event) => {
     },
     'register-agent': () => vscode.postMessage({ type: 'registerAgent', agent: button.dataset.agent }),
     'show-agent-connections': () => vscode.postMessage({ type: 'showAgentSetup' }),
+    'manage-group': () => vscode.postMessage({ type: 'manageRunGroups', id: button.dataset.id }),
     'toggle-menu': () => toggleMenu(button),
     open: () => {
       closeMenus();
@@ -1461,6 +1550,10 @@ app.addEventListener('click', (event) => {
     },
     'ask-agent': () => vscode.postMessage({ type: 'showDiagnosis', id: button.dataset.id }),
     'copy-diagnosis-request': () => vscode.postMessage({ type: 'copyDiagnosisRequest' }),
+    'refresh-repair': () => vscode.postMessage({ type: 'refreshProjectRepair' }),
+    'approve-repair': () => vscode.postMessage({ type: 'approveProjectRepair' }),
+    'reject-repair': () => vscode.postMessage({ type: 'rejectProjectRepair' }),
+    'retry-repair': () => vscode.postMessage({ type: 'retryProjectRepair' }),
     'open-output-url': () => {
       event.preventDefault();
       vscode.postMessage({ type: 'openOutputUrl', url: button.dataset.url });
@@ -1476,6 +1569,8 @@ app.addEventListener('click', (event) => {
     start: () => vscode.postMessage({ type: 'startProject', id: button.dataset.id }),
     stop: () => vscode.postMessage({ type: 'stopProject', id: button.dataset.id }),
     restart: () => vscode.postMessage({ type: 'restartProject', id: button.dataset.id }),
+    'start-group': () => vscode.postMessage({ type: 'startRunGroup', id: button.dataset.id }),
+    'stop-group': () => vscode.postMessage({ type: 'stopRunGroup', id: button.dataset.id }),
     handoff: () => {
       button.disabled = true;
       vscode.postMessage({ type: 'handoffProject', id: button.dataset.id });
@@ -1585,36 +1680,32 @@ function initializeTimelineClock() {
   }
 }
 
-window.addEventListener('message', (event) => {
-  if (event.data?.messageToken !== state.messageToken) {
-    return;
-  }
-  if (event.data?.type === 'projectMetrics') {
-    const project = state.projects.find((item) => String(item.id) === String(event.data.id));
+const hostMessageHandlers = {
+  projectMetrics: (message) => {
+    const project = state.projects.find((item) => String(item.id) === String(message.id));
     if (project) {
-      project.resourceMetrics = event.data.metrics;
-      project.runtimePulse = event.data.runtimePulse;
-      project.httpResponsePulse = event.data.httpResponsePulse;
+      project.resourceMetrics = message.metrics;
+      project.runtimePulse = message.runtimePulse;
+      project.httpResponsePulse = message.httpResponsePulse;
     }
-    const metrics = document.querySelector(`[data-resource-metrics][data-project-id="${CSS.escape(String(event.data.id || ''))}"]`);
+    const metrics = document.querySelector(`[data-resource-metrics][data-project-id="${CSS.escape(String(message.id || ''))}"]`);
     if (metrics) {
       metrics.innerHTML = resourceMetricsContent(
-        event.data.metrics,
-        event.data.runtimePulse,
-        event.data.httpResponsePulse
+        message.metrics,
+        message.runtimePulse,
+        message.httpResponsePulse
       );
       metrics.setAttribute(
         'aria-label',
-        resourceMetricsLabel(event.data.metrics, event.data.httpResponsePulse)
+        resourceMetricsLabel(message.metrics, message.httpResponsePulse)
       );
     }
-    return;
-  }
-  if (event.data?.type === 'projectHttpPulse') {
-    const project = state.projects.find((item) => String(item.id) === String(event.data.id));
-    const metrics = document.querySelector(`[data-resource-metrics][data-project-id="${CSS.escape(String(event.data.id || ''))}"]`);
+  },
+  projectHttpPulse: (message) => {
+    const project = state.projects.find((item) => String(item.id) === String(message.id));
+    const metrics = document.querySelector(`[data-resource-metrics][data-project-id="${CSS.escape(String(message.id || ''))}"]`);
     if (project && metrics) {
-      project.httpResponsePulse = event.data.httpResponsePulse;
+      project.httpResponsePulse = message.httpResponsePulse;
       metrics.innerHTML = resourceMetricsContent(
         project.resourceMetrics,
         project.runtimePulse,
@@ -1625,55 +1716,68 @@ window.addEventListener('message', (event) => {
         resourceMetricsLabel(project.resourceMetrics, project.httpResponsePulse)
       );
     }
-    return;
-  }
-  if (event.data?.type === 'projectOutputPeek') {
-    updateProjectOutputPeek(event.data.id, event.data.entries);
-    return;
-  }
-  if (event.data?.type === 'diagnosisRequestCopied') {
+  },
+  projectOutputPeek: (message) => updateProjectOutputPeek(message.id, message.entries),
+  diagnosisRequestCopied: () => {
     const status = document.getElementById('diagnosis-copy-status');
     if (status) {
       status.textContent = 'Diagnosis request copied. Paste it into your agent chat.';
     }
-    return;
-  }
-  if (event.data?.type !== 'projectOutput') {
-    return;
-  }
-  const outputPanel = document.querySelector('.output-panel');
-  const output = document.getElementById('project-output');
-  if (!outputPanel || !output) {
-    return;
-  }
-  const shouldFollow = outputFollowLatest || outputIsNearBottom(outputPanel);
-  const previousScrollTop = outputPanel.scrollTop;
-  const focusedLink = focusedOutputLink(output);
-  const failure = document.getElementById('project-output-failure');
-  if (failure) {
-    failure.innerHTML = outputFailureSummaryHtml(event.data.failureSummary);
-  }
-  outputPanel.dataset.empty = String(!event.data.output);
-  output.innerHTML = outputEntriesHtml(event.data.entries, event.data.failureSummary);
-  const copyButton = document.querySelector('.output-copy-button');
-  if (copyButton) {
-    copyButton.disabled = !event.data.output;
-  }
-  if (shouldFollow) {
-    outputFollowLatest = true;
-    outputPanel.scrollTop = outputPanel.scrollHeight;
-    clearOutputUpdateStatus();
-  } else {
-    outputFollowLatest = false;
-    outputPanel.scrollTop = previousScrollTop;
-    const status = document.getElementById('output-update-status');
-    if (status) {
-      status.textContent = 'New output is available.';
+  },
+  projectOutput: (message) => {
+    const outputPanel = document.querySelector('.output-panel');
+    const output = document.getElementById('project-output');
+    if (!outputPanel || !output) {
+      return;
     }
+    const shouldFollow = outputFollowLatest || outputIsNearBottom(outputPanel);
+    const previousScrollTop = outputPanel.scrollTop;
+    const focusedLink = focusedOutputLink(output);
+    const failure = document.getElementById('project-output-failure');
+    if (failure) {
+      failure.innerHTML = outputFailureSummaryHtml(message.failureSummary);
+    }
+    outputPanel.dataset.empty = String(!message.output);
+    output.innerHTML = outputEntriesHtml(message.entries, message.failureSummary);
+    const copyButton = document.querySelector('.output-copy-button');
+    if (copyButton) {
+      copyButton.disabled = !message.output;
+    }
+    if (shouldFollow) {
+      outputFollowLatest = true;
+      outputPanel.scrollTop = outputPanel.scrollHeight;
+      clearOutputUpdateStatus();
+    } else {
+      outputFollowLatest = false;
+      outputPanel.scrollTop = previousScrollTop;
+      const status = document.getElementById('output-update-status');
+      if (status) {
+        status.textContent = 'New output is available.';
+      }
+    }
+    restoreOutputLinkFocus(output, focusedLink);
+    updateOutputJumpButton();
+  },
+  outputCopied: () => {
+    const copyButton = document.querySelector('.output-copy-button');
+    if (!copyButton) {
+      return;
+    }
+    copyButton.textContent = 'Copied';
+    setTimeout(() => {
+      copyButton.textContent = 'Copy output';
+    }, 1500);
+  },
+  restoreProjectMenuFocus: (message) => {
+    closeMenus();
+    document.querySelector(`.more-button[data-id="${CSS.escape(message.id)}"]`)?.focus();
   }
-  restoreOutputLinkFocus(output, focusedLink);
-  updateOutputJumpButton();
-});
+};
+
+window.addEventListener('message', createWebviewMessageRouter({
+  handlers: hostMessageHandlers,
+  messageToken: state.messageToken
+}));
 
 function outputPeekInteractionActive(slot) {
   if (slot.contains(document.activeElement)) {
@@ -1735,28 +1839,6 @@ function restoreOutputLinkFocus(output, focusedLink) {
     .filter((link) => link.dataset.url === focusedLink.url);
   matchingLinks[focusedLink.occurrence]?.focus({ preventScroll: true });
 }
-
-window.addEventListener('message', (event) => {
-  if (event.data?.messageToken !== state.messageToken || event.data?.type !== 'outputCopied') {
-    return;
-  }
-  const copyButton = document.querySelector('.output-copy-button');
-  if (!copyButton) {
-    return;
-  }
-  copyButton.textContent = 'Copied';
-  setTimeout(() => {
-    copyButton.textContent = 'Copy output';
-  }, 1500);
-});
-
-window.addEventListener('message', (event) => {
-  if (event.data?.messageToken !== state.messageToken || event.data?.type !== 'restoreProjectMenuFocus') {
-    return;
-  }
-  closeMenus();
-  document.querySelector(`.more-button[data-id="${CSS.escape(event.data.id)}"]`)?.focus();
-});
 
 app.addEventListener('submit', (event) => {
   if (event.target.id !== 'project-form') {

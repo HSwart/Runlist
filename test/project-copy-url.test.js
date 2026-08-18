@@ -14,9 +14,11 @@ test('renders an accessible copy action only for a reachable service URL', () =>
 });
 
 test('rechecks reachability and copies the forwarded safe URL in the extension host', () => {
-  const extension = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const root = path.join(__dirname, '..');
+  const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const router = fs.readFileSync(path.join(root, 'webview-message-router.js'), 'utf8');
 
-  assert.match(extension, /case 'copyServiceUrl':[\s\S]*await this\.copyServiceUrl\(message\.id, Number\(message\.port\)\)/);
+  assert.match(router, /copyServiceUrl: \(message\) => host\.copyServiceUrl\(message\.id, Number\(message\.port\)\)/);
   assert.match(extension, /async copyServiceUrl\(id, port\)[\s\S]*servicePortStatus\(\[service\]\)[\s\S]*reachableServiceUrls\(\[service\]/);
   assert.match(extension, /resolveUrl: \(url\) => this\.externalServiceUrl\(url\)/);
   assert.match(extension, /vscode\.env\.clipboard\.writeText\(reachable\.url\)/);

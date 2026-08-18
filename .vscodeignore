@@ -11,8 +11,10 @@ FUTURE_FEATURE_IDEAS.local.md
 docs/**
 node_modules/**
 scripts/**
+smoke/**
 test/**
 coverage/**
+graphify-out/**
 review-screenshots/**
 *.log
 *.tmp
