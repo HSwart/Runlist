@@ -1,11 +1,24 @@
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
+const { spawn } = require('child_process');
 
-const [smokeRoot, portText] = process.argv.slice(2);
+const [smokeRoot, portText, childPidPath, grandchildPidPath, delayText, rootPidPath] = process.argv.slice(2);
 const port = Number(portText);
-if (!smokeRoot || !Number.isInteger(port)) {
+const delayMs = delayText ? Number(delayText) : 0;
+if (!smokeRoot || !Number.isInteger(port) || !Number.isInteger(delayMs) || delayMs < 0) {
   throw new Error('Expected a smoke root and port.');
+}
+
+if (childPidPath) {
+  spawn(process.execPath, [
+    path.join(__dirname, 'idle.js'),
+    childPidPath,
+    ...(grandchildPidPath ? [grandchildPidPath] : [])
+  ], {
+    stdio: 'ignore',
+    windowsHide: true
+  });
 }
 
 const server = http.createServer((request, response) => {
@@ -13,7 +26,9 @@ const server = http.createServer((request, response) => {
   response.end('ready');
 });
 
-server.listen(port, () => {
-  fs.writeFileSync(path.join(smokeRoot, 'ready.pid'), String(process.pid));
-  process.stdout.write(`ready on ${port}\n`);
-});
+setTimeout(() => {
+  server.listen(port, () => {
+    fs.writeFileSync(rootPidPath || path.join(smokeRoot, 'ready.pid'), String(process.pid));
+    process.stdout.write(`ready on ${port}\n`);
+  });
+}, delayMs);

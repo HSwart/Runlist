@@ -22,8 +22,17 @@ async function run() {
 
   const fixturePath = path.join(extension.extensionPath, 'smoke', 'fixtures', 'ready.js');
   const failurePath = path.join(extension.extensionPath, 'smoke', 'fixtures', 'failure.js');
+  const idlePath = path.join(extension.extensionPath, 'smoke', 'fixtures', 'idle.js');
   const stopPath = path.join(extension.extensionPath, 'smoke', 'fixtures', 'stop.js');
-  const port = await availablePort();
+  const usedPorts = new Set();
+  const port = await availableDistinctPort(usedPorts);
+  const delayedPort = await availableDistinctPort(usedPorts);
+  const externalPort = await availableDistinctPort(usedPorts);
+  const handoffPort = await availableDistinctPort(usedPorts);
+  const readyChildPidPath = path.join(smokeRoot, 'ready-child.pid');
+  const readyGrandchildPidPath = path.join(smokeRoot, 'ready-grandchild.pid');
+  const customStopPidPath = path.join(smokeRoot, 'custom-stop.pid');
+  const delayedPidPath = path.join(smokeRoot, 'delayed.pid');
 
   const manual = await saveProject(api.provider, {
     name: 'Manual smoke project',
@@ -35,14 +44,81 @@ async function run() {
   const ready = await saveProject(api.provider, {
     name: 'Ready smoke project',
     folder: projectFolder(workspacePath, 'ready'),
-    startCommand: command(nodePath, fixturePath, smokeRoot, String(port)),
+    startCommand: command(
+      nodePath,
+      fixturePath,
+      smokeRoot,
+      String(port),
+      readyChildPidPath,
+      readyGrandchildPidPath
+    ),
+    services: [{ name: 'web', port: String(port), url: '' }]
+  });
+  const customStop = await saveProject(api.provider, {
+    name: 'Custom stop smoke project',
+    folder: projectFolder(workspacePath, 'custom-stop'),
+    startCommand: command(nodePath, idlePath, customStopPidPath),
     stopCommand: command(
       nodePath,
       stopPath,
-      path.join(smokeRoot, 'ready.pid'),
+      customStopPidPath,
       path.join(smokeRoot, 'custom-stop.used')
+    )
+  });
+  await saveProject(api.provider, {
+    name: 'Delayed smoke project',
+    folder: projectFolder(workspacePath, 'delayed'),
+    startCommand: command(
+      nodePath,
+      fixturePath,
+      smokeRoot,
+      String(delayedPort),
+      '',
+      '',
+      '1000',
+      delayedPidPath
     ),
-    services: [{ name: 'web', port: String(port), url: '' }]
+    services: [{ name: 'delayed web', port: String(delayedPort), url: '' }]
+  });
+  await saveProject(api.provider, {
+    name: 'External conflict smoke project',
+    folder: projectFolder(workspacePath, 'external-conflict'),
+    startCommand: command(
+      nodePath,
+      failurePath,
+      path.join(smokeRoot, 'external-conflict-started.pid')
+    ),
+    services: [{ name: 'external web', port: String(externalPort), url: '' }]
+  });
+  await saveProject(api.provider, {
+    name: 'Handoff source smoke project',
+    folder: projectFolder(workspacePath, 'handoff-source'),
+    startCommand: command(
+      nodePath,
+      fixturePath,
+      smokeRoot,
+      String(handoffPort),
+      '',
+      '',
+      '0',
+      path.join(smokeRoot, 'handoff-source.pid')
+    ),
+    services: [{ name: 'shared web', port: String(handoffPort), url: '' }]
+  });
+  await saveProject(api.provider, {
+    name: 'Handoff target smoke project',
+    folder: projectFolder(workspacePath, 'handoff-target'),
+    startCommand: command(
+      nodePath,
+      fixturePath,
+      smokeRoot,
+      String(handoffPort),
+      '',
+      '',
+      '0',
+      path.join(smokeRoot, 'handoff-target.pid')
+    ),
+    services: [{ name: 'shared web', port: String(handoffPort), url: '' }]
   });
   await saveProject(api.provider, {
     name: 'Failure smoke project',
@@ -71,8 +147,13 @@ async function run() {
     'Reviewing the complete setup did not approve it.'
   );
 
-  assert.equal(api.provider.projects.length, 4, 'The setup phase did not retain every saved project.');
+  assert.equal(api.provider.projects.length, 9, 'The setup phase did not retain every saved project.');
   assert.equal(await api.provider.startProject(ready.id), true, 'The setup host did not start the reload fixture.');
+  assert.equal(
+    await api.provider.startProject(customStop.id),
+    true,
+    'The setup host did not start the custom Stop fixture.'
+  );
   await waitFor(
     async () => {
       await api.provider.refreshProjectStatuses();
@@ -86,7 +167,27 @@ async function run() {
     true,
     'The reload fixture did not report its process id.'
   );
-  process.stdout.write('Smoke setup, isolated storage, view opening, untrusted review, and live reload fixture passed.\n');
+  await waitFor(
+    () => fs.existsSync(path.join(smokeRoot, 'ready-child.pid'))
+      && fs.existsSync(path.join(smokeRoot, 'ready-grandchild.pid')),
+    'The reload fixture did not report its descendant process ids.'
+  );
+  await waitFor(
+    () => fs.existsSync(customStopPidPath),
+    'The custom Stop fixture did not report its process id.'
+  );
+  const fixturePids = [
+    path.join(smokeRoot, 'ready.pid'),
+    readyChildPidPath,
+    readyGrandchildPidPath,
+    customStopPidPath
+  ].map((pidPath) => Number(fs.readFileSync(pidPath, 'utf8')));
+  await api.provider.dispose();
+  await waitFor(
+    () => fixturePids.every((pid) => !processIsAlive(pid)),
+    'Awaited extension shutdown left a smoke fixture process running.'
+  );
+  process.stdout.write('Smoke setup, isolated storage, view opening, untrusted review, and awaited reload shutdown passed.\n');
 }
 
 async function saveProject(provider, input) {
@@ -117,6 +218,16 @@ function availablePort() {
   });
 }
 
+async function availableDistinctPort(usedPorts) {
+  while (true) {
+    const port = await availablePort();
+    if (!usedPorts.has(port)) {
+      usedPorts.add(port);
+      return port;
+    }
+  }
+}
+
 function assertInside(filePath, root, message) {
   const relative = path.relative(path.resolve(root), path.resolve(filePath));
   assert.ok(relative && !relative.startsWith('..') && !path.isAbsolute(relative), message);
@@ -131,6 +242,15 @@ async function waitFor(predicate, message, timeoutMs = 10000) {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   assert.fail(message);
+}
+
+function processIsAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === 'EPERM';
+  }
 }
 
 function requiredEnvironment(name) {
