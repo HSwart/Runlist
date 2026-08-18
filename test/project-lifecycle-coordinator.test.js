@@ -93,3 +93,30 @@ test('allows orphan recovery only when an explicit custom stop is configured', a
   host.projects[0].stopCommand = '';
   assert.equal(await lifecycle.restart('project-1'), false);
 });
+
+test('waits for every configured service port to close after a custom Stop', async () => {
+  let now = 0;
+  let checks = 0;
+  const lifecycle = new ProjectLifecycleCoordinator({}, {
+    now: () => now,
+    delay: async (milliseconds) => { now += milliseconds; },
+    servicePortStatus: async () => ({ anyOpen: checks++ < 2 })
+  });
+  const project = { services: [{ port: 4310 }] };
+
+  assert.equal(await lifecycle.waitUntilServicesStopped(project, 1000), true);
+  assert.equal(checks, 3);
+});
+
+test('reports when a successful custom Stop leaves a configured service open', async () => {
+  let now = 0;
+  const lifecycle = new ProjectLifecycleCoordinator({}, {
+    now: () => now,
+    delay: async (milliseconds) => { now += milliseconds; },
+    servicePortStatus: async () => ({ anyOpen: true })
+  });
+
+  assert.equal(await lifecycle.waitUntilServicesStopped({
+    services: [{ port: 4310 }]
+  }, 200), false);
+});

@@ -2,6 +2,9 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+const OWNER_HEARTBEAT_TIMEOUT_MS = 10000;
+const INVALID_RECORD_GRACE_MS = 2000;
+
 function servicePorts(project) {
   return [...new Set((project?.services || [])
     .map((service) => service.port)
@@ -37,6 +40,9 @@ class PortReservationStore {
     this.directory = directory;
     this.pid = options.pid || process.pid;
     this.isProcessAlive = options.isProcessAlive || processIsAlive;
+    this.now = options.now || Date.now;
+    this.ownerHeartbeatTimeoutMs = options.ownerHeartbeatTimeoutMs ?? OWNER_HEARTBEAT_TIMEOUT_MS;
+    this.invalidRecordGraceMs = options.invalidRecordGraceMs ?? INVALID_RECORD_GRACE_MS;
     this.locks = new Map();
     fs.mkdirSync(directory, { recursive: true });
     this.removeStaleLocks();
@@ -63,9 +69,12 @@ class PortReservationStore {
       const lockPath = this.lockPath(port);
       const lock = readLock(lockPath);
       if (!lock) {
+        if (invalidRecordIsStale(lockPath, this.invalidRecordGraceMs, this.now())) {
+          tryUnlink(lockPath);
+        }
         continue;
       }
-      if (!lock.projectId || !lock.pid || !this.isProcessAlive(lock.pid)) {
+      if (!lock.projectId || !lock.pid || !this.lockOwnerIsAlive(lock)) {
         tryUnlink(lockPath);
         continue;
       }
@@ -104,20 +113,48 @@ class PortReservationStore {
       const lockPath = path.join(this.directory, filename);
       const lock = readLock(lockPath);
       if (lock?.projectId === projectId) {
-        fs.writeFileSync(lockPath, JSON.stringify({ ...lock, state }), { mode: 0o600 });
+        writeJsonAtomically(lockPath, { ...lock, heartbeatAt: this.now(), state });
       }
     }
+  }
+
+  setProcess(projectId, childPid, childIdentity) {
+    let updated = 0;
+    for (const filename of this.lockFiles()) {
+      const lockPath = path.join(this.directory, filename);
+      const lock = readLock(lockPath);
+      if (lock?.projectId === projectId) {
+        writeJsonAtomically(lockPath, {
+          ...lock,
+          heartbeatAt: this.now(),
+          childPid,
+          ...(typeof childIdentity === 'string' ? { childIdentity } : {})
+        });
+        updated += 1;
+      }
+    }
+    return updated;
   }
 
   snapshot() {
     const projects = new Map();
     for (const filename of this.lockFiles()) {
       const lockPath = path.join(this.directory, filename);
-      const lock = readLock(lockPath);
+      let lock = readLock(lockPath);
       if (!lock) {
+        if (invalidRecordIsStale(lockPath, this.invalidRecordGraceMs, this.now())) {
+          tryUnlink(lockPath);
+        }
         continue;
       }
-      if (!lock.projectId || !lock.pid || !this.isProcessAlive(lock.pid)) {
+      const local = this.locks.get(Number(filename.match(/\d+/)?.[0]));
+      if (local?.token === lock.token
+        && this.now() - (lock.heartbeatAt || 0) >= 1000) {
+        const updated = { ...lock, heartbeatAt: this.now() };
+        writeJsonAtomically(lockPath, updated);
+        lock = updated;
+      }
+      if (!lock.projectId || !lock.pid || !this.lockOwnerIsAlive(lock)) {
         tryUnlink(lockPath);
         continue;
       }
@@ -134,30 +171,38 @@ class PortReservationStore {
 
   acquire(port, projectId) {
     const lockPath = this.lockPath(port);
-    const token = crypto.randomUUID();
-    let descriptor;
-    try {
-      descriptor = fs.openSync(lockPath, 'wx');
-      fs.writeFileSync(descriptor, JSON.stringify({
-        pid: this.pid,
-        projectId,
-        state: 'starting',
-        token
-      }));
-    } catch (error) {
-      if (descriptor !== undefined) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const token = crypto.randomUUID();
+      let descriptor;
+      try {
+        descriptor = fs.openSync(lockPath, 'wx');
+        fs.writeFileSync(descriptor, JSON.stringify({
+          pid: this.pid,
+          projectId,
+          state: 'starting',
+          heartbeatAt: this.now(),
+          token
+        }));
         fs.closeSync(descriptor);
-        tryUnlink(lockPath);
+        this.locks.set(port, { projectId, token });
+        return undefined;
+      } catch (error) {
+        if (descriptor !== undefined) {
+          fs.closeSync(descriptor);
+          tryUnlink(lockPath);
+        }
+        if (error.code !== 'EEXIST') {
+          throw error;
+        }
+        const owner = readLock(lockPath);
+        if (!owner && invalidRecordIsStale(lockPath, this.invalidRecordGraceMs, this.now())) {
+          tryUnlink(lockPath);
+          continue;
+        }
+        return { port, projectId: owner?.projectId };
       }
-      if (error.code !== 'EEXIST') {
-        throw error;
-      }
-      const owner = readLock(lockPath);
-      return { port, projectId: owner?.projectId };
     }
-    fs.closeSync(descriptor);
-    this.locks.set(port, { projectId, token });
-    return undefined;
+    return { port, projectId: undefined };
   }
 
   releasePort(port) {
@@ -176,11 +221,24 @@ class PortReservationStore {
     for (const filename of this.lockFiles()) {
       const lockPath = path.join(this.directory, filename);
       const lock = readLock(lockPath);
-      if (!lock || (lock.pid && this.isProcessAlive(lock.pid))) {
+      if (!lock) {
+        if (invalidRecordIsStale(lockPath, this.invalidRecordGraceMs, this.now())) {
+          tryUnlink(lockPath);
+        }
+        continue;
+      }
+      if (lock.pid && this.lockOwnerIsAlive(lock)) {
         continue;
       }
       tryUnlink(lockPath);
     }
+  }
+
+  lockOwnerIsAlive(lock) {
+    const heartbeatCurrent = !Number.isFinite(lock.heartbeatAt)
+      || this.now() - lock.heartbeatAt <= this.ownerHeartbeatTimeoutMs;
+    return Boolean((lock.pid && heartbeatCurrent && this.isProcessAlive(lock.pid))
+      || (lock.childPid && this.isProcessAlive(lock.childPid)));
   }
 
   lockFiles() {
@@ -198,6 +256,20 @@ function readLock(lockPath) {
   } catch {
     return undefined;
   }
+}
+
+function invalidRecordIsStale(filePath, graceMs, now) {
+  try {
+    return now - fs.statSync(filePath).mtimeMs >= graceMs;
+  } catch {
+    return false;
+  }
+}
+
+function writeJsonAtomically(filePath, value) {
+  const temporaryPath = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  fs.writeFileSync(temporaryPath, JSON.stringify(value), { mode: 0o600 });
+  fs.renameSync(temporaryPath, filePath);
 }
 
 function tryUnlink(lockPath) {

@@ -55,7 +55,10 @@ const {
   cleanupTrackedProcessForDeletion,
   customStopSpawnOptions,
   ProcessOwnershipStore,
+  projectStopStrategy,
   projectProcessSpawnOptions,
+  recordStartedProcess,
+  rollbackStartedProcess,
   shutdownTrackedProcesses,
   shouldRequestRemoteCustomStop,
   startExitFailed,
@@ -1704,30 +1707,17 @@ class RunlistViewProvider {
       });
 
       this.processes.set(id, child);
-      if (!hasServices) {
-        this.projectAttemptMetadata.get(id).readyAt = launchedAt;
-      }
-      this.projectMetrics.delete(id);
-      this.ownedProcessMetrics.track(id, child.pid);
-      this.processOwnership.setProcess(id, child.pid, {
-        state: hasServices ? 'starting' : 'running',
-        readinessDeadline,
-        launchedAt,
-        ...(hasServices ? {} : { readyAt: launchedAt })
-      });
-      this.projectRuntime = this.processOwnership.snapshot();
-      this.startAttempts.delete(id);
-      this.portReservations.setState(id, hasServices ? 'starting' : 'running');
-      this.statusRevision += 1;
       listenToProjectOutput(child, (chunk) => this.addProjectOutput(id, chunk));
       child.once('error', (error) => {
+        if (this.processes.get(id) !== child) {
+          return;
+        }
         this.statusRevision += 1;
         this.processes.delete(id);
         this.forgetProjectMetrics(id);
         this.projectRuntime.delete(id);
         this.managedProjectIds.delete(id);
         this.processOwnership.release(id);
-        this.portReservations.releaseShared(id);
         this.releaseStartReservation(id);
         this.projectStatuses.set(id, 'stopped');
         this.startReadinessDeadlines.delete(id);
@@ -1745,7 +1735,6 @@ class RunlistViewProvider {
           this.projectRuntime.delete(id);
           this.processOwnership.release(id);
           this.managedProjectIds.delete(id);
-          this.portReservations.releaseShared(id);
           this.releaseStartReservation(id);
           this.projectStatuses.set(id, 'stopped');
           this.startReadinessDeadlines.delete(id);
@@ -1760,18 +1749,49 @@ class RunlistViewProvider {
           this.refreshProjectStatuses();
         }
       });
+      if (!hasServices) {
+        this.projectAttemptMetadata.get(id).readyAt = launchedAt;
+      }
+      this.projectMetrics.delete(id);
+      this.ownedProcessMetrics.track(id, child.pid);
+      void recordStartedProcess(this.processOwnership, this.portReservations, project, child, {
+        state: hasServices ? 'starting' : 'running',
+        readinessDeadline,
+        launchedAt,
+        ...(hasServices ? {} : { readyAt: launchedAt })
+      });
+      this.projectRuntime = this.processOwnership.snapshot();
+      this.startAttempts.delete(id);
+      this.portReservations.setState(id, hasServices ? 'starting' : 'running');
+      this.statusRevision += 1;
       this.renderProjectList();
       return true;
     } catch (error) {
       this.statusRevision += 1;
-      this.managedProjectIds.delete(id);
-      this.processOwnership.release(id);
-      this.portReservations.releaseShared(id);
-      this.releaseStartReservation(id);
-      this.projectStatuses.set(id, 'stopped');
+      this.startAttempts.delete(id);
+      const rollback = await rollbackStartedProcess(
+        this.processes,
+        id,
+        this.processOwnership,
+        this.portReservations
+      );
+      if (rollback.stopped) {
+        this.forgetProjectMetrics(id);
+        this.projectRuntime.delete(id);
+        this.managedProjectIds.delete(id);
+        this.projectStatuses.set(id, 'stopped');
+      } else {
+        const state = project.services?.length ? 'not-ready' : 'running';
+        this.processOwnership.setState(id, state);
+        this.portReservations.setState(id, state);
+        this.projectRuntime = this.processOwnership.snapshot();
+        this.projectStatuses.set(id, state);
+      }
       this.startReadinessDeadlines.delete(id);
       this.readinessWarnings.delete(id);
-      this.showStartFailure(project, error.message);
+      this.showStartFailure(project, rollback.stopped
+        ? error.message
+        : `${error.message} Runlist also could not confirm cleanup: ${rollback.error.message}`);
       this.renderProjectList();
       return false;
     }
@@ -1810,6 +1830,7 @@ class RunlistViewProvider {
     }
 
     const sharedOwnership = this.processOwnership.snapshot().get(id);
+    const stopProject = projectStopStrategy(project, sharedOwnership);
     if (options.expectedOwnershipToken
       && sharedOwnership?.token !== options.expectedOwnershipToken) {
       vscode.window.showErrorMessage(
@@ -1820,35 +1841,45 @@ class RunlistViewProvider {
     const locallyOwnedWithoutHandle = sharedOwnership
       && this.processOwnership.owns(id, sharedOwnership.childPid);
     if (shouldRequestRemoteCustomStop(
-      project,
+      stopProject,
       sharedOwnership,
       this.processes.has(id),
       locallyOwnedWithoutHandle
     )) {
-      return this.stopOwnedProjectProcess(id, project, options);
+      return this.stopOwnedProjectProcess(id, stopProject, options);
     }
 
-    if (project.stopCommand) {
-      const customStopSucceeded = await this.runCustomStopCommand(project);
+    if (stopProject.stopCommand) {
+      const customStopSucceeded = await this.runCustomStopCommand(stopProject);
       if (!customStopSucceeded) {
         return false;
       }
       const remainingOwnership = this.processOwnership.snapshot().get(id);
       const stillOwned = this.processes.has(id) || Boolean(remainingOwnership?.processActive);
-      if (stillOwned && !await this.waitForProjectStopCompletion(id, CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS)) {
+      const [ownershipStopped, servicesStopped] = await Promise.all([
+        stillOwned
+          ? this.waitForProjectStopCompletion(id, CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS)
+          : true,
+        this.lifecycle.waitUntilServicesStopped(stopProject, CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS)
+      ]);
+      if (!ownershipStopped || !servicesStopped) {
         vscode.window.showErrorMessage(
-          `Could not stop ${project.name}: the custom stop command finished, but the launched process is still running.`
+          `Could not stop ${stopProject.name}: the custom stop command finished, but ${
+            !ownershipStopped && !servicesStopped
+              ? 'the launched process and configured services are still running.'
+              : !ownershipStopped
+                ? 'the launched process is still running.'
+                : 'one or more configured services are still running.'
+          }`
         );
         this.finishStopping(id, false);
         return false;
       }
-      if (!stillOwned) {
-        this.finishStopping(id, true);
-      }
+      this.finishStopping(id, true);
       return true;
     }
 
-    return this.stopOwnedProjectProcess(id, project, options);
+    return this.stopOwnedProjectProcess(id, stopProject, options);
   }
 
   async restartProject(id) {
@@ -2125,6 +2156,9 @@ class RunlistViewProvider {
       const locallyOwned = this.processes.has(project.id);
       return {
         ...project,
+        stopCommand: typeof runtime?.stopCommand === 'string'
+          ? runtime.stopCommand
+          : project.stopCommand,
         pinned: project.pinned === true,
         openPorts,
         portConflict: this.projectPortConflicts.get(project.id),
@@ -2442,6 +2476,10 @@ function installMcpBridge(context) {
   fs.copyFileSync(
     vscode.Uri.joinPath(context.extensionUri, 'project-process.js').fsPath,
     path.join(storageRoot, 'project-process.js')
+  );
+  fs.copyFileSync(
+    vscode.Uri.joinPath(context.extensionUri, 'process-metrics.js').fsPath,
+    path.join(storageRoot, 'process-metrics.js')
   );
   fs.copyFileSync(
     vscode.Uri.joinPath(context.extensionUri, 'project-output.js').fsPath,

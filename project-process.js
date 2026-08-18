@@ -2,6 +2,10 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { readRootProcess } = require('./process-metrics');
+
+const OWNER_HEARTBEAT_TIMEOUT_MS = 10000;
+const INVALID_RECORD_GRACE_MS = 2000;
 
 function projectProcessSpawnOptions(platform = process.platform) {
   return platform === 'win32'
@@ -65,11 +69,36 @@ async function terminateTrackedProcess(processes, id, options = {}) {
     return false;
   }
 
+  const readIdentity = options.readProcessIdentity || readProcessIdentity;
+  const identityRequired = Object.prototype.hasOwnProperty.call(child, 'runlistIdentity');
+  const expectedIdentity = await promisedIdentity(child.runlistIdentity);
+  if (identityRequired
+    && !expectedIdentity
+    && child.exitCode == null
+    && child.signalCode == null) {
+    throw new Error('Runlist could not verify the launched process identity.');
+  }
+  if (expectedIdentity) {
+    const currentIdentity = await readIdentity(child.pid, options.platform || process.platform);
+    if (currentIdentity && currentIdentity !== expectedIdentity) {
+      throw new Error('Runlist did not stop the process because its process identity changed.');
+    }
+    if (!currentIdentity && child.exitCode === null && child.signalCode === null) {
+      throw new Error('Runlist could not verify the launched process identity.');
+    }
+  }
+
   processes.delete(id);
   try {
     await terminateProcessTree(child.pid, options);
   } catch (error) {
     if (child.exitCode !== null || child.signalCode !== null) {
+      if (expectedIdentity) {
+        const currentIdentity = await readIdentity(child.pid, options.platform || process.platform);
+        if (!currentIdentity) {
+          return true;
+        }
+      }
       if (error.code === 'EPERM') {
         return true;
       }
@@ -97,6 +126,61 @@ function shouldRequestRemoteCustomStop(project, ownership, hasLocalProcess, loca
     && ownership?.ownerAvailable
     && !hasLocalProcess
     && !locallyOwnedWithoutHandle);
+}
+
+function projectStopStrategy(project, ownership) {
+  if (!project || !ownership) {
+    return project;
+  }
+  return {
+    ...project,
+    ...(typeof ownership.cwd === 'string' ? { folder: ownership.cwd } : {}),
+    ...(typeof ownership.stopCommand === 'string'
+      ? { stopCommand: ownership.stopCommand }
+      : {})
+  };
+}
+
+function recordStartedProcess(processOwnership, portReservations, project, child, details = {}) {
+  const identity = processOwnership.trackProcessIdentity(project.id, child.pid);
+  child.runlistIdentity = identity;
+  const recorded = processOwnership.setProcess(project.id, child.pid, {
+    ...details,
+    cwd: project.folder,
+    identityRequired: true,
+    stopCommand: project.stopCommand || ''
+  });
+  if (!recorded) {
+    throw new Error('Runlist lost process ownership while recording the launched process.');
+  }
+
+  const recordedPorts = portReservations.setProcess(project.id, child.pid);
+  const expectedPorts = new Set((project.services || [])
+    .map((service) => service.port)
+    .filter((port) => Number.isInteger(port))).size;
+  if (recordedPorts !== expectedPorts) {
+    throw new Error('Runlist lost a port reservation while recording the launched process.');
+  }
+  void identity.then((value) => {
+    if (value) {
+      portReservations.setProcess(project.id, child.pid, value);
+    }
+  }).catch(() => undefined);
+  return identity;
+}
+
+async function rollbackStartedProcess(processes, id, processOwnership, portReservations, options = {}) {
+  const terminate = options.terminateTrackedProcess || terminateTrackedProcess;
+  try {
+    if (processes.has(id)) {
+      await terminate(processes, id, options.terminationOptions || {});
+    }
+  } catch (error) {
+    return { stopped: false, error };
+  }
+  processOwnership.release(id);
+  portReservations.release(id);
+  return { stopped: true };
 }
 
 async function restartProjectSafely(restartingProjectIds, id, actions) {
@@ -198,7 +282,12 @@ class ProcessOwnershipStore {
     this.pid = options.pid || process.pid;
     this.platform = options.platform || process.platform;
     this.isProcessAlive = options.isProcessAlive || processIsAlive;
+    this.readProcessIdentity = options.readProcessIdentity || readProcessIdentity;
+    this.now = options.now || Date.now;
+    this.ownerHeartbeatTimeoutMs = options.ownerHeartbeatTimeoutMs ?? OWNER_HEARTBEAT_TIMEOUT_MS;
+    this.invalidRecordGraceMs = options.invalidRecordGraceMs ?? INVALID_RECORD_GRACE_MS;
     this.owned = new Map();
+    this.pendingProcessIdentities = new Map();
     fs.mkdirSync(directory, { recursive: true });
   }
 
@@ -214,6 +303,7 @@ class ProcessOwnershipStore {
           hostPid: this.pid,
           platform: this.platform,
           state: 'starting',
+          heartbeatAt: this.now(),
           token
         };
         fs.writeFileSync(descriptor, JSON.stringify(ownership));
@@ -233,9 +323,13 @@ class ProcessOwnershipStore {
 
       const existing = readJson(ownershipPath);
       if (!validOwnership(existing, projectId)) {
+        if (invalidRecordIsStale(ownershipPath, this.invalidRecordGraceMs, this.now())) {
+          tryUnlink(ownershipPath);
+          continue;
+        }
         return { kind: 'uncertain' };
       }
-      const hostAlive = this.isProcessAlive(existing.hostPid);
+      const hostAlive = this.ownerIsAvailable(existing);
       const processAlive = existing.childPid && this.isProcessAlive(existing.childPid);
       if (hostAlive || processAlive) {
         return {
@@ -250,7 +344,7 @@ class ProcessOwnershipStore {
   }
 
   setProcess(projectId, childPid, details = {}) {
-    this.updateOwned(projectId, (ownership) => ({
+    return this.updateOwned(projectId, (ownership) => ({
       ...ownership,
       childPid,
       ...(Number.isFinite(details.launchedAt)
@@ -262,8 +356,44 @@ class ProcessOwnershipStore {
       ...(Number.isFinite(details.readyAt)
         ? { readyAt: details.readyAt }
         : {}),
+      ...(typeof details.cwd === 'string'
+        ? { cwd: details.cwd }
+        : {}),
+      ...(typeof details.stopCommand === 'string'
+        ? { stopCommand: details.stopCommand }
+        : {}),
+      ...(typeof details.childIdentity === 'string'
+        ? { childIdentity: details.childIdentity }
+        : {}),
+      ...(details.identityRequired === true
+        ? { identityRequired: true }
+        : {}),
       state: details.state || 'running'
     }));
+  }
+
+  async trackProcessIdentity(projectId, childPid) {
+    const tracked = {
+      childPid,
+      promise: Promise.resolve(this.readProcessIdentity(childPid, this.platform))
+        .catch(() => undefined)
+    };
+    this.pendingProcessIdentities.set(projectId, tracked);
+    const identity = await tracked.promise;
+    if (this.pendingProcessIdentities.get(projectId) === tracked) {
+      this.pendingProcessIdentities.delete(projectId);
+    }
+    if (identity && this.owns(projectId, childPid)) {
+      try {
+        this.updateOwned(projectId, (ownership) => ({
+          ...ownership,
+          childIdentity: identity
+        }));
+      } catch {
+        return identity;
+      }
+    }
+    return identity;
   }
 
   setState(projectId, state, details = {}) {
@@ -303,6 +433,24 @@ class ProcessOwnershipStore {
       return true;
     }
 
+    const pendingIdentity = this.pendingProcessIdentities.get(projectId);
+    const expectedIdentity = current.childIdentity
+      || (pendingIdentity?.childPid === current.childPid
+        ? await pendingIdentity.promise
+        : undefined);
+    if (current.identityRequired && !expectedIdentity) {
+      throw new Error('Runlist could not verify the launched process identity.');
+    }
+    if (expectedIdentity) {
+      const identity = await (options.readProcessIdentity || this.readProcessIdentity)(
+        current.childPid,
+        this.platform
+      );
+      if (identity !== expectedIdentity) {
+        throw new Error('Runlist did not stop the process because its process identity changed.');
+      }
+    }
+
     try {
       await terminateProcessTree(current.childPid, {
         platform: this.platform,
@@ -328,6 +476,7 @@ class ProcessOwnershipStore {
       tryUnlink(this.stopRequestPath(projectId));
     }
     this.owned.delete(projectId);
+    this.pendingProcessIdentities.delete(projectId);
     return true;
   }
 
@@ -335,11 +484,21 @@ class ProcessOwnershipStore {
     const projects = new Map();
     for (const filename of fs.readdirSync(this.directory).filter((name) => name.endsWith('.json'))) {
       const ownershipPath = path.join(this.directory, filename);
-      const ownership = readJson(ownershipPath);
+      let ownership = readJson(ownershipPath);
       if (!validOwnership(ownership)) {
+        if (invalidRecordIsStale(ownershipPath, this.invalidRecordGraceMs, this.now())) {
+          tryUnlink(ownershipPath);
+        }
         continue;
       }
-      const hostAlive = this.isProcessAlive(ownership.hostPid);
+      const local = this.owned.get(ownership.projectId);
+      if (local?.token === ownership.token
+        && this.now() - (ownership.heartbeatAt || 0) >= 1000) {
+        const updated = { ...ownership, heartbeatAt: this.now() };
+        writeJsonAtomically(ownershipPath, updated);
+        ownership = updated;
+      }
+      const hostAlive = this.ownerIsAvailable(ownership);
       const processAlive = ownership.childPid && this.isProcessAlive(ownership.childPid);
       if (!hostAlive && !processAlive) {
         tryUnlink(ownershipPath);
@@ -368,24 +527,32 @@ class ProcessOwnershipStore {
     if (ownership.hostPid === this.pid && this.owned.get(projectId)?.token === ownership.token) {
       return { kind: 'local' };
     }
-    if (!this.isProcessAlive(ownership.hostPid)) {
+    if (!this.ownerIsAvailable(ownership)) {
       return { kind: 'uncertain' };
     }
 
     const requestPath = this.stopRequestPath(projectId);
-    try {
-      fs.writeFileSync(requestPath, JSON.stringify({
-        projectId,
-        requesterPid: this.pid,
-        requestedAt: Date.now(),
-        token: ownership.token
-      }), { flag: 'wx', mode: 0o600 });
-    } catch (error) {
-      if (error.code !== 'EEXIST') {
-        throw error;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        fs.writeFileSync(requestPath, JSON.stringify({
+          projectId,
+          requesterPid: this.pid,
+          requestedAt: this.now(),
+          token: ownership.token
+        }), { flag: 'wx', mode: 0o600 });
+        return { kind: 'requested' };
+      } catch (error) {
+        if (error.code !== 'EEXIST') {
+          throw error;
+        }
+        const existingRequest = readJson(requestPath);
+        if (existingRequest?.token === ownership.token) {
+          return { kind: 'requested' };
+        }
+        tryUnlink(requestPath);
       }
     }
-    return { kind: 'requested' };
+    return { kind: 'uncertain' };
   }
 
   cancelStopRequest(projectId) {
@@ -424,8 +591,17 @@ class ProcessOwnershipStore {
       this.owned.delete(projectId);
       return false;
     }
-    writeJsonAtomically(owned.ownershipPath, update(current));
+    writeJsonAtomically(owned.ownershipPath, {
+      ...update(current),
+      heartbeatAt: this.now()
+    });
     return true;
+  }
+
+  ownerIsAvailable(ownership) {
+    const heartbeatCurrent = !Number.isFinite(ownership.heartbeatAt)
+      || this.now() - ownership.heartbeatAt <= this.ownerHeartbeatTimeoutMs;
+    return heartbeatCurrent && this.isProcessAlive(ownership.hostPid);
   }
 
   ownershipPath(projectId) {
@@ -464,6 +640,14 @@ function readJson(filePath) {
   }
 }
 
+function invalidRecordIsStale(filePath, graceMs, now) {
+  try {
+    return now - fs.statSync(filePath).mtimeMs >= graceMs;
+  } catch {
+    return false;
+  }
+}
+
 function tryUnlink(filePath) {
   try {
     fs.unlinkSync(filePath);
@@ -480,6 +664,22 @@ function processIsAlive(pid) {
     return true;
   } catch (error) {
     return error.code === 'EPERM';
+  }
+}
+
+async function readProcessIdentity(pid, platform = process.platform) {
+  try {
+    return (await readRootProcess(pid, platform))?.identity;
+  } catch {
+    return undefined;
+  }
+}
+
+async function promisedIdentity(value) {
+  try {
+    return await Promise.resolve(value);
+  } catch {
+    return undefined;
   }
 }
 
@@ -500,8 +700,11 @@ module.exports = {
   customStopSpawnOptions,
   handoffProjectSafely,
   ProcessOwnershipStore,
+  projectStopStrategy,
   projectProcessSpawnOptions,
+  recordStartedProcess,
   restartProjectSafely,
+  rollbackStartedProcess,
   shutdownTrackedProcesses,
   shouldRequestRemoteCustomStop,
   startExitFailed,

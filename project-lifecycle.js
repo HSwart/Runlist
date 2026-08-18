@@ -1,6 +1,7 @@
 const { occupiedPortsBelongToProject } = require('./port-gate');
 const {
   handoffProjectSafely,
+  projectStopStrategy,
   restartProjectSafely
 } = require('./project-process');
 const { stoppableProjectIds } = require('./project-status');
@@ -16,6 +17,7 @@ class ProjectLifecycleCoordinator {
     this.host = host;
     this.showWarningMessage = options.showWarningMessage || (() => undefined);
     this.showErrorMessage = options.showErrorMessage || (() => undefined);
+    this.now = options.now || Date.now;
     this.delay = options.delay || ((milliseconds) => new Promise((resolve) => (
       setTimeout(resolve, milliseconds)
     )));
@@ -77,8 +79,12 @@ class ProjectLifecycleCoordinator {
       coordinator: this.host.runGroupCoordinator,
       isOwned: (projectId) => {
         const project = this.host.projects.find((candidate) => candidate.id === projectId);
-        return Boolean(project && stoppableProjectIds([{
-          ...project,
+        const runtimeProject = projectStopStrategy(
+          project,
+          this.host.processOwnership.snapshot().get(projectId)
+        );
+        return Boolean(runtimeProject && stoppableProjectIds([{
+          ...runtimeProject,
           status: this.host.getProjectStatus(projectId)
         }]).length);
       },
@@ -134,6 +140,23 @@ class ProjectLifecycleCoordinator {
     this.host.managedProjectIds.delete(id);
     this.host.projectStatuses.set(id, 'stopped');
     return true;
+  }
+
+  async waitUntilServicesStopped(project, timeoutMs = 20000) {
+    if (!project?.services?.length) {
+      return true;
+    }
+    const deadline = this.now() + timeoutMs;
+    while (true) {
+      const status = await this.servicePortStatus(project.services);
+      if (!status.anyOpen) {
+        return true;
+      }
+      if (this.now() >= deadline) {
+        return false;
+      }
+      await this.delay(100);
+    }
   }
 
   async handoff(id) {
@@ -227,6 +250,10 @@ class ProjectLifecycleCoordinator {
     if (!project) {
       return false;
     }
+    const runtimeProject = projectStopStrategy(
+      project,
+      this.host.processOwnership.snapshot().get(id)
+    );
     return restartProjectSafely(this.host.restartingProjectIds, id, {
       canRestart: () => {
         const status = this.host.getProjectStatus(id);
@@ -234,22 +261,23 @@ class ProjectLifecycleCoordinator {
           || this.host.portReservations.snapshot().get(id);
         return ['running', 'not-ready', 'not-responding', 'ownership-lost', 'active']
           .includes(status)
-          && (!['active', 'ownership-lost'].includes(status) || Boolean(project.stopCommand))
+          && (!['active', 'ownership-lost'].includes(status) || Boolean(runtimeProject.stopCommand))
           && !['starting', 'stopping'].includes(sharedState);
       },
-      stop: () => this.host.stopProject(id),
+      stop: () => this.host.stopProject(id, runtimeProject),
       waitForStop: () => this.host.waitForProjectStopCompletion(id),
       start: () => this.host.startProject(id)
     });
   }
 
   stopAll() {
+    const ownership = this.host.processOwnership.snapshot();
     const projects = this.host.projects.map((project) => ({
-      ...project,
+      ...projectStopStrategy(project, ownership.get(project.id)),
       status: this.host.getProjectStatus(project.id)
     }));
     for (const id of stoppableProjectIds(projects)) {
-      void this.host.stopProject(id);
+      void this.host.stopProject(id, projects.find((project) => project.id === id));
     }
   }
 }

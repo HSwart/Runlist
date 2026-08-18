@@ -39,6 +39,10 @@ test('serves the setup tool over MCP stdio', async (t) => {
     path.join(installedRoot, 'project-process.js')
   );
   fs.copyFileSync(
+    path.join(__dirname, '..', 'process-metrics.js'),
+    path.join(installedRoot, 'process-metrics.js')
+  );
+  fs.copyFileSync(
     path.join(__dirname, '..', 'project-output.js'),
     path.join(installedRoot, 'project-output.js')
   );

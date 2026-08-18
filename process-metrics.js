@@ -80,7 +80,7 @@ class OwnedProcessMetrics {
 async function readRootProcess(pid, platform = process.platform, options = {}) {
   const rows = platform === 'win32'
     ? await readWindowsProcesses(pid, false, options)
-    : await readPosixProcesses([pid], pid, options);
+    : await readPosixProcesses([pid], undefined, options);
   return rows.find((row) => row.pid === pid);
 }
 
@@ -125,7 +125,8 @@ async function readPosixProcesses(pids, processGroupId, options = {}) {
   ], commandOptions(options));
   return String(output).split(/\r?\n/)
     .map(parsePosixProcess)
-    .filter((row) => row && row.processGroupId === processGroupId);
+    .filter((row) => row
+      && (processGroupId === undefined || row.processGroupId === processGroupId));
 }
 
 function parsePosixProcess(line) {
@@ -252,6 +253,7 @@ module.exports = {
   parseCpuTime,
   parsePosixProcess,
   parseWindowsProcessOutput,
+  readRootProcess,
   readOwnedProcessTree,
   windowsProcessScript
 };

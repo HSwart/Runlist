@@ -133,6 +133,78 @@ test('removes abandoned locks without deleting another host lock', (t) => {
   currentHost.dispose();
 });
 
+test('keeps a reservation after the extension host crashes while its child is alive', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-child-port-gate-'));
+  const alive = new Set([101, 303]);
+  const isProcessAlive = (pid) => alive.has(pid);
+  const owner = new PortReservationStore(directory, { pid: 101, isProcessAlive });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  assert.equal(owner.reserve(projects[0]), undefined);
+  owner.setProcess('alpha', 303, '303:original');
+  alive.delete(101);
+
+  const observer = new PortReservationStore(directory, { pid: 202, isProcessAlive });
+  assert.equal(observer.snapshot().get('alpha'), 'starting');
+  assert.deepEqual(observer.conflicts(projects[1]), [{ port: 3000, projectId: 'alpha' }]);
+  assert.deepEqual(observer.reserve(projects[1]), { port: 3000, projectId: 'alpha' });
+
+  alive.delete(303);
+  assert.equal(observer.snapshot().has('alpha'), false);
+  assert.equal(observer.reserve(projects[1]), undefined);
+});
+
+test('expires a reservation after a reused host PID stops heartbeating', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-port-heartbeat-'));
+  let now = 1000;
+  const isProcessAlive = (pid) => pid === 101;
+  const owner = new PortReservationStore(directory, {
+    pid: 101,
+    now: () => now,
+    ownerHeartbeatTimeoutMs: 5000,
+    isProcessAlive
+  });
+  const observer = new PortReservationStore(directory, {
+    pid: 202,
+    now: () => now,
+    ownerHeartbeatTimeoutMs: 5000,
+    isProcessAlive
+  });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  owner.reserve(projects[0]);
+  assert.equal(observer.snapshot().get('alpha'), 'starting');
+
+  now = 7001;
+  assert.equal(observer.snapshot().has('alpha'), false);
+  assert.equal(observer.reserve(projects[1]), undefined);
+});
+
+test('recovers old corrupt coordination records without deleting fresh partial writes', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-corrupt-port-gate-'));
+  const lockPath = path.join(directory, 'port-3000.lock');
+  fs.writeFileSync(lockPath, '{');
+  const old = new Date(Date.now() - 10000);
+  fs.utimesSync(lockPath, old, old);
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  const reservations = new PortReservationStore(directory, {
+    pid: 202,
+    invalidRecordGraceMs: 1000,
+    isProcessAlive: () => false
+  });
+  assert.equal(reservations.reserve(projects[0]), undefined);
+
+  reservations.dispose();
+  fs.writeFileSync(lockPath, '{');
+  const observer = new PortReservationStore(directory, {
+    pid: 303,
+    invalidRecordGraceMs: 1000,
+    isProcessAlive: () => false
+  });
+  assert.deepEqual(observer.reserve(projects[0]), { port: 3000, projectId: undefined });
+});
+
 test('prioritizes managed ownership over ambiguous and unknown listeners', () => {
   const managed = occupiedPortConflict({
     project: projects[1],
