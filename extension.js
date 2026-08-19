@@ -37,6 +37,14 @@ const { previewFrameSources, projectPreviewService } = require('./preview-securi
 const { createPhoneHandoff } = require('./phone-handoff');
 const { OwnedProcessMetrics } = require('./process-metrics');
 const {
+  findListeningProcesses,
+  terminateListenerProcess
+} = require('./port-process');
+const {
+  portClosureConfirmation,
+  recoverProjectPorts
+} = require('./port-recovery');
+const {
   availableProjectDetailTabs,
   preferredProjectDetailTab
 } = require('./project-detail-tabs');
@@ -188,6 +196,7 @@ class RunlistViewProvider {
     this.readinessWarnings = new Set();
     this.restartingProjectIds = new Set();
     this.handoffProjectIds = new Set();
+    this.forceClosingProjectIds = new Set();
     this.stoppingProjectIds = new Set();
     this.remoteStopRequests = new Map();
     this.statusRefreshInFlight = false;
@@ -1863,6 +1872,113 @@ class RunlistViewProvider {
     return this.lifecycle.handoff(id);
   }
 
+  async forceCloseProjectPorts(id, intent) {
+    const project = this.projects.find((candidate) => candidate.id === id);
+    if (!project || project.reviewRequired || !['start', 'stop'].includes(intent)) {
+      return false;
+    }
+    if (this.forceClosingProjectIds.has(id)) {
+      return false;
+    }
+
+    const processRuntime = this.processOwnership.snapshot();
+    const relatedProjectIds = new Set(this.portReservations.conflicts(project)
+      .map((conflict) => conflict.projectId));
+    if (intent === 'stop') {
+      relatedProjectIds.add(id);
+    }
+    const additionalProcesses = [...relatedProjectIds].map((projectId) => {
+      const ownership = processRuntime.get(projectId);
+      if (ownership?.ownerAvailable !== false
+        || !ownership.processActive
+        || !Number.isInteger(ownership.childPid)
+        || typeof ownership.childIdentity !== 'string') {
+        return undefined;
+      }
+      const owner = this.projects.find((candidate) => candidate.id === projectId);
+      return {
+        pid: ownership.childPid,
+        identity: ownership.childIdentity,
+        name: owner ? `${owner.name} Runlist process` : 'Saved Runlist process',
+        ports: []
+      };
+    }).filter(Boolean);
+
+    this.forceClosingProjectIds.add(id);
+    this.focusTarget = { type: 'project-control', id };
+    this.renderProjectList();
+    try {
+      const result = await recoverProjectPorts(project, intent, {
+        additionalProcesses,
+        getOpenPorts: async (services) => (await servicePortStatus(services)).openPorts,
+        findListeningProcesses,
+        confirmPortClosure: async ({ openPorts, processes }) => {
+          const confirmation = portClosureConfirmation(project, intent, openPorts, processes);
+          const choice = await vscode.window.showWarningMessage(
+            confirmation.message,
+            { modal: true, detail: confirmation.detail },
+            confirmation.confirmLabel
+          );
+          return choice === confirmation.confirmLabel;
+        },
+        protectedPids: new Set([
+          process.pid,
+          process.platform === 'win32' ? 4 : 1
+        ]),
+        terminateListenerProcess: (processInfo, terminationOptions) => terminateListenerProcess(
+          processInfo,
+          terminationOptions
+        ),
+        waitForPortsClosed: (services) => this.lifecycle.waitUntilServicesStopped(
+          { ...project, services },
+          CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS
+        )
+      });
+
+      if (result.status === 'canceled') {
+        return false;
+      }
+      if (result.status === 'unresolved') {
+        vscode.window.showErrorMessage(
+          `Could not close ${project.name}'s ports: Runlist could not identify the exact process listening on ${formatPortList(result.ports)}.`
+        );
+        return false;
+      }
+      if (result.status === 'protected') {
+        vscode.window.showErrorMessage(
+          `Could not close ${project.name}'s ports because ${result.processes.join(', ')} is protected.`
+        );
+        return false;
+      }
+      if (result.status === 'changed') {
+        vscode.window.showWarningMessage(
+          `${project.name}'s port owner changed while the confirmation was open. Nothing was stopped; try again.`
+        );
+        return false;
+      }
+      if (result.status === 'still-open') {
+        vscode.window.showErrorMessage(
+          `Could not close ${project.name}'s ports: ${formatPortList(result.ports)} is still in use.`
+        );
+        return false;
+      }
+
+      await this.refreshProjectStatuses();
+      if (intent === 'start') {
+        return this.startProject(id, { allowPortConflict: true });
+      }
+      return true;
+    } catch (error) {
+      vscode.window.showErrorMessage(`Could not close ${project.name}'s ports: ${error.message}`);
+      return false;
+    } finally {
+      this.forceClosingProjectIds.delete(id);
+      this.focusTarget = { type: 'project-control', id };
+      this.renderProjectList();
+      void this.refreshProjectStatuses();
+    }
+  }
+
   async stopProject(id, projectSnapshot, options = {}) {
     return this.lifecycle.stop(id, projectSnapshot, options);
   }
@@ -2145,6 +2261,9 @@ class RunlistViewProvider {
     const messageRouterUri = this.view.webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'media', 'message-router.js')
     );
+    const projectActionsUri = this.view.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, 'media', 'project-actions.js')
+    );
     const nonce = crypto.randomBytes(16).toString('base64');
     this.webviewMessageToken = nonce;
     const projects = this.projects;
@@ -2252,6 +2371,7 @@ class RunlistViewProvider {
         status,
         timeline,
         detailsExpanded,
+        forceClosing: this.forceClosingProjectIds.has(project.id),
         handoffInProgress: this.handoffProjectIds.has(project.id),
         outputPeek,
         timelineExpanded: timelineVisible && detailsExpanded,
@@ -2366,6 +2486,7 @@ class RunlistViewProvider {
         <body>
           <main id="app"></main>
           <script nonce="${nonce}" src="${messageRouterUri}"></script>
+          <script nonce="${nonce}" src="${projectActionsUri}"></script>
           <script nonce="${nonce}">window.runlistState = ${safeJson(state)};</script>
           <script nonce="${nonce}" src="${scriptUri}"></script>
         </body>
@@ -2652,6 +2773,10 @@ function activate(context) {
   if (process.env.RUNLIST_EXTENSION_SMOKE === '1') {
     return { projectsFile, provider };
   }
+}
+
+function formatPortList(ports) {
+  return (ports || []).map((port) => `:${port}`).join(', ') || 'the configured ports';
 }
 
 function deactivate() {

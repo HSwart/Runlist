@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const vscode = require('vscode');
+const { readRootProcess } = require('../process-metrics');
 
 async function run() {
   const smokeRoot = requiredEnvironment('RUNLIST_SMOKE_ROOT');
@@ -36,19 +37,24 @@ async function run() {
   const preReloadChildPid = Number(fs.readFileSync(childPidPath, 'utf8'));
   const preReloadGrandchildPid = Number(fs.readFileSync(grandchildPidPath, 'utf8'));
   const customStopPid = Number(fs.readFileSync(path.join(smokeRoot, 'custom-stop.pid'), 'utf8'));
-  await waitFor(
-    () => [preReloadPid, preReloadChildPid, preReloadGrandchildPid]
-      .every((pid) => !processIsAlive(pid)),
-    () => {
-      const processState = [preReloadPid, preReloadChildPid, preReloadGrandchildPid]
-        .map((pid) => ({ pid, alive: processIsAlive(pid) }));
-      const ownership = api.provider.processOwnership.snapshot().get(ready.id);
-      const reservation = api.provider.portReservations.snapshot().get(ready.id);
-      return `Closing the first extension host left part of its owned process tree running: ${JSON.stringify({ processState, ownership, reservation })}`;
-    }
+  const fixtureProcesses = JSON.parse(fs.readFileSync(
+    path.join(smokeRoot, 'fixture-identities.json'),
+    'utf8'
+  ));
+  const preReloadProcesses = [preReloadPid, preReloadChildPid, preReloadGrandchildPid]
+    .map((pid) => fixtureProcess(fixtureProcesses, pid));
+  const customStopProcess = fixtureProcess(fixtureProcesses, customStopPid);
+  assert.equal(
+    (await Promise.all(preReloadProcesses.map(exactProcessIsAlive))).every((alive) => !alive),
+    true,
+    `Closing the first extension host left part of its owned process tree running: ${JSON.stringify({
+      ownership: api.provider.processOwnership.snapshot().get(ready.id),
+      reservation: api.provider.portReservations.snapshot().get(ready.id)
+    })}`
   );
-  await waitFor(
-    () => !processIsAlive(customStopPid),
+  assert.equal(
+    await exactProcessIsAlive(customStopProcess),
+    false,
     'Reload shutdown left the custom Stop fixture running.'
   );
   assert.equal(
@@ -339,6 +345,21 @@ function processIsAlive(pid) {
     return true;
   } catch (error) {
     return error.code === 'EPERM';
+  }
+}
+
+function fixtureProcess(processes, pid) {
+  const processRecord = processes.find((candidate) => candidate.pid === pid);
+  assert.ok(processRecord?.identity, `Missing exact fixture identity for PID ${pid}.`);
+  return processRecord;
+}
+
+async function exactProcessIsAlive(processRecord) {
+  try {
+    return (await readRootProcess(processRecord.pid, process.platform))?.identity
+      === processRecord.identity;
+  } catch {
+    return false;
   }
 }
 

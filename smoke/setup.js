@@ -3,6 +3,7 @@ const fs = require('fs');
 const net = require('net');
 const path = require('path');
 const vscode = require('vscode');
+const { readRootProcess } = require('../process-metrics');
 
 async function run() {
   const smokeRoot = requiredEnvironment('RUNLIST_SMOKE_ROOT');
@@ -148,7 +149,12 @@ async function run() {
   );
 
   assert.equal(api.provider.projects.length, 9, 'The setup phase did not retain every saved project.');
-  assert.equal(await api.provider.startProject(ready.id), true, 'The setup host did not start the reload fixture.');
+  const readyStarted = await api.provider.startProject(ready.id);
+  assert.equal(readyStarted, true, `The setup host did not start the reload fixture: ${JSON.stringify({
+    status: api.provider.getProjectStatus(ready.id),
+    conflict: api.provider.projectPortConflicts.get(ready.id),
+    output: api.provider.projectOutputs.get(ready.id)
+  })}`);
   assert.equal(
     await api.provider.startProject(customStop.id),
     true,
@@ -176,16 +182,48 @@ async function run() {
     () => fs.existsSync(customStopPidPath),
     'The custom Stop fixture did not report its process id.'
   );
+  try {
+    await waitFor(
+      () => [ready.id, customStop.id].every((id) => (
+        typeof api.provider.processOwnership.snapshot().get(id)?.childIdentity === 'string'
+      )),
+      'The setup host did not persist exact process identities.'
+    );
+  } catch {
+    const ownership = [ready.id, customStop.id]
+      .map((id) => api.provider.processOwnership.snapshot().get(id));
+    const probes = await Promise.all(ownership.map(async (record) => {
+      try {
+        return await readRootProcess(record.childPid, process.platform);
+      } catch (error) {
+        return { error: error.message };
+      }
+    }));
+    assert.fail(`The setup host did not persist exact process identities: ${JSON.stringify({ ownership, probes })}`);
+  }
   const fixturePids = [
     path.join(smokeRoot, 'ready.pid'),
     readyChildPidPath,
     readyGrandchildPidPath,
     customStopPidPath
   ].map((pidPath) => Number(fs.readFileSync(pidPath, 'utf8')));
-  await api.provider.dispose();
-  await waitFor(
-    () => fixturePids.every((pid) => !processIsAlive(pid)),
-    'Awaited extension shutdown left a smoke fixture process running.'
+  const fixtureProcesses = await Promise.all(fixturePids.map(async (pid) => {
+    const identity = (await readRootProcess(pid, process.platform))?.identity;
+    assert.ok(identity, `The setup host could not capture fixture process identity for PID ${pid}.`);
+    return { pid, identity };
+  }));
+  fs.writeFileSync(
+    path.join(smokeRoot, 'fixture-identities.json'),
+    JSON.stringify(fixtureProcesses)
+  );
+  const shutdownResults = await api.provider.dispose();
+  await waitForExactProcessesStopped(
+    fixtureProcesses,
+    () => `Awaited extension shutdown left a smoke fixture process running: ${JSON.stringify({
+      shutdownResults: shutdownResults.map((result) => result.status === 'rejected'
+        ? { status: result.status, reason: result.reason?.message }
+        : result)
+    })}`
   );
   process.stdout.write('Smoke setup, isolated storage, view opening, untrusted review, and awaited reload shutdown passed.\n');
 }
@@ -241,7 +279,40 @@ async function waitFor(predicate, message, timeoutMs = 10000) {
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  assert.fail(message);
+  assert.fail(typeof message === 'function' ? message() : message);
+}
+
+async function exactProcessIsAlive(processRecord) {
+  try {
+    return (await readRootProcess(processRecord.pid, process.platform))?.identity
+      === processRecord.identity;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForExactProcessesStopped(processes, message, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  const fastDeadline = Math.min(deadline, Date.now() + 1000);
+  while (Date.now() < fastDeadline) {
+    if (processes.every((processRecord) => !processIsAlive(processRecord.pid))) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  if ((await Promise.all(processes.map(exactProcessIsAlive))).every((alive) => !alive)) {
+    return;
+  }
+  while (Date.now() < deadline) {
+    if (processes.every((processRecord) => !processIsAlive(processRecord.pid))) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  if ((await Promise.all(processes.map(exactProcessIsAlive))).every((alive) => !alive)) {
+    return;
+  }
+  assert.fail(typeof message === 'function' ? message() : message);
 }
 
 function processIsAlive(pid) {

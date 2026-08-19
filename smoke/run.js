@@ -3,6 +3,7 @@ const os = require('os');
 const path = require('path');
 const { runTests } = require('@vscode/test-electron');
 const { terminateProcessTree } = require('../project-process');
+const { readRootProcess } = require('../process-metrics');
 
 async function main() {
   delete process.env.ELECTRON_RUN_AS_NODE;
@@ -74,7 +75,6 @@ function localVSCodeExecutable() {
 }
 
 async function cleanupExactFixtureProcesses(smokeRoot) {
-  const pidFiles = filesInDirectory(smokeRoot, (name) => name.endsWith('.pid'));
   const ownershipFiles = filesInDirectory(
     path.join(
       smokeRoot,
@@ -86,27 +86,48 @@ async function cleanupExactFixtureProcesses(smokeRoot) {
     ),
     (name) => name.endsWith('.json')
   );
-  const pids = new Set(pidFiles.map(readPid).filter(isValidPid));
+  const processRecords = new Map();
+  const fixtureIdentityPath = path.join(smokeRoot, 'fixture-identities.json');
+  if (fs.existsSync(fixtureIdentityPath)) {
+    try {
+      for (const processRecord of JSON.parse(fs.readFileSync(fixtureIdentityPath, 'utf8'))) {
+        if (validProcessRecord(processRecord)) {
+          processRecords.set(processRecord.pid, processRecord);
+        }
+      }
+    } catch {
+      // The disposable smoke profile may contain partial test evidence.
+    }
+  }
   for (const filePath of ownershipFiles) {
     try {
       const ownership = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-      if (isValidPid(ownership.childPid)) {
-        pids.add(ownership.childPid);
+      const processRecord = {
+        pid: ownership.childPid,
+        identity: ownership.childIdentity
+      };
+      if (validProcessRecord(processRecord)) {
+        processRecords.set(processRecord.pid, processRecord);
       }
     } catch {
       // A malformed ownership record is still isolated inside the disposable smoke profile.
     }
   }
 
-  const leaked = [...pids].filter(processIsAlive);
-  for (const pid of leaked) {
+  const leaked = [];
+  for (const processRecord of processRecords.values()) {
+    if (await exactProcessIsAlive(processRecord)) {
+      leaked.push(processRecord);
+    }
+  }
+  for (const processRecord of leaked) {
     try {
-      await terminateProcessTree(pid);
+      await terminateProcessTree(processRecord.pid);
     } catch {
       // Report the original leak after making a best-effort exact cleanup attempt.
     }
   }
-  return leaked;
+  return leaked.map((processRecord) => processRecord.pid);
 }
 
 function filesInDirectory(directory, predicate) {
@@ -118,24 +139,18 @@ function filesInDirectory(directory, predicate) {
     .map((entry) => path.join(directory, entry.name));
 }
 
-function readPid(filePath) {
+function validProcessRecord(processRecord) {
+  return Number.isInteger(processRecord?.pid)
+    && processRecord.pid > 0
+    && typeof processRecord.identity === 'string';
+}
+
+async function exactProcessIsAlive(processRecord) {
   try {
-    return Number(fs.readFileSync(filePath, 'utf8').trim());
+    return (await readRootProcess(processRecord.pid, process.platform))?.identity
+      === processRecord.identity;
   } catch {
-    return undefined;
-  }
-}
-
-function isValidPid(pid) {
-  return Number.isInteger(pid) && pid > 0;
-}
-
-function processIsAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error.code === 'EPERM';
+    return false;
   }
 }
 

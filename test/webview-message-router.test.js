@@ -43,6 +43,7 @@ test('validates commands sent from the webview before routing', async () => {
 test('maps validated webview commands to the provider boundary', async () => {
   const calls = [];
   const host = {
+    forceCloseProjectPorts: async (id, intent) => calls.push(['force-close', id, intent]),
     showAddProject: async (focus) => calls.push(['add', focus]),
     startProject: async (id) => calls.push(['start', id]),
     copyServiceUrl: async (id, port) => calls.push(['copy-service', id, port])
@@ -51,11 +52,15 @@ test('maps validated webview commands to the provider boundary', async () => {
 
   assert.equal(await route({ type: 'showAdd' }), true);
   assert.equal(await route({ type: 'startProject', id: 'project-1' }), true);
+  assert.equal(await route({ type: 'forceCloseProjectPorts', id: 'project-1' }), true);
+  assert.equal(await route({ type: 'forceCloseProjectPortsAndStart', id: 'project-2' }), true);
   assert.equal(await route({ type: 'copyServiceUrl', id: 'project-1', port: '4310' }), true);
   assert.equal(await route({ type: 'copyServiceUrl', id: 'project-1', port: 'bad' }), false);
   assert.deepEqual(calls, [
     ['add', { type: 'action', action: 'show-add' }],
     ['start', 'project-1'],
+    ['force-close', 'project-1', 'stop'],
+    ['force-close', 'project-2', 'start'],
     ['copy-service', 'project-1', 4310]
   ]);
 });

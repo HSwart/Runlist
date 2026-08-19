@@ -110,17 +110,17 @@ test('rejects duplicate handoffs for the same requested project', async () => {
   assert.equal(await first, true);
 });
 
-test('wires one accessible handoff action through the guarded stop and start paths', () => {
+test('wires one accessible contextual control through guarded handoff and port recovery', () => {
   const extension = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const lifecycle = fs.readFileSync(path.join(__dirname, '..', 'project-lifecycle.js'), 'utf8');
   const webview = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
 
-  assert.match(webview, /const handoffLabel = `Stop \$\{conflictOwnerName\} and start \$\{projectName\}`/);
-  assert.match(webview, /class="handoff-button" data-action="handoff"[\s\S]*aria-label="\$\{handoffLabel\}"/);
-  assert.match(webview, /handoff: \(\) => \{[\s\S]*type: 'handoffProject'/);
-  assert.match(webview, /const indicator = conflicted[\s\S]*\? 'conflict'[\s\S]*: webNotResponding/);
+  assert.match(webview, /const primaryAction = projectPrimaryAction\(project\)/);
+  assert.match(webview, /class="run-button[\s\S]*data-action="\$\{primaryAction\.action\}"[\s\S]*aria-label="\$\{actionTitle\}"/);
+  assert.match(webview, /'force-close-ports': \(\) => \{[\s\S]*type: 'forceCloseProjectPorts'/);
+  assert.match(webview, /'force-close-ports-and-start': \(\) => \{[\s\S]*type: 'forceCloseProjectPortsAndStart'/);
   assert.match(extension, /handoffProject\(id\)[\s\S]*this\.lifecycle\.handoff\(id\)/);
+  assert.match(extension, /async forceCloseProjectPorts\(id, intent\)[\s\S]*recoverProjectPorts\(project, intent/);
+  assert.match(extension, /showWarningMessage\([\s\S]*\{ modal: true, detail: confirmation\.detail \}/);
   assert.match(lifecycle, /handoffProjectSafely\(this\.host\.handoffProjectIds, id/);
-  assert.match(lifecycle, /stop: \(conflict\) => this\.host\.stopProject\(conflict\.owner\.id[\s\S]*expectedOwnershipToken/);
-  assert.match(lifecycle, /start: \(\) => this\.host\.startProject\(id,[\s\S]*ownershipReserved: true/);
 });

@@ -6,6 +6,7 @@ const {
   OwnedProcessMetrics,
   parseCpuTime,
   parseWindowsProcessOutput,
+  readRootProcess,
   readOwnedProcessTree,
   windowsProcessScript
 } = require('../process-metrics');
@@ -14,6 +15,44 @@ const { HttpResponseHistory, RuntimePulseHistory } = require('../runtime-pulse')
 function row(pid, identity, cpuSeconds, memoryBytes) {
   return { pid, identity, cpuSeconds, memoryBytes };
 }
+
+test('reads a Windows root process identity when CIM access is denied', async () => {
+  const expected = {
+    pid: 55,
+    parentPid: 0,
+    identity: '55:638912345678901234',
+    cpuSeconds: 1.25,
+    memoryBytes: 4096
+  };
+  const runFile = async (_command, args, options) => {
+    const script = args.at(-1);
+    if (script.includes('Get-CimInstance')) {
+      throw new Error('Access denied');
+    }
+    if (script.includes('Get-Process')) {
+      if (options.timeout < 10000) {
+        throw new Error('Process identity query timed out');
+      }
+      return JSON.stringify({
+        pid: 55,
+        parentPid: 0,
+        startedAt: '638912345678901234',
+        cpuSeconds: 1.25,
+        memoryBytes: 4096
+      });
+    }
+    throw new Error('Unexpected Windows process query');
+  };
+
+  let actual;
+  try {
+    actual = await readRootProcess(55, 'win32', { runFile });
+  } catch (error) {
+    actual = { error: error.message };
+  }
+
+  assert.deepEqual(actual, expected);
+});
 
 test('aggregates current CPU and memory only across the tracked process tree', async () => {
   let now = 1000;

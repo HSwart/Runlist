@@ -1,6 +1,7 @@
 const vscode = acquireVsCodeApi();
 const state = window.runlistState;
 const { createWebviewMessageRouter } = window.RunlistMessageRouter;
+const { projectPrimaryAction } = window.RunlistProjectActions;
 const app = document.getElementById('app');
 const persistedWebviewState = vscode.getState() || {};
 const detailTabState = { ...(persistedWebviewState.detailTabs || {}) };
@@ -659,11 +660,11 @@ function renderList() {
           stopped: 'Stopped'
         };
         const conflicted = ['port-in-use', 'port-in-use-unknown'].includes(projectStatus);
-        const canHandoff = projectStatus === 'port-in-use'
-          && conflict?.handoffAvailable
-          && conflict?.ownerName;
-        const handoffLabel = `Stop ${conflictOwnerName} and start ${projectName}`;
-        const transitioning = ['starting', 'not-ready', 'stopping'].includes(projectStatus);
+        const primaryAction = projectPrimaryAction(project);
+        const actionTitle = escapeHtml(primaryAction.label);
+        const transitioning = project.forceClosing
+          || project.handoffInProgress
+          || ['starting', 'not-ready', 'stopping'].includes(projectStatus);
         const canOpen = Boolean(project.previewUrl);
         const detectedWithoutStop = projectStatus === 'active' && !project.stopCommand;
         const ownershipLostWithoutStop = projectStatus === 'ownership-lost' && !project.stopCommand;
@@ -672,31 +673,7 @@ function renderList() {
           && ['running', 'not-ready', 'not-responding', 'ownership-lost', 'active'].includes(projectStatus)
           && !detectedWithoutStop
           && !ownershipLostWithoutStop;
-        const stopsProject = stopState && !detectedWithoutStop && !ownershipLostWithoutStop;
         const blocked = conflicted;
-        const action = reviewRequired ? 'edit' : stopState ? 'stop' : 'start';
-        const actionLabel = reviewRequired
-          ? 'Review setup'
-          : detectedWithoutStop || ownershipLostWithoutStop
-          ? 'Stop unavailable'
-          : blocked
-          ? 'Unavailable'
-          : projectStatus === 'stopping'
-          ? 'Stopping…'
-          : stopsProject
-            ? 'Stop'
-            : 'Start';
-        const actionTitle = reviewRequired
-          ? `Review setup for ${projectName}`
-          : detectedWithoutStop
-          ? `Runlist did not start ${projectName}. Add a custom stop command to stop it safely.`
-          : ownershipLostWithoutStop
-          ? `The VS Code window that started ${projectName} is unavailable. Add a custom stop command to stop it safely.`
-          : projectStatus === 'port-in-use-unknown'
-          ? `Port :${conflict?.port || 'unknown'} owner is unknown — cannot safely start or stop ${projectName}`
-          : blocked
-            ? `${conflictOwnerName} is using port :${conflict?.port || 'unknown'} — cannot start ${projectName}`
-          : `${actionLabel} ${projectName}`;
         const openTitle = canOpen
           ? `Open ${projectName} in your browser`
           : conflicted
@@ -723,7 +700,11 @@ function renderList() {
             : projectStatus === 'port-in-use'
               ? `${conflictOwnerName} is using port :${conflict?.port || 'unknown'}.`
               : '';
-        const actionDisabled = projectStatus === 'stopping' || blocked || detectedWithoutStop || ownershipLostWithoutStop;
+        const displayedStatus = project.forceClosing
+          ? 'Closing processes…'
+          : project.handoffInProgress
+            ? `Switching from ${conflictOwnerName}…`
+            : statusLabels[displayStatus];
         return `
           <article id="project-row-${projectId}" class="project-row" data-project-id="${projectId}" aria-labelledby="project-${projectId}" tabindex="-1">
             <div class="project-topline">
@@ -734,12 +715,12 @@ function renderList() {
                     <span class="auto-scroll"><span class="auto-scroll-content">${projectName}</span></span>
                   </h2>
                 </div>
-                <div class="project-status status-${statusClass}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : ''}<span class="auto-scroll"><span class="auto-scroll-content">${statusLabels[displayStatus]}</span></span></div>
+                <div class="project-status status-${statusClass}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : ''}<span class="auto-scroll"><span class="auto-scroll-content">${displayedStatus}</span></span></div>
                 ${!reviewRequired ? readinessDetailsHtml(project, projectStatus) : ''}
               </div>
               <div class="project-actions">
-                <button class="run-button ${reviewRequired ? 'review' : blocked ? 'blocked' : stopState || projectStatus === 'stopping' ? 'stop' : 'start'}" data-action="${action}" data-id="${projectId}" aria-label="${actionTitle}" title="${actionTitle}" ${actionDisabled && !reviewRequired ? 'disabled' : ''}>
-                  ${reviewRequired ? icon('edit') : productIcon(stopState || projectStatus === 'stopping' ? 'stop' : 'play')}
+                <button class="run-button ${reviewRequired ? 'review' : blocked ? 'blocked' : primaryAction.mode}" data-action="${primaryAction.action}" data-id="${projectId}" aria-label="${actionTitle}" title="${actionTitle}" ${primaryAction.disabled ? 'disabled' : ''}>
+                  ${reviewRequired ? icon('edit') : productIcon(primaryAction.mode === 'stop' ? 'stop' : 'play')}
                 </button>
                 <button class="more-button" data-action="toggle-menu" data-id="${projectId}" aria-label="More actions for ${projectName}" aria-haspopup="menu" aria-expanded="false">${icon('more')}</button>
                 <div class="action-menu" data-menu-id="${projectId}" role="menu" aria-label="Actions for ${projectName}" hidden>
@@ -774,10 +755,6 @@ function renderList() {
                 </div>
               </div>
             </div>
-            ${canHandoff ? `<button class="handoff-button" data-action="handoff" data-id="${projectId}" aria-label="${handoffLabel}" title="${handoffLabel}" ${project.handoffInProgress ? 'disabled' : ''}>
-              ${project.handoffInProgress ? productIcon('loading', 'status-progress') : productIcon('play')}
-              <span>${project.handoffInProgress ? `Stopping ${conflictOwnerName}, then starting ${projectName}…` : handoffLabel}</span>
-            </button>` : ''}
             <div class="project-details">
               <div class="detail-row" title="${escapeHtml(project.folder)}">
                 ${icon('folder', 'detail-icon')}<span class="auto-scroll"><span class="auto-scroll-content">${escapeHtml(project.folder)}</span></span>
@@ -1569,6 +1546,14 @@ app.addEventListener('click', (event) => {
     start: () => vscode.postMessage({ type: 'startProject', id: button.dataset.id }),
     stop: () => vscode.postMessage({ type: 'stopProject', id: button.dataset.id }),
     restart: () => vscode.postMessage({ type: 'restartProject', id: button.dataset.id }),
+    'force-close-ports': () => {
+      button.disabled = true;
+      vscode.postMessage({ type: 'forceCloseProjectPorts', id: button.dataset.id });
+    },
+    'force-close-ports-and-start': () => {
+      button.disabled = true;
+      vscode.postMessage({ type: 'forceCloseProjectPortsAndStart', id: button.dataset.id });
+    },
     'start-group': () => vscode.postMessage({ type: 'startRunGroup', id: button.dataset.id }),
     'stop-group': () => vscode.postMessage({ type: 'stopRunGroup', id: button.dataset.id }),
     handoff: () => {

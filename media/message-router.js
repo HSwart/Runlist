@@ -24,6 +24,8 @@
     'copyProjectPath',
     'copyServiceUrl',
     'deleteProject',
+    'forceCloseProjectPorts',
+    'forceCloseProjectPortsAndStart',
     'handoffProject',
     'manageRunGroups',
     'openOutputUrl',
@@ -57,6 +59,8 @@
   const ID_COMMAND_TYPES = new Set([
     'copyProjectPath',
     'deleteProject',
+    'forceCloseProjectPorts',
+    'forceCloseProjectPortsAndStart',
     'handoffProject',
     'openProject',
     'openProjectFolder',
