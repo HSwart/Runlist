@@ -44,6 +44,7 @@ const {
   portClosureConfirmation,
   recoverProjectPorts
 } = require('./port-recovery');
+const { customStopFallbackAction } = require('./custom-stop-recovery');
 const {
   availableProjectDetailTabs,
   preferredProjectDetailTab
@@ -1889,7 +1890,8 @@ class RunlistViewProvider {
     }
     const additionalProcesses = [...relatedProjectIds].map((projectId) => {
       const ownership = processRuntime.get(projectId);
-      if (ownership?.ownerAvailable !== false
+      const includeOwnedRoot = intent === 'stop' || ownership?.ownerAvailable === false;
+      if (!includeOwnedRoot
         || !ownership.processActive
         || !Number.isInteger(ownership.childPid)
         || typeof ownership.childIdentity !== 'string') {
@@ -1963,10 +1965,14 @@ class RunlistViewProvider {
         return false;
       }
 
+      if (intent === 'stop' && this.processes.has(id)) {
+        await terminateTrackedProcess(this.processes, id, { allowMissing: true });
+      }
       await this.refreshProjectStatuses();
       if (intent === 'start') {
         return this.startProject(id, { allowPortConflict: true });
       }
+      this.finishStopping(id, true);
       return true;
     } catch (error) {
       vscode.window.showErrorMessage(`Could not close ${project.name}'s ports: ${error.message}`);
@@ -2028,33 +2034,55 @@ class RunlistViewProvider {
     }
 
     if (stopProject.stopCommand) {
-      const customStopSucceeded = await this.runCustomStopCommand(stopProject);
-      if (!customStopSucceeded) {
-        return false;
+      const customStopResult = await this.runCustomStopCommand(stopProject);
+      const hasConfiguredServices = Boolean(stopProject.services?.length);
+      let remainingOwnership = this.processOwnership.snapshot().get(id);
+      let stillOwned = this.processes.has(id) || Boolean(remainingOwnership?.processActive);
+      let ownershipStopped;
+      let servicesStopped;
+      if (customStopResult.succeeded) {
+        [ownershipStopped, servicesStopped] = await Promise.all([
+          stillOwned
+            ? this.waitForProjectStopCompletion(id, CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS)
+            : true,
+          this.lifecycle.waitUntilServicesStopped(stopProject, CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS)
+        ]);
+      } else {
+        servicesStopped = await this.lifecycle.waitUntilServicesStopped(stopProject, 0);
+        remainingOwnership = this.processOwnership.snapshot().get(id);
+        stillOwned = this.processes.has(id) || Boolean(remainingOwnership?.processActive);
+        ownershipStopped = !stillOwned;
       }
-      const remainingOwnership = this.processOwnership.snapshot().get(id);
-      const stillOwned = this.processes.has(id) || Boolean(remainingOwnership?.processActive);
-      const [ownershipStopped, servicesStopped] = await Promise.all([
-        stillOwned
-          ? this.waitForProjectStopCompletion(id, CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS)
-          : true,
-        this.lifecycle.waitUntilServicesStopped(stopProject, CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS)
-      ]);
-      if (!ownershipStopped || !servicesStopped) {
-        vscode.window.showErrorMessage(
-          `Could not stop ${stopProject.name}: the custom stop command finished, but ${
-            !ownershipStopped && !servicesStopped
-              ? 'the launched process and configured services are still running.'
-              : !ownershipStopped
-                ? 'the launched process is still running.'
-                : 'one or more configured services are still running.'
-          }`
-        );
-        this.finishStopping(id, false);
-        return false;
+
+      const fallbackAction = customStopFallbackAction({
+        commandSucceeded: customStopResult.succeeded,
+        hasConfiguredServices,
+        ownershipStopped,
+        servicesStopped
+      });
+      if (fallbackAction === 'complete') {
+        this.finishStopping(id, true);
+        return true;
       }
-      this.finishStopping(id, true);
-      return true;
+      if (fallbackAction === 'recover-ports') {
+        const recovered = await this.forceCloseProjectPorts(id, 'stop');
+        if (!recovered) {
+          this.finishStopping(id, false);
+        }
+        return recovered;
+      }
+      if (fallbackAction === 'stop-owned-process') {
+        return this.stopOwnedProjectProcess(id, stopProject, {
+          ...options,
+          allowMissing: true
+        });
+      }
+
+      vscode.window.showErrorMessage(
+        `Could not stop ${stopProject.name}: ${customStopResult.detail}`
+      );
+      this.finishStopping(id, false);
+      return false;
     }
 
     return this.stopOwnedProjectProcess(id, stopProject, options);
@@ -2125,7 +2153,9 @@ class RunlistViewProvider {
     if (this.processes.has(id)) {
       this.beginStopping(id);
       try {
-        await terminateTrackedProcess(this.processes, id);
+        await terminateTrackedProcess(this.processes, id, {
+          allowMissing: options.allowMissing === true
+        });
         this.finishStopping(id, true);
         return true;
       } catch (error) {
@@ -2193,16 +2223,13 @@ class RunlistViewProvider {
       stopProcess.stderr?.on('data', (chunk) => {
         stderr = `${stderr}${chunk}`.slice(-2000);
       });
-      const finalize = (succeeded) => {
+      const finalize = (result) => {
         if (finalized) {
           return;
         }
         finalized = true;
         clearTimeout(stopTimeout);
-        if (!succeeded) {
-          this.finishStopping(project.id, false);
-        }
-        resolve(succeeded);
+        resolve(result);
       };
       const stopTimeout = setTimeout(() => {
         if (finalized) {
@@ -2212,33 +2239,29 @@ class RunlistViewProvider {
         clearTimeout(stopTimeout);
         void terminateProcessTree(stopProcess.pid)
           .then(() => {
-            vscode.window.showErrorMessage(
-              `Could not stop ${project.name}: the custom stop command did not finish.`
-            );
+            resolve({
+              succeeded: false,
+              detail: 'the custom stop command did not finish.'
+            });
           })
           .catch((error) => {
-            vscode.window.showErrorMessage(
-              `Could not stop ${project.name}: the custom stop command did not finish, and Runlist could not clean up its process tree: ${error.message}`
-            );
+            resolve({
+              succeeded: false,
+              detail: `the custom stop command did not finish, and Runlist could not clean up its process tree: ${error.message}`
+            });
           })
-          .finally(() => {
-            this.finishStopping(project.id, false);
-            resolve(false);
-          });
       }, CUSTOM_STOP_TIMEOUT_MS);
 
       stopProcess.once('error', (error) => {
-        vscode.window.showErrorMessage(`Could not stop ${project.name}: ${error.message}`);
-        finalize(false);
+        finalize({ succeeded: false, detail: error.message });
       });
       stopProcess.once('exit', (code) => {
-        if (code !== 0) {
-          const detail = lastUsefulLine(stderr);
-          vscode.window.showErrorMessage(
-            `Could not stop ${project.name}: ${detail || `custom stop command exited with code ${code}.`}`
-          );
-        }
-        finalize(code === 0);
+        finalize({
+          succeeded: code === 0,
+          detail: code === 0
+            ? undefined
+            : lastUsefulLine(stderr) || `custom stop command exited with code ${code}.`
+        });
       });
     });
   }

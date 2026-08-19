@@ -12,6 +12,13 @@ const {
   reserveProjectPorts
 } = require('../port-gate');
 
+test('uses the retrying atomic writer for lifecycle port reservations', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'port-gate.js'), 'utf8');
+
+  assert.match(source, /const \{ writeFileAtomically \} = require\('\.\/project-store'\)/);
+  assert.match(source, /function writeJsonAtomically[\s\S]*writeFileAtomically\(filePath, JSON\.stringify\(value\)\)/);
+});
+
 const projects = [
   { id: 'alpha', name: 'Alpha', services: [{ name: 'web', port: 3000 }] },
   { id: 'beta', name: 'Beta', services: [{ name: 'web', port: 3000 }] },

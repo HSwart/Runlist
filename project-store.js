@@ -677,5 +677,6 @@ module.exports = {
   toggleProjectPinned,
   upsertProject,
   upsertRunGroup,
+  writeFileAtomically,
   writeProjects
 };

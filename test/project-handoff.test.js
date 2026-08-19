@@ -117,6 +117,7 @@ test('wires one accessible contextual control through guarded handoff and port r
 
   assert.match(webview, /const primaryAction = projectPrimaryAction\(project\)/);
   assert.match(webview, /class="run-button[\s\S]*data-action="\$\{primaryAction\.action\}"[\s\S]*aria-label="\$\{actionTitle\}"/);
+  assert.match(webview, /data-action="force-close-ports"[\s\S]*Close configured ports/);
   assert.match(webview, /'force-close-ports': \(\) => \{[\s\S]*type: 'forceCloseProjectPorts'/);
   assert.match(webview, /'force-close-ports-and-start': \(\) => \{[\s\S]*type: 'forceCloseProjectPortsAndStart'/);
   assert.match(extension, /handoffProject\(id\)[\s\S]*this\.lifecycle\.handoff\(id\)/);

@@ -169,17 +169,21 @@ test('re-reads the saved project after Start acquires process ownership', () => 
   assert.ok(rereadProjects < reservePorts);
 });
 
-test('treats a custom stop command as the complete stop strategy', () => {
+test('falls back from a custom stop to port recovery or exact owned-process cleanup', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const stopProject = source.indexOf('async stopProject(id, projectSnapshot, options = {})');
   const customStop = source.indexOf('if (stopProject.stopCommand)', stopProject);
-  const customReturn = source.indexOf('return true;', customStop);
-  const defaultStop = source.indexOf('return this.stopOwnedProjectProcess(id, stopProject, options);', customStop);
+  const chooseFallback = source.indexOf('customStopFallbackAction({', customStop);
+  const recoverPorts = source.indexOf("this.forceCloseProjectPorts(id, 'stop')", chooseFallback);
+  const recoverOwnedProcess = source.indexOf('this.stopOwnedProjectProcess(id, stopProject, {', recoverPorts);
+  const defaultStop = source.indexOf('return this.stopOwnedProjectProcess(id, stopProject, options);', recoverOwnedProcess);
 
   assert.ok(stopProject >= 0);
   assert.ok(customStop >= 0);
-  assert.ok(customStop < customReturn);
-  assert.ok(customReturn < defaultStop);
+  assert.ok(customStop < chooseFallback);
+  assert.ok(chooseFallback < recoverPorts);
+  assert.ok(recoverPorts < recoverOwnedProcess);
+  assert.ok(recoverOwnedProcess < defaultStop);
 });
 
 test('routes remote custom stops through the launching VS Code window', () => {
@@ -190,7 +194,7 @@ test('routes remote custom stops through the launching VS Code window', () => {
   const stopProject = source.indexOf('async stopProject(id, projectSnapshot, options = {})');
   const sharedOwnership = source.indexOf('const sharedOwnership = this.processOwnership.snapshot().get(id)', stopProject);
   const requestRemoteStop = source.indexOf('return this.stopOwnedProjectProcess(id, stopProject, options);', sharedOwnership);
-  const runCustomStop = source.indexOf('const customStopSucceeded = await this.runCustomStopCommand(stopProject)', sharedOwnership);
+  const runCustomStop = source.indexOf('const customStopResult = await this.runCustomStopCommand(stopProject)', sharedOwnership);
 
   assert.ok(consumeRequests >= 0);
   assert.ok(consumeRequests < dispatchToOwner);

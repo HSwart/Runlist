@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { readRootProcess } = require('./process-metrics');
+const { writeFileAtomically } = require('./project-store');
 
 const OWNER_HEARTBEAT_TIMEOUT_MS = 10000;
 const INVALID_RECORD_GRACE_MS = 2000;
@@ -317,9 +318,7 @@ function invalidRecordIsStale(filePath, graceMs, now) {
 }
 
 function writeJsonAtomically(filePath, value) {
-  const temporaryPath = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  fs.writeFileSync(temporaryPath, JSON.stringify(value), { mode: 0o600 });
-  fs.renameSync(temporaryPath, filePath);
+  writeFileAtomically(filePath, JSON.stringify(value));
 }
 
 function tryUnlink(lockPath) {

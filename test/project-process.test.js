@@ -19,6 +19,13 @@ const {
   terminateTrackedProcess
 } = require('../project-process');
 
+test('uses the retrying atomic writer for lifecycle ownership state', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'project-process.js'), 'utf8');
+
+  assert.match(source, /const \{ writeFileAtomically \} = require\('\.\/project-store'\)/);
+  assert.match(source, /function writeJsonAtomically[\s\S]*writeFileAtomically\(filePath, JSON\.stringify\(value\)\)/);
+});
+
 test('runs a custom stop locally when the launching host is unavailable', () => {
   const project = { stopCommand: 'docker compose down' };
 
@@ -360,6 +367,48 @@ test('treats a missing exited process as stopped when the platform terminator lo
     }
   }), true);
   assert.equal(processes.has('project'), false);
+});
+
+test('allows confirmed recovery to reconcile an exact tracked process that already disappeared', async () => {
+  const child = {
+    pid: 612,
+    exitCode: null,
+    signalCode: null,
+    runlistIdentity: Promise.resolve('612:original')
+  };
+  const processes = new Map([['project', child]]);
+  let terminationCalls = 0;
+
+  assert.equal(await terminateTrackedProcess(processes, 'project', {
+    allowMissing: true,
+    platform: 'win32',
+    readProcessIdentity: async () => undefined,
+    spawnProcess: () => {
+      terminationCalls += 1;
+    }
+  }), true);
+
+  assert.equal(terminationCalls, 0);
+  assert.equal(processes.has('project'), false);
+});
+
+test('does not treat an unreadable but live tracked process as missing during recovery', async () => {
+  const child = {
+    pid: 613,
+    exitCode: null,
+    signalCode: null,
+    runlistIdentity: Promise.resolve('613:original')
+  };
+  const processes = new Map([['project', child]]);
+
+  await assert.rejects(terminateTrackedProcess(processes, 'project', {
+    allowMissing: true,
+    isProcessAlive: () => true,
+    platform: 'win32',
+    readProcessIdentity: async () => undefined
+  }), /could not verify.*process identity/i);
+
+  assert.equal(processes.get('project'), child);
 });
 
 test('refuses to terminate a reused process identifier', async () => {

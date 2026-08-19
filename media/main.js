@@ -673,6 +673,11 @@ function renderList() {
           && ['running', 'not-ready', 'not-responding', 'ownership-lost', 'active'].includes(projectStatus)
           && !detectedWithoutStop
           && !ownershipLostWithoutStop;
+        const canCloseConfiguredPorts = !reviewRequired
+          && Boolean(project.openPorts?.length)
+          && !project.forceClosing
+          && !project.handoffInProgress
+          && projectStatus !== 'stopping';
         const blocked = conflicted;
         const openTitle = canOpen
           ? `Open ${projectName} in your browser`
@@ -741,6 +746,9 @@ function renderList() {
                   </button>
                   <button data-action="restart" data-id="${projectId}" role="menuitem" aria-label="Restart ${projectName}" ${canRestart ? '' : 'disabled'}>
                     ${icon('refresh', 'menu-icon')}<span>Restart</span>
+                  </button>
+                  <button data-action="force-close-ports" data-id="${projectId}" role="menuitem" aria-label="Close configured ports for ${projectName}" ${canCloseConfiguredPorts ? '' : 'disabled'} title="${canCloseConfiguredPorts ? `Review and close the processes using ${projectName}'s configured ports` : 'No configured ports are currently open'}">
+                    ${icon('stop', 'menu-icon')}<span>Close configured ports…</span>
                   </button>
                   <button data-action="edit" data-id="${projectId}" role="menuitem">
                     ${icon('edit', 'menu-icon')}<span>${reviewRequired ? 'Review setup' : 'Edit project'}</span>
@@ -1547,6 +1555,7 @@ app.addEventListener('click', (event) => {
     stop: () => vscode.postMessage({ type: 'stopProject', id: button.dataset.id }),
     restart: () => vscode.postMessage({ type: 'restartProject', id: button.dataset.id }),
     'force-close-ports': () => {
+      closeMenus();
       button.disabled = true;
       vscode.postMessage({ type: 'forceCloseProjectPorts', id: button.dataset.id });
     },
