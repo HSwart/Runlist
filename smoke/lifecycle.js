@@ -111,7 +111,14 @@ async function run() {
     fs.rmSync(childPidPath, { force: true });
     fs.rmSync(grandchildPidPath, { force: true });
 
-    assert.equal(await api.provider.restartProject(ready.id), true, 'Runlist did not restart its ready fixture.');
+    const restarted = await api.provider.restartProject(ready.id);
+    assert.equal(restarted, true, `Runlist did not restart its ready fixture: ${JSON.stringify({
+      status: api.provider.getProjectStatus(ready.id),
+      ownership: api.provider.processOwnership.snapshot().get(ready.id),
+      reservation: api.provider.portReservations.snapshot().get(ready.id),
+      conflict: api.provider.projectPortConflicts.get(ready.id),
+      output: api.provider.projectOutputs.get(ready.id)
+    })}`);
     await waitFor(
       async () => {
         await api.provider.refreshProjectStatuses();
@@ -240,6 +247,10 @@ async function run() {
       stdio: 'ignore',
       windowsHide: true
     });
+    await waitFor(
+      () => processIsAlive(orphanRecovery.pid),
+      'The orphan recovery fixture did not start.'
+    );
     fs.writeFileSync(path.join(smokeRoot, 'orphan-recovery.pid'), String(orphanRecovery.pid));
     const { upsertProject } = require(path.join(extension.extensionPath, 'project-store'));
     upsertProject(api.projectsFile, {

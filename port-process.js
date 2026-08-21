@@ -85,7 +85,7 @@ async function terminateListenerProcess(listener, options = {}) {
     throw new Error('Runlist did not close the process because its identity changed.');
   }
 
-  if (platform === 'win32') {
+  if (platform === 'win32' || options.terminateTree) {
     const terminate = options.terminateProcessTree || terminateProcessTree;
     await terminate(pid, { platform, ...options.terminationOptions });
     return;
@@ -110,6 +110,13 @@ async function terminateListenerProcess(listener, options = {}) {
   }
   if (!isAlive(pid)) {
     return;
+  }
+  const escalatedIdentity = await readIdentity(pid, platform);
+  if (!escalatedIdentity) {
+    return;
+  }
+  if (escalatedIdentity !== expectedIdentity) {
+    throw new Error('Runlist did not force close the process because its identity changed.');
   }
   try {
     kill(pid, 'SIGKILL');

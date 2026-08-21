@@ -50,6 +50,23 @@ test('uses the existing safe handoff when another live Runlist project owns the 
   assert.equal(projectPrimaryAction({ ...project, handoffInProgress: true }).disabled, true);
 });
 
+test('does not force-close a mixed or multi-project managed conflict', () => {
+  assert.deepEqual(projectPrimaryAction({
+    name: 'Attributes Finder',
+    status: 'port-in-use',
+    portConflict: {
+      kind: 'managed',
+      ownerName: 'Other app',
+      handoffAvailable: false
+    }
+  }), {
+    action: 'start',
+    disabled: true,
+    label: 'Stop Other app and any other Runlist port owners before starting Attributes Finder',
+    mode: 'start'
+  });
+});
+
 test('preserves ordinary Start, Stop, custom Stop, review, and transition behavior', () => {
   assert.equal(projectPrimaryAction({ name: 'App', status: 'stopped' }).action, 'start');
   assert.equal(projectPrimaryAction({ name: 'App', status: 'running' }).action, 'stop');

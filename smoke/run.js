@@ -8,7 +8,7 @@ const { readRootProcess } = require('../process-metrics');
 async function main() {
   delete process.env.ELECTRON_RUN_AS_NODE;
   const extensionDevelopmentPath = path.resolve(__dirname, '..');
-  const smokeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-smoke-'));
+  const smokeRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-smoke-')));
   const workspacePath = path.join(smokeRoot, 'workspace');
   const userDataPath = path.join(smokeRoot, 'user-data');
   const extensionsPath = path.join(smokeRoot, 'extensions');

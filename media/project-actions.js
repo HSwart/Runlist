@@ -37,6 +37,15 @@
         mode: 'start'
       };
     }
+    if (status === 'port-in-use') {
+      const owner = conflict?.ownerName || 'the conflicting Runlist project';
+      return {
+        action: 'start',
+        disabled: true,
+        label: `Stop ${owner} and any other Runlist port owners before starting ${name}`,
+        mode: 'start'
+      };
+    }
     if (conflicted) {
       const port = conflict?.port || 'the configured port';
       return {

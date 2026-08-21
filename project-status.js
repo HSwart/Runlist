@@ -7,7 +7,12 @@ const HTTP_PROBE_TIMEOUT_MS = 700;
 const TIMED_OUT = Symbol('timed-out');
 
 function isPortOpen(port, options = {}) {
-  const host = options.host || '127.0.0.1';
+  const hosts = options.host ? [options.host] : ['127.0.0.1', '::1'];
+  return Promise.all(hosts.map((host) => isHostPortOpen(port, host, options)))
+    .then((results) => results.some(Boolean));
+}
+
+function isHostPortOpen(port, host, options) {
   const timeout = options.timeout || 300;
 
   return new Promise((resolve) => {
@@ -414,6 +419,17 @@ function hasUnownedPortReservation(projectId, {
     && !processRuntime.has(projectId);
 }
 
+function projectServicesLocked(status, unownedPortReservation = false) {
+  return unownedPortReservation || [
+    'running',
+    'starting',
+    'not-ready',
+    'not-responding',
+    'ownership-lost',
+    'stopping'
+  ].includes(status);
+}
+
 module.exports = {
   areServicesRunning,
   hasUnownedPortReservation,
@@ -424,6 +440,7 @@ module.exports = {
   managedRuntimeProjectIds,
   primaryServiceUrl,
   probeHttpService,
+  projectServicesLocked,
   projectStatus,
   reachableServiceUrls,
   runningAppProjectIds,

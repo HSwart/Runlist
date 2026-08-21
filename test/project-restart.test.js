@@ -147,10 +147,12 @@ test('prevents service metadata changes while a project is running', () => {
   const extensionSource = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const webviewSource = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
 
-  assert.match(extensionSource, /servicesLocked && servicesChanged/);
+  assert.match(extensionSource, /const servicesLocked = existingProject && this\.projectSetupLocked\(projectId\)/);
   assert.match(extensionSource, /if \(servicesChanged\)[\s\S]*this\.processOwnership\.reserve\(projectId\)/);
   assert.match(extensionSource, /if \(servicesReservation\)[\s\S]*this\.processOwnership\.release\(projectId\)/);
-  assert.match(extensionSource, /servicesLocked: this\.mode === 'edit'[\s\S]*'running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'stopping', 'active'/);
+  assert.match(extensionSource, /projectSetupLocked\(id, runtime = \{\}\)[\s\S]*projectServicesLocked[\s\S]*hasUnownedPortReservation/);
+  assert.match(extensionSource, /servicesLocked: this\.mode === 'edit'[\s\S]*this\.projectSetupLocked\(this\.selectedProjectId\)/);
+  assert.match(extensionSource, /this\.getProjectStatus\(project\.id\) === 'active'[\s\S]*this\.projectSetupLocked\(project\.id, lockSnapshot\)/);
   assert.match(webviewSource, /<fieldset id="services"[^>]*\$\{state\.servicesLocked \? 'disabled' : ''\}/);
   assert.match(webviewSource, /Stop this project before changing its services\./);
   assert.match(webviewSource, /project\.openPorts\?\.includes\(service\.port\)/);

@@ -17,6 +17,7 @@ const {
 const {
   hasUnownedPortReservation,
   managedRuntimeProjectIds,
+  projectServicesLocked,
   projectStatus,
   reachableServiceUrls,
   runningAppProjectIds,
@@ -41,8 +42,10 @@ const {
   terminateListenerProcess
 } = require('./port-process');
 const {
+  managedPortBlockers,
   portClosureConfirmation,
-  recoverProjectPorts
+  recoverProjectPorts,
+  relatedPortProjectIds
 } = require('./port-recovery');
 const { customStopFallbackAction } = require('./custom-stop-recovery');
 const {
@@ -260,20 +263,20 @@ class RunlistViewProvider {
   }
 
   async showProjectTransfer() {
-    const activeStatuses = new Set([
-      'active',
-      'not-ready',
-      'not-responding',
-      'ownership-lost',
-      'running',
-      'starting',
-      'stopping'
-    ]);
+    let lockSnapshot;
     return runProjectTransferWorkflow({
       projectsFile: this.projectsFile,
       window: vscode.window,
       workspace: vscode.workspace,
-      isProjectActive: (project) => activeStatuses.has(this.getProjectStatus(project.id)),
+      isProjectActive: (project) => {
+        lockSnapshot ||= {
+          localProcessIds: [...this.processes.keys()],
+          portRuntime: this.portReservations.snapshot(),
+          processRuntime: this.processOwnership.snapshot()
+        };
+        return this.getProjectStatus(project.id) === 'active'
+          || this.projectSetupLocked(project.id, lockSnapshot);
+      },
       reserveUpdatedProjects: (ids) => this.reserveProjectUpdates(ids),
       onImported: () => this.renderProjectList()
     });
@@ -1392,9 +1395,7 @@ class RunlistViewProvider {
     const existingProject = this.projects.find((item) => item.id === projectId);
     const servicesChanged = Boolean(existingProject)
       && projectServicesChanged(validation.values, existingProject);
-    const servicesLocked = existingProject
-      && ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'stopping', 'active']
-        .includes(this.getProjectStatus(projectId));
+    const servicesLocked = existingProject && this.projectSetupLocked(projectId);
     if (servicesLocked && servicesChanged) {
       this.formErrors = { services: 'Stop this project before changing its services.' };
       this.focusTarget = { type: 'field', id: 'services' };
@@ -1625,6 +1626,14 @@ class RunlistViewProvider {
       reservedIds.push(id);
     }
     return release;
+  }
+
+  projectSetupLocked(id, runtime = {}) {
+    return projectServicesLocked(this.getProjectStatus(id), hasUnownedPortReservation(id, {
+      localProcessIds: runtime.localProcessIds || this.processes.keys(),
+      portRuntime: runtime.portRuntime || this.portReservations.snapshot(),
+      processRuntime: runtime.processRuntime || this.processOwnership.snapshot()
+    }));
   }
 
   async startProject(id, options = {}) {
@@ -1883,10 +1892,23 @@ class RunlistViewProvider {
     }
 
     const processRuntime = this.processOwnership.snapshot();
-    const relatedProjectIds = new Set(this.portReservations.conflicts(project)
-      .map((conflict) => conflict.projectId));
+    const relatedProjectIds = relatedPortProjectIds(
+      project,
+      this.portReservations.conflicts(project),
+      this.projects
+    );
     if (intent === 'stop') {
       relatedProjectIds.add(id);
+    }
+    if (intent === 'start') {
+      const blockers = managedPortBlockers(relatedProjectIds, processRuntime, this.projects);
+      if (blockers.length) {
+        const names = blockers.map((blocker) => blocker.name).join(', ');
+        vscode.window.showWarningMessage(
+          `Stop or wait for ${names} in Runlist before closing the remaining ports and starting ${project.name}.`
+        );
+        return false;
+      }
     }
     const additionalProcesses = [...relatedProjectIds].map((projectId) => {
       const ownership = processRuntime.get(projectId);
@@ -1902,7 +1924,8 @@ class RunlistViewProvider {
         pid: ownership.childPid,
         identity: ownership.childIdentity,
         name: owner ? `${owner.name} Runlist process` : 'Saved Runlist process',
-        ports: []
+        ports: [],
+        terminateTree: true
       };
     }).filter(Boolean);
 
@@ -1925,6 +1948,7 @@ class RunlistViewProvider {
         },
         protectedPids: new Set([
           process.pid,
+          process.ppid,
           process.platform === 'win32' ? 4 : 1
         ]),
         terminateListenerProcess: (processInfo, terminationOptions) => terminateListenerProcess(
@@ -2460,8 +2484,7 @@ class RunlistViewProvider {
       reviewRequired: this.mode === 'edit'
         && Boolean(projects.find((project) => project.id === this.selectedProjectId)?.reviewRequired),
       servicesLocked: this.mode === 'edit'
-        && ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'stopping', 'active']
-          .includes(this.getProjectStatus(this.selectedProjectId)),
+        && this.projectSetupLocked(this.selectedProjectId),
       projectOutput: outputProject ? {
         canAskAgent: Boolean(outputDiagnostics),
         entries: formatProjectOutput(rawProjectOutput),

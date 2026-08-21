@@ -1,6 +1,11 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { portClosureConfirmation, recoverProjectPorts } = require('../port-recovery');
+const {
+  managedPortBlockers,
+  portClosureConfirmation,
+  recoverProjectPorts,
+  relatedPortProjectIds
+} = require('../port-recovery');
 
 const project = {
   id: 'attributes',
@@ -14,6 +19,40 @@ const project = {
 function listener(port, pid, identity, name = 'node') {
   return { port, pid, identity, name };
 }
+
+test('identifies only live available Runlist owners as close-and-start blockers', () => {
+  const runtime = new Map([
+    ['live', { ownerAvailable: true, processActive: true, state: 'running' }],
+    ['stopping', { ownerAvailable: true, processActive: true, state: 'stopping' }],
+    ['orphan', { ownerAvailable: false, processActive: true, state: 'running' }],
+    ['exited', { ownerAvailable: true, processActive: false, state: 'running' }]
+  ]);
+
+  assert.deepEqual(managedPortBlockers(
+    ['live', 'live', 'stopping', 'orphan', 'exited'],
+    runtime,
+    [
+      { id: 'live', name: 'Live project' },
+      { id: 'stopping', name: 'Stopping project' }
+    ]
+  ), [
+    { id: 'live', name: 'Live project' },
+    { id: 'stopping', name: 'Stopping project' }
+  ]);
+});
+
+test('finds related projects even when their port reservation is missing', () => {
+  assert.deepEqual([...relatedPortProjectIds(
+    { id: 'target', services: [{ port: 4280 }, { port: 7071 }] },
+    [{ port: 4280, projectId: 'reserved' }],
+    [
+      { id: 'target', services: [{ port: 4280 }] },
+      { id: 'reserved', services: [{ port: 9000 }] },
+      { id: 'missing-lock', services: [{ port: '7071' }] },
+      { id: 'unrelated', services: [{ port: 3000 }] }
+    ]
+  )], ['reserved', 'missing-lock']);
+});
 
 test('cancelling the native confirmation leaves every listener untouched', async () => {
   const terminated = [];
@@ -65,14 +104,26 @@ test('also closes the exact saved Runlist project process after ownership was lo
   const terminated = [];
   const result = await recoverProjectPorts(project, 'stop', {
     additionalProcesses: [
-      { pid: 80, identity: '80:first', name: 'Saved Runlist process', ports: [] }
+      {
+        pid: 80,
+        identity: '80:first',
+        name: 'Saved Runlist process',
+        ports: [],
+        terminateTree: true
+      }
     ],
     getOpenPorts: async () => [4280],
     findListeningProcesses: async () => [listener(4280, 120, '120:first')],
     confirmPortClosure: async ({ processes }) => {
       assert.deepEqual(processes, [
         { pid: 120, identity: '120:first', name: 'node', ports: [4280] },
-        { pid: 80, identity: '80:first', name: 'Saved Runlist process', ports: [] }
+        {
+          pid: 80,
+          identity: '80:first',
+          name: 'Saved Runlist process',
+          ports: [],
+          terminateTree: true
+        }
       ]);
       return true;
     },
@@ -82,12 +133,158 @@ test('also closes the exact saved Runlist project process after ownership was lo
 
   assert.deepEqual(terminated.map(({ process, options }) => ({
     pid: process.pid,
-    allowMissing: options.allowMissing
+    allowMissing: options.allowMissing,
+    terminateTree: options.terminateTree
   })), [
-    { pid: 120, allowMissing: false },
-    { pid: 80, allowMissing: true }
+    { pid: 120, allowMissing: false, terminateTree: undefined },
+    { pid: 80, allowMissing: true, terminateTree: true }
   ]);
   assert.deepEqual(result, { status: 'closed', openPorts: [4280], processCount: 2 });
+});
+
+test('stops the verified Runlist process tree even when no configured ports are open', async () => {
+  const terminated = [];
+  const serviceChecks = [];
+  const result = await recoverProjectPorts({ ...project, services: [] }, 'stop', {
+    additionalProcesses: [
+      {
+        pid: 80,
+        identity: '80:first',
+        name: 'Saved Runlist process',
+        ports: [],
+        terminateTree: true
+      }
+    ],
+    getOpenPorts: async (services) => {
+      serviceChecks.push(services);
+      return [];
+    },
+    findListeningProcesses: async () => {
+      throw new Error('there are no ports to inspect');
+    },
+    confirmPortClosure: async ({ openPorts, processes }) => {
+      assert.deepEqual(openPorts, []);
+      assert.deepEqual(processes, [{
+        pid: 80,
+        identity: '80:first',
+        name: 'Saved Runlist process',
+        ports: [],
+        terminateTree: true
+      }]);
+      return true;
+    },
+    terminateListenerProcess: async (process, options) => terminated.push({ process, options }),
+    waitForPortsClosed: async (services) => {
+      assert.deepEqual(services, []);
+      return true;
+    }
+  });
+
+  assert.equal(serviceChecks.length, 2);
+  assert.deepEqual(terminated, [{
+    process: {
+      pid: 80,
+      identity: '80:first',
+      name: 'Saved Runlist process',
+      ports: [],
+      terminateTree: true
+    },
+    options: { allowMissing: true, terminateTree: true }
+  }]);
+  assert.deepEqual(result, { status: 'closed', openPorts: [], processCount: 1 });
+});
+
+test('does not terminate a saved process during Start after its conflicting ports close', async () => {
+  const result = await recoverProjectPorts(project, 'start', {
+    additionalProcesses: [
+      {
+        pid: 80,
+        identity: '80:first',
+        name: 'Saved Runlist process',
+        ports: [],
+        terminateTree: true
+      }
+    ],
+    getOpenPorts: async () => [],
+    findListeningProcesses: async () => {
+      throw new Error('there are no ports to inspect');
+    },
+    confirmPortClosure: async () => {
+      throw new Error('confirmation must not be shown');
+    },
+    terminateListenerProcess: async () => {
+      throw new Error('process must not be terminated');
+    },
+    waitForPortsClosed: async () => true
+  });
+
+  assert.deepEqual(result, { status: 'closed', openPorts: [], processCount: 0 });
+});
+
+test('merges a Runlist root that also owns a port and terminates its tree once', async () => {
+  const terminated = [];
+  const result = await recoverProjectPorts(project, 'stop', {
+    additionalProcesses: [
+      {
+        pid: 120,
+        identity: '120:first',
+        name: 'Saved Runlist process',
+        ports: [],
+        terminateTree: true
+      }
+    ],
+    getOpenPorts: async () => [4280],
+    findListeningProcesses: async () => [listener(4280, 120, '120:first')],
+    confirmPortClosure: async ({ processes }) => {
+      assert.deepEqual(processes, [{
+        pid: 120,
+        identity: '120:first',
+        name: 'node',
+        ports: [4280],
+        terminateTree: true
+      }]);
+      return true;
+    },
+    terminateListenerProcess: async (process, options) => terminated.push({ process, options }),
+    waitForPortsClosed: async () => true
+  });
+
+  assert.equal(terminated.length, 1);
+  assert.equal(terminated[0].process.pid, 120);
+  assert.equal(terminated[0].options.terminateTree, true);
+  assert.deepEqual(result, { status: 'closed', openPorts: [4280], processCount: 1 });
+});
+
+test('terminates listener descendants before a Runlist root that also owns a port', async () => {
+  const terminated = [];
+  const result = await recoverProjectPorts(project, 'stop', {
+    additionalProcesses: [
+      {
+        pid: 80,
+        identity: '80:first',
+        name: 'Saved Runlist process',
+        ports: [],
+        terminateTree: true
+      }
+    ],
+    getOpenPorts: async () => [4280, 7071],
+    findListeningProcesses: async () => [
+      listener(4280, 80, '80:first'),
+      listener(7071, 120, '120:first')
+    ],
+    confirmPortClosure: async () => true,
+    terminateListenerProcess: async (process, options) => terminated.push({ process, options }),
+    waitForPortsClosed: async () => true
+  });
+
+  assert.deepEqual(terminated.map(({ process, options }) => ({
+    pid: process.pid,
+    terminateTree: options.terminateTree
+  })), [
+    { pid: 120, terminateTree: undefined },
+    { pid: 80, terminateTree: true }
+  ]);
+  assert.deepEqual(result, { status: 'closed', openPorts: [4280, 7071], processCount: 2 });
 });
 
 test('aborts without terminating when a listener identity changes during confirmation', async () => {

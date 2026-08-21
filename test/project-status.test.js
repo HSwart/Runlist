@@ -14,6 +14,7 @@ const {
   managedRuntimeProjectIds,
   primaryServiceUrl,
   probeHttpService,
+  projectServicesLocked,
   projectStatus,
   reachableServiceUrls,
   runningAppProjectIds,
@@ -62,6 +63,23 @@ test('flags a port reservation without process ownership as unsafe for deletion'
   }), false);
 });
 
+test('locks service metadata only for managed or ownership-uncertain runtime state', () => {
+  for (const status of [
+    'running',
+    'starting',
+    'not-ready',
+    'not-responding',
+    'ownership-lost',
+    'stopping'
+  ]) {
+    assert.equal(projectServicesLocked(status), true, status);
+  }
+  assert.equal(projectServicesLocked('active'), false);
+  assert.equal(projectServicesLocked('port-in-use'), false);
+  assert.equal(projectServicesLocked('stopped'), false);
+  assert.equal(projectServicesLocked('stopped', true), true);
+});
+
 async function listen(server, host = '127.0.0.1') {
   await new Promise((resolve) => server.listen(0, host, resolve));
   return server.address().port;
@@ -85,6 +103,32 @@ test('detects whether configured local service ports are accepting connections',
 
   await close(server);
   assert.equal(await isPortOpen(port), false);
+});
+
+test('detects an IPv6-only loopback service without treating it as IPv4', async (t) => {
+  const server = net.createServer();
+  try {
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen({ port: 0, host: '::1', ipv6Only: true }, resolve);
+    });
+  } catch (error) {
+    if (['EADDRNOTAVAIL', 'EAFNOSUPPORT', 'EPROTONOSUPPORT'].includes(error.code)) {
+      t.skip('IPv6 loopback is unavailable on this host.');
+      return;
+    }
+    throw error;
+  }
+  t.after(() => close(server));
+  const { port } = server.address();
+
+  assert.equal(await isPortOpen(port, { host: '127.0.0.1' }), false);
+  assert.equal(await isPortOpen(port), true);
+  assert.deepEqual(await servicePortStatus([{ name: 'ipv6', port }]), {
+    allOpen: true,
+    anyOpen: true,
+    openPorts: [port]
+  });
 });
 
 test('counts redirects, authentication challenges, and HTTP errors as responses', async (t) => {

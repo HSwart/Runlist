@@ -1,19 +1,21 @@
 async function recoverProjectPorts(project, intent, options) {
+  const additionalProcesses = validAdditionalProcesses(options.additionalProcesses);
   const initialOpenPorts = normalizedPorts(await options.getOpenPorts(project.services || []));
-  if (!initialOpenPorts.length) {
+  if (!initialOpenPorts.length && (intent !== 'stop' || !additionalProcesses.length)) {
     return { status: 'closed', openPorts: [], processCount: 0 };
   }
 
-  const initialListeners = listenersForPorts(
-    await options.findListeningProcesses(initialOpenPorts),
-    initialOpenPorts
-  );
+  const initialListeners = initialOpenPorts.length
+    ? listenersForPorts(
+      await options.findListeningProcesses(initialOpenPorts),
+      initialOpenPorts
+    )
+    : [];
   const unresolved = unresolvedPorts(initialOpenPorts, initialListeners);
   if (unresolved.length) {
     return { status: 'unresolved', ports: unresolved };
   }
 
-  const additionalProcesses = validAdditionalProcesses(options.additionalProcesses);
   const initialProcesses = groupProcesses([...initialListeners, ...additionalProcesses]);
   const protectedPids = options.protectedPids || new Set([process.pid]);
   const protectedProcesses = initialProcesses.filter((candidate) => protectedPids.has(candidate.pid));
@@ -52,7 +54,8 @@ async function recoverProjectPorts(project, intent, options) {
   const processes = groupProcesses([...currentListeners, ...additionalProcesses]);
   for (const processInfo of processes) {
     await options.terminateListenerProcess(processInfo, {
-      allowMissing: processInfo.ports.length === 0
+      allowMissing: processInfo.ports.length === 0,
+      terminateTree: processInfo.terminateTree
     });
   }
   const closed = await options.waitForPortsClosed(project.services || []);
@@ -77,7 +80,9 @@ function portClosureConfirmation(project, intent, openPorts, processes) {
   return {
     message: intent === 'start'
       ? `Close the processes blocking ${project.name}?`
-      : `Close the processes using ${project.name}'s ports?`,
+      : openPorts.length
+        ? `Close the processes using ${project.name}'s ports?`
+        : `Close the saved process running ${project.name}?`,
     confirmLabel: intent === 'start' ? 'Close processes and start' : 'Close processes',
     detail: lines.join('\n')
   };
@@ -105,7 +110,8 @@ function validAdditionalProcesses(processes) {
       pid: candidate.pid,
       identity: candidate.identity,
       name: String(candidate.name || 'Saved Runlist process'),
-      ports: normalizedPorts(candidate.ports)
+      ports: normalizedPorts(candidate.ports),
+      ...(candidate.terminateTree === true ? { terminateTree: true } : {})
     }));
 }
 
@@ -128,6 +134,9 @@ function groupProcesses(listeners) {
           existing.ports.push(port);
         }
       }
+      if (listener.terminateTree === true) {
+        existing.terminateTree = true;
+      }
       existing.ports.sort((left, right) => left - right);
       continue;
     }
@@ -135,13 +144,48 @@ function groupProcesses(listeners) {
       pid: listener.pid,
       identity: listener.identity,
       name: String(listener.name || 'Unknown process'),
-      ports
+      ports,
+      ...(listener.terminateTree === true ? { terminateTree: true } : {})
     });
   }
   return [...grouped.values()].sort((left, right) => (
-    Number(right.ports.length > 0) - Number(left.ports.length > 0)
+    Number(left.terminateTree === true) - Number(right.terminateTree === true)
+    || Number(right.ports.length > 0) - Number(left.ports.length > 0)
     || left.pid - right.pid
   ));
 }
 
-module.exports = { portClosureConfirmation, recoverProjectPorts };
+function managedPortBlockers(projectIds, processRuntime, projects = []) {
+  const names = new Map(projects.map((project) => [project.id, project.name]));
+  return [...new Set(projectIds || [])].map((projectId) => {
+    const ownership = processRuntime?.get(projectId);
+    if (!ownership?.ownerAvailable || !ownership.processActive) {
+      return undefined;
+    }
+    return {
+      id: projectId,
+      name: names.get(projectId) || 'Another Runlist project'
+    };
+  }).filter(Boolean);
+}
+
+function relatedPortProjectIds(project, reservationConflicts = [], projects = []) {
+  const targetPorts = new Set(normalizedPorts((project?.services || []).map((service) => service.port)));
+  const relatedIds = new Set((reservationConflicts || [])
+    .map((conflict) => conflict.projectId)
+    .filter((projectId) => typeof projectId === 'string' && projectId !== project?.id));
+  for (const candidate of projects) {
+    if (candidate.id !== project?.id
+      && (candidate.services || []).some((service) => targetPorts.has(Number(service.port)))) {
+      relatedIds.add(candidate.id);
+    }
+  }
+  return relatedIds;
+}
+
+module.exports = {
+  managedPortBlockers,
+  portClosureConfirmation,
+  recoverProjectPorts,
+  relatedPortProjectIds
+};

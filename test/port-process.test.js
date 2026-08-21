@@ -136,6 +136,21 @@ test('terminates the exact Windows listener tree after identity validation', asy
   assert.deepEqual(terminated, [[120, 'win32']]);
 });
 
+test('terminates a verified Runlist process tree on macOS', async () => {
+  const terminated = [];
+  await terminateListenerProcess({ pid: 120, identity: '120:first' }, {
+    platform: 'darwin',
+    terminateTree: true,
+    readProcessIdentity: async () => '120:first',
+    terminateProcessTree: async (pid, options) => terminated.push([pid, options.platform]),
+    kill: () => {
+      throw new Error('owned process trees must use process-group termination');
+    }
+  });
+
+  assert.deepEqual(terminated, [[120, 'darwin']]);
+});
+
 test('terminates an exact POSIX listener PID without assuming it leads a process group', async () => {
   const signals = [];
   let alive = true;
@@ -151,4 +166,45 @@ test('terminates an exact POSIX listener PID without assuming it leads a process
   });
 
   assert.deepEqual(signals, [[120, 'SIGTERM']]);
+});
+
+test('revalidates a POSIX listener identity before escalating to SIGKILL', async () => {
+  const signals = [];
+  let identityRead = 0;
+  await assert.rejects(
+    terminateListenerProcess({ pid: 120, identity: '120:first' }, {
+      platform: 'darwin',
+      graceMs: 0,
+      readProcessIdentity: async () => {
+        identityRead += 1;
+        return identityRead === 1 ? '120:first' : '120:replacement';
+      },
+      kill: (pid, signal) => signals.push([pid, signal]),
+      isProcessAlive: () => true,
+      delay: async () => undefined
+    }),
+    /force close.*identity changed/i
+  );
+
+  assert.deepEqual(signals, [[120, 'SIGTERM']]);
+});
+
+test('escalates an unchanged POSIX listener after the grace period', async () => {
+  const signals = [];
+  let alive = true;
+  await terminateListenerProcess({ pid: 120, identity: '120:first' }, {
+    platform: 'linux',
+    graceMs: 0,
+    readProcessIdentity: async () => '120:first',
+    kill: (pid, signal) => {
+      signals.push([pid, signal]);
+      if (signal === 'SIGKILL') {
+        alive = false;
+      }
+    },
+    isProcessAlive: () => alive,
+    delay: async () => undefined
+  });
+
+  assert.deepEqual(signals, [[120, 'SIGTERM'], [120, 'SIGKILL']]);
 });
