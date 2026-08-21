@@ -525,7 +525,8 @@ function statusSummaryHtml(projects) {
   const conflictCount = projects
     .filter((project) => !project.reviewRequired
       && ['port-in-use', 'port-in-use-unknown'].includes(project.status)).length;
-  return `<span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running${startingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${startingCount} starting` : ''}${notReadyCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notReadyCount} taking longer` : ''}${notRespondingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notRespondingCount} not responding` : ''}${stoppingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${stoppingCount} stopping` : ''}${ownershipLostCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${ownershipLostCount} control unavailable` : ''} <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped${reviewCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${reviewCount} to review` : ''}${conflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${conflictCount} unavailable` : ''}`;
+  const unsupportedCount = projects.filter((project) => project.status === 'unsupported').length;
+  return `<span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running${startingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${startingCount} starting` : ''}${notReadyCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notReadyCount} taking longer` : ''}${notRespondingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notRespondingCount} not responding` : ''}${stoppingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${stoppingCount} stopping` : ''}${ownershipLostCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${ownershipLostCount} control unavailable` : ''} <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped${reviewCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${reviewCount} to review` : ''}${conflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${conflictCount} unavailable` : ''}${unsupportedCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${unsupportedCount} local only` : ''}`;
 }
 
 function runGroupsHtml() {
@@ -549,8 +550,8 @@ function runGroupsHtml() {
             </div>
             <div class="run-group-actions">
               ${group.canStop
-                ? `<button data-action="stop-group" data-id="${groupId}" aria-label="Stop group ${groupName}" title="${actionLabel}" ${group.busy ? 'disabled' : ''}>${productIcon('stop')}</button>`
-                : `<button data-action="start-group" data-id="${groupId}" aria-label="Start group ${groupName}" title="${actionLabel}" ${group.busy || !group.projectIds.length ? 'disabled' : ''}>${productIcon(group.busy ? 'loading' : 'play')}</button>`}
+                ? `<button data-action="stop-group" data-id="${groupId}" aria-label="Stop group ${groupName}" title="${group.lifecycleBlocked ? 'Lifecycle controls are available only for local projects' : actionLabel}" ${group.busy || group.lifecycleBlocked ? 'disabled' : ''}>${productIcon('stop')}</button>`
+                : `<button data-action="start-group" data-id="${groupId}" aria-label="Start group ${groupName}" title="${group.lifecycleBlocked ? 'Lifecycle controls are available only for local projects' : actionLabel}" ${group.busy || group.lifecycleBlocked || !group.projectIds.length ? 'disabled' : ''}>${productIcon(group.busy ? 'loading' : 'play')}</button>`}
               <button data-action="manage-group" data-id="${groupId}" aria-label="Manage group ${groupName}" title="Manage ${groupName}" ${group.busy ? 'disabled' : ''}>${icon('more')}</button>
             </div>
           </div>`;
@@ -660,6 +661,7 @@ function renderList() {
           'port-in-use': conflict?.ownerName ? `${blockedServiceLabel} by ${conflictOwnerName}` : blockedServiceLabel,
           'port-in-use-unknown': blockedServiceLabel,
           'review-required': 'Review setup',
+          unsupported: 'Local lifecycle only',
           stopped: 'Stopped'
         };
         const conflicted = ['port-in-use', 'port-in-use-unknown'].includes(projectStatus);
@@ -681,7 +683,7 @@ function renderList() {
           && !project.forceClosing
           && !project.handoffInProgress
           && projectStatus !== 'stopping';
-        const blocked = conflicted;
+        const blocked = conflicted || project.lifecycleBlocked;
         const openTitle = canOpen
           ? `Open ${projectName} in your browser`
           : conflicted
@@ -689,7 +691,9 @@ function renderList() {
             : stopState
               ? `${projectName} does not have a responding web service yet`
               : `Start ${projectName} before opening it`;
-        const statusTitle = reviewRequired
+        const statusTitle = project.lifecycleBlocked
+          ? project.lifecycleBlockedReason
+          : reviewRequired
           ? 'A coding agent added or updated this setup. Review its folder and commands before running it.'
           : projectStatus === 'active'
           ? project.httpUnresponsive
@@ -750,7 +754,7 @@ function renderList() {
                   <button data-action="restart" data-id="${projectId}" role="menuitem" aria-label="Restart ${projectName}" ${canRestart ? '' : 'disabled'}>
                     ${icon('refresh', 'menu-icon')}<span>Restart</span>
                   </button>
-                  <button data-action="force-close-ports" data-id="${projectId}" role="menuitem" aria-label="Close configured ports for ${projectName}" ${canCloseConfiguredPorts ? '' : 'disabled'} title="${canCloseConfiguredPorts ? `Review and close the processes using ${projectName}'s configured ports` : 'No configured ports are currently open'}">
+                  <button data-action="force-close-ports" data-id="${projectId}" role="menuitem" aria-label="Close configured ports for ${projectName}" ${canCloseConfiguredPorts && !project.lifecycleBlocked ? '' : 'disabled'} title="${project.lifecycleBlocked ? escapeHtml(project.lifecycleBlockedReason) : canCloseConfiguredPorts ? `Review and close the processes using ${projectName}'s configured ports` : 'No configured ports are currently open'}">
                     ${icon('stop', 'menu-icon')}<span>Close configured ports…</span>
                   </button>
                   <button data-action="edit" data-id="${projectId}" role="menuitem">
@@ -786,6 +790,7 @@ function renderList() {
                   const portBlocked = conflicted && portOpen;
                   const waiting = ['starting', 'not-ready'].includes(projectStatus) && !portOpen;
                   const canResolve = !reviewRequired
+                    && !project.lifecycleBlocked
                     && !project.forceClosing
                     && !project.handoffInProgress
                     && (portBlocked || (projectStatus === 'not-ready' && waiting));
@@ -1103,6 +1108,8 @@ function renderProjectForm(mode) {
     const portField = `service-port-${index}`;
     const urlField = `service-url-${index}`;
     const warning = sharedPortWarningText(state.draft, index);
+    const serviceOptionsSet = Boolean(String(service.url || '').trim());
+    const serviceOptionsInvalid = Boolean(errors[urlField]);
     const removeLabel = String(service.name || '').trim()
       ? `Remove ${String(service.name).trim()} service`
       : `Remove service ${index + 1}`;
@@ -1119,11 +1126,16 @@ function renderProjectForm(mode) {
           ${fieldError(portField)}
         </div>
         <button class="service-remove-button" type="button" data-action="remove-service" data-service-index="${index}" aria-label="${escapeHtml(removeLabel)}" title="Remove service">${icon('trash')}</button>
-        <div class="service-field service-url-field">
-          <label class="service-url-label" for="${urlField}">Open URL <span class="optional-label">Optional</span></label>
-          <input id="${urlField}" class="service-input" name="serviceUrl" type="url" inputmode="url" value="${escapeHtml(String(service.url ?? ''))}" placeholder="https://app.local/dashboard" maxlength="2048" autocomplete="off" spellcheck="false" aria-label="Service ${index + 1} open URL, optional" ${errorAttributes(urlField)}>
-          ${fieldError(urlField)}
-        </div>
+        <details class="service-options" ${serviceOptionsInvalid ? 'open' : ''}>
+          <summary>Options${serviceOptionsSet ? ' <span class="optional-label">Set</span>' : ''}</summary>
+          <div class="service-options-fields">
+            <div class="service-field">
+              <label class="service-url-label" for="${urlField}">Open URL <span class="optional-label">Optional</span></label>
+              <input id="${urlField}" class="service-input" name="serviceUrl" type="url" inputmode="url" value="${escapeHtml(String(service.url ?? ''))}" placeholder="https://app.local/dashboard" maxlength="2048" autocomplete="off" spellcheck="false" aria-label="Service ${index + 1} open URL, optional" ${errorAttributes(urlField)}>
+              ${fieldError(urlField)}
+            </div>
+          </div>
+        </details>
         <p class="shared-port-warning service-warning" data-service-warning="${index}" role="status" ${warning ? '' : 'hidden'}>${escapeHtml(warning)}</p>
       </div>`;
   }).join('');
@@ -1155,11 +1167,11 @@ function renderProjectForm(mode) {
         <label for="stop-command">Custom stop command <span class="optional-label">Optional</span></label>
         <input id="stop-command" name="stopCommand" value="${escapeHtml(state.draft.stopCommand || '')}" placeholder="docker compose down" ${errorAttributes('stop-command')}>
         ${fieldError('stop-command')}
-        <p class="field-hint">Leave empty to stop only the process tree Runlist started.</p>
+        <p class="field-hint">Leave empty to stop only Runlist's process tree. Custom commands are user-controlled and confirmed before every run.</p>
 
         <fieldset id="services" class="service-editor" ${state.servicesLocked ? 'disabled' : ''} ${errors.services ? 'aria-invalid="true" aria-describedby="services-hint services-error" tabindex="-1"' : 'aria-describedby="services-hint"'}>
           <legend>Services <span class="optional-label">Optional</span></legend>
-          <p id="services-hint" class="field-hint">${state.servicesLocked ? 'Stop this project before changing its services.' : 'Names and ports confirm what is running. An optional HTTP or HTTPS URL changes where Open app goes. Up to 32 services.'}</p>
+          <p id="services-hint" class="field-hint">${state.servicesLocked ? 'Stop this project before changing its services.' : 'Add up to 32 named service ports.'}</p>
           ${errors.services ? `<p id="services-error" class="field-error" role="alert">${escapeHtml(errors.services)}</p>` : ''}
           <div class="service-list-header" aria-hidden="true"><span>Name</span><span>Port</span></div>
           <div class="service-list">
@@ -1376,9 +1388,10 @@ function currentDraft(form = document.getElementById('project-form')) {
     folder: fieldValue('folder'),
     startCommand: fieldValue('startCommand'),
     stopCommand: fieldValue('stopCommand'),
-    services: [...(form?.querySelectorAll('.service-row') || [])].map((row) => ({
+    services: [...(form?.querySelectorAll('.service-row') || [])].map((row, index) => ({
       name: row.querySelector('[name="serviceName"]')?.value || '',
       port: row.querySelector('[name="servicePort"]')?.value || '',
+      portVariable: state.draft.services?.[index]?.portVariable || '',
       url: row.querySelector('[name="serviceUrl"]')?.value || ''
     }))
   };
@@ -1492,7 +1505,9 @@ app.addEventListener('click', (event) => {
       const services = currentDraft().services;
       if (services.length < 32) {
         const index = services.length;
-        updateServiceDraft([...services, { name: '', port: '', url: '' }], `service-name-${index}`);
+        updateServiceDraft([...services, {
+          name: '', port: '', portVariable: '', url: ''
+        }], `service-name-${index}`);
       }
     },
     'remove-service': () => {

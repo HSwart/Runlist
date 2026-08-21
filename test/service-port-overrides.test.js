@@ -8,15 +8,14 @@ const {
   portVariableValidationMessage,
   projectLaunchEnvironment,
   projectWithPortOverrides,
-  rewriteLoopbackServiceUrl,
-  suggestedPortVariable
+  rewriteLoopbackServiceUrl
 } = require('../service-port-overrides');
 
 const project = {
   id: 'multi',
   services: [
     { name: 'web', port: 3000, url: 'http://localhost:3000/dashboard?tab=all' },
-    { name: 'api', port: 4000 },
+    { name: 'api', port: 4000, portVariable: 'API_PORT' },
     { name: 'docs', port: 5000, url: 'https://docs.example.test:5000/guide' }
   ]
 };
@@ -50,12 +49,22 @@ test('rejects stale, duplicate, unsafe, and colliding temporary settings', () =>
   }]), /different from every other/);
   assert.throws(() => normalizePortOverrides(project, [{
     serviceName: 'api', savedPort: 4000, port: 4001, variable: 'PATH'
-  }]), /non-system/);
-  assert.throws(() => mergePortOverride(project, [{
+  }]), /portable, non-system/);
+});
+
+test('accepts an explicit launch-only variable for an unconfigured service', () => {
+  assert.deepEqual(normalizePortOverrides(project, [{
     serviceName: 'web', savedPort: 3000, port: 3001, variable: 'PORT'
+  }]), [{
+    serviceName: 'web', savedPort: 3000, port: 3001, variable: 'PORT'
+  }]);
+  assert.deepEqual(mergePortOverride(project, [{
+    serviceName: 'api', savedPort: 4000, port: 4001, variable: 'API_PORT'
   }], {
-    serviceName: 'api', savedPort: 4000, port: 4001, variable: 'port'
-  }), /different environment variable/);
+    serviceName: 'api', savedPort: 4000, port: 4002, variable: 'OTHER_PORT'
+  }), [{
+    serviceName: 'api', savedPort: 4000, port: 4002, variable: 'OTHER_PORT'
+  }]);
 });
 
 test('sets launch variables case-insensitively without mutating the parent environment', () => {
@@ -106,13 +115,11 @@ test('rewrites matching explicit and default loopback URL ports', () => {
   assert.equal(rewriteLoopbackServiceUrl('http://localhost/dashboard', 3000, 3001), 'http://localhost/dashboard');
 });
 
-test('provides portable variable suggestions and inline validation', () => {
-  assert.equal(suggestedPortVariable({ name: 'api server' }, 1), 'API_SERVER_PORT');
-  assert.equal(suggestedPortVariable({ name: 'web' }, 0), 'PORT');
-  assert.equal(suggestedPortVariable({ name: 'app' }, 0), 'PORT');
+test('validates configured port variables without guessing them', () => {
   assert.equal(portVariableValidationMessage('API-PORT'), 'Use letters, numbers, and underscores, starting with a letter or underscore.');
   assert.equal(portVariableValidationMessage('SystemRoot'), 'Choose an app-specific variable instead of a system environment variable.');
   assert.equal(portVariableValidationMessage('LD_PRELOAD'), 'Choose an app-specific variable instead of a system environment variable.');
+  assert.equal(portVariableValidationMessage(`P${'A'.repeat(128)}`), 'Use no more than 128 characters.');
   assert.equal(portVariableValidationMessage('API_PORT'), undefined);
 });
 

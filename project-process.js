@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const { readRootProcess } = require('./process-metrics');
 const { writeFileAtomically } = require('./project-store');
 const { projectWithPortOverrides } = require('./service-port-overrides');
@@ -19,7 +19,7 @@ function customStopSpawnOptions(platform = process.platform) {
   return {
     ...projectProcessSpawnOptions(platform),
     shell: true,
-    stdio: ['ignore', 'ignore', 'pipe']
+    stdio: ['ignore', 'pipe', 'pipe']
   };
 }
 
@@ -256,7 +256,7 @@ async function cleanupTrackedProcessForDeletion(processes, id, project, stopProj
 
 async function waitForProcessGroupExit(pid, kill, options) {
   const termDeadline = Date.now() + (options.terminateTimeoutMs ?? 5000);
-  while (processGroupIsAlive(pid, kill)) {
+  while (await processGroupIsAlive(pid, kill, options)) {
     if (Date.now() >= termDeadline) {
       kill(-pid, 'SIGKILL');
       break;
@@ -265,7 +265,7 @@ async function waitForProcessGroupExit(pid, kill, options) {
   }
 
   const killDeadline = Date.now() + (options.killTimeoutMs ?? 1000);
-  while (processGroupIsAlive(pid, kill)) {
+  while (await processGroupIsAlive(pid, kill, options)) {
     if (Date.now() >= killDeadline) {
       throw new Error('the launched process tree did not exit after Runlist terminated it.');
     }
@@ -273,7 +273,7 @@ async function waitForProcessGroupExit(pid, kill, options) {
   }
 }
 
-function processGroupIsAlive(pid, kill) {
+async function processGroupIsAlive(pid, kill, options) {
   try {
     kill(-pid, 0);
     return true;
@@ -281,8 +281,38 @@ function processGroupIsAlive(pid, kill) {
     if (error.code === 'ESRCH') {
       return false;
     }
+    if (error.code === 'EPERM') {
+      const readGroup = options.readProcessGroup || readPosixProcessGroup;
+      try {
+        return (await readGroup(pid, options)).length > 0;
+      } catch {
+        // Preserve the original permission failure when the fallback cannot prove the group is empty.
+      }
+    }
     throw error;
   }
+}
+
+function readPosixProcessGroup(processGroupId, options = {}) {
+  const runFile = options.execFile || execFile;
+  return new Promise((resolve, reject) => {
+    runFile('ps', ['-o', 'pid=', '-g', String(processGroupId)], {
+      encoding: 'utf8',
+      env: { ...process.env, LC_ALL: 'C' },
+      maxBuffer: 64 * 1024,
+      timeout: options.processGroupProbeTimeoutMs ?? 1000,
+      windowsHide: true
+    }, (error, stdout) => {
+      const pids = String(stdout || '').split(/\r?\n/)
+        .map((line) => Number(line.trim()))
+        .filter((pid) => Number.isInteger(pid) && pid > 0);
+      if (!error || (Number(error.code) === 1 && pids.length === 0)) {
+        resolve(pids);
+        return;
+      }
+      reject(error);
+    });
+  });
 }
 
 function delay(milliseconds) {

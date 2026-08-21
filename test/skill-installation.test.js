@@ -40,6 +40,12 @@ test('managed setup guidance preserves only explicit HTTP or HTTPS service URLs'
   assert.match(skill, /never derive or guess one from the port/);
 });
 
+test('managed setup leaves temporary port variables to the launch-time recovery flow', () => {
+  const skill = fs.readFileSync(path.join(__dirname, '..', 'skills', 'runlist', 'SKILL.md'), 'utf8');
+  assert.doesNotMatch(skill, /portVariable/);
+  assert.doesNotMatch(skill, /port variable/i);
+});
+
 test('resolves personal skill folders on macOS and Linux', () => {
   const environment = { HOME: '/Users/example' };
   assert.equal(agentSkillPath('codex', environment, 'darwin'), '/Users/example/.codex/skills/runlist');

@@ -31,6 +31,7 @@ function projectConfigurationRevision(project) {
     services: (project.services || []).map((service) => ({
       name: service.name,
       port: service.port,
+      portVariable: service.portVariable || '',
       url: service.url || ''
     }))
   };
@@ -187,7 +188,8 @@ function formatService(service) {
     return '';
   }
   const url = service.url || `http://localhost:${service.port}`;
-  return `${service.name} :${service.port} — ${url}`;
+  const portVariable = service.portVariable ? ` · temporary via ${service.portVariable}` : '';
+  return `${service.name} :${service.port} — ${url}${portVariable}`;
 }
 
 function validateProposalEnvelope(input) {

@@ -145,7 +145,7 @@ test('preserves temporary service ports through a whole-project Restart', async 
     projects: [{
       id: 'project-1',
       name: 'Project',
-      services: [{ name: 'api', port: 4000 }]
+      services: [{ name: 'api', port: 4000, portVariable: 'API_PORT' }]
     }],
     processOwnership: { snapshot: () => new Map([['project-1', ownership]]) },
     portReservations: { snapshot: () => new Map([['project-1', 'running']]) },
@@ -214,21 +214,19 @@ test('re-reads the saved project after Start acquires process ownership', () => 
   assert.ok(rereadProjects < reservePorts);
 });
 
-test('falls back from a custom stop to port recovery or exact owned-process cleanup', () => {
+test('does not escalate a custom stop into port or process cleanup', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const stopProject = source.indexOf('async stopProject(id, projectSnapshot, options = {})');
   const customStop = source.indexOf('if (stopProject.stopCommand)', stopProject);
-  const chooseFallback = source.indexOf('customStopFallbackAction({', customStop);
-  const recoverPorts = source.indexOf("this.forceCloseProjectPorts(id, 'stop')", chooseFallback);
-  const recoverOwnedProcess = source.indexOf('this.stopOwnedProjectProcess(id, stopProject, {', recoverPorts);
-  const defaultStop = source.indexOf('return this.stopOwnedProjectProcess(id, stopProject, options);', recoverOwnedProcess);
+  const confirmCommand = source.indexOf('await this.confirmCustomStopCommand(stopProject)', customStop);
+  const verifyPostcondition = source.indexOf('customStopPostcondition({', confirmCommand);
+  const customStopEnd = source.indexOf('return this.stopOwnedProjectProcess(id, stopProject, options);', verifyPostcondition);
+  const customStopSource = source.slice(customStop, customStopEnd);
 
   assert.ok(stopProject >= 0);
-  assert.ok(customStop >= 0);
-  assert.ok(customStop < chooseFallback);
-  assert.ok(chooseFallback < recoverPorts);
-  assert.ok(recoverPorts < recoverOwnedProcess);
-  assert.ok(recoverOwnedProcess < defaultStop);
+  assert.ok(customStop < confirmCommand);
+  assert.ok(confirmCommand < verifyPostcondition);
+  assert.doesNotMatch(customStopSource, /forceCloseProjectPorts|stopOwnedProjectProcess/);
 });
 
 test('routes remote custom stops through the launching VS Code window', () => {

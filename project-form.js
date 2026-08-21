@@ -1,6 +1,7 @@
 const FIELD_ORDER = ['project-name', 'folder', 'start-command', 'stop-command'];
 const MAX_SERVICES = 32;
 const { safeServiceUrl } = require('./external-url');
+const { optionalPortVariableValidationMessage } = require('./service-port-overrides');
 
 function projectFormValues(input = {}) {
   const sourceServices = Array.isArray(input.services)
@@ -17,6 +18,7 @@ function projectFormValues(input = {}) {
     services: sourceServices.map((service) => ({
       name: String(service?.name ?? ''),
       port: String(service?.port ?? ''),
+      portVariable: String(service?.portVariable ?? ''),
       url: String(service?.url ?? '')
     }))
   };
@@ -40,11 +42,13 @@ function validateProjectForm(input) {
 
   const names = new Map();
   const ports = new Map();
+  const portVariables = new Map();
   values.services.forEach((service, index) => {
     const name = service.name.trim();
     const portText = service.port.trim();
     const url = service.url.trim();
-    if (!name && !portText && !url) {
+    const portVariable = service.portVariable.trim();
+    if (!name && !portText && !portVariable && !url) {
       return;
     }
     if (!name) {
@@ -77,11 +81,25 @@ function validateProjectForm(input) {
     if (url && !safeServiceUrl(url)) {
       errors[`service-url-${index}`] = 'Enter a valid HTTP or HTTPS URL without sign-in details.';
     }
+    const portVariableError = optionalPortVariableValidationMessage(portVariable);
+    if (portVariableError) {
+      errors[`service-port-variable-${index}`] = portVariableError;
+    } else if (portVariable) {
+      const normalizedVariable = portVariable.toLocaleLowerCase('en-US');
+      if (portVariables.has(normalizedVariable)) {
+        const firstIndex = portVariables.get(normalizedVariable);
+        errors[`service-port-variable-${firstIndex}`] ||= 'Use a unique variable for each service.';
+        errors[`service-port-variable-${index}`] = 'Use a unique variable for each service.';
+      } else {
+        portVariables.set(normalizedVariable, index);
+      }
+    }
   });
 
   const serviceFields = values.services.flatMap((service, index) => [
     `service-name-${index}`,
     `service-port-${index}`,
+    `service-port-variable-${index}`,
     `service-url-${index}`
   ]);
   return {
@@ -93,10 +111,12 @@ function validateProjectForm(input) {
 
 function projectFormServices(values) {
   return projectFormValues(values).services
-    .filter((service) => service.name.trim() || service.port.trim() || service.url.trim())
+    .filter((service) => service.name.trim() || service.port.trim()
+      || service.portVariable.trim() || service.url.trim())
     .map((service) => ({
       name: service.name.trim(),
       port: Number(service.port.trim()),
+      ...(service.portVariable.trim() ? { portVariable: service.portVariable.trim() } : {}),
       ...(service.url.trim() ? { url: service.url.trim() } : {})
     }));
 }
@@ -113,9 +133,10 @@ function projectServicesChanged(input, baseline) {
 
 function projectSaveError(error) {
   const message = String(error?.message || 'Could not save this project.');
-  const serviceField = message.match(/services\[(\d+)\]\.(name|port|url)/);
+  const serviceField = message.match(/services\[(\d+)\]\.(name|portVariable|port|url)\b/);
   if (serviceField) {
-    return { field: `service-${serviceField[2]}-${serviceField[1]}`, message };
+    const fieldName = serviceField[2] === 'portVariable' ? 'port-variable' : serviceField[2];
+    return { field: `service-${fieldName}-${serviceField[1]}`, message };
   }
   if (/service/i.test(message)) {
     return { field: 'services', message };

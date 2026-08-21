@@ -2,6 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { safeServiceUrl } = require('./external-url');
+const { optionalPortVariableValidationMessage } = require('./service-port-overrides');
 
 const PROJECT_STORE_SCHEMA_VERSION = 1;
 const ATOMIC_RENAME_MAX_ATTEMPTS = 5;
@@ -308,11 +309,12 @@ function validateStoredServices(value, projectIndex) {
 
   const names = new Set();
   const ports = new Set();
+  const portVariables = new Set();
   return value.map((service, serviceIndex) => {
     if (!service || typeof service !== 'object' || Array.isArray(service)) {
       throw projectStoreError('INVALID_STORAGE', `Runlist service ${serviceIndex + 1} is not valid.`);
     }
-    if (Object.keys(service).some((key) => !['name', 'port', 'url'].includes(key))) {
+    if (Object.keys(service).some((key) => !['name', 'port', 'portVariable', 'url'].includes(key))) {
       throw projectStoreError('INVALID_STORAGE', `Runlist service ${serviceIndex + 1} contains unsupported data.`);
     }
     validateStoredText(service.name, `service ${serviceIndex + 1} name`, 64);
@@ -322,13 +324,23 @@ function validateStoredServices(value, projectIndex) {
     if (service.url !== undefined && (typeof service.url !== 'string' || !safeServiceUrl(service.url))) {
       throw projectStoreError('INVALID_STORAGE', `Runlist service ${serviceIndex + 1} has an invalid URL.`);
     }
+    if (service.portVariable !== undefined
+      && (typeof service.portVariable !== 'string'
+        || optionalPortVariableValidationMessage(service.portVariable))) {
+      throw projectStoreError('INVALID_STORAGE', `Runlist service ${serviceIndex + 1} has an invalid port variable.`);
+    }
 
     const normalizedName = service.name.toLowerCase();
-    if (names.has(normalizedName) || ports.has(service.port)) {
-      throw projectStoreError('INVALID_STORAGE', 'Runlist project services must have unique names and ports.');
+    const normalizedVariable = service.portVariable?.toLocaleLowerCase('en-US');
+    if (names.has(normalizedName) || ports.has(service.port)
+      || (normalizedVariable && portVariables.has(normalizedVariable))) {
+      throw projectStoreError('INVALID_STORAGE', 'Runlist project services must have unique names, ports, and port variables.');
     }
     names.add(normalizedName);
     ports.add(service.port);
+    if (normalizedVariable) {
+      portVariables.add(normalizedVariable);
+    }
     return { ...service };
   });
 }
@@ -617,11 +629,12 @@ function normalizeServices(value) {
 
   const names = new Set();
   const ports = new Set();
+  const portVariables = new Set();
   return value.map((service, index) => {
     if (!service || typeof service !== 'object' || Array.isArray(service)) {
       throw new Error(`services[${index}] must be an object.`);
     }
-    const unsupportedKeys = Object.keys(service).filter((key) => !['name', 'port', 'url'].includes(key));
+    const unsupportedKeys = Object.keys(service).filter((key) => !['name', 'port', 'portVariable', 'url'].includes(key));
     if (unsupportedKeys.length) {
       throw new Error(`services[${index}] has unsupported field: ${unsupportedKeys.join(', ')}`);
     }
@@ -637,16 +650,36 @@ function normalizeServices(value) {
     if (url === undefined || (url && !safeServiceUrl(url))) {
       throw new Error(`services[${index}].url must be a valid HTTP or HTTPS URL without credentials.`);
     }
+    const portVariable = service.portVariable === undefined
+      ? ''
+      : typeof service.portVariable === 'string'
+        ? service.portVariable.trim()
+        : undefined;
+    if (portVariable === undefined || optionalPortVariableValidationMessage(portVariable)) {
+      throw new Error(`services[${index}].portVariable must be a portable, non-system environment variable name.`);
+    }
     if (names.has(name.toLowerCase())) {
       throw new Error(`service names must be unique: ${name}.`);
     }
     if (ports.has(service.port)) {
       throw new Error(`service ports must be unique: ${service.port}.`);
     }
+    const normalizedVariable = portVariable.toLocaleLowerCase('en-US');
+    if (portVariable && portVariables.has(normalizedVariable)) {
+      throw new Error(`service port variables must be unique: ${portVariable}.`);
+    }
 
     names.add(name.toLowerCase());
     ports.add(service.port);
-    return { name, port: service.port, ...(url ? { url } : {}) };
+    if (portVariable) {
+      portVariables.add(normalizedVariable);
+    }
+    return {
+      name,
+      port: service.port,
+      ...(portVariable ? { portVariable } : {}),
+      ...(url ? { url } : {})
+    };
   });
 }
 

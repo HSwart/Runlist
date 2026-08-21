@@ -84,7 +84,12 @@ test('renders field-level added, removed, changed, and unchanged values', () => 
     folder: 'C:\\app',
     startCommand: 'npm run dev',
     services: [
-      { name: 'web', port: 3001, url: 'http://localhost:3001/new' },
+      {
+        name: 'web',
+        port: 3001,
+        portVariable: 'PORT',
+        url: 'http://localhost:3001/new'
+      },
       { name: 'worker', port: 5000 }
     ]
   });
@@ -99,6 +104,7 @@ test('renders field-level added, removed, changed, and unchanged values', () => 
       && item.change === 'changed'
       && item.current.includes(':3000')
       && item.proposed.includes(':3001')
+      && item.proposed.includes('temporary via PORT')
   )));
 });
 

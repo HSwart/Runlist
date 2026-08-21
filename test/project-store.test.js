@@ -337,7 +337,12 @@ test('creates, updates, and removes projects in the shared store', (t) => {
     folder: projectFolder,
     startCommand: 'pnpm dev',
     stopCommand: 'docker compose down',
-    services: [{ name: 'web', port: 3001, url: ' https://app.local/dashboard ' }]
+    services: [{
+      name: 'web',
+      port: 3001,
+      portVariable: 'PORT',
+      url: ' https://app.local/dashboard '
+    }]
   });
 
   assert.equal(updated.action, 'updated');
@@ -346,6 +351,7 @@ test('creates, updates, and removes projects in the shared store', (t) => {
   assert.equal(readProjects(projectsFile)[0].startCommand, 'pnpm dev');
   assert.equal(readProjects(projectsFile)[0].stopCommand, 'docker compose down');
   assert.equal(readProjects(projectsFile)[0].services[0].port, 3001);
+  assert.equal(readProjects(projectsFile)[0].services[0].portVariable, 'PORT');
   assert.equal(readProjects(projectsFile)[0].services[0].url, 'https://app.local/dashboard');
 
   const updatedByAgent = upsertProject(projectsFile, {
@@ -410,6 +416,28 @@ test('rejects duplicate service ports', (t) => {
     }),
     /ports must be unique/
   );
+});
+
+test('rejects invalid and duplicate service port variables', (t) => {
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-store-'));
+  const projectFolder = path.join(temporaryRoot, 'sample-app');
+  const projectsFile = path.join(temporaryRoot, 'projects.json');
+  fs.mkdirSync(projectFolder);
+  t.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
+
+  assert.throws(() => upsertProject(projectsFile, {
+    folder: projectFolder,
+    startCommand: 'npm run dev',
+    services: [{ name: 'web', port: 3000, portVariable: 'PATH' }]
+  }), /portVariable/);
+  assert.throws(() => upsertProject(projectsFile, {
+    folder: projectFolder,
+    startCommand: 'npm run dev',
+    services: [
+      { name: 'web', port: 3000, portVariable: 'PORT' },
+      { name: 'api', port: 4000, portVariable: 'port' }
+    ]
+  }), /variables must be unique/);
 });
 
 test('rejects unsafe service URL overrides', (t) => {

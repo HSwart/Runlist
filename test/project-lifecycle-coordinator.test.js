@@ -145,3 +145,29 @@ test('reports when a successful custom Stop leaves a configured service open', a
     services: [{ port: 4310 }]
   }, 200), false);
 });
+
+test('verifies that a selected temporary service port actually opens', async () => {
+  let checks = 0;
+  const lifecycle = new ProjectLifecycleCoordinator({}, {
+    delay: async () => {},
+    now: () => checks * 10,
+    servicePortStatus: async () => ({
+      allOpen: ++checks >= 3,
+      anyOpen: checks >= 3
+    })
+  });
+
+  assert.equal(await lifecycle.waitUntilServiceReady({ port: 4311 }, 100), true);
+  assert.equal(checks, 3);
+});
+
+test('rejects a temporary service port that never opens', async () => {
+  let now = 0;
+  const lifecycle = new ProjectLifecycleCoordinator({}, {
+    delay: async () => { now += 100; },
+    now: () => now,
+    servicePortStatus: async () => ({ allOpen: false, anyOpen: false })
+  });
+
+  assert.equal(await lifecycle.waitUntilServiceReady({ port: 4311 }, 200), false);
+});

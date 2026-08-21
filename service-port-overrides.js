@@ -165,6 +165,9 @@ function mergePortOverride(project, overrides, nextOverride) {
 
 function portVariableValidationMessage(value) {
   const variable = String(value || '').trim();
+  if (variable.length > 128) {
+    return 'Use no more than 128 characters.';
+  }
   if (!PORT_VARIABLE_PATTERN.test(variable)) {
     return 'Use letters, numbers, and underscores, starting with a letter or underscore.';
   }
@@ -174,17 +177,10 @@ function portVariableValidationMessage(value) {
   return undefined;
 }
 
-function suggestedPortVariable(service, serviceIndex = 0) {
-  if (serviceIndex === 0) {
-    return 'PORT';
-  }
-  const prefix = String(service?.name || 'SERVICE')
-    .normalize('NFKD')
-    .replace(/[^A-Za-z0-9]+/g, '_')
-    .replace(/^\d+/, '')
-    .replace(/^_+|_+$/g, '')
-    .toUpperCase() || 'SERVICE';
-  return `${prefix}_PORT`;
+function optionalPortVariableValidationMessage(value) {
+  return String(value || '').trim()
+    ? portVariableValidationMessage(value)
+    : undefined;
 }
 
 function rewriteLoopbackServiceUrl(value, savedPort, temporaryPort) {
@@ -213,10 +209,10 @@ module.exports = {
   effectiveProjectPortOverrides,
   mergePortOverride,
   normalizePortOverrides,
+  optionalPortVariableValidationMessage,
   parseTemporaryPort,
   portVariableValidationMessage,
   projectLaunchEnvironment,
   projectWithPortOverrides,
-  rewriteLoopbackServiceUrl,
-  suggestedPortVariable
+  rewriteLoopbackServiceUrl
 };

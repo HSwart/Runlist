@@ -75,3 +75,17 @@ test('preserves ordinary Start, Stop, custom Stop, review, and transition behavi
   assert.equal(projectPrimaryAction({ name: 'App', status: 'stopping' }).disabled, true);
   assert.equal(projectPrimaryAction({ name: 'App', status: 'active', forceClosing: true }).disabled, true);
 });
+
+test('disables lifecycle actions when the project environment cannot be verified', () => {
+  assert.deepEqual(projectPrimaryAction({
+    name: 'Remote app',
+    status: 'unsupported',
+    lifecycleBlocked: true,
+    lifecycleBlockedReason: 'Local projects only.'
+  }), {
+    action: 'start',
+    disabled: true,
+    label: 'Local projects only.',
+    mode: 'start'
+  });
+});

@@ -31,7 +31,7 @@ const processOwnership = PROJECTS_FILE
 const setupTool = {
   name: 'runlist_setup_project',
   title: 'Set up a Runlist project',
-  description: 'Add a local project to Runlist, or update the existing entry for the same folder. You may give the project a friendly custom name and an advanced custom stop command. Runlist normally stops only the process tree it launched. Before calling, identify every service the project starts and provide its explicit port. When the project explicitly defines an HTTP or HTTPS browser URL for a service, you may include it as an override. The saved setup remains blocked until the user reviews and approves it in Runlist.',
+  description: 'Add a local project to Runlist, or update the existing entry for the same folder. You may give the project a friendly custom name and an advanced custom stop command. Runlist normally stops only the process tree it launched. Before calling, identify every service the project starts and provide its explicit port. Include a port variable only when the start command is explicitly documented to honor it for that service; never guess one. When the project explicitly defines an HTTP or HTTPS browser URL for a service, you may include it as an override. The saved setup remains blocked until the user reviews and approves it in Runlist.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -106,6 +106,7 @@ const setupTool = {
               properties: {
                 name: { type: 'string' },
                 port: { type: 'integer' },
+                portVariable: { type: 'string' },
                 url: { type: 'string' }
               },
               required: ['name', 'port'],

@@ -47,7 +47,7 @@ const {
   recoverProjectPorts,
   relatedPortProjectIds
 } = require('./port-recovery');
-const { customStopFallbackAction } = require('./custom-stop-recovery');
+const { customStopPostcondition } = require('./custom-stop-recovery');
 const {
   availableProjectDetailTabs,
   preferredProjectDetailTab
@@ -86,9 +86,12 @@ const {
   parseTemporaryPort,
   portVariableValidationMessage,
   projectLaunchEnvironment,
-  projectWithPortOverrides,
-  suggestedPortVariable
+  projectWithPortOverrides
 } = require('./service-port-overrides');
+const {
+  detectLifecycleCapability,
+  projectLifecycleCapability
+} = require('./lifecycle-capability');
 const {
   occupiedPortsBelongToProject,
   occupiedPortConflict,
@@ -160,6 +163,10 @@ class RunlistViewProvider {
     this.context = context;
     this.projectsFile = projectsFile;
     this.serverPath = serverPath;
+    this.lifecycleCapability = detectLifecycleCapability({
+      remoteName: vscode.env.remoteName,
+      platform: process.platform
+    });
     this.view = undefined;
     this.mode = 'list';
     this.searchQuery = '';
@@ -321,11 +328,39 @@ class RunlistViewProvider {
   }
 
   async startSavedRunGroup(id) {
+    const group = this.groups.find((candidate) => candidate.id === id);
+    const blockedProject = group?.projectIds
+      .map((projectId) => this.projects.find((project) => project.id === projectId))
+      .find((project) => project && !this.lifecycleCapabilityFor(project).supported);
+    if (blockedProject) {
+      this.showLifecycleBlocked(blockedProject);
+      return false;
+    }
     return this.lifecycle.startGroup(id);
   }
 
   async stopSavedRunGroup(id) {
+    const group = this.groups.find((candidate) => candidate.id === id);
+    const blockedProject = group?.projectIds
+      .map((projectId) => this.projects.find((project) => project.id === projectId))
+      .find((project) => project && !this.lifecycleCapabilityFor(project).supported);
+    if (blockedProject) {
+      this.showLifecycleBlocked(blockedProject);
+      return false;
+    }
     return this.lifecycle.stopGroup(id);
+  }
+
+  lifecycleCapabilityFor(project) {
+    return projectLifecycleCapability(this.lifecycleCapability, project, process.platform);
+  }
+
+  showLifecycleBlocked(project) {
+    const capability = this.lifecycleCapabilityFor(project);
+    if (!capability.supported) {
+      vscode.window.showWarningMessage(`${project.name}: ${capability.reason}`);
+    }
+    return capability.supported;
   }
 
   updateRunGroupProgress(group, progress) {
@@ -469,6 +504,10 @@ class RunlistViewProvider {
         processRuntime.get(project.id)
       ));
       const checks = await Promise.all(effectiveProjects.map(async (project) => {
+        const capability = this.lifecycleCapabilityFor(project);
+        if (!capability.supported) {
+          return [project.id, 'unsupported', undefined, [], [], [], [], []];
+        }
         const hasServices = Boolean(project.services?.length);
         const portStatus = hasServices
           ? await servicePortStatus(project.services)
@@ -1680,6 +1719,9 @@ class RunlistViewProvider {
     if (!project) {
       return false;
     }
+    if (!this.showLifecycleBlocked(project)) {
+      return false;
+    }
     if (project.reviewRequired) {
       vscode.window.showWarningMessage(`Review and approve ${project.name}'s setup before running its commands.`);
       this.showEditProject(id);
@@ -1928,6 +1970,10 @@ class RunlistViewProvider {
   }
 
   async handoffProject(id) {
+    const project = this.projects.find((candidate) => candidate.id === id);
+    if (!project || !this.showLifecycleBlocked(project)) {
+      return false;
+    }
     return this.lifecycle.handoff(id);
   }
 
@@ -1935,6 +1981,9 @@ class RunlistViewProvider {
     const savedProject = this.projects.find((candidate) => candidate.id === id);
     const savedService = savedProject?.services?.find((service) => service.port === savedPort);
     if (!savedProject || !savedService || savedProject.reviewRequired) {
+      return false;
+    }
+    if (!this.showLifecycleBlocked(savedProject)) {
       return false;
     }
 
@@ -1985,7 +2034,7 @@ class RunlistViewProvider {
     }
     choices.push({
       label: managed ? 'Restart with a temporary port' : 'Use a temporary port',
-      description: 'Keep the saved port unchanged and pass another port to the start command.',
+      description: 'Enter the port variable and use a free port for this launch only.',
       action: 'temporary'
     });
 
@@ -2005,7 +2054,6 @@ class RunlistViewProvider {
     if (choice.action === 'close') {
       return this.forceCloseProjectPorts(id, 'start', { servicePort: savedPort });
     }
-
     return this.startWithTemporaryServicePort(savedProject, savedService, ownership, managed);
   }
 
@@ -2020,19 +2068,38 @@ class RunlistViewProvider {
       return false;
     }
     const existing = existingOverrides.find((override) => override.serviceName === service.name);
-    const serviceIndex = project.services.findIndex((candidate) => candidate.name === service.name);
     const variable = await vscode.window.showInputBox({
       title: `${restart ? 'Restart' : 'Start'} ${project.name} with a temporary port`,
-      prompt: `Environment variable read by your start command for ${service.name}. This setting lasts only for this launch.`,
-      value: existing?.variable || suggestedPortVariable(service, serviceIndex),
+      prompt: `Port environment variable used by ${service.name}. This applies to this launch only.`,
+      value: existing?.variable || service.portVariable || '',
+      placeHolder: 'For example, API_PORT',
       ignoreFocusOut: true,
-      validateInput: portVariableValidationMessage
+      validateInput: (value) => {
+        const validationMessage = portVariableValidationMessage(value);
+        if (validationMessage) {
+          return validationMessage;
+        }
+        const variableKey = value.trim().toLocaleLowerCase('en-US');
+        if (existingOverrides.some((override) => (
+          override.serviceName !== service.name
+          && override.variable.toLocaleLowerCase('en-US') === variableKey
+        ))) {
+          return 'Use a different environment variable for each temporary port.';
+        }
+        return undefined;
+      }
     });
     if (variable === undefined) {
       return false;
     }
+    const portVariable = variable.trim();
 
-    const suggestedPort = await this.suggestTemporaryServicePort(project, service, existingOverrides);
+    const suggestedPort = await this.suggestTemporaryServicePort(
+      project,
+      service,
+      existingOverrides,
+      portVariable
+    );
     const portText = await vscode.window.showInputBox({
       title: `${restart ? 'Restart' : 'Start'} ${project.name} with a temporary port`,
       prompt: `Temporary port for ${service.name}. The saved port remains :${service.port}.`,
@@ -2048,7 +2115,7 @@ class RunlistViewProvider {
             serviceName: service.name,
             savedPort: service.port,
             port,
-            variable: variable.trim()
+            variable: portVariable
           });
           return undefined;
         } catch (error) {
@@ -2071,7 +2138,7 @@ class RunlistViewProvider {
         serviceName: service.name,
         savedPort: service.port,
         port,
-        variable: variable.trim()
+        variable: portVariable
       });
       temporaryProject = projectWithPortOverrides(project, portOverrides);
     } catch (error) {
@@ -2094,15 +2161,26 @@ class RunlistViewProvider {
     const started = restart
       ? await this.lifecycle.restart(project.id, { portOverrides })
       : await this.startProject(project.id, { allowPortConflict: true, portOverrides });
-    if (started) {
-      vscode.window.showInformationMessage(
-        `${project.name} is using ${service.name} on :${temporaryService.port} for this launch. Saved port :${service.port} was not changed.`
-      );
+    if (!started) {
+      return false;
     }
-    return started;
+    const acceptedOverride = await this.lifecycle.waitUntilServiceReady(temporaryService);
+    if (!acceptedOverride) {
+      const stopped = await this.stopOwnedProjectProcess(project.id, temporaryProject, {
+        allowMissing: true
+      });
+      vscode.window.showErrorMessage(
+        `${project.name} did not open ${service.name} on :${temporaryService.port}. ${portVariable} may not be supported by its start command. ${stopped ? 'Runlist stopped the process tree it launched.' : 'Runlist could not confirm that its launched process stopped.'}`
+      );
+      return false;
+    }
+    vscode.window.showInformationMessage(
+      `${project.name} is using ${service.name} on :${temporaryService.port} for this launch. Saved port :${service.port} was not changed.`
+    );
+    return true;
   }
 
-  async suggestTemporaryServicePort(project, service, existingOverrides) {
+  async suggestTemporaryServicePort(project, service, existingOverrides, variable) {
     const configuredPorts = new Set(project.services.map((candidate) => candidate.port));
     for (let offset = 1; offset <= 100; offset += 1) {
       const port = service.port + offset;
@@ -2114,8 +2192,7 @@ class RunlistViewProvider {
           serviceName: service.name,
           savedPort: service.port,
           port,
-          variable: existingOverrides.find((override) => override.serviceName === service.name)?.variable
-            || suggestedPortVariable(service, project.services.indexOf(service))
+          variable
         });
         const candidate = projectWithPortOverrides(project, portOverrides);
         const candidateService = candidate.services.find((item) => item.name === service.name);
@@ -2137,6 +2214,9 @@ class RunlistViewProvider {
     const projects = this.projects;
     const savedProject = projects.find((candidate) => candidate.id === id);
     if (!savedProject || savedProject.reviewRequired || !['start', 'stop'].includes(intent)) {
+      return false;
+    }
+    if (!this.showLifecycleBlocked(savedProject)) {
       return false;
     }
     if (this.forceClosingProjectIds.has(id)) {
@@ -2287,6 +2367,9 @@ class RunlistViewProvider {
     if (!project) {
       return false;
     }
+    if (!this.showLifecycleBlocked(project)) {
+      return false;
+    }
     if (project.reviewRequired) {
       vscode.window.showWarningMessage(`Review and approve ${project.name}'s setup before running its commands.`);
       this.showEditProject(id);
@@ -2327,6 +2410,11 @@ class RunlistViewProvider {
     }
 
     if (stopProject.stopCommand) {
+      const confirmed = await this.confirmCustomStopCommand(stopProject);
+      if (!confirmed) {
+        return false;
+      }
+      const hadTrackedOwnership = this.processes.has(id) || Boolean(sharedOwnership?.processActive);
       const customStopResult = await this.runCustomStopCommand(stopProject);
       const hasConfiguredServices = Boolean(stopProject.services?.length);
       let remainingOwnership = this.processOwnership.snapshot().get(id);
@@ -2347,32 +2435,28 @@ class RunlistViewProvider {
         ownershipStopped = !stillOwned;
       }
 
-      const fallbackAction = customStopFallbackAction({
+      const postcondition = customStopPostcondition({
         commandSucceeded: customStopResult.succeeded,
         hasConfiguredServices,
+        hadTrackedOwnership,
         ownershipStopped,
         servicesStopped
       });
-      if (fallbackAction === 'complete') {
+      if (postcondition === 'complete') {
         this.finishStopping(id, true);
         return true;
       }
-      if (fallbackAction === 'recover-ports') {
-        const recovered = await this.forceCloseProjectPorts(id, 'stop');
-        if (!recovered) {
-          this.finishStopping(id, false);
-        }
-        return recovered;
-      }
-      if (fallbackAction === 'stop-owned-process') {
-        return this.stopOwnedProjectProcess(id, stopProject, {
-          ...options,
-          allowMissing: true
-        });
-      }
-
+      const remaining = [
+        !ownershipStopped ? 'the Runlist-launched process is still active' : '',
+        !servicesStopped ? 'one or more configured ports are still open' : ''
+      ].filter(Boolean).join(' and ');
+      const detail = postcondition === 'command-failed'
+        ? customStopResult.detail
+        : postcondition === 'unverifiable'
+          ? 'the command finished, but this project has no tracked process or configured service ports to verify'
+          : `the command finished, but ${remaining}`;
       vscode.window.showErrorMessage(
-        `Could not stop ${stopProject.name}: ${customStopResult.detail}`
+        `Could not confirm that ${stopProject.name} stopped: ${detail}. Runlist did not run another command or stop any additional process.`
       );
       this.finishStopping(id, false);
       return false;
@@ -2523,7 +2607,12 @@ class RunlistViewProvider {
         ...customStopSpawnOptions()
       });
       let finalized = false;
+      let stdout = '';
       let stderr = '';
+      stopProcess.stdout?.setEncoding('utf8');
+      stopProcess.stdout?.on('data', (chunk) => {
+        stdout = `${stdout}${chunk}`.slice(-2000);
+      });
       stopProcess.stderr?.setEncoding('utf8');
       stopProcess.stderr?.on('data', (chunk) => {
         stderr = `${stderr}${chunk}`.slice(-2000);
@@ -2565,10 +2654,22 @@ class RunlistViewProvider {
           succeeded: code === 0,
           detail: code === 0
             ? undefined
-            : lastUsefulLine(stderr) || `custom stop command exited with code ${code}.`
+            : lastUsefulLine(`${stdout}\n${stderr}`) || `custom stop command exited with code ${code}.`
         });
       });
     });
+  }
+
+  async confirmCustomStopCommand(project) {
+    const choice = await vscode.window.showWarningMessage(
+      `Run the custom Stop command for ${project.name}?`,
+      {
+        modal: true,
+        detail: `This user-controlled command runs in ${project.folder}:\n\n${project.stopCommand}\n\nRunlist will wait up to ${Math.round(CUSTOM_STOP_TIMEOUT_MS / 1000)} seconds, then verify its tracked process and configured ports. It will not retry, rewrite, or fall back to another stop action.`
+      },
+      'Run custom Stop'
+    );
+    return choice === 'Run custom Stop';
   }
 
   stopAllProjects() {
@@ -2681,6 +2782,7 @@ class RunlistViewProvider {
         historyAvailable: startupHistory.length > 0
       });
       const locallyOwned = this.processes.has(project.id);
+      const lifecycleCapability = this.lifecycleCapabilityFor(project);
       return {
         ...runtimeProject,
         stopCommand: typeof runtime?.stopCommand === 'string'
@@ -2698,6 +2800,8 @@ class RunlistViewProvider {
         ),
         serviceUrls,
         status,
+        lifecycleBlocked: !lifecycleCapability.supported,
+        lifecycleBlockedReason: lifecycleCapability.reason,
         timeline,
         detailsExpanded,
         forceClosing: this.forceClosingProjectIds.has(project.id),
@@ -2748,6 +2852,10 @@ class RunlistViewProvider {
         ...group,
         busy: progress?.busy === true,
         canStop: group.projectIds.some((id) => stoppableIds.has(id)),
+        lifecycleBlocked: group.projectIds.some((id) => {
+          const project = projectsById.get(id);
+          return project && !this.lifecycleCapabilityFor(project).supported;
+        }),
         memberNames: group.projectIds.map((id) => projectsById.get(id)?.name || 'Missing project'),
         progress: progress?.message
       };

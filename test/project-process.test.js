@@ -67,7 +67,12 @@ test('uses launch-time temporary services when stopping from another window', ()
     folder: '/saved',
     services: [
       { name: 'web', port: 3000 },
-      { name: 'api', port: 4000, url: 'http://127.0.0.1:4000/health' }
+      {
+        name: 'api',
+        port: 4000,
+        portVariable: 'API_PORT',
+        url: 'http://127.0.0.1:4000/health'
+      }
     ]
   };
 
@@ -84,9 +89,9 @@ test('uses launch-time temporary services when stopping from another window', ()
   assert.deepEqual(runtimeProject.services[1], {
     name: 'api',
     port: 4001,
+    portVariable: 'API_PORT',
     url: 'http://127.0.0.1:4001/health',
     savedPort: 4000,
-    portVariable: 'API_PORT',
     temporaryPort: true
   });
 });
@@ -281,17 +286,17 @@ test('runs explicit custom stop commands through the platform shell', () => {
   assert.deepEqual(customStopSpawnOptions('linux'), {
     detached: true,
     shell: true,
-    stdio: ['ignore', 'ignore', 'pipe']
+    stdio: ['ignore', 'pipe', 'pipe']
   });
   assert.deepEqual(customStopSpawnOptions('darwin'), {
     detached: true,
     shell: true,
-    stdio: ['ignore', 'ignore', 'pipe']
+    stdio: ['ignore', 'pipe', 'pipe']
   });
   assert.deepEqual(customStopSpawnOptions('win32'), {
     detached: false,
     shell: true,
-    stdio: ['ignore', 'ignore', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true
   });
 });
@@ -351,6 +356,34 @@ test('escalates only the owned POSIX process group when descendants ignore SIGTE
     }
   });
   assert.deepEqual(signals, [[-505, 'SIGTERM'], [-505, 'SIGKILL']]);
+});
+
+test('confirms an empty POSIX process group when signal-zero is denied after termination', async () => {
+  const signals = [];
+  await terminateProcessTree(506, {
+    platform: 'darwin',
+    kill: (pid, signal) => {
+      if (signal === 0) {
+        throw Object.assign(new Error('not permitted'), { code: 'EPERM' });
+      }
+      signals.push([pid, signal]);
+    },
+    readProcessGroup: async () => []
+  });
+
+  assert.deepEqual(signals, [[-506, 'SIGTERM']]);
+});
+
+test('keeps a POSIX process group blocked when the EPERM fallback cannot verify it', async () => {
+  await assert.rejects(terminateProcessTree(507, {
+    platform: 'darwin',
+    kill: () => {
+      throw Object.assign(new Error('not permitted'), { code: 'EPERM' });
+    },
+    readProcessGroup: async () => {
+      throw new Error('ps unavailable');
+    }
+  }), /not permitted/);
 });
 
 test('keeps a live process handle when tree termination fails', async () => {

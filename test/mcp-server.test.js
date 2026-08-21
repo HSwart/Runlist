@@ -108,6 +108,10 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.match(listed.result.tools[0].description, /reviews and approves/i);
   assert.match(listed.result.tools[0].inputSchema.properties.name.description, /friendly project name/i);
   assert.match(listed.result.tools[0].inputSchema.properties.services.items.properties.url.description, /optional.*HTTP or HTTPS/i);
+  assert.equal(
+    Object.hasOwn(listed.result.tools[0].inputSchema.properties.services.items.properties, 'portVariable'),
+    false
+  );
   assert.ok(listed.result.tools[0].inputSchema.required.includes('services'));
   assert.equal(listed.result.tools[0].inputSchema.required.includes('stopCommand'), false);
   assert.match(listed.result.tools[0].inputSchema.properties.stopCommand.description, /optional.*custom/i);
@@ -122,6 +126,13 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.deepEqual(
     listed.result.tools[2].inputSchema.required,
     ['projectId', 'projectRevision', 'failedAt', 'proposal']
+  );
+  assert.equal(
+    Object.hasOwn(
+      listed.result.tools[2].inputSchema.properties.proposal.properties.services.items.properties,
+      'portVariable'
+    ),
+    false
   );
 
   const called = await request('tools/call', {

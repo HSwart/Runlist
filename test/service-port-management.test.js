@@ -31,6 +31,28 @@ test('keeps temporary launch details accessible without adding a second service 
   assert.match(webview, /const savedPort = service\.savedPort \|\| service\.port/);
 });
 
+test('keeps optional service configuration collapsed in narrow forms', () => {
+  const webview = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
+  const styles = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.css'), 'utf8');
+
+  assert.match(webview, /<details class="service-options"/);
+  assert.match(webview, /serviceOptionsInvalid \? 'open' : ''/);
+  assert.match(webview, /<summary>Options/);
+  assert.doesNotMatch(webview, />Port variable <span/);
+  assert.match(styles, /\.service-options \{[\s\S]*grid-column: 1 \/ 3/);
+});
+
+test('collects temporary port settings on the fly without editing the project', () => {
+  const extension = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+
+  assert.match(extension, /label: managed \? 'Restart with a temporary port' : 'Use a temporary port'/);
+  assert.doesNotMatch(extension, /Configure temporary ports/);
+  assert.match(extension, /prompt: `Port environment variable used by \$\{service\.name\}\. This applies to this launch only\.`/);
+  assert.match(extension, /placeHolder: 'For example, API_PORT'/);
+  assert.match(extension, /prompt: `Temporary port for \$\{service\.name\}\. The saved port remains :\$\{service\.port\}\.`/);
+  assert.match(extension, /variable: portVariable/);
+});
+
 test('threads temporary ports through reservation, environment, ownership, and exact recovery', () => {
   const extension = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
 

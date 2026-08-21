@@ -192,6 +192,20 @@ class ProjectLifecycleCoordinator {
     }
   }
 
+  async waitUntilServiceReady(service, timeoutMs = this.startReadinessTimeoutMs) {
+    const deadline = this.now() + timeoutMs;
+    while (true) {
+      const status = await this.servicePortStatus([service]);
+      if (status.allOpen) {
+        return true;
+      }
+      if (this.now() >= deadline) {
+        return false;
+      }
+      await this.delay(100);
+    }
+  }
+
   handoff(id) {
     if (this.shuttingDown) {
       return Promise.resolve(false);

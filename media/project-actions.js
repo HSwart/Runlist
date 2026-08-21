@@ -18,6 +18,14 @@
         mode: 'review'
       };
     }
+    if (project.lifecycleBlocked) {
+      return {
+        action: 'start',
+        disabled: true,
+        label: project.lifecycleBlockedReason || `Lifecycle controls are unavailable for ${name}`,
+        mode: 'start'
+      };
+    }
     if (status === 'stopping') {
       return {
         action: 'stop',

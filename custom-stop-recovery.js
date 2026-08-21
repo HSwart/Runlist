@@ -1,21 +1,20 @@
-function customStopFallbackAction({
+function customStopPostcondition({
   commandSucceeded,
   hasConfiguredServices,
+  hadTrackedOwnership,
   ownershipStopped,
   servicesStopped
 }) {
+  if (!commandSucceeded) {
+    return 'command-failed';
+  }
+  if (!hasConfiguredServices && !hadTrackedOwnership) {
+    return 'unverifiable';
+  }
   if (ownershipStopped && servicesStopped) {
-    return commandSucceeded || hasConfiguredServices
-      ? 'complete'
-      : 'report-command-failure';
+    return 'complete';
   }
-  if (hasConfiguredServices && !servicesStopped) {
-    return 'recover-ports';
-  }
-  if (!ownershipStopped) {
-    return 'stop-owned-process';
-  }
-  return 'report-command-failure';
+  return 'partial';
 }
 
-module.exports = { customStopFallbackAction };
+module.exports = { customStopPostcondition };

@@ -1,48 +1,50 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { customStopFallbackAction } = require('../custom-stop-recovery');
+const { customStopPostcondition } = require('../custom-stop-recovery');
 
-test('reconciles a failed custom stop when every configured service is already down', () => {
-  assert.equal(customStopFallbackAction({
-    commandSucceeded: false,
+test('requires a successful command and every verifiable postcondition', () => {
+  assert.equal(customStopPostcondition({
+    commandSucceeded: true,
     hasConfiguredServices: true,
+    hadTrackedOwnership: true,
     ownershipStopped: true,
     servicesStopped: true
   }), 'complete');
 });
 
-test('offers confirmed port recovery when a custom stop leaves configured services open', () => {
-  assert.equal(customStopFallbackAction({
+test('reports command failures even when the command changed lifecycle state', () => {
+  assert.equal(customStopPostcondition({
     commandSucceeded: false,
     hasConfiguredServices: true,
+    hadTrackedOwnership: true,
     ownershipStopped: true,
-    servicesStopped: false
-  }), 'recover-ports');
+    servicesStopped: true
+  }), 'command-failed');
 });
 
-test('uses exact Runlist ownership when only the launched process remains', () => {
-  assert.equal(customStopFallbackAction({
-    commandSucceeded: false,
+test('reports partial completion without selecting another stop action', () => {
+  assert.equal(customStopPostcondition({
+    commandSucceeded: true,
     hasConfiguredServices: true,
+    hadTrackedOwnership: true,
     ownershipStopped: false,
     servicesStopped: true
-  }), 'stop-owned-process');
-});
-
-test('does not hide an unverifiable custom stop failure without service metadata', () => {
-  assert.equal(customStopFallbackAction({
-    commandSucceeded: false,
-    hasConfiguredServices: false,
+  }), 'partial');
+  assert.equal(customStopPostcondition({
+    commandSucceeded: true,
+    hasConfiguredServices: true,
+    hadTrackedOwnership: true,
     ownershipStopped: true,
-    servicesStopped: true
-  }), 'report-command-failure');
+    servicesStopped: false
+  }), 'partial');
 });
 
-test('accepts a successful custom stop after ownership and services are down', () => {
-  assert.equal(customStopFallbackAction({
+test('does not claim success without a lifecycle target to verify', () => {
+  assert.equal(customStopPostcondition({
     commandSucceeded: true,
     hasConfiguredServices: false,
+    hadTrackedOwnership: false,
     ownershipStopped: true,
     servicesStopped: true
-  }), 'complete');
+  }), 'unverifiable');
 });

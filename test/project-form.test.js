@@ -47,8 +47,8 @@ test('normalizes and compares every stored service', () => {
   };
   const form = projectFormValues(stored);
   assert.deepEqual(form.services, [
-    { name: 'web', port: '3000', url: '' },
-    { name: 'api', port: '4000', url: 'https://api.local/docs' }
+    { name: 'web', port: '3000', portVariable: '', url: '' },
+    { name: 'api', port: '4000', portVariable: '', url: 'https://api.local/docs' }
   ]);
   assert.equal(projectFormChanged(form, stored), false);
   assert.equal(projectServicesChanged(form, stored), false);
@@ -62,6 +62,27 @@ test('normalizes and compares every stored service', () => {
     services: [{ name: 'web', port: '3001' }, form.services[1]]
   }, stored), true);
   assert.deepEqual(projectFormServices(form), stored.services);
+});
+
+test('validates and persists optional per-service port variables', () => {
+  const input = {
+    folder: '/tmp/project',
+    startCommand: 'npm start',
+    services: [
+      { name: 'web', port: '3000', portVariable: 'PORT' },
+      { name: 'api', port: '4000', portVariable: 'port' },
+      { name: 'docs', port: '5000', portVariable: 'PATH' }
+    ]
+  };
+  const validation = validateProjectForm(input);
+  assert.equal(validation.errors['service-port-variable-0'], 'Use a unique variable for each service.');
+  assert.equal(validation.errors['service-port-variable-1'], 'Use a unique variable for each service.');
+  assert.match(validation.errors['service-port-variable-2'], /system environment variable/);
+
+  assert.deepEqual(projectFormServices({
+    ...input,
+    services: [{ name: 'web', port: '3000', portVariable: 'PORT' }]
+  }), [{ name: 'web', port: 3000, portVariable: 'PORT' }]);
 });
 
 test('explains duplicate and invalid values beside the relevant services', () => {
