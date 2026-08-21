@@ -2410,7 +2410,8 @@ class RunlistViewProvider {
     }
 
     if (stopProject.stopCommand) {
-      const confirmed = await this.confirmCustomStopCommand(stopProject);
+      const confirmed = options.approvedLaunchStop === true
+        || await this.confirmCustomStopCommand(stopProject);
       if (!confirmed) {
         return false;
       }

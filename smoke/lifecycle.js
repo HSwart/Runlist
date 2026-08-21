@@ -275,11 +275,17 @@ async function run() {
       'ownership-lost',
       'A live process with an unavailable owner was not shown as control unavailable.'
     );
-    assert.equal(
-      await api.provider.stopProject(manual.id),
-      true,
-      'Runlist did not use the explicit custom stop command for orphan recovery.'
-    );
+    const confirmCustomStopCommand = api.provider.confirmCustomStopCommand;
+    api.provider.confirmCustomStopCommand = async (project) => project.id === manual.id;
+    try {
+      assert.equal(
+        await api.provider.stopProject(manual.id),
+        true,
+        'Runlist did not use the explicit custom stop command for orphan recovery.'
+      );
+    } finally {
+      api.provider.confirmCustomStopCommand = confirmCustomStopCommand;
+    }
     await waitFor(
       () => !processIsAlive(orphanRecovery.pid),
       'The explicit custom stop command left the orphan recovery fixture running.'

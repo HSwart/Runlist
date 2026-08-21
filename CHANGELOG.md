@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.0.7 — Safer project control
+
+- Save ordered run groups that wait for each project to become ready and roll back only the projects that group run started when one fails.
+- Export one or all project setups, then preview and approve imported additions or changes before their commands can run.
+- Resolve one blocked service in a multi-port project with a launch-only port variable and temporary port, without changing the saved setup.
+- Review exact process names, ports, and PIDs before closing configured-port listeners, with process identity checked again immediately before termination.
+- Recover and coordinate exact Runlist-owned process trees more reliably across VS Code windows, reloads, and local Windows, macOS, and Linux lifecycle transitions.
+- Confirm the exact optional custom stop command, enforce its timeout, and verify the project stopped without silently falling back to another stop action.
+- Keep local process and port controls safely unavailable in Remote SSH, WSL, Dev Containers, Codespaces, VS Code Tunnels, and Windows WSL network paths.
+- Review complete coding-agent repair proposals before saving them, with retrying the project kept as a separate action.
+
 ## 0.0.6 — Live apps
 
 - Keep expanded project details stable with separate Overview, Output, Preview, and History tabs.

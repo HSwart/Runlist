@@ -68,7 +68,7 @@ Your project is now ready whenever you need it. Select the **Start** icon to run
 
 If Runlist is open in more than one VS Code window, starting or stopping a project in one window updates its status in the others automatically.
 
-Reloading or closing the VS Code window waits for Runlist to stop the process trees that window launched. If the window exits unexpectedly and ownership can no longer be verified, Runlist shows **Running — control unavailable**. A configured custom stop command remains an explicit, user-confirmed shutdown path. **Close configured ports…** remains a separate confirmed action in the project's More actions menu whenever a configured port is open.
+Reloading or closing the VS Code window waits for Runlist to stop the projects that window launched, using their saved custom stop commands when configured. If the window exits unexpectedly and ownership can no longer be verified, Runlist shows **Running — control unavailable**. For a process Runlist did not launch, a configured custom stop command remains an explicit, user-confirmed shutdown path. **Close configured ports…** remains a separate confirmed action in the project's More actions menu whenever a configured port is open.
 
 Configured service ports remain lightweight service metadata. Projects may save the same service ports because they can still run at different times. Runlist points this out while you add or edit a project and checks every configured port again before starting. A detected external listener does not prevent correcting the saved service metadata; verified or ownership-uncertain Runlist processes still lock those fields until they stop.
 

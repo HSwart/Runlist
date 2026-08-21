@@ -229,6 +229,19 @@ test('does not escalate a custom stop into port or process cleanup', () => {
   assert.doesNotMatch(customStopSource, /forceCloseProjectPorts|stopOwnedProjectProcess/);
 });
 
+test('uses the saved custom stop during awaited shutdown without opening a deactivation modal', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+
+  assert.match(
+    source,
+    /const confirmed = options\.approvedLaunchStop === true\s*\|\| await this\.confirmCustomStopCommand\(stopProject\)/
+  );
+  assert.match(
+    source,
+    /this\.lifecycle\.stop\(id, \{ \.\.\.project, reviewRequired: false \}, \{\s*approvedLaunchStop: true/
+  );
+});
+
 test('routes remote custom stops through the launching VS Code window', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const consumeRequests = source.indexOf('this.processOwnership.consumeStopRequests()');
