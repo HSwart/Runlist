@@ -5,10 +5,10 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const { spawn } = require('node:child_process');
-const { projectProcessSpawnOptions, terminateProcessTree } = require('../project-process');
-const { recoverProjectPorts } = require('../port-recovery');
-const { terminateListenerProcess } = require('../port-process');
-const { readRootProcess } = require('../process-metrics');
+const { projectProcessSpawnOptions, terminateProcessTree } = require('../src/lifecycle/project-process');
+const { recoverProjectPorts } = require('../src/ports/port-recovery');
+const { terminateListenerProcess } = require('../src/ports/port-process');
+const { readRootProcess } = require('../src/lifecycle/process-metrics');
 
 test('portable ready fixture can create a real child and grandchild process tree', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-smoke-fixture-'));

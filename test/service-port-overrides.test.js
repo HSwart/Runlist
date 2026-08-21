@@ -9,7 +9,7 @@ const {
   projectLaunchEnvironment,
   projectWithPortOverrides,
   rewriteLoopbackServiceUrl
-} = require('../service-port-overrides');
+} = require('../src/ports/service-port-overrides');
 
 const project = {
   id: 'multi',

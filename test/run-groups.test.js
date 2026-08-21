@@ -9,13 +9,13 @@ const {
   removeRunGroup,
   upsertProject,
   upsertRunGroup
-} = require('../project-store');
+} = require('../src/projects/project-store');
 const {
   RunGroupCoordinator,
   runGroupManagementWorkflow,
   startRunGroup,
   stopRunGroup
-} = require('../run-groups');
+} = require('../src/groups/run-groups');
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-groups-'));
@@ -48,7 +48,8 @@ test('persists create, rename, ordered edit, and removal for run groups', (t) =>
   assert.deepEqual(readRunGroups(projectsFile), [{
     id: created.group.id,
     name: 'Daily apps',
-    projectIds: [second.id, first.id]
+    projectIds: [second.id, first.id],
+    startMode: 'sequential'
   }]);
 
   upsertRunGroup(projectsFile, {
@@ -59,7 +60,8 @@ test('persists create, rename, ordered edit, and removal for run groups', (t) =>
   assert.deepEqual(readRunGroups(projectsFile)[0], {
     id: created.group.id,
     name: 'Morning apps',
-    projectIds: [first.id]
+    projectIds: [first.id],
+    startMode: 'sequential'
   });
 
   assert.equal(removeRunGroup(projectsFile, created.group.id), true);
@@ -85,6 +87,29 @@ test('removing a project prunes only its memberships', (t) => {
     { name: 'Both', projectIds: [second.id] },
     { name: 'Second only', projectIds: [second.id] }
   ]);
+});
+
+test('persists and preserves a parallel run-group start mode', (t) => {
+  const { first, projectsFile, second } = fixture(t);
+  const created = upsertRunGroup(projectsFile, {
+    name: 'Parallel apps',
+    projectIds: [first.id, second.id],
+    startMode: 'parallel'
+  });
+
+  upsertRunGroup(projectsFile, {
+    id: created.group.id,
+    name: 'Renamed parallel apps',
+    projectIds: [second.id, first.id]
+  });
+
+  assert.equal(readRunGroups(projectsFile)[0].startMode, 'parallel');
+  assert.throws(() => upsertRunGroup(projectsFile, {
+    id: created.group.id,
+    name: 'Invalid',
+    projectIds: [first.id],
+    startMode: 'automatic'
+  }), /sequential or parallel/);
 });
 
 test('starts members sequentially and waits for readiness before advancing', async () => {
@@ -171,6 +196,87 @@ test('rolls back only newly started members in reverse after a blocked start', a
     'stopped:started',
     'release'
   ]);
+});
+
+test('starts eligible parallel members together and rolls back started members in reverse saved order', async () => {
+  const calls = [];
+  const readyResolvers = new Map();
+  const readiness = (id) => new Promise((resolve) => readyResolvers.set(id, resolve));
+  const run = startRunGroup({
+    id: 'parallel',
+    name: 'Parallel',
+    projectIds: ['existing', 'first', 'second'],
+    startMode: 'parallel'
+  }, {
+    coordinator: { acquire: () => true, release: () => calls.push('release') },
+    projects: [
+      { id: 'existing', name: 'Existing' },
+      { id: 'first', name: 'First' },
+      { id: 'second', name: 'Second' }
+    ],
+    getStatus: (id) => id === 'existing' ? 'running' : 'stopped',
+    startProject: async (id) => {
+      calls.push(`start:${id}`);
+      return true;
+    },
+    waitUntilReady: async (id) => {
+      const ready = await readiness(id);
+      calls.push(`ready:${id}`);
+      return ready;
+    },
+    stopProject: async (id) => {
+      calls.push(`stop:${id}`);
+      return true;
+    },
+    waitUntilStopped: async (id) => {
+      calls.push(`stopped:${id}`);
+      return true;
+    }
+  });
+
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls, ['start:first', 'start:second']);
+  readyResolvers.get('second')(false);
+  readyResolvers.get('first')(true);
+  const result = await run;
+
+  assert.equal(result.status, 'failed');
+  assert.deepEqual(result.startedProjectIds, ['first', 'second']);
+  assert.deepEqual(result.failedProjectIds, ['second']);
+  assert.deepEqual(calls.slice(2), [
+    'ready:second',
+    'ready:first',
+    'stop:second',
+    'stopped:second',
+    'stop:first',
+    'stopped:first',
+    'release'
+  ]);
+});
+
+test('parallel preflight starts nothing when any member is unsafe', async () => {
+  const starts = [];
+  const result = await startRunGroup({
+    id: 'parallel',
+    name: 'Parallel',
+    projectIds: ['first', 'blocked'],
+    startMode: 'parallel'
+  }, {
+    coordinator: { acquire: () => true, release: () => {} },
+    projects: [{ id: 'first', name: 'First' }, { id: 'blocked', name: 'Blocked' }],
+    getStatus: (id) => id === 'blocked' ? 'port-in-use' : 'stopped',
+    startProject: async (id) => {
+      starts.push(id);
+      return true;
+    },
+    waitUntilReady: async () => true,
+    stopProject: async () => true,
+    waitUntilStopped: async () => true
+  });
+
+  assert.equal(result.status, 'failed');
+  assert.equal(result.failedProjectId, 'blocked');
+  assert.deepEqual(starts, []);
 });
 
 test('stops only Runlist-owned members in reverse order', async () => {
@@ -270,7 +376,11 @@ test('creates a group in the exact order selected through native controls', asyn
   });
 
   assert.equal(result.status, 'saved');
-  assert.deepEqual(saved, { name: 'Daily apps', projectIds: ['second', 'first'] });
+  assert.deepEqual(saved, {
+    name: 'Daily apps',
+    projectIds: ['second', 'first'],
+    startMode: 'sequential'
+  });
 });
 
 test('edits member order and renames without changing other group data', async () => {
@@ -291,7 +401,11 @@ test('edits member order and renames without changing other group data', async (
     saveGroup: async (value) => saved.push(value)
   });
   assert.equal(editResult.status, 'saved');
-  assert.deepEqual(saved[0], { ...group, projectIds: ['second', 'first'] });
+  assert.deepEqual(saved[0], {
+    ...group,
+    projectIds: ['second', 'first'],
+    startMode: 'sequential'
+  });
 
   const renameResult = await runGroupManagementWorkflow({
     selectedGroupId: group.id,

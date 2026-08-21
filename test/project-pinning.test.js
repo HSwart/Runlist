@@ -3,13 +3,13 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { projectMatchesQuery } = require('../project-search');
+const { projectMatchesQuery } = require('../src/projects/project-search');
 const {
   pinnedProjectsFirst,
   readProjects,
   toggleProjectPinned,
   upsertProject
-} = require('../project-store');
+} = require('../src/projects/project-store');
 
 test('persists pinning without changing the saved project order', (t) => {
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-pinning-'));

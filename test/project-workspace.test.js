@@ -4,7 +4,7 @@ const {
   canUseCurrentWorkspace,
   localWorkspaceFolders,
   selectCurrentWorkspaceFolder
-} = require('../project-workspace');
+} = require('../src/projects/project-workspace');
 
 function workspaceFolder(name, fsPath, scheme = 'file') {
   return { name, uri: { fsPath, scheme } };

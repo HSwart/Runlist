@@ -3,14 +3,14 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { readProjects, writeProjects } = require('../project-store');
+const { readProjects, writeProjects } = require('../src/projects/project-store');
 const {
   applyProjectImport,
   exportProjectDocument,
   parseImportDocument,
   previewProjectImport,
   ProjectTransferError
-} = require('../project-transfer');
+} = require('../src/projects/project-transfer');
 
 function transferFixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-transfer-'));
@@ -40,13 +40,13 @@ function project(id, name, folder, overrides = {}) {
   };
 }
 
-test('exports selected or complete project lists as version-one documents', (t) => {
+test('exports selected or complete project lists as current documents', (t) => {
   const fixture = transferFixture(t);
   const first = project('first', 'First', fixture.folder('first'));
   const second = project('second', 'Second', fixture.folder('second'), { pinned: true });
 
   assert.deepEqual(JSON.parse(exportProjectDocument([first])), {
-    schemaVersion: 1,
+    schemaVersion: 5,
     projects: [first]
   });
   assert.deepEqual(parseImportDocument(exportProjectDocument([first, second])), [first, second]);
@@ -58,7 +58,7 @@ test('rejects legacy, future, and oversized import documents', () => {
     (error) => error instanceof ProjectTransferError && error.code === 'UNSUPPORTED_IMPORT_FORMAT'
   );
   assert.throws(
-    () => parseImportDocument('{"schemaVersion":2,"projects":[]}'),
+    () => parseImportDocument('{"schemaVersion":6,"projects":[]}'),
     (error) => error instanceof ProjectTransferError && error.code === 'UNSUPPORTED_IMPORT_VERSION'
   );
   assert.throws(

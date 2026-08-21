@@ -19,13 +19,14 @@ const {
   reachableServiceUrls,
   runningAppProjectIds,
   serviceUrl,
+  serviceHealthCheck,
   serviceHttpStatus,
   serviceReadinessDetails,
   serviceTimelineStages,
   serviceReadinessTimedOut,
   servicePortStatus,
   stoppableProjectIds
-} = require('../project-status');
+} = require('../src/lifecycle/project-status');
 
 test('does not treat a port-only reservation as a managed process', () => {
   assert.deepEqual([...managedRuntimeProjectIds({
@@ -142,6 +143,70 @@ test('counts redirects, authentication challenges, and HTTP errors as responses'
   for (const status of [200, 302, 401, 500]) {
     assert.equal(await probeHttpService(`http://127.0.0.1:${port}/${status}`), true);
   }
+});
+
+test('supports configured HTTP methods and exact expected statuses', async (t) => {
+  const methods = [];
+  const server = http.createServer((request, response) => {
+    methods.push(request.method);
+    response.writeHead(204);
+    response.end();
+  });
+  t.after(() => close(server));
+  const port = await listen(server);
+
+  assert.equal(await probeHttpService(`http://127.0.0.1:${port}/health`, {
+    method: 'GET',
+    expectedStatus: 204
+  }), true);
+  assert.equal(await probeHttpService(`http://127.0.0.1:${port}/health`, {
+    method: 'HEAD',
+    expectedStatus: 200
+  }), false);
+  assert.deepEqual(methods, ['GET', 'HEAD']);
+});
+
+test('resolves relative health paths, retries bounded failures, and supports port-only mode', async () => {
+  const seen = [];
+  let attempts = 0;
+  const services = [{
+    name: 'web',
+    port: 4310,
+    url: 'http://localhost:4310/dashboard',
+    healthCheck: {
+      mode: 'http',
+      target: '/health',
+      method: 'GET',
+      expectedStatus: 200,
+      timeoutMs: 100,
+      retries: 2
+    }
+  }, {
+    name: 'metrics',
+    port: 4311,
+    url: 'http://localhost:4311',
+    healthCheck: { mode: 'port' }
+  }];
+  const status = await serviceHttpStatus(services, [4310, 4311], {
+    resolveUrl: async (url) => url.replace('localhost', '127.0.0.1'),
+    probe: async (url, options) => {
+      seen.push([url, options]);
+      attempts += 1;
+      return attempts === 3;
+    }
+  });
+
+  assert.equal(serviceHealthCheck(services[0]).url, 'http://localhost:4310/health');
+  assert.equal(serviceHealthCheck(services[1]).mode, 'port');
+  assert.equal(seen.length, 3);
+  assert.equal(seen[0][0], 'http://127.0.0.1:4310/health');
+  assert.deepEqual(seen[0][1], { timeout: 100, method: 'GET', expectedStatus: 200 });
+  assert.deepEqual(status, {
+    allResponding: true,
+    respondingPorts: [4310],
+    unresponsivePorts: [],
+    webPorts: [4310]
+  });
 });
 
 test('times out when a port accepts connections without returning HTTP', async (t) => {
@@ -539,8 +604,8 @@ test('shows a clear nonresponding state without changing stop safety', () => {
   assert.match(webview, /const statusClass = projectStatus === 'active' && project\.httpUnresponsive[\s\S]*\? 'not-responding'[\s\S]*: displayStatus/);
   assert.match(webview, /project-status status-\$\{statusClass\}/);
   assert.match(webview, /\['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active'\]\.includes\(projectStatus\)/);
-  assert.match(webview, /const serviceAriaLabel = `\$\{service\.name\} on port/);
-  assert.match(webview, /aria-label="\$\{escapeHtml\(serviceAriaLabel\)\}"/);
+  assert.match(webview, /class="service-detail-state">\$\{details\.state\}/);
+  assert.match(webview, /class="service-detail-toggle"[^>]*aria-expanded=/);
   assert.match(styles, /\.service-indicator\.not-responding/);
 });
 

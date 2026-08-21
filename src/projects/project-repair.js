@@ -28,6 +28,9 @@ function projectConfigurationRevision(project) {
     startCommand: project.startCommand,
     stopCommand: project.stopCommand || '',
     reviewRequired: project.reviewRequired === true,
+    launchProfiles: project.launchProfiles || [],
+    selectedLaunchProfileId: project.selectedLaunchProfileId || 'default',
+    tags: project.tags || [],
     services: (project.services || []).map((service) => ({
       name: service.name,
       port: service.port,

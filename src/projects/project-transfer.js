@@ -388,6 +388,9 @@ function projectSetupFingerprint(project) {
     startCommand: project.startCommand,
     stopCommand: project.stopCommand || '',
     services: project.services || [],
+    launchProfiles: project.launchProfiles || [],
+    selectedLaunchProfileId: project.selectedLaunchProfileId || 'default',
+    tags: project.tags || [],
     pinned: project.pinned === true
   });
 }

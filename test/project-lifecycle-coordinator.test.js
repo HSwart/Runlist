@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { ProjectLifecycleCoordinator } = require('../project-lifecycle');
+const { ProjectLifecycleCoordinator } = require('../src/lifecycle/project-lifecycle');
 
 test('delegates start and stop mechanics through one lifecycle boundary', async () => {
   const calls = [];

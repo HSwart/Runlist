@@ -7,7 +7,7 @@ const {
   previewFrameSources,
   projectPreviewService,
   projectPreviewUrl
-} = require('../preview-security');
+} = require('../src/webview/preview-security');
 
 const project = {
   id: 'app',
@@ -98,13 +98,13 @@ test('renders one lazy, sandboxed, accessible expandable preview', () => {
   assert.match(extension, /frame-src \$\{frameSources\}/);
   assert.match(extension, /this\.focusTarget = \{ type: 'project-control', id: previousId \}/);
   assert.match(webview, /data-action="toggle-preview"[^>]*aria-expanded="\$\{project\.detailsExpanded\}"[^>]*aria-controls="details-/);
-  assert.match(webview, /title="\$\{project\.detailsExpanded \? 'Collapse' : 'Expand'\} \$\{project\.timeline \|\| project\.startupHistory\?\.length \? 'project details' : 'app preview'\}">\$\{icon\('chevron-down'\)\}/);
+  assert.match(webview, /class="project-services-summary"[^>]*aria-expanded="\$\{project\.detailsExpanded\}"[^>]*aria-controls="details-/);
   assert.match(webview, /id="details-\$\{projectId\}" class="project-live-details" \$\{project\.detailsExpanded \? '' : 'hidden'\}/);
   assert.match(webview, /data-timeline-elapsed data-started-at=/);
   assert.doesNotMatch(webview, /data-timeline-elapsed[^>]*aria-live/);
   assert.match(webview, /\(timeline\.failed \|\| timeline\.attention\) && timeline\.outputAvailable/);
   assert.doesNotMatch(webview, /icon\('arrow-down'\)/);
-  assert.match(webview, /class="project-services-row">[\s\S]*class="project-services"[\s\S]*class="preview-toggle"/);
+  assert.match(webview, /class="project-services-summary" data-action="open-services"[\s\S]*Services · \$\{project\.services\.length\}/);
   assert.match(webview, /project\.previewExpanded \? `[\s\S]*data-preview-frame data-src=/);
   assert.match(webview, /sandbox="allow-forms allow-scripts allow-same-origin" referrerpolicy="no-referrer"/);
   assert.match(webview, /frame\.src = source/);

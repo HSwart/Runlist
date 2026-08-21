@@ -17,7 +17,8 @@
 Runlist keeps a reusable list of local projects from different repositories inside VS Code. It combines saved commands with project status, cautious port checks, quick links, and recent output, so it is more than a list of tasks to run.
 
 - Start projects with their saved commands and safely stop the process trees Runlist launched.
-- Search saved projects by name or folder.
+- Keep alternate launch profiles for projects that need different commands or service sets, and choose one from the existing Start controls.
+- Search saved projects by name, folder, or tag, and use the compact Tags disclosure to filter the list.
 - Pin important projects so they stay at the top of the list.
 - Give projects a friendly name without renaming their folders.
 - Keep configured service names and local addresses visible at a glance.
@@ -32,7 +33,7 @@ Runlist keeps a reusable list of local projects from different repositories insi
 - View readable recent output from the latest run, including a concise failure summary when startup exits, follow new lines, and open web links without leaving the sidebar.
 - After a failed start, prepare a bounded, sanitized diagnosis request for a connected coding agent without sending anything automatically.
 - Export one or all project setups, or import a file after a preview; imported changes stay blocked until you review and approve them.
-- Save run groups to start each member in its saved order; if one fails, Runlist rolls back only the projects that group run started, in reverse order.
+- Save run groups to start members sequentially in saved order or launch them in parallel; if one fails, Runlist rolls back only the projects that group run started, in reverse order.
 - Edit or remove a saved project without touching its files.
 
 > Runlist remembers the setup. You decide what runs.
@@ -59,12 +60,20 @@ After installation, select the Runlist icon in the VS Code Activity Bar.
 3. If a local folder is already open in VS Code, choose **Use current workspace**, or select **Browse**. In a multi-root workspace, Runlist asks which local workspace folder to use.
 4. Enter the command that starts the project.
 5. If the project needs a special shutdown workflow, optionally enter a custom stop command. Most projects should leave this blank.
-6. If you know them, add each service name and port so Runlist can verify its status. You can optionally add an HTTP or HTTPS URL to open instead of the service's localhost address.
+6. If you know them, add each service name and port so Runlist can verify its status. In **Options**, you can add an HTTP or HTTPS Open URL and optionally choose a port-only or configurable HTTP health check.
 7. Save it.
 
 Runlist points out missing or invalid details beside the field that needs attention. If you close the screen after making changes, it asks before discarding them.
 
+Use the optional comma-separated Tags field to group projects by role, team, or workflow. Tags are edited with the project, while the list keeps them in one on-demand filter instead of adding another row to every card.
+
 Your project is now ready whenever you need it. Select the **Start** icon to run its saved start command. Projects with configured services stay **Starting…** until every saved TCP port is accepting IPv4 or IPv6 loopback connections. A service with an Open URL also waits for its web page to respond; redirects, sign-in responses, and error pages still count as a response. After 30 seconds, Runlist shows **Taking longer…** and names the services it is still checking, without stopping the project or giving up. If those services become ready later, the status changes to **Running**. A service whose port is open but whose page does not respond is shown separately as **Web service not responding**. Services without an Open URL keep using port-based checks. Projects without configured services use the launched process state. Select **Stop** to stop the process tree Runlist launched. When Runlist cannot use normal ownership but configured ports are open, Stop offers a native confirmation before closing the exact current listener processes. When an explicit custom stop command is configured, Runlist first shows the exact user-controlled command for confirmation, runs it once with a timeout, and verifies that the tracked process and configured services stopped. A failed or partial custom stop never triggers another command or additional process termination automatically. Folder or custom-stop edits made during a run apply on the next Start.
+
+Service health checks stay under **Options**. **Default** preserves the behavior above, **Port only** ignores HTTP readiness even when an Open URL exists, and **HTTP request** can use a separate URL or `/path`, HEAD or GET, an optional exact status, a bounded timeout, and up to two retries. Health failures change readiness only; they never stop a process or close a port.
+
+Project cards keep services in one compact summary. Open **Services** to inspect each saved service, its current readiness and address, then reveal only the service whose Open, Copy URL, or Resolve Port control you need. Project Start, Stop, and Restart remain ownership-scoped to the exact project process Runlist launched.
+
+For projects with more than one way to run, add alternate launch profiles in **Edit project**. Each profile keeps its own start command, optional custom stop command, and services. A compact selector appears beside Start only when alternatives exist. Choosing a profile never starts it, and Runlist locks profile switching while the project is running so the launch-time setup remains unambiguous.
 
 If Runlist is open in more than one VS Code window, starting or stopping a project in one window updates its status in the others automatically.
 
@@ -119,7 +128,7 @@ Runlist keeps the everyday controls simple:
 | **Close configured ports…** | Shows the current process names, ports, and PIDs for confirmation before closing those exact listeners. |
 | **Restart** | In a project's More actions menu, safely stops that project before starting it again and checking service readiness. |
 | **Stop all running** | Appears when two or more projects are running and stops them together. |
-| **Run groups** | Saves a small ordered set of projects. Start waits for each project to become ready before continuing; failure rollback and Stop group use reverse order and stop only Runlist-owned processes. |
+| **Run groups** | Saves a small ordered set of projects. Choose Sequential to wait for each project or Parallel to launch the eligible members together. Failure rollback and Stop group use reverse order and stop only Runlist-owned processes. |
 | **Port in use** | Identifies the owning project when possible and requires confirmation before an external listener is closed. |
 | **Switch projects** | When two Runlist-owned projects need the same port, safely stops the running project before starting the selected one. For external listeners, shows the exact processes and asks before closing them and continuing Start. |
 | **Resolve service port…** | Appears on only the affected service when one port blocks a multi-service project or stays unavailable after startup. Retry, review and close that exact listener, safely switch Runlist projects, or enter the service's port variable and use a temporary port on the fly. Runlist verifies the selected port opened and stops its launched process tree if the command rejected the override. The variable and port last for the current launch, leave the saved project unchanged, and are preserved by Restart. |

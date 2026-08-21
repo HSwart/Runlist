@@ -9,14 +9,14 @@ test('renders an accessible copy action only for a reachable service URL', () =>
 
   assert.match(webview, /project\.serviceUrls\?\.some\(\(entry\) => entry\.port === service\.port\)/);
   assert.match(webview, /data-action="copy-service-url"[^>]*data-id="\$\{projectId\}"[^>]*data-port=/);
-  assert.match(webview, /aria-label="\$\{copyLabel\}" title="\$\{copyLabel\}"/);
+  assert.match(webview, /data-action="copy-service-url"[^>]*\$\{details\.canUseUrl \? '' : 'disabled'\}[^>]*>\$\{icon\('copy'\)\}<span>Copy URL<\/span>/);
   assert.match(webview, /type: 'copyServiceUrl',[\s\S]*port: Number\(button\.dataset\.port\)/);
 });
 
 test('rechecks reachability and copies the forwarded safe URL in the extension host', () => {
   const root = path.join(__dirname, '..');
   const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
-  const router = fs.readFileSync(path.join(root, 'webview-message-router.js'), 'utf8');
+  const router = fs.readFileSync(path.join(root, 'src', 'webview', 'webview-message-router.js'), 'utf8');
 
   assert.match(router, /copyServiceUrl: \(message\) => host\.copyServiceUrl\(message\.id, Number\(message\.port\)\)/);
   assert.match(extension, /async copyServiceUrl\(id, port\)[\s\S]*servicePortStatus\(\[service\]\)[\s\S]*reachableServiceUrls\(\[service\]/);

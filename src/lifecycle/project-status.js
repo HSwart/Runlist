@@ -1,7 +1,7 @@
 const net = require('net');
 const http = require('http');
 const https = require('https');
-const { safeServiceUrl } = require('./external-url');
+const { safeServiceUrl } = require('../services/external-url');
 
 const HTTP_PROBE_TIMEOUT_MS = 700;
 const TIMED_OUT = Symbol('timed-out');
@@ -55,6 +55,40 @@ function httpServiceUrl(service) {
   return override ? safeServiceUrl(override) : undefined;
 }
 
+function serviceHealthCheck(service) {
+  const configured = service?.healthCheck;
+  if (!configured) {
+    return httpServiceUrl(service)
+      ? { mode: 'http', url: httpServiceUrl(service), method: 'HEAD', timeout: HTTP_PROBE_TIMEOUT_MS, retries: 0 }
+      : { mode: 'port' };
+  }
+  if (configured.mode === 'port') {
+    return { mode: 'port' };
+  }
+  const base = serviceUrl(service);
+  const target = typeof configured.target === 'string' ? configured.target.trim() : '';
+  let url;
+  if (!target) {
+    url = httpServiceUrl(service) || base;
+  } else if (target.startsWith('/')) {
+    try {
+      url = safeServiceUrl(new URL(target, base).toString());
+    } catch {
+      url = undefined;
+    }
+  } else {
+    url = safeServiceUrl(target);
+  }
+  return {
+    mode: 'http',
+    url,
+    method: configured.method || 'HEAD',
+    expectedStatus: configured.expectedStatus,
+    timeout: configured.timeoutMs || HTTP_PROBE_TIMEOUT_MS,
+    retries: configured.retries || 0
+  };
+}
+
 function serviceUrl(service) {
   const override = typeof service?.url === 'string' ? service.url.trim() : '';
   if (override) {
@@ -97,9 +131,10 @@ function probeHttpService(url, options = {}) {
     }, timeout);
 
     try {
-      request = transport.request(safeUrl, { method: 'HEAD' }, (response) => {
+      request = transport.request(safeUrl, { method: options.method || 'HEAD' }, (response) => {
         response.resume();
-        finish(true);
+        finish(options.expectedStatus === undefined
+          || response.statusCode === options.expectedStatus);
       });
       request.once('error', () => finish(false));
       request.end();
@@ -112,8 +147,8 @@ function probeHttpService(url, options = {}) {
 
 async function serviceHttpStatus(services, openPorts, options = {}) {
   const configured = (services || [])
-    .map((service) => ({ service, url: httpServiceUrl(service) }))
-    .filter(({ url }) => Boolean(url));
+    .map((service) => ({ service, check: serviceHealthCheck(service) }))
+    .filter(({ check }) => check.mode === 'http');
   if (configured.length === 0) {
     return {
       allResponding: true,
@@ -129,22 +164,35 @@ async function serviceHttpStatus(services, openPorts, options = {}) {
   const timeout = Number.isFinite(options.timeout)
     ? Math.max(1, options.timeout)
     : HTTP_PROBE_TIMEOUT_MS;
-  const results = await Promise.all(configured.map(async ({ service, url }) => {
+  const results = await Promise.all(configured.map(async ({ service, check }) => {
     if (!open.has(service.port)) {
       return false;
     }
+    if (!check.url) {
+      return false;
+    }
     try {
-      const deadline = Date.now() + timeout;
-      const resolvedUrl = await valueWithin(() => resolveUrl(url, service), timeout);
+      const attemptTimeout = Number.isFinite(service.healthCheck?.timeoutMs)
+        ? service.healthCheck.timeoutMs
+        : timeout;
+      const resolvedUrl = await valueWithin(() => resolveUrl(check.url, service), attemptTimeout);
       if (resolvedUrl === TIMED_OUT) {
         return false;
       }
-      const remaining = Math.max(1, deadline - Date.now());
-      const responding = await valueWithin(
-        () => probe(resolvedUrl, { timeout: remaining }),
-        remaining
-      );
-      return responding === TIMED_OUT ? false : Boolean(responding);
+      for (let attempt = 0; attempt <= check.retries; attempt += 1) {
+        const responding = await valueWithin(
+          () => probe(resolvedUrl, {
+            timeout: attemptTimeout,
+            method: check.method,
+            expectedStatus: check.expectedStatus
+          }),
+          attemptTimeout
+        );
+        if (responding !== TIMED_OUT && responding) {
+          return true;
+        }
+      }
+      return false;
     } catch {
       return false;
     }
@@ -322,7 +370,8 @@ function isPrimaryServiceResponding(services, openPorts, respondingPorts) {
     return false;
   }
   const primary = services?.[0];
-  return !httpServiceUrl(primary) || (respondingPorts || []).includes(primary.port);
+  return serviceHealthCheck(primary).mode !== 'http'
+    || (respondingPorts || []).includes(primary.port);
 }
 
 function projectStatus({
@@ -435,6 +484,7 @@ module.exports = {
   areServicesRunning,
   hasUnownedPortReservation,
   httpServiceUrl,
+  serviceHealthCheck,
   isPortOpen,
   isPrimaryServiceOpen,
   isPrimaryServiceResponding,

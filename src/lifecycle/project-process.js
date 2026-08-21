@@ -1,10 +1,11 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { resolveLaunchProfile } = require('../projects/launch-profile');
 const { execFile, spawn } = require('child_process');
 const { readRootProcess } = require('./process-metrics');
-const { writeFileAtomically } = require('./project-store');
-const { projectWithPortOverrides } = require('./service-port-overrides');
+const { writeFileAtomically } = require('../projects/project-store');
+const { projectWithPortOverrides } = require('../ports/service-port-overrides');
 
 const OWNER_HEARTBEAT_TIMEOUT_MS = 10000;
 const INVALID_RECORD_GRACE_MS = 2000;
@@ -136,14 +137,30 @@ function shouldRequestRemoteCustomStop(project, ownership, hasLocalProcess, loca
 }
 
 function projectStopStrategy(project, ownership) {
-  if (!project || !ownership) {
+  if (!project) {
     return project;
   }
+  const selectedProject = resolveLaunchProfile(project);
+  if (!ownership) {
+    return selectedProject;
+  }
   const launchProject = {
-    ...project,
+    ...selectedProject,
     ...(typeof ownership.cwd === 'string' ? { folder: ownership.cwd } : {}),
+    ...(typeof ownership.startCommand === 'string'
+      ? { startCommand: ownership.startCommand }
+      : {}),
     ...(typeof ownership.stopCommand === 'string'
       ? { stopCommand: ownership.stopCommand }
+      : {}),
+    ...(Array.isArray(ownership.services)
+      ? { services: ownership.services.map((service) => ({ ...service })) }
+      : {}),
+    ...(typeof ownership.launchProfileId === 'string'
+      ? { activeLaunchProfileId: ownership.launchProfileId }
+      : {}),
+    ...(typeof ownership.launchProfileName === 'string'
+      ? { activeLaunchProfileName: ownership.launchProfileName }
       : {})
   };
   try {
@@ -161,7 +178,11 @@ function recordStartedProcess(processOwnership, portReservations, project, child
     ...details,
     cwd: project.folder,
     identityRequired: true,
-    stopCommand: project.stopCommand || ''
+    startCommand: project.startCommand,
+    stopCommand: project.stopCommand || '',
+    services: project.services || [],
+    launchProfileId: project.activeLaunchProfileId,
+    launchProfileName: project.activeLaunchProfileName
   });
   if (!recorded) {
     throw new Error('Runlist lost process ownership while recording the launched process.');
@@ -403,8 +424,20 @@ class ProcessOwnershipStore {
       ...(typeof details.cwd === 'string'
         ? { cwd: details.cwd }
         : {}),
+      ...(typeof details.startCommand === 'string'
+        ? { startCommand: details.startCommand }
+        : {}),
       ...(typeof details.stopCommand === 'string'
         ? { stopCommand: details.stopCommand }
+        : {}),
+      ...(Array.isArray(details.services)
+        ? { services: details.services.map((service) => ({ ...service })) }
+        : {}),
+      ...(typeof details.launchProfileId === 'string'
+        ? { launchProfileId: details.launchProfileId }
+        : {}),
+      ...(typeof details.launchProfileName === 'string'
+        ? { launchProfileName: details.launchProfileName }
         : {}),
       ...(validRuntimePortOverrides(details.portOverrides)
         ? { portOverrides: details.portOverrides.map((override) => ({ ...override })) }

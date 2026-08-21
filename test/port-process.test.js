@@ -6,7 +6,7 @@ const {
   parseSsListeners,
   parseWindowsNetstatListeners,
   terminateListenerProcess
-} = require('../port-process');
+} = require('../src/ports/port-process');
 
 test('parses exact Windows netstat LISTENING rows without requiring elevated TCP inspection', () => {
   const output = [

@@ -4,11 +4,89 @@ const {
   MAX_SERVICES,
   projectFormChanged,
   projectFormServices,
+  projectFormSetup,
   projectServicesChanged,
   projectFormValues,
   projectSaveError,
   validateProjectForm
-} = require('../project-form');
+} = require('../src/projects/project-form');
+
+test('round-trips alternate launch profiles through the project form model', () => {
+  const setup = projectFormSetup({
+    startCommand: 'npm run dev',
+    services: [{ name: 'web', port: '3000' }],
+    launchProfiles: [{
+      id: 'tests',
+      name: ' Tests ',
+      startCommand: ' npm test ',
+      services: [{ name: 'api', port: '4311' }]
+    }],
+    selectedLaunchProfileId: 'tests',
+    editingLaunchProfileId: 'tests'
+  });
+
+  assert.equal(setup.startCommand, 'npm run dev');
+  assert.equal(setup.launchProfiles[0].name, 'Tests');
+  assert.equal(setup.launchProfiles[0].startCommand, 'npm test');
+  assert.deepEqual(setup.launchProfiles[0].services, [{ name: 'api', port: 4311 }]);
+  assert.equal(setup.selectedLaunchProfileId, 'tests');
+});
+
+test('validates and stores explicit health checks without changing defaults', () => {
+  const input = {
+    folder: 'C:\\project',
+    startCommand: 'npm start',
+    services: [{
+      name: 'web',
+      port: '4310',
+      url: 'http://localhost:4310',
+      healthCheck: {
+        mode: 'http',
+        target: '/health',
+        method: 'GET',
+        expectedStatus: '204',
+        timeoutMs: '1200',
+        retries: '2'
+      }
+    }]
+  };
+
+  assert.deepEqual(validateProjectForm(input).errors, {});
+  assert.deepEqual(projectFormServices(input)[0].healthCheck, {
+    mode: 'http',
+    target: '/health',
+    method: 'GET',
+    expectedStatus: 204,
+    timeoutMs: 1200,
+    retries: 2
+  });
+  const invalid = validateProjectForm({
+    ...input,
+    services: [{
+      ...input.services[0],
+      healthCheck: { ...input.services[0].healthCheck, timeoutMs: '5000' }
+    }]
+  });
+  assert.equal(invalid.firstField, 'service-health-timeout-0');
+});
+
+test('validates and normalizes optional project tags', () => {
+  const input = {
+    folder: '/tmp/project',
+    startCommand: 'npm start',
+    tags: ' Frontend, customer   portal, FRONTEND '
+  };
+  const validation = validateProjectForm(input);
+  assert.equal(validation.errors.tags, undefined);
+  assert.deepEqual(projectFormSetup(input).tags, ['Frontend', 'customer portal']);
+
+  const invalid = validateProjectForm({
+    ...input,
+    tags: 'x'.repeat(33)
+  });
+  assert.match(invalid.errors.tags, /32/);
+  assert.equal(invalid.firstField, 'tags');
+});
 
 test('validates project fields and selects the first invalid control', () => {
   const invalid = validateProjectForm({
@@ -47,8 +125,34 @@ test('normalizes and compares every stored service', () => {
   };
   const form = projectFormValues(stored);
   assert.deepEqual(form.services, [
-    { name: 'web', port: '3000', portVariable: '', url: '' },
-    { name: 'api', port: '4000', portVariable: '', url: 'https://api.local/docs' }
+    {
+      name: 'web',
+      port: '3000',
+      portVariable: '',
+      url: '',
+      healthCheck: {
+        mode: 'default',
+        target: '',
+        method: 'HEAD',
+        expectedStatus: '',
+        timeoutMs: '700',
+        retries: '0'
+      }
+    },
+    {
+      name: 'api',
+      port: '4000',
+      portVariable: '',
+      url: 'https://api.local/docs',
+      healthCheck: {
+        mode: 'default',
+        target: '',
+        method: 'HEAD',
+        expectedStatus: '',
+        timeoutMs: '700',
+        retries: '0'
+      }
+    }
   ]);
   assert.equal(projectFormChanged(form, stored), false);
   assert.equal(projectServicesChanged(form, stored), false);

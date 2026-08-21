@@ -1,4 +1,4 @@
-const { ProcessOwnershipStore } = require('./project-process');
+const { ProcessOwnershipStore } = require('../lifecycle/project-process');
 
 class RunGroupCoordinator {
   constructor(directory, options = {}) {
@@ -42,6 +42,9 @@ async function startRunGroup(group, options) {
   let failedProjectId;
   let failureReason;
   try {
+    if (group.startMode === 'parallel') {
+      return await startRunGroupInParallel(group, options, projects, startedProjectIds);
+    }
     for (let index = 0; index < group.projectIds.length; index += 1) {
       const projectId = group.projectIds[index];
       const project = projects.get(projectId);
@@ -129,6 +132,108 @@ async function startRunGroup(group, options) {
   } finally {
     options.coordinator.release(group.id);
   }
+}
+
+async function startRunGroupInParallel(group, options, projects, startedProjectIds) {
+  const eligible = [];
+  for (let index = 0; index < group.projectIds.length; index += 1) {
+    const projectId = group.projectIds[index];
+    const project = projects.get(projectId);
+    const status = options.getStatus(projectId);
+    const failureReason = parallelPreflightFailure(project, status);
+    if (failureReason) {
+      notify(options, { status: 'failed', project, reason: failureReason, rollbackFailures: [] });
+      return {
+        status: 'failed',
+        startedProjectIds,
+        failedProjectId: projectId,
+        failedProjectIds: [projectId],
+        failureReason,
+        rollbackFailures: []
+      };
+    }
+    if (['running', 'active'].includes(status)) {
+      notify(options, { status: 'skipped', project, index, total: group.projectIds.length, mode: 'parallel' });
+    } else {
+      eligible.push({ project, projectId, index });
+    }
+  }
+
+  notify(options, {
+    status: 'starting-parallel',
+    total: group.projectIds.length,
+    eligibleTotal: eligible.length,
+    mode: 'parallel'
+  });
+  let readyCount = 0;
+  const results = await Promise.all(eligible.map(async ({ project, projectId, index }) => {
+    try {
+      const started = await options.startProject(projectId);
+      if (!started) {
+        return { projectId, reason: 'Runlist blocked or could not start this project.' };
+      }
+      startedProjectIds.push(projectId);
+      if (!await options.waitUntilReady(projectId)) {
+        return { projectId, reason: 'The project did not reach its ready state.' };
+      }
+      readyCount += 1;
+      notify(options, {
+        status: 'parallel-progress',
+        project,
+        index,
+        total: group.projectIds.length,
+        eligibleTotal: eligible.length,
+        readyCount,
+        mode: 'parallel'
+      });
+      return { projectId };
+    } catch (error) {
+      return { projectId, reason: error.message };
+    }
+  }));
+
+  const failures = results.filter((result) => result.reason);
+  if (!failures.length) {
+    notify(options, { status: 'started', total: group.projectIds.length, mode: 'parallel' });
+    return { status: 'started', startedProjectIds: orderedProjectIds(group, startedProjectIds) };
+  }
+
+  const orderedStartedIds = orderedProjectIds(group, startedProjectIds);
+  const rollbackFailures = await rollbackStartedProjects(orderedStartedIds, options);
+  const firstFailure = failures
+    .sort((left, right) => group.projectIds.indexOf(left.projectId) - group.projectIds.indexOf(right.projectId))[0];
+  notify(options, {
+    status: 'failed',
+    project: projects.get(firstFailure.projectId),
+    reason: firstFailure.reason,
+    rollbackFailures
+  });
+  return {
+    status: 'failed',
+    startedProjectIds: orderedStartedIds,
+    failedProjectId: firstFailure.projectId,
+    failedProjectIds: failures.map((failure) => failure.projectId),
+    failureReason: firstFailure.reason,
+    rollbackFailures
+  };
+}
+
+function parallelPreflightFailure(project, status) {
+  if (!project) {
+    return 'The saved project is no longer available.';
+  }
+  if (project.reviewRequired) {
+    return 'Review and approve this project setup before running it.';
+  }
+  if (!['stopped', 'running', 'active'].includes(status)) {
+    return `The project is ${status || 'not ready'} and cannot be started safely.`;
+  }
+  return undefined;
+}
+
+function orderedProjectIds(group, projectIds) {
+  const included = new Set(projectIds);
+  return group.projectIds.filter((projectId) => included.has(projectId));
 }
 
 async function rollbackStartedProjects(startedProjectIds, options) {
@@ -311,7 +416,8 @@ async function editRunGroup(group, options) {
       await options.saveGroup({
         ...(group ? { id: group.id } : {}),
         name,
-        projectIds
+        projectIds,
+        startMode: group?.startMode || 'sequential'
       });
       return { status: 'saved' };
     }

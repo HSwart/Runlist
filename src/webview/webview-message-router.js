@@ -1,4 +1,4 @@
-const { createWebviewCommandRouter } = require('./media/message-router');
+const { createWebviewCommandRouter } = require('../../media/message-router');
 
 function createRunlistWebviewRouter(host, adapters = {}) {
   return createWebviewCommandRouter({
@@ -17,6 +17,7 @@ function createRunlistWebviewRouter(host, adapters = {}) {
       manageRunGroups: (message) => host.showRunGroupManager(message.id),
       openOutputUrl: (message) => host.openOutputUrl(message.url),
       openProject: (message) => host.openProject(message.id),
+      openServiceUrl: (message) => host.openServiceUrl(message.id, Number(message.port)),
       openProjectFolder: (message) => host.openProjectFolder(message.id),
       openProjectTerminal: (message) => host.openProjectTerminal(message.id),
       pickFolder: (message) => host.pickFolder(message.draft),
@@ -33,6 +34,11 @@ function createRunlistWebviewRouter(host, adapters = {}) {
       setSearchQuery: (message) => {
         host.searchQuery = String(message.query || '');
       },
+      setRunGroupStartMode: (message) => host.setRunGroupStartMode(message.id, message.startMode),
+      selectLaunchProfile: (message) => host.selectLaunchProfile(message.id, message.profileId),
+      setTagFilter: (message) => {
+        host.tagFilter = String(message.tag || '');
+      },
       showAdd: () => host.showAddProject({ type: 'action', action: 'show-add' }),
       showAgentSetup: () => host.showAgentSetup(),
       showDiagnosis: (message) => host.showProjectDiagnosis(message.id),
@@ -45,6 +51,7 @@ function createRunlistWebviewRouter(host, adapters = {}) {
       stopRunGroup: (message) => host.stopSavedRunGroup(message.id),
       toggleProjectPin: (message) => host.toggleProjectPin(message.id),
       toggleProjectPreview: (message) => host.toggleProjectPreview(message.id),
+      toggleProjectServices: (message) => host.toggleProjectPreview(message.id, 'open-services'),
       updateDraft: (message) => {
         if (['add', 'edit'].includes(host.mode)) {
           host.draft = adapters.projectFormValues(message.draft);

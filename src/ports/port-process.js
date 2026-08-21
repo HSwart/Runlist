@@ -1,6 +1,6 @@
 const { execFile } = require('child_process');
-const { readRootProcess } = require('./process-metrics');
-const { terminateProcessTree } = require('./project-process');
+const { readRootProcess } = require('../lifecycle/process-metrics');
+const { terminateProcessTree } = require('../lifecycle/project-process');
 
 const COMMAND_TIMEOUT_MS = 10000;
 const TERMINATION_GRACE_MS = 3000;

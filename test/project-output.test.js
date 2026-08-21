@@ -11,7 +11,7 @@ const {
   projectOutputPeek,
   sanitizeProjectOutput,
   startFailureSummary
-} = require('../project-output');
+} = require('../src/projects/project-output');
 
 test('combines project output and removes terminal color codes', () => {
   const output = appendProjectOutput('Ready\n', '\u001b[31mFailed\u001b[0m\n');

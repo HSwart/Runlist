@@ -5,14 +5,14 @@ const path = require('node:path');
 const readline = require('node:readline');
 const { spawn } = require('node:child_process');
 const test = require('node:test');
-const { MAX_DIAGNOSTIC_OUTPUT_CHARS, writeProjectDiagnostics } = require('../project-diagnostics');
-const { ProcessOwnershipStore } = require('../project-process');
+const { MAX_DIAGNOSTIC_OUTPUT_CHARS, writeProjectDiagnostics } = require('../src/projects/project-diagnostics');
+const { ProcessOwnershipStore } = require('../src/lifecycle/project-process');
 const {
   clearProjectRepairProposal,
   projectConfigurationRevision,
   readProjectRepairProposal
-} = require('../project-repair');
-const { readProjects, upsertProject } = require('../project-store');
+} = require('../src/projects/project-repair');
+const { readProjects, upsertProject } = require('../src/projects/project-store');
 
 test('serves the setup tool over MCP stdio', async (t) => {
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-mcp-'));
@@ -22,46 +22,26 @@ test('serves the setup tool over MCP stdio', async (t) => {
   const installedMcpRoot = path.join(installedRoot, 'mcp');
   fs.mkdirSync(projectFolder);
   fs.mkdirSync(installedMcpRoot, { recursive: true });
-  fs.copyFileSync(
-    path.join(__dirname, '..', 'mcp', 'server.js'),
-    path.join(installedMcpRoot, 'server.js')
-  );
-  fs.copyFileSync(
-    path.join(__dirname, '..', 'project-store.js'),
-    path.join(installedRoot, 'project-store.js')
-  );
-  fs.copyFileSync(
-    path.join(__dirname, '..', 'external-url.js'),
-    path.join(installedRoot, 'external-url.js')
-  );
-  fs.copyFileSync(
-    path.join(__dirname, '..', 'project-process.js'),
-    path.join(installedRoot, 'project-process.js')
-  );
-  fs.copyFileSync(
-    path.join(__dirname, '..', 'service-port-overrides.js'),
-    path.join(installedRoot, 'service-port-overrides.js')
-  );
-  fs.copyFileSync(
-    path.join(__dirname, '..', 'process-metrics.js'),
-    path.join(installedRoot, 'process-metrics.js')
-  );
-  fs.copyFileSync(
-    path.join(__dirname, '..', 'project-output.js'),
-    path.join(installedRoot, 'project-output.js')
-  );
-  fs.copyFileSync(
-    path.join(__dirname, '..', 'project-diagnostics.js'),
-    path.join(installedRoot, 'project-diagnostics.js')
-  );
-  fs.copyFileSync(
-    path.join(__dirname, '..', 'project-repair.js'),
-    path.join(installedRoot, 'project-repair.js')
-  );
-  fs.copyFileSync(
-    path.join(__dirname, '..', 'package.json'),
-    path.join(installedRoot, 'package.json')
-  );
+  const bridgeFiles = [
+    'mcp/server.js',
+    'src/lifecycle/process-metrics.js',
+    'src/lifecycle/project-process.js',
+    'src/ports/service-port-overrides.js',
+    'src/projects/launch-profile.js',
+    'src/projects/project-output.js',
+    'src/projects/project-diagnostics.js',
+    'src/projects/project-repair.js',
+    'src/projects/project-store.js',
+    'src/projects/project-tags.js',
+    'src/services/external-url.js',
+    'package.json'
+  ];
+  for (const relativePath of bridgeFiles) {
+    const sourcePath = path.join(__dirname, '..', ...relativePath.split('/'));
+    const targetPath = path.join(installedRoot, ...relativePath.split('/'));
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.copyFileSync(sourcePath, targetPath);
+  }
   t.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
 
   const server = spawn(process.execPath, [path.join(installedMcpRoot, 'server.js')], {

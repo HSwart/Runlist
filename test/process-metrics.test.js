@@ -9,8 +9,8 @@ const {
   readRootProcess,
   readOwnedProcessTree,
   windowsProcessScript
-} = require('../process-metrics');
-const { HttpResponseHistory, RuntimePulseHistory } = require('../runtime-pulse');
+} = require('../src/lifecycle/process-metrics');
+const { HttpResponseHistory, RuntimePulseHistory } = require('../src/lifecycle/runtime-pulse');
 
 function row(pid, identity, cpuSeconds, memoryBytes) {
   return { pid, identity, cpuSeconds, memoryBytes };

@@ -1,10 +1,16 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { safeServiceUrl } = require('./external-url');
-const { optionalPortVariableValidationMessage } = require('./service-port-overrides');
+const { safeServiceUrl } = require('../services/external-url');
+const { optionalPortVariableValidationMessage } = require('../ports/service-port-overrides');
+const { normalizeProjectTags } = require('./project-tags');
+const {
+  DEFAULT_LAUNCH_PROFILE_ID,
+  DEFAULT_LAUNCH_PROFILE_NAME,
+  MAX_LAUNCH_PROFILES
+} = require('./launch-profile');
 
-const PROJECT_STORE_SCHEMA_VERSION = 1;
+const PROJECT_STORE_SCHEMA_VERSION = 5;
 const ATOMIC_RENAME_MAX_ATTEMPTS = 5;
 const ATOMIC_RENAME_RETRY_DELAY_MS = 10;
 const ATOMIC_RENAME_WAIT = new Int32Array(new SharedArrayBuffer(4));
@@ -49,9 +55,11 @@ function loadProjects(filePath) {
     }
     return recoverProjects(filePath, contents, error);
   }
-  if (document.legacy) {
+  if (document.legacy || document.migrated) {
     writeFileAtomically(`${filePath}.bak`, contents);
-    writeFileAtomically(filePath, serializeProjectDocument(document.projects));
+    writeFileAtomically(filePath, serializeProjectDocument(document.projects, {
+      ...(document.groups?.length ? { groups: document.groups } : {})
+    }));
   }
   return document.projects;
 }
@@ -168,7 +176,7 @@ function parseProjectDocument(contents) {
   if (!Object.hasOwn(value, 'schemaVersion')) {
     throw projectStoreError('INVALID_STORAGE', 'Runlist project storage does not have a schema version.');
   }
-  if (value.schemaVersion !== PROJECT_STORE_SCHEMA_VERSION) {
+  if (![1, 2, 3, 4, PROJECT_STORE_SCHEMA_VERSION].includes(value.schemaVersion)) {
     throw projectStoreError(
       'UNSUPPORTED_VERSION',
       `Runlist project storage version ${value.schemaVersion} is not supported.`
@@ -177,15 +185,19 @@ function parseProjectDocument(contents) {
   if (Object.keys(value).some((key) => !['schemaVersion', 'projects', 'groups'].includes(key))) {
     throw projectStoreError('INVALID_STORAGE', 'Runlist project storage contains unsupported data.');
   }
-  const projects = validateStoredProjects(value.projects);
+  const projects = validateStoredProjects(value.projects, { schemaVersion: value.schemaVersion });
   return {
     legacy: false,
+    migrated: value.schemaVersion !== PROJECT_STORE_SCHEMA_VERSION,
     projects,
-    groups: value.groups === undefined ? [] : validateRunGroups(value.groups, projects)
+    groups: value.groups === undefined
+      ? []
+      : validateRunGroups(value.groups, projects, { schemaVersion: value.schemaVersion })
   };
 }
 
-function validateRunGroups(value, projects) {
+function validateRunGroups(value, projects, options = {}) {
+  const supportsStartMode = options.schemaVersion === undefined || options.schemaVersion >= 4;
   if (!Array.isArray(value) || value.length > 32) {
     throw projectStoreError('INVALID_STORAGE', 'Runlist project storage does not contain a valid run group list.');
   }
@@ -196,11 +208,17 @@ function validateRunGroups(value, projects) {
     if (!group || typeof group !== 'object' || Array.isArray(group)) {
       throw projectStoreError('INVALID_STORAGE', `Runlist group ${index + 1} is not valid.`);
     }
-    if (Object.keys(group).some((key) => !['id', 'name', 'projectIds'].includes(key))) {
+    const allowedKeys = ['id', 'name', 'projectIds', ...(supportsStartMode ? ['startMode'] : [])];
+    if (Object.keys(group).some((key) => !allowedKeys.includes(key))) {
       throw projectStoreError('INVALID_STORAGE', `Runlist group ${index + 1} contains unsupported data.`);
     }
     validateStoredText(group.id, `group ${index + 1} id`, 256);
     validateStoredText(group.name, `group ${index + 1} name`, 100);
+    if (supportsStartMode
+      && group.startMode !== undefined
+      && !['sequential', 'parallel'].includes(group.startMode)) {
+      throw projectStoreError('INVALID_STORAGE', `Runlist group ${index + 1} has an invalid start mode.`);
+    }
     if (!Array.isArray(group.projectIds) || group.projectIds.length > 20) {
       throw projectStoreError('INVALID_STORAGE', `Runlist group ${index + 1} project list is not valid.`);
     }
@@ -221,13 +239,19 @@ function validateRunGroups(value, projects) {
     return {
       id: group.id,
       name: group.name,
-      projectIds: [...group.projectIds]
+      projectIds: [...group.projectIds],
+      startMode: supportsStartMode && group.startMode === 'parallel' ? 'parallel' : 'sequential'
     };
   });
 }
 
 function validateStoredProjects(value, options = {}) {
   const legacy = options.legacy === true;
+  const supportsLaunchProfiles = options.schemaVersion === undefined
+    || options.schemaVersion >= 2;
+  const supportsHealthChecks = options.schemaVersion === undefined
+    || options.schemaVersion >= 3;
+  const supportsTags = options.schemaVersion === undefined || options.schemaVersion >= 5;
   if (!Array.isArray(value)) {
     throw projectStoreError('INVALID_STORAGE', 'Runlist project storage does not contain a valid project list.');
   }
@@ -245,6 +269,8 @@ function validateStoredProjects(value, options = {}) {
       'startCommand',
       'stopCommand',
       'services',
+      ...(supportsLaunchProfiles ? ['launchProfiles', 'selectedLaunchProfileId'] : []),
+      ...(supportsTags ? ['tags'] : []),
       'pinned',
       'reviewRequired'
     ]);
@@ -270,7 +296,24 @@ function validateStoredProjects(value, options = {}) {
     }
     const services = project.services === undefined && legacy
       ? []
-      : validateStoredServices(project.services, index);
+      : validateStoredServices(project.services, index, { supportsHealthChecks });
+    const launchProfiles = supportsLaunchProfiles
+      ? validateStoredLaunchProfiles(project.launchProfiles, index, { supportsHealthChecks })
+      : [];
+    if (supportsLaunchProfiles && project.selectedLaunchProfileId !== undefined) {
+      validateStoredText(
+        project.selectedLaunchProfileId,
+        `project ${index + 1} selected launch profile id`,
+        256
+      );
+      if (project.selectedLaunchProfileId !== DEFAULT_LAUNCH_PROFILE_ID
+        && !launchProfiles.some((profile) => profile.id === project.selectedLaunchProfileId)) {
+        throw projectStoreError(
+          'INVALID_STORAGE',
+          `Runlist project ${index + 1} has an invalid selected launch profile.`
+        );
+      }
+    }
     const reviewRequired = project.reviewRequired === undefined && legacy
       ? false
       : project.reviewRequired;
@@ -280,11 +323,61 @@ function validateStoredProjects(value, options = {}) {
     if (project.pinned !== undefined && typeof project.pinned !== 'boolean') {
       throw projectStoreError('INVALID_STORAGE', `Runlist project ${index + 1} has invalid pin state.`);
     }
+    let tags = [];
+    if (supportsTags && project.tags !== undefined) {
+      try {
+        tags = normalizeProjectTags(project.tags);
+      } catch {
+        throw projectStoreError('INVALID_STORAGE', `Runlist project ${index + 1} has invalid tags.`);
+      }
+      if (JSON.stringify(tags) !== JSON.stringify(project.tags)) {
+        throw projectStoreError('INVALID_STORAGE', `Runlist project ${index + 1} has invalid tags.`);
+      }
+    }
 
+    const projectWithoutTags = { ...project };
+    delete projectWithoutTags.tags;
     return {
-      ...project,
+      ...projectWithoutTags,
       services,
+      ...(launchProfiles.length ? { launchProfiles } : {}),
+      ...(tags.length ? { tags } : {}),
       reviewRequired
+    };
+  });
+}
+
+function validateStoredLaunchProfiles(value, projectIndex, options = {}) {
+  if (value === undefined) {
+    return [];
+  }
+  if (!Array.isArray(value) || value.length >= MAX_LAUNCH_PROFILES) {
+    throw projectStoreError('INVALID_STORAGE', `Runlist project ${projectIndex + 1} launch profiles are not valid.`);
+  }
+  const ids = new Set([DEFAULT_LAUNCH_PROFILE_ID]);
+  const names = new Set([DEFAULT_LAUNCH_PROFILE_NAME.toLocaleLowerCase()]);
+  return value.map((profile, profileIndex) => {
+    if (!profile || typeof profile !== 'object' || Array.isArray(profile)) {
+      throw projectStoreError('INVALID_STORAGE', `Runlist launch profile ${profileIndex + 1} is not valid.`);
+    }
+    if (Object.keys(profile).some((key) => !['id', 'name', 'startCommand', 'stopCommand', 'services'].includes(key))) {
+      throw projectStoreError('INVALID_STORAGE', `Runlist launch profile ${profileIndex + 1} contains unsupported data.`);
+    }
+    validateStoredText(profile.id, `launch profile ${profileIndex + 1} id`, 256);
+    validateStoredText(profile.name, `launch profile ${profileIndex + 1} name`, 100);
+    validateStoredText(profile.startCommand, `launch profile ${profileIndex + 1} start command`, 4096);
+    if (profile.stopCommand !== undefined) {
+      validateStoredText(profile.stopCommand, `launch profile ${profileIndex + 1} stop command`, 4096);
+    }
+    const normalizedName = profile.name.toLocaleLowerCase();
+    if (ids.has(profile.id) || names.has(normalizedName)) {
+      throw projectStoreError('INVALID_STORAGE', 'Runlist launch profiles must have unique names and identifiers.');
+    }
+    ids.add(profile.id);
+    names.add(normalizedName);
+    return {
+      ...profile,
+      services: validateStoredServices(profile.services, projectIndex, options)
     };
   });
 }
@@ -302,7 +395,7 @@ function validateStoredFolder(value, projectIndex) {
   }
 }
 
-function validateStoredServices(value, projectIndex) {
+function validateStoredServices(value, projectIndex, options = {}) {
   if (!Array.isArray(value) || value.length > 32) {
     throw projectStoreError('INVALID_STORAGE', `Runlist project ${projectIndex + 1} services are not valid.`);
   }
@@ -314,7 +407,14 @@ function validateStoredServices(value, projectIndex) {
     if (!service || typeof service !== 'object' || Array.isArray(service)) {
       throw projectStoreError('INVALID_STORAGE', `Runlist service ${serviceIndex + 1} is not valid.`);
     }
-    if (Object.keys(service).some((key) => !['name', 'port', 'portVariable', 'url'].includes(key))) {
+    const allowedKeys = [
+      'name',
+      'port',
+      'portVariable',
+      'url',
+      ...(options.supportsHealthChecks ? ['healthCheck'] : [])
+    ];
+    if (Object.keys(service).some((key) => !allowedKeys.includes(key))) {
       throw projectStoreError('INVALID_STORAGE', `Runlist service ${serviceIndex + 1} contains unsupported data.`);
     }
     validateStoredText(service.name, `service ${serviceIndex + 1} name`, 64);
@@ -328,6 +428,9 @@ function validateStoredServices(value, projectIndex) {
       && (typeof service.portVariable !== 'string'
         || optionalPortVariableValidationMessage(service.portVariable))) {
       throw projectStoreError('INVALID_STORAGE', `Runlist service ${serviceIndex + 1} has an invalid port variable.`);
+    }
+    if (options.supportsHealthChecks && service.healthCheck !== undefined) {
+      validateStoredHealthCheck(service.healthCheck, serviceIndex);
     }
 
     const normalizedName = service.name.toLowerCase();
@@ -367,6 +470,12 @@ function normalizeProjectInput(input, options = {}) {
   const providedServices = input.services === undefined
     ? undefined
     : normalizeServices(input.services);
+  const launchProfiles = input.launchProfiles === undefined
+    ? (existing?.launchProfiles || []).map((profile) => ({
+        ...profile,
+        services: profile.services.map((service) => ({ ...service }))
+      }))
+    : normalizeLaunchProfiles(input.launchProfiles);
   const fallbackName = path.basename(folder);
   let name;
   if (input.name === undefined) {
@@ -382,6 +491,18 @@ function normalizeProjectInput(input, options = {}) {
   const pinned = input.pinned === undefined
     ? existing?.pinned === true
     : input.pinned === true;
+  const tags = input.tags === undefined
+    ? normalizeProjectTags(existing?.tags)
+    : normalizeProjectTags(input.tags);
+
+  const selectedProfile = input.selectedLaunchProfileId === undefined
+    ? existing?.selectedLaunchProfileId
+    : input.selectedLaunchProfileId;
+  if (selectedProfile !== undefined
+    && selectedProfile !== DEFAULT_LAUNCH_PROFILE_ID
+    && !launchProfiles.some((profile) => profile.id === selectedProfile)) {
+    throw new Error('selectedLaunchProfileId must identify a saved launch profile.');
+  }
 
   return {
     id,
@@ -390,11 +511,96 @@ function normalizeProjectInput(input, options = {}) {
     startCommand,
     ...(stopCommand ? { stopCommand } : {}),
     services: providedServices || existing?.services || [],
+    ...(launchProfiles.length ? { launchProfiles } : {}),
+    ...(selectedProfile && selectedProfile !== DEFAULT_LAUNCH_PROFILE_ID
+      ? { selectedLaunchProfileId: selectedProfile }
+      : {}),
     ...(pinned ? { pinned: true } : {}),
+    ...(tags.length ? { tags } : {}),
     reviewRequired: options.reviewRequired === undefined
       ? Boolean(existing?.reviewRequired)
       : Boolean(options.reviewRequired)
   };
+}
+
+function normalizeLaunchProfiles(value) {
+  if (!Array.isArray(value) || value.length >= MAX_LAUNCH_PROFILES) {
+    throw new Error(`launchProfiles must contain no more than ${MAX_LAUNCH_PROFILES - 1} alternate profiles.`);
+  }
+  const ids = new Set([DEFAULT_LAUNCH_PROFILE_ID]);
+  const names = new Set([DEFAULT_LAUNCH_PROFILE_NAME.toLocaleLowerCase()]);
+  return value.map((profile, index) => {
+    if (!profile || typeof profile !== 'object' || Array.isArray(profile)) {
+      throw new Error(`launchProfiles[${index}] must be an object.`);
+    }
+    const unsupported = Object.keys(profile)
+      .filter((key) => !['id', 'name', 'startCommand', 'stopCommand', 'services'].includes(key));
+    if (unsupported.length) {
+      throw new Error(`launchProfiles[${index}] has unsupported field: ${unsupported.join(', ')}`);
+    }
+    const id = profile.id || createId();
+    validateStoredText(id, `launch profile ${index + 1} id`, 256);
+    const name = normalizeProjectName(profile.name, '');
+    if (!name) {
+      throw new Error(`launchProfiles[${index}].name must contain 1 to 100 characters.`);
+    }
+    const normalizedName = name.toLocaleLowerCase();
+    if (ids.has(id) || names.has(normalizedName)) {
+      throw new Error('launch profile names and identifiers must be unique.');
+    }
+    ids.add(id);
+    names.add(normalizedName);
+    const startCommand = normalizeCommand(profile.startCommand, `launchProfiles[${index}].startCommand`);
+    const stopCommand = normalizeOptionalCommand(profile.stopCommand, `launchProfiles[${index}].stopCommand`);
+    return {
+      id,
+      name,
+      startCommand,
+      ...(stopCommand ? { stopCommand } : {}),
+      services: normalizeServices(profile.services || [])
+    };
+  });
+}
+
+function validateStoredHealthCheck(value, serviceIndex) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw projectStoreError('INVALID_STORAGE', `Runlist service ${serviceIndex + 1} has an invalid health check.`);
+  }
+  if (Object.keys(value).some((key) => !['mode', 'target', 'method', 'expectedStatus', 'timeoutMs', 'retries'].includes(key))) {
+    throw projectStoreError('INVALID_STORAGE', `Runlist service ${serviceIndex + 1} health check contains unsupported data.`);
+  }
+  if (!['port', 'http'].includes(value.mode)) {
+    throw projectStoreError('INVALID_STORAGE', `Runlist service ${serviceIndex + 1} has an invalid health check mode.`);
+  }
+  if (value.mode === 'port' && Object.keys(value).length !== 1) {
+    throw projectStoreError('INVALID_STORAGE', `Runlist service ${serviceIndex + 1} has invalid port-only health settings.`);
+  }
+  if (value.mode === 'http') {
+    if (value.target !== undefined
+      && (typeof value.target !== 'string' || !validHealthTarget(value.target))) {
+      throw projectStoreError('INVALID_STORAGE', `Runlist service ${serviceIndex + 1} has an invalid health target.`);
+    }
+    if (value.method !== undefined && !['HEAD', 'GET'].includes(value.method)) {
+      throw projectStoreError('INVALID_STORAGE', `Runlist service ${serviceIndex + 1} has an invalid health method.`);
+    }
+    if (value.expectedStatus !== undefined
+      && (!Number.isInteger(value.expectedStatus) || value.expectedStatus < 100 || value.expectedStatus > 599)) {
+      throw projectStoreError('INVALID_STORAGE', `Runlist service ${serviceIndex + 1} has an invalid expected health status.`);
+    }
+    if (value.timeoutMs !== undefined
+      && (!Number.isInteger(value.timeoutMs) || value.timeoutMs < 100 || value.timeoutMs > 3000)) {
+      throw projectStoreError('INVALID_STORAGE', `Runlist service ${serviceIndex + 1} has an invalid health timeout.`);
+    }
+    if (value.retries !== undefined
+      && (!Number.isInteger(value.retries) || value.retries < 0 || value.retries > 2)) {
+      throw projectStoreError('INVALID_STORAGE', `Runlist service ${serviceIndex + 1} has invalid health retries.`);
+    }
+  }
+}
+
+function validHealthTarget(value) {
+  const target = value.trim();
+  return Boolean(target) && (target.startsWith('/') || Boolean(safeServiceUrl(target)));
 }
 
 function readRunGroups(filePath) {
@@ -422,7 +628,8 @@ function upsertRunGroup(filePath, input) {
   const group = {
     id: input.id || createId(),
     name,
-    projectIds
+    projectIds,
+    startMode: normalizeRunGroupStartMode(input.startMode ?? groups[index]?.startMode)
   };
   if (index >= 0) {
     groups[index] = group;
@@ -554,6 +761,37 @@ function toggleProjectPinned(filePath, id) {
   return projects[index];
 }
 
+function normalizeRunGroupStartMode(value) {
+  if (value === undefined || value === 'sequential') {
+    return 'sequential';
+  }
+  if (value === 'parallel') {
+    return 'parallel';
+  }
+  throw new Error('Run group start mode must be sequential or parallel.');
+}
+
+function selectProjectLaunchProfile(filePath, id, profileId) {
+  const projects = readProjects(filePath);
+  const index = projects.findIndex((project) => project.id === id);
+  if (index === -1) {
+    return undefined;
+  }
+  const profiles = projects[index].launchProfiles || [];
+  if (profileId !== DEFAULT_LAUNCH_PROFILE_ID
+    && !profiles.some((profile) => profile.id === profileId)) {
+    throw new Error('The selected launch profile no longer exists.');
+  }
+  projects[index] = { ...projects[index] };
+  if (profileId === DEFAULT_LAUNCH_PROFILE_ID) {
+    delete projects[index].selectedLaunchProfileId;
+  } else {
+    projects[index].selectedLaunchProfileId = profileId;
+  }
+  writeProjects(filePath, projects);
+  return projects[index];
+}
+
 function pinnedProjectsFirst(projects) {
   return [
     ...projects.filter((project) => project.pinned === true),
@@ -634,7 +872,7 @@ function normalizeServices(value) {
     if (!service || typeof service !== 'object' || Array.isArray(service)) {
       throw new Error(`services[${index}] must be an object.`);
     }
-    const unsupportedKeys = Object.keys(service).filter((key) => !['name', 'port', 'portVariable', 'url'].includes(key));
+    const unsupportedKeys = Object.keys(service).filter((key) => !['name', 'port', 'portVariable', 'url', 'healthCheck'].includes(key));
     if (unsupportedKeys.length) {
       throw new Error(`services[${index}] has unsupported field: ${unsupportedKeys.join(', ')}`);
     }
@@ -658,6 +896,7 @@ function normalizeServices(value) {
     if (portVariable === undefined || optionalPortVariableValidationMessage(portVariable)) {
       throw new Error(`services[${index}].portVariable must be a portable, non-system environment variable name.`);
     }
+    const healthCheck = normalizeHealthCheck(service.healthCheck, index);
     if (names.has(name.toLowerCase())) {
       throw new Error(`service names must be unique: ${name}.`);
     }
@@ -678,9 +917,58 @@ function normalizeServices(value) {
       name,
       port: service.port,
       ...(portVariable ? { portVariable } : {}),
-      ...(url ? { url } : {})
+      ...(url ? { url } : {}),
+      ...(healthCheck ? { healthCheck } : {})
     };
   });
+}
+
+function normalizeHealthCheck(value, serviceIndex) {
+  if (value === undefined || value === null || value === '' || value.mode === 'default') {
+    return undefined;
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`services[${serviceIndex}].healthCheck must be an object.`);
+  }
+  if (value.mode === 'port') {
+    return { mode: 'port' };
+  }
+  if (value.mode !== 'http') {
+    throw new Error(`services[${serviceIndex}].healthCheck.mode must be port or http.`);
+  }
+  const target = value.target === undefined ? '' : String(value.target).trim();
+  if (target && !validHealthTarget(target)) {
+    throw new Error(`services[${serviceIndex}].healthCheck.target must be a safe HTTP URL or path beginning with /.`);
+  }
+  const method = value.method === undefined || value.method === '' ? 'HEAD' : value.method;
+  if (!['HEAD', 'GET'].includes(method)) {
+    throw new Error(`services[${serviceIndex}].healthCheck.method must be HEAD or GET.`);
+  }
+  const expectedStatus = value.expectedStatus === undefined || value.expectedStatus === ''
+    ? undefined
+    : Number(value.expectedStatus);
+  if (expectedStatus !== undefined
+    && (!Number.isInteger(expectedStatus) || expectedStatus < 100 || expectedStatus > 599)) {
+    throw new Error(`services[${serviceIndex}].healthCheck.expectedStatus must be an integer from 100 to 599.`);
+  }
+  const timeoutMs = value.timeoutMs === undefined || value.timeoutMs === ''
+    ? 700
+    : Number(value.timeoutMs);
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 3000) {
+    throw new Error(`services[${serviceIndex}].healthCheck.timeoutMs must be an integer from 100 to 3000.`);
+  }
+  const retries = value.retries === undefined || value.retries === '' ? 0 : Number(value.retries);
+  if (!Number.isInteger(retries) || retries < 0 || retries > 2) {
+    throw new Error(`services[${serviceIndex}].healthCheck.retries must be an integer from 0 to 2.`);
+  }
+  return {
+    mode: 'http',
+    ...(target ? { target } : {}),
+    method,
+    ...(expectedStatus === undefined ? {} : { expectedStatus }),
+    timeoutMs,
+    retries
+  };
 }
 
 function normalizeForComparison(value) {
@@ -707,6 +995,7 @@ module.exports = {
   removeProject,
   removeRunGroup,
   serializeProjectDocument,
+  selectProjectLaunchProfile,
   toggleProjectPinned,
   upsertProject,
   upsertRunGroup,

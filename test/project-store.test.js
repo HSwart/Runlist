@@ -9,10 +9,11 @@ const {
   parseProjectDocument,
   readProjects,
   removeProject,
+  selectProjectLaunchProfile,
   serializeProjectDocument,
   upsertProject,
   writeProjects
-} = require('../project-store');
+} = require('../src/projects/project-store');
 
 function projectStoreFixture(t) {
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-store-'));
@@ -25,7 +26,7 @@ function projectStoreFixture(t) {
   return { temporaryRoot, projectFolder, storageFolder, projectsFile };
 }
 
-test('round-trips a version-one document through the reusable store boundary', (t) => {
+test('round-trips the current document through the reusable store boundary', (t) => {
   const { projectFolder } = projectStoreFixture(t);
   const projects = [{
     id: 'round-trip',
@@ -90,13 +91,115 @@ test('normalizes schema-validated imports while preserving historical names', (t
   assert.equal(project.reviewRequired, true);
 });
 
+test('migrates version-one projects and persists alternate launch profiles', (t) => {
+  const { projectsFile, projectFolder } = projectStoreFixture(t);
+  const original = {
+    schemaVersion: 1,
+    projects: [{
+      id: 'profiles',
+      name: 'Profiles',
+      folder: projectFolder,
+      startCommand: 'npm run dev',
+      services: [],
+      reviewRequired: false
+    }]
+  };
+  fs.writeFileSync(projectsFile, `${JSON.stringify(original, null, 2)}\n`);
+
+  assert.equal(readProjects(projectsFile)[0].startCommand, 'npm run dev');
+  assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).schemaVersion, 5);
+
+  const saved = upsertProject(projectsFile, {
+    ...readProjects(projectsFile)[0],
+    launchProfiles: [{
+      id: 'tests',
+      name: 'Tests',
+      startCommand: 'npm test',
+      services: [{ name: 'test-api', port: 4311 }]
+    }],
+    selectedLaunchProfileId: 'tests'
+  }).project;
+  assert.equal(saved.launchProfiles[0].startCommand, 'npm test');
+  assert.equal(saved.selectedLaunchProfileId, 'tests');
+
+  const selectedDefault = selectProjectLaunchProfile(projectsFile, saved.id, 'default');
+  assert.equal(Object.hasOwn(selectedDefault, 'selectedLaunchProfileId'), false);
+});
+
+test('migrates version-two storage and validates explicit service health checks', (t) => {
+  const { projectsFile, projectFolder } = projectStoreFixture(t);
+  fs.writeFileSync(projectsFile, `${JSON.stringify({
+    schemaVersion: 2,
+    projects: [{
+      id: 'health',
+      name: 'Health',
+      folder: projectFolder,
+      startCommand: 'npm start',
+      services: [{ name: 'web', port: 4310 }],
+      reviewRequired: false
+    }]
+  })}\n`);
+
+  assert.equal(readProjects(projectsFile)[0].services[0].name, 'web');
+  assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).schemaVersion, 5);
+
+  const updated = upsertProject(projectsFile, {
+    ...readProjects(projectsFile)[0],
+    services: [{
+      name: 'web',
+      port: 4310,
+      healthCheck: {
+        mode: 'http',
+        target: '/health',
+        method: 'GET',
+        expectedStatus: 204,
+        timeoutMs: 1200,
+        retries: 1
+      }
+    }]
+  }).project;
+  assert.equal(updated.services[0].healthCheck.target, '/health');
+  assert.throws(() => upsertProject(projectsFile, {
+    ...updated,
+    services: [{ ...updated.services[0], healthCheck: { mode: 'http', timeoutMs: 5000 } }]
+  }), /100 to 3000/);
+});
+
+test('migrates version-four storage and persists normalized project tags', (t) => {
+  const { projectsFile, projectFolder } = projectStoreFixture(t);
+  fs.writeFileSync(projectsFile, `${JSON.stringify({
+    schemaVersion: 4,
+    projects: [{
+      id: 'tags',
+      name: 'Tags',
+      folder: projectFolder,
+      startCommand: 'npm start',
+      services: [],
+      reviewRequired: false
+    }]
+  })}\n`);
+
+  assert.equal(readProjects(projectsFile)[0].name, 'Tags');
+  assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).schemaVersion, 5);
+
+  const updated = upsertProject(projectsFile, {
+    ...readProjects(projectsFile)[0],
+    tags: ['Frontend', 'customer   portal', 'frontend']
+  }).project;
+  assert.deepEqual(updated.tags, ['Frontend', 'customer portal']);
+  assert.throws(() => upsertProject(projectsFile, {
+    ...updated,
+    tags: ['contains,comma']
+  }), /commas/);
+});
+
 test('creates a versioned project document while preserving the array API', (t) => {
   const { projectsFile } = projectStoreFixture(t);
 
   initializeProjectStore(projectsFile);
 
   assert.deepEqual(JSON.parse(fs.readFileSync(projectsFile, 'utf8')), {
-    schemaVersion: 1,
+    schemaVersion: 5,
     projects: []
   });
   assert.deepEqual(readProjects(projectsFile), []);
@@ -121,7 +224,7 @@ test('migrates historical arrays without losing project values or order', (t) =>
   }]);
   assert.equal(fs.readFileSync(`${projectsFile}.bak`, 'utf8'), legacyText);
   assert.deepEqual(JSON.parse(fs.readFileSync(projectsFile, 'utf8')), {
-    schemaVersion: 1,
+    schemaVersion: 5,
     projects: [{
       ...legacy[0],
       services: [],
@@ -219,7 +322,7 @@ test('leaves an unrecoverable primary and backup unchanged', (t) => {
 
 test('does not rewrite an unsupported future schema', (t) => {
   const { projectsFile } = projectStoreFixture(t);
-  const future = '{"schemaVersion":2,"projects":[]}\n';
+  const future = '{"schemaVersion":6,"projects":[]}\n';
   fs.writeFileSync(projectsFile, future);
 
   assert.throws(
@@ -242,7 +345,7 @@ test('loads a valid saved project whose folder no longer exists', (t) => {
     reviewRequired: false
   };
   fs.writeFileSync(projectsFile, `${JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: 2,
     projects: [project]
   }, null, 2)}\n`);
 
@@ -306,7 +409,7 @@ test('retries a transient Windows atomic replacement denial', (t) => {
 
   assert.equal(attempts, 2);
   assert.deepEqual(JSON.parse(fs.readFileSync(projectsFile, 'utf8')), {
-    schemaVersion: 1,
+    schemaVersion: 5,
     projects: []
   });
 });

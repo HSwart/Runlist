@@ -11,7 +11,7 @@ const {
   readProjectDiagnostics,
   redactSensitiveText,
   writeProjectDiagnostics
-} = require('../project-diagnostics');
+} = require('../src/projects/project-diagnostics');
 
 test('sanitizes terminal controls and redacts credential-like diagnostic text', () => {
   const clean = boundedDiagnosticOutput([

@@ -30,6 +30,7 @@
     'manageRunGroups',
     'openOutputUrl',
     'openProject',
+    'openServiceUrl',
     'openProjectFolder',
     'openProjectTerminal',
     'pickFolder',
@@ -42,6 +43,9 @@
     'saveProject',
     'setFocusTarget',
     'setSearchQuery',
+    'setRunGroupStartMode',
+    'selectLaunchProfile',
+    'setTagFilter',
     'showAdd',
     'showAgentSetup',
     'showDiagnosis',
@@ -54,6 +58,7 @@
     'stopRunGroup',
     'toggleProjectPin',
     'toggleProjectPreview',
+    'toggleProjectServices',
     'updateDraft',
     'useCurrentWorkspace'
   ]);
@@ -71,12 +76,14 @@
     'showDiagnosis',
     'showEdit',
     'showOutput',
+    'setRunGroupStartMode',
     'startProject',
     'startRunGroup',
     'stopProject',
     'stopRunGroup',
     'toggleProjectPin',
-    'toggleProjectPreview'
+    'toggleProjectPreview',
+    'toggleProjectServices'
   ]);
 
   function validateWebviewCommand(value) {
@@ -109,11 +116,23 @@
       && (typeof value.query !== 'string' || value.query.length > 1000)) {
       return undefined;
     }
+    if (value.type === 'selectLaunchProfile'
+      && (!validId(value.id) || !validId(value.profileId))) {
+      return undefined;
+    }
+    if (value.type === 'setRunGroupStartMode'
+      && (!validId(value.id) || !['sequential', 'parallel'].includes(value.startMode))) {
+      return undefined;
+    }
+    if (value.type === 'setTagFilter'
+      && (typeof value.tag !== 'string' || value.tag.length > 32)) {
+      return undefined;
+    }
     if (value.type === 'registerAgent'
       && !['claude', 'codex', 'copilot'].includes(value.agent)) {
       return undefined;
     }
-    if (value.type === 'copyServiceUrl'
+    if (['copyServiceUrl', 'openServiceUrl'].includes(value.type)
       && (!validId(value.id)
         || !Number.isInteger(Number(value.port))
         || Number(value.port) < 1

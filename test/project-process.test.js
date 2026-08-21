@@ -17,12 +17,12 @@ const {
   startExitFailed,
   terminateProcessTree,
   terminateTrackedProcess
-} = require('../project-process');
+} = require('../src/lifecycle/project-process');
 
 test('uses the retrying atomic writer for lifecycle ownership state', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'project-process.js'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'lifecycle', 'project-process.js'), 'utf8');
 
-  assert.match(source, /const \{ writeFileAtomically \} = require\('\.\/project-store'\)/);
+  assert.match(source, /const \{ writeFileAtomically \} = require\('\.\.\/projects\/project-store'\)/);
   assert.match(source, /function writeJsonAtomically[\s\S]*writeFileAtomically\(filePath, JSON\.stringify\(value\)\)/);
 });
 
@@ -103,7 +103,7 @@ test('records child identity and launch-time Stop details in both coordination s
     isProcessAlive: () => true,
     readProcessIdentity: async () => '303:original'
   });
-  const { PortReservationStore } = require('../port-gate');
+  const { PortReservationStore } = require('../src/ports/port-gate');
   const reservations = new PortReservationStore(path.join(root, 'ports'), {
     pid: 101,
     isProcessAlive: () => true
@@ -218,7 +218,7 @@ test('keeps ownership and port reservations until reload shutdown confirms the p
     pid: 101,
     isProcessAlive: () => true
   });
-  const { PortReservationStore } = require('../port-gate');
+  const { PortReservationStore } = require('../src/ports/port-gate');
   const reservations = new PortReservationStore(path.join(root, 'ports'), {
     pid: 101,
     isProcessAlive: () => true
@@ -253,7 +253,7 @@ test('preserves ownership and port reservations when reload shutdown cannot stop
     pid: 101,
     isProcessAlive: () => true
   });
-  const { PortReservationStore } = require('../port-gate');
+  const { PortReservationStore } = require('../src/ports/port-gate');
   const reservations = new PortReservationStore(path.join(root, 'ports'), {
     pid: 101,
     isProcessAlive: () => true

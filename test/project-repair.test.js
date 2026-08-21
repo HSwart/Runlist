@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { writeProjectDiagnostics } = require('../project-diagnostics');
+const { writeProjectDiagnostics } = require('../src/projects/project-diagnostics');
 const {
   approveProjectRepairProposal,
   clearProjectRepairProposal,
@@ -11,8 +11,8 @@ const {
   projectConfigurationRevision,
   projectRepairComparison,
   readProjectRepairProposal
-} = require('../project-repair');
-const { readProjects, upsertProject } = require('../project-store');
+} = require('../src/projects/project-repair');
+const { readProjects, upsertProject } = require('../src/projects/project-store');
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-repair-'));

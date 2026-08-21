@@ -10,13 +10,12 @@ test('offers an accessible Resolve action only for an affected service', () => {
 
   assert.match(webview, /const portBlocked = conflicted && portOpen/);
   assert.match(webview, /projectStatus === 'not-ready' && waiting/);
-  assert.match(webview, /serviceAriaLabel = `\$\{service\.name\} on port/);
-  assert.doesNotMatch(webview, /class="service-state"/);
-  assert.match(webview, /data-action="resolve-service-port"[^>]*aria-label="\$\{resolveLabel\}"[^>]*>\$\{icon\('refresh'\)\}/);
+  assert.match(webview, /class="service-detail-state">\$\{details\.state\}/);
+  assert.match(webview, /data-action="resolve-service-port"[^>]*>\$\{icon\('refresh'\)\}<span>Resolve port<\/span>/);
   assert.match(webview, /type: 'resolveServicePort'[^}]*id: button\.dataset\.id[^}]*port: Number\(button\.dataset\.port\)/);
-  assert.match(styles, /\.service-chip \{[\s\S]*grid-template-columns: minmax\(0, 1fr\) auto/);
-  assert.doesNotMatch(styles, /@media \(max-width: 300px\)[\s\S]*\.service-actions \{[\s\S]*grid-column: 1/);
-  assert.match(styles, /@media \(pointer: coarse\)[\s\S]*\.resolve-port-button \{[\s\S]*min-height: 44px/);
+  assert.match(styles, /\.service-detail-toggle \{[\s\S]*grid-template-columns: auto minmax\(0, 1fr\) auto auto auto/);
+  assert.doesNotMatch(webview, /class="service-chip"/);
+  assert.match(styles, /@media \(pointer: coarse\)[\s\S]*\.service-detail-actions button[\s\S]*min-height: 44px/);
 });
 
 test('keeps temporary launch details accessible without adding a second service row', () => {
@@ -25,9 +24,8 @@ test('keeps temporary launch details accessible without adding a second service 
 
   assert.match(webview, /service\.temporaryPort/);
   assert.match(webview, /Temporary for this launch\. Saved as port \$\{savedPort\} via \$\{service\.portVariable\}/);
-  assert.match(webview, /class="service-temporary-badge"[^>]*aria-hidden="true">temp<\/span>/);
-  assert.doesNotMatch(webview, /class="service-temporary"/);
-  assert.match(styles, /\.service-temporary-badge \{/);
+  assert.match(webview, /class="service-detail-body"[\s\S]*\$\{temporaryDetail \? `<p>/);
+  assert.doesNotMatch(webview, /service-temporary-badge/);
   assert.match(webview, /const savedPort = service\.savedPort \|\| service\.port/);
 });
 

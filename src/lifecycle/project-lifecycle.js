@@ -1,12 +1,12 @@
-const { occupiedPortsBelongToProject } = require('./port-gate');
+const { occupiedPortsBelongToProject } = require('../ports/port-gate');
 const {
   handoffProjectSafely,
   projectStopStrategy,
   restartProjectSafely
 } = require('./project-process');
 const { stoppableProjectIds } = require('./project-status');
-const { readProjects } = require('./project-store');
-const { startRunGroup, stopRunGroup } = require('./run-groups');
+const { readProjects } = require('../projects/project-store');
+const { startRunGroup, stopRunGroup } = require('../groups/run-groups');
 
 /**
  * Owns lifecycle transition ordering. The view provider remains the adapter for
@@ -241,7 +241,8 @@ class ProjectLifecycleCoordinator {
             failureMessage = `${requestedProject.name}'s setup changed before Runlist could switch projects. Nothing was stopped.`;
             return undefined;
           }
-          const reservationConflicts = this.host.portReservations.conflicts(latestRequestedProject);
+          const effectiveRequestedProject = projectStopStrategy(latestRequestedProject);
+          const reservationConflicts = this.host.portReservations.conflicts(effectiveRequestedProject);
           const ownerIds = new Set(reservationConflicts.map((conflict) => conflict.projectId));
           if (reservationConflicts.length === 0 || ownerIds.size !== 1) {
             failureMessage = reservationConflicts.length > 1
@@ -252,7 +253,7 @@ class ProjectLifecycleCoordinator {
           const ownerId = reservationConflicts[0].projectId;
           const owner = projects.find((project) => project.id === ownerId);
           const ownership = this.host.processOwnership.snapshot().get(ownerId);
-          const portStatus = await this.servicePortStatus(latestRequestedProject.services || []);
+          const portStatus = await this.servicePortStatus(effectiveRequestedProject.services || []);
           conflictOwnerName = owner?.name || conflictOwnerName;
           if (!owner
             || !ownership?.ownerAvailable

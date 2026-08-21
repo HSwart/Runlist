@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { safeHttpUrl, safeServiceUrl } = require('../external-url');
+const { safeHttpUrl, safeServiceUrl } = require('../src/services/external-url');
 
 test('allows only valid HTTP and HTTPS output links', () => {
   assert.equal(safeHttpUrl('http://127.0.0.1:3000'), 'http://127.0.0.1:3000/');

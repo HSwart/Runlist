@@ -10,7 +10,7 @@ const {
   validateWebviewCommand,
   validateWebviewMessage
 } = require('../media/message-router');
-const { createRunlistWebviewRouter } = require('../webview-message-router');
+const { createRunlistWebviewRouter } = require('../src/webview/webview-message-router');
 
 test('allowlists the complete host-to-webview message contract', () => {
   assert.deepEqual([...WEBVIEW_MESSAGE_TYPES].sort(), [
@@ -31,7 +31,10 @@ test('validates commands sent from the webview before routing', async () => {
   assert.equal(validateWebviewCommand({ type: 'copyServiceUrl', id: 'project-1', port: 70000 }), undefined);
   assert.equal(validateWebviewCommand({ type: 'resolveServicePort', id: 'project-1', port: 0 }), undefined);
   assert.equal(validateWebviewCommand({ type: 'resolveServicePort', id: 'project-1', port: 4310 })?.port, 4310);
+  assert.equal(validateWebviewCommand({ type: 'openServiceUrl', id: 'project-1', port: 4310 })?.port, 4310);
   assert.equal(validateWebviewCommand({ type: 'registerAgent', agent: 'unknown' }), undefined);
+  assert.equal(validateWebviewCommand({ type: 'setTagFilter', tag: 'frontend' })?.tag, 'frontend');
+  assert.equal(validateWebviewCommand({ type: 'setTagFilter', tag: 'x'.repeat(33) }), undefined);
 
   const calls = [];
   const route = createWebviewCommandRouter({

@@ -8,7 +8,7 @@ const {
   createPhoneQrSvg,
   derivePhoneHandoffUrl,
   privateIpv4Priority
-} = require('../phone-handoff');
+} = require('../src/webview/phone-handoff');
 
 const interfaces = {
   lo0: [{ address: '127.0.0.1', family: 'IPv4', internal: true }],

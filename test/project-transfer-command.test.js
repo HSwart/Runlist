@@ -3,11 +3,11 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { readProjects, writeProjects } = require('../project-store');
+const { readProjects, writeProjects } = require('../src/projects/project-store');
 const {
   exportProjectDocument,
   runProjectTransferWorkflow
-} = require('../project-transfer');
+} = require('../src/projects/project-transfer');
 
 function workflowFixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-transfer-command-'));

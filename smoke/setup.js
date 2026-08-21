@@ -3,7 +3,7 @@ const fs = require('fs');
 const net = require('net');
 const path = require('path');
 const vscode = require('vscode');
-const { readRootProcess } = require('../process-metrics');
+const { readRootProcess } = require('../src/lifecycle/process-metrics');
 
 async function run() {
   const smokeRoot = requiredEnvironment('RUNLIST_SMOKE_ROOT');
@@ -127,7 +127,7 @@ async function run() {
     startCommand: command(nodePath, failurePath, path.join(smokeRoot, 'failure.pid'))
   });
 
-  const { upsertProject } = require(path.join(extension.extensionPath, 'project-store'));
+  const { upsertProject } = require(path.join(extension.extensionPath, 'src', 'projects', 'project-store'));
   const untrustedFolder = projectFolder(workspacePath, 'untrusted');
   fs.mkdirSync(untrustedFolder, { recursive: true });
   const untrusted = upsertProject(api.projectsFile, {

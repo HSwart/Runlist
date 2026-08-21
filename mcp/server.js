@@ -6,13 +6,13 @@ const {
   boundedDiagnosticOutput,
   readProjectDiagnostics,
   redactSensitiveText
-} = require('../project-diagnostics');
-const { ProcessOwnershipStore } = require('../project-process');
+} = require('../src/projects/project-diagnostics');
+const { ProcessOwnershipStore } = require('../src/lifecycle/project-process');
 const {
   createProjectRepairProposal,
   projectConfigurationRevision
-} = require('../project-repair');
-const { findProjectByFolder, readProjects, upsertProject } = require('../project-store');
+} = require('../src/projects/project-repair');
+const { findProjectByFolder, readProjects, upsertProject } = require('../src/projects/project-store');
 const { version: SERVER_VERSION } = require('../package.json');
 
 const SERVER_NAME = 'runlist-mcp-server';
