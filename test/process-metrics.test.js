@@ -6,6 +6,7 @@ const {
   OwnedProcessMetrics,
   parseCpuTime,
   parseWindowsProcessOutput,
+  readRootProcess,
   readOwnedProcessTree,
   windowsProcessScript
 } = require('../process-metrics');
@@ -14,6 +15,44 @@ const { HttpResponseHistory, RuntimePulseHistory } = require('../runtime-pulse')
 function row(pid, identity, cpuSeconds, memoryBytes) {
   return { pid, identity, cpuSeconds, memoryBytes };
 }
+
+test('reads a Windows root process identity when CIM access is denied', async () => {
+  const expected = {
+    pid: 55,
+    parentPid: 0,
+    identity: '55:638912345678901234',
+    cpuSeconds: 1.25,
+    memoryBytes: 4096
+  };
+  const runFile = async (_command, args, options) => {
+    const script = args.at(-1);
+    if (script.includes('Get-CimInstance')) {
+      throw new Error('Access denied');
+    }
+    if (script.includes('Get-Process')) {
+      if (options.timeout < 10000) {
+        throw new Error('Process identity query timed out');
+      }
+      return JSON.stringify({
+        pid: 55,
+        parentPid: 0,
+        startedAt: '638912345678901234',
+        cpuSeconds: 1.25,
+        memoryBytes: 4096
+      });
+    }
+    throw new Error('Unexpected Windows process query');
+  };
+
+  let actual;
+  try {
+    actual = await readRootProcess(55, 'win32', { runFile });
+  } catch (error) {
+    actual = { error: error.message };
+  }
+
+  assert.deepEqual(actual, expected);
+});
 
 test('aggregates current CPU and memory only across the tracked process tree', async () => {
   let now = 1000;
@@ -215,6 +254,7 @@ test('renders accessible metrics only inside the expanded preview and stops samp
   const root = path.join(__dirname, '..');
   const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
+  const messageRouter = fs.readFileSync(path.join(root, 'media', 'message-router.js'), 'utf8');
 
   assert.match(extension, /this\.processOwnership\.owns\(id, child\.pid\)/);
   assert.match(extension, /RESOURCE_SAMPLE_INTERVAL_MS = 5000/);
@@ -224,9 +264,9 @@ test('renders accessible metrics only inside the expanded preview and stops samp
   assert.match(webview, /data-resource-metrics[\s\S]*role="group"[\s\S]*aria-label=/);
   assert.match(webview, /project\.previewExpanded \? `[\s\S]*resource-metrics/);
   assert.match(webview, /class="runtime-pulse[\s\S]*aria-hidden="true"[\s\S]*focusable="false"/);
-  assert.match(webview, /resourceMetricsContent\([\s\S]*event\.data\.metrics,[\s\S]*event\.data\.runtimePulse,[\s\S]*event\.data\.httpResponsePulse/);
+  assert.match(webview, /resourceMetricsContent\([\s\S]*message\.metrics,[\s\S]*message\.runtimePulse,[\s\S]*message\.httpResponsePulse/);
   assert.match(extension, /messageToken: this\.webviewMessageToken/);
-  assert.match(webview, /event\.data\?\.messageToken !== state\.messageToken/);
+  assert.match(messageRouter, /value\.messageToken !== messageToken/);
 });
 
 test('reuses health polling for an accessible expanded HTTP response pulse', () => {
@@ -239,7 +279,7 @@ test('reuses health polling for an accessible expanded HTTP response pulse', () 
   assert.match(extension, /serviceUrls\.map\(\(\{ port, url \}\) => \(\{ port, url \}\)\)/);
   assert.match(webview, /<strong>HTTP<\/strong>[\s\S]*data-http-response/);
   assert.match(webview, /HTTP response time \$\{formatResponseTime\(latest\)\}/);
-  assert.match(webview, /event\.data\?\.type === 'projectHttpPulse'/);
+  assert.match(webview, /projectHttpPulse: \(message\) =>/);
 });
 
 test('keeps the CPU and memory explanation when HTTP timing is available', () => {

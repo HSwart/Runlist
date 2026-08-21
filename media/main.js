@@ -1,5 +1,7 @@
 const vscode = acquireVsCodeApi();
 const state = window.runlistState;
+const { createWebviewMessageRouter } = window.RunlistMessageRouter;
+const { projectPrimaryAction } = window.RunlistProjectActions;
 const app = document.getElementById('app');
 const persistedWebviewState = vscode.getState() || {};
 const detailTabState = { ...(persistedWebviewState.detailTabs || {}) };
@@ -516,12 +518,45 @@ function statusSummaryHtml(projects) {
         || (project.status === 'active' && project.httpUnresponsive))).length;
   const stoppingCount = projects
     .filter((project) => !project.reviewRequired && project.status === 'stopping').length;
+  const ownershipLostCount = projects
+    .filter((project) => !project.reviewRequired && project.status === 'ownership-lost').length;
   const stoppedCount = projects
     .filter((project) => !project.reviewRequired && project.status === 'stopped').length;
   const conflictCount = projects
     .filter((project) => !project.reviewRequired
       && ['port-in-use', 'port-in-use-unknown'].includes(project.status)).length;
-  return `<span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running${startingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${startingCount} starting` : ''}${notReadyCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notReadyCount} taking longer` : ''}${notRespondingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notRespondingCount} not responding` : ''}${stoppingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${stoppingCount} stopping` : ''} <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped${reviewCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${reviewCount} to review` : ''}${conflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${conflictCount} unavailable` : ''}`;
+  const unsupportedCount = projects.filter((project) => project.status === 'unsupported').length;
+  return `<span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running${startingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${startingCount} starting` : ''}${notReadyCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notReadyCount} taking longer` : ''}${notRespondingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notRespondingCount} not responding` : ''}${stoppingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${stoppingCount} stopping` : ''}${ownershipLostCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${ownershipLostCount} control unavailable` : ''} <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped${reviewCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${reviewCount} to review` : ''}${conflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${conflictCount} unavailable` : ''}${unsupportedCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${unsupportedCount} local only` : ''}`;
+}
+
+function runGroupsHtml() {
+  if (!state.groups?.length) {
+    return '';
+  }
+  return `
+    <section class="run-groups" aria-label="Run groups">
+      <h2>Run groups</h2>
+      ${state.groups.map((group) => {
+        const groupId = escapeHtml(group.id);
+        const groupName = escapeHtml(group.name);
+        const memberNames = group.memberNames.map(escapeHtml).join(' → ') || 'No saved projects';
+        const actionLabel = group.canStop ? `Stop group ${groupName}` : `Start group ${groupName}`;
+        return `
+          <div class="run-group-row">
+            <div class="run-group-details">
+              <strong>${groupName}</strong>
+              <span title="${memberNames}">${memberNames}</span>
+              ${group.progress ? `<small role="status" aria-live="polite">${escapeHtml(group.progress)}</small>` : ''}
+            </div>
+            <div class="run-group-actions">
+              ${group.canStop
+                ? `<button data-action="stop-group" data-id="${groupId}" aria-label="Stop group ${groupName}" title="${group.lifecycleBlocked ? 'Lifecycle controls are available only for local projects' : actionLabel}" ${group.busy || group.lifecycleBlocked ? 'disabled' : ''}>${productIcon('stop')}</button>`
+                : `<button data-action="start-group" data-id="${groupId}" aria-label="Start group ${groupName}" title="${group.lifecycleBlocked ? 'Lifecycle controls are available only for local projects' : actionLabel}" ${group.busy || group.lifecycleBlocked || !group.projectIds.length ? 'disabled' : ''}>${productIcon(group.busy ? 'loading' : 'play')}</button>`}
+              <button data-action="manage-group" data-id="${groupId}" aria-label="Manage group ${groupName}" title="Manage ${groupName}" ${group.busy ? 'disabled' : ''}>${icon('more')}</button>
+            </div>
+          </div>`;
+      }).join('')}
+    </section>`;
 }
 
 function renderList() {
@@ -548,6 +583,7 @@ function renderList() {
   }
   if (state.projects.length === 0) {
     app.innerHTML = `
+      ${runGroupsHtml()}
       <section class="empty-state">
         ${icon('folder', 'empty-icon')}
         <h2>No projects yet</h2>
@@ -565,6 +601,7 @@ function renderList() {
       <span id="project-count"><strong>${state.projects.length}</strong> ${state.projects.length === 1 ? 'project' : 'projects'}</span>
       <span id="summary-status" class="summary-status">${statusSummaryHtml(state.projects)}</span>
     </header>
+    ${runGroupsHtml()}
     ${state.stopAllCount > 1 ? `
       <div class="bulk-actions">
         <button class="stop-all-button" data-action="stop-all" aria-label="Stop all ${state.stopAllCount} running projects">
@@ -610,53 +647,43 @@ function renderList() {
         const conflict = project.portConflict;
         const conflictOwnerName = escapeHtml(conflict?.ownerName || 'Another app');
         const conflictProjectNames = (conflict?.projectNames || []).map(escapeHtml).join(', ');
+        const blockedServiceCount = (project.services || [])
+          .filter((service) => project.openPorts?.includes(service.port)).length;
+        const blockedServiceLabel = `${blockedServiceCount || 1} ${blockedServiceCount === 1 ? 'service' : 'services'} blocked`;
         const statusLabels = {
           running: 'Running',
           starting: 'Starting…',
           'not-ready': 'Taking longer…',
           'not-responding': 'Web service not responding',
+          'ownership-lost': 'Running — control unavailable',
           stopping: 'Stopping…',
           active: project.httpUnresponsive ? 'Detected, web service not responding' : 'Detected running',
-          'port-in-use': conflict?.ownerName ? `Port in use by ${conflictOwnerName}` : 'Port in use',
-          'port-in-use-unknown': 'Port in use — owner unknown',
+          'port-in-use': conflict?.ownerName ? `${blockedServiceLabel} by ${conflictOwnerName}` : blockedServiceLabel,
+          'port-in-use-unknown': blockedServiceLabel,
           'review-required': 'Review setup',
+          unsupported: 'Local lifecycle only',
           stopped: 'Stopped'
         };
         const conflicted = ['port-in-use', 'port-in-use-unknown'].includes(projectStatus);
-        const canHandoff = projectStatus === 'port-in-use'
-          && conflict?.handoffAvailable
-          && conflict?.ownerName;
-        const handoffLabel = `Stop ${conflictOwnerName} and start ${projectName}`;
-        const transitioning = ['starting', 'not-ready', 'stopping'].includes(projectStatus);
+        const primaryAction = projectPrimaryAction(project);
+        const actionTitle = escapeHtml(primaryAction.label);
+        const transitioning = project.forceClosing
+          || project.handoffInProgress
+          || ['starting', 'not-ready', 'stopping'].includes(projectStatus);
         const canOpen = Boolean(project.previewUrl);
         const detectedWithoutStop = projectStatus === 'active' && !project.stopCommand;
-        const stopState = ['running', 'starting', 'not-ready', 'not-responding', 'active'].includes(projectStatus);
+        const ownershipLostWithoutStop = projectStatus === 'ownership-lost' && !project.stopCommand;
+        const stopState = ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active'].includes(projectStatus);
         const canRestart = !reviewRequired
-          && ['running', 'not-ready', 'not-responding', 'active'].includes(projectStatus)
-          && !detectedWithoutStop;
-        const stopsProject = stopState && !detectedWithoutStop;
-        const blocked = conflicted;
-        const action = reviewRequired ? 'edit' : stopState ? 'stop' : 'start';
-        const actionLabel = reviewRequired
-          ? 'Review setup'
-          : detectedWithoutStop
-          ? 'Stop unavailable'
-          : blocked
-          ? 'Unavailable'
-          : projectStatus === 'stopping'
-          ? 'Stopping…'
-          : stopsProject
-            ? 'Stop'
-            : 'Start';
-        const actionTitle = reviewRequired
-          ? `Review setup for ${projectName}`
-          : detectedWithoutStop
-          ? `Runlist did not start ${projectName}. Add a custom stop command to stop it safely.`
-          : projectStatus === 'port-in-use-unknown'
-          ? `Port :${conflict?.port || 'unknown'} owner is unknown — cannot safely start or stop ${projectName}`
-          : blocked
-            ? `${conflictOwnerName} is using port :${conflict?.port || 'unknown'} — cannot start ${projectName}`
-          : `${actionLabel} ${projectName}`;
+          && ['running', 'not-ready', 'not-responding', 'ownership-lost', 'active'].includes(projectStatus)
+          && !detectedWithoutStop
+          && !ownershipLostWithoutStop;
+        const canCloseConfiguredPorts = !reviewRequired
+          && Boolean(project.openPorts?.length)
+          && !project.forceClosing
+          && !project.handoffInProgress
+          && projectStatus !== 'stopping';
+        const blocked = conflicted || project.lifecycleBlocked;
         const openTitle = canOpen
           ? `Open ${projectName} in your browser`
           : conflicted
@@ -664,7 +691,9 @@ function renderList() {
             : stopState
               ? `${projectName} does not have a responding web service yet`
               : `Start ${projectName} before opening it`;
-        const statusTitle = reviewRequired
+        const statusTitle = project.lifecycleBlocked
+          ? project.lifecycleBlockedReason
+          : reviewRequired
           ? 'A coding agent added or updated this setup. Review its folder and commands before running it.'
           : projectStatus === 'active'
           ? project.httpUnresponsive
@@ -674,12 +703,20 @@ function renderList() {
             ? 'The launched process is still running and its configured port is open, but the web service did not respond.'
           : projectStatus === 'not-ready'
             ? 'The launched process is still running. Runlist is continuing to check its configured services.'
+          : projectStatus === 'ownership-lost'
+            ? project.stopCommand
+              ? 'The launching VS Code window is unavailable. Runlist can use your custom stop command.'
+              : 'The launching VS Code window is unavailable. Runlist will not stop an unverified process.'
           : projectStatus === 'port-in-use-unknown'
             ? `Port :${conflict?.port || 'unknown'} is shared with ${conflictProjectNames}. Runlist cannot identify the running owner.`
             : projectStatus === 'port-in-use'
               ? `${conflictOwnerName} is using port :${conflict?.port || 'unknown'}.`
               : '';
-        const actionDisabled = projectStatus === 'stopping' || blocked || detectedWithoutStop;
+        const displayedStatus = project.forceClosing
+          ? 'Closing processes…'
+          : project.handoffInProgress
+            ? `Switching from ${conflictOwnerName}…`
+            : statusLabels[displayStatus];
         return `
           <article id="project-row-${projectId}" class="project-row" data-project-id="${projectId}" aria-labelledby="project-${projectId}" tabindex="-1">
             <div class="project-topline">
@@ -690,12 +727,12 @@ function renderList() {
                     <span class="auto-scroll"><span class="auto-scroll-content">${projectName}</span></span>
                   </h2>
                 </div>
-                <div class="project-status status-${statusClass}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : ''}<span class="auto-scroll"><span class="auto-scroll-content">${statusLabels[displayStatus]}</span></span></div>
+                <div class="project-status status-${statusClass}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : ''}<span class="auto-scroll"><span class="auto-scroll-content">${displayedStatus}</span></span></div>
                 ${!reviewRequired ? readinessDetailsHtml(project, projectStatus) : ''}
               </div>
               <div class="project-actions">
-                <button class="run-button ${reviewRequired ? 'review' : blocked ? 'blocked' : stopState || projectStatus === 'stopping' ? 'stop' : 'start'}" data-action="${action}" data-id="${projectId}" aria-label="${actionTitle}" title="${actionTitle}" ${actionDisabled && !reviewRequired ? 'disabled' : ''}>
-                  ${reviewRequired ? icon('edit') : productIcon(stopState || projectStatus === 'stopping' ? 'stop' : 'play')}
+                <button class="run-button ${reviewRequired ? 'review' : blocked ? 'blocked' : primaryAction.mode}" data-action="${primaryAction.action}" data-id="${projectId}" aria-label="${actionTitle}" title="${actionTitle}" ${primaryAction.disabled ? 'disabled' : ''}>
+                  ${reviewRequired ? icon('edit') : productIcon(primaryAction.mode === 'stop' ? 'stop' : 'play')}
                 </button>
                 <button class="more-button" data-action="toggle-menu" data-id="${projectId}" aria-label="More actions for ${projectName}" aria-haspopup="menu" aria-expanded="false">${icon('more')}</button>
                 <div class="action-menu" data-menu-id="${projectId}" role="menu" aria-label="Actions for ${projectName}" hidden>
@@ -717,6 +754,9 @@ function renderList() {
                   <button data-action="restart" data-id="${projectId}" role="menuitem" aria-label="Restart ${projectName}" ${canRestart ? '' : 'disabled'}>
                     ${icon('refresh', 'menu-icon')}<span>Restart</span>
                   </button>
+                  <button data-action="force-close-ports" data-id="${projectId}" role="menuitem" aria-label="Close configured ports for ${projectName}" ${canCloseConfiguredPorts && !project.lifecycleBlocked ? '' : 'disabled'} title="${project.lifecycleBlocked ? escapeHtml(project.lifecycleBlockedReason) : canCloseConfiguredPorts ? `Review and close the processes using ${projectName}'s configured ports` : 'No configured ports are currently open'}">
+                    ${icon('stop', 'menu-icon')}<span>Close configured ports…</span>
+                  </button>
                   <button data-action="edit" data-id="${projectId}" role="menuitem">
                     ${icon('edit', 'menu-icon')}<span>${reviewRequired ? 'Review setup' : 'Edit project'}</span>
                   </button>
@@ -730,10 +770,6 @@ function renderList() {
                 </div>
               </div>
             </div>
-            ${canHandoff ? `<button class="handoff-button" data-action="handoff" data-id="${projectId}" aria-label="${handoffLabel}" title="${handoffLabel}" ${project.handoffInProgress ? 'disabled' : ''}>
-              ${project.handoffInProgress ? productIcon('loading', 'status-progress') : productIcon('play')}
-              <span>${project.handoffInProgress ? `Stopping ${conflictOwnerName}, then starting ${projectName}…` : handoffLabel}</span>
-            </button>` : ''}
             <div class="project-details">
               <div class="detail-row" title="${escapeHtml(project.folder)}">
                 ${icon('folder', 'detail-icon')}<span class="auto-scroll"><span class="auto-scroll-content">${escapeHtml(project.folder)}</span></span>
@@ -751,22 +787,43 @@ function renderList() {
                     && portOpen
                     && project.webPorts?.includes(service.port)
                     && !project.respondingPorts?.includes(service.port);
-                  const indicator = conflicted
+                  const portBlocked = conflicted && portOpen;
+                  const waiting = ['starting', 'not-ready'].includes(projectStatus) && !portOpen;
+                  const canResolve = !reviewRequired
+                    && !project.lifecycleBlocked
+                    && !project.forceClosing
+                    && !project.handoffInProgress
+                    && (portBlocked || (projectStatus === 'not-ready' && waiting));
+                  const indicator = portBlocked
                     ? 'conflict'
                     : webNotResponding
                       ? 'not-responding'
                       : portOpen
                         ? 'running'
                         : '';
-                  const title = webNotResponding
-                    ? ` title="${escapeHtml(service.name)} port is open, but its web service is not responding"`
-                    : '';
-                  const ariaLabel = webNotResponding
-                    ? ` aria-label="${escapeHtml(service.name)} on port ${escapeHtml(String(service.port))}: web service not responding"`
-                    : '';
+                  const serviceState = portBlocked
+                    ? 'Port in use'
+                    : webNotResponding
+                      ? 'No web response'
+                      : portOpen
+                        ? 'Ready'
+                        : waiting
+                          ? 'Waiting'
+                          : 'Stopped';
                   const copyLabel = `Copy ${escapeHtml(service.name)} URL`;
+                  const resolveLabel = `Resolve port issue for ${escapeHtml(service.name)} on port ${escapeHtml(String(service.port))}`;
                   const address = serviceLocalAddress(service);
-                  return `<span${title}${ariaLabel}><span class="service-indicator ${indicator}" aria-hidden="true"></span><span class="service-name">${escapeHtml(service.name)}</span><span class="service-separator" aria-hidden="true">·</span><span class="service-address auto-scroll" title="${escapeHtml(address.fullUrl)}"><span class="auto-scroll-content">${escapeHtml(address.label)}</span></span>${canCopyUrl ? `<button class="copy-url-button" data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(String(service.port))}" aria-label="${copyLabel}" title="${copyLabel}">${icon('copy')}</button>` : ''}</span>`;
+                  const savedPort = service.savedPort || service.port;
+                  const temporaryDetail = service.temporaryPort
+                    ? `Temporary for this launch. Saved as port ${savedPort} via ${service.portVariable}.`
+                    : '';
+                  const serviceAriaLabel = `${service.name} on port ${service.port}: ${serviceState.toLocaleLowerCase()}.${temporaryDetail ? ` ${temporaryDetail}` : ''}`;
+                  const temporaryBadge = temporaryDetail
+                    ? `<span class="service-temporary-badge" title="${escapeHtml(temporaryDetail)}" aria-hidden="true">temp</span>`
+                    : '';
+                  const serviceActions = `${canCopyUrl ? `<button class="copy-url-button" data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(String(service.port))}" aria-label="${copyLabel}" title="${copyLabel}">${icon('copy')}</button>` : ''}${canResolve ? `<button class="resolve-port-button" data-action="resolve-service-port" data-id="${projectId}" data-port="${escapeHtml(String(savedPort))}" aria-label="${resolveLabel}" title="${resolveLabel}">${icon('refresh')}</button>` : ''}`;
+                  const serviceTitle = temporaryDetail ? `${serviceState}. ${temporaryDetail}` : serviceState;
+                  return `<div class="service-chip" role="group" aria-label="${escapeHtml(serviceAriaLabel)}" title="${escapeHtml(serviceTitle)}"><div class="service-main"><span class="service-indicator ${indicator}" aria-hidden="true"></span><span class="service-name">${escapeHtml(service.name)}</span><span class="service-separator" aria-hidden="true">·</span><span class="service-address auto-scroll" title="${escapeHtml(address.fullUrl)}"><span class="auto-scroll-content">${escapeHtml(address.label)}</span></span>${temporaryBadge}</div>${serviceActions ? `<div class="service-actions">${serviceActions}</div>` : ''}</div>`;
                   }).join('')}
                 </div>
                 ${(project.timeline || project.previewUrl || project.startupHistory?.length) ? `<button class="preview-toggle" data-action="toggle-preview" data-id="${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} ${project.timeline || project.startupHistory?.length ? 'project details' : 'preview'} for ${projectName}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" title="${project.detailsExpanded ? 'Collapse' : 'Expand'} ${project.timeline || project.startupHistory?.length ? 'project details' : 'app preview'}">${icon('chevron-down')}</button>` : ''}
@@ -1051,6 +1108,8 @@ function renderProjectForm(mode) {
     const portField = `service-port-${index}`;
     const urlField = `service-url-${index}`;
     const warning = sharedPortWarningText(state.draft, index);
+    const serviceOptionsSet = Boolean(String(service.url || '').trim());
+    const serviceOptionsInvalid = Boolean(errors[urlField]);
     const removeLabel = String(service.name || '').trim()
       ? `Remove ${String(service.name).trim()} service`
       : `Remove service ${index + 1}`;
@@ -1067,11 +1126,16 @@ function renderProjectForm(mode) {
           ${fieldError(portField)}
         </div>
         <button class="service-remove-button" type="button" data-action="remove-service" data-service-index="${index}" aria-label="${escapeHtml(removeLabel)}" title="Remove service">${icon('trash')}</button>
-        <div class="service-field service-url-field">
-          <label class="service-url-label" for="${urlField}">Open URL <span class="optional-label">Optional</span></label>
-          <input id="${urlField}" class="service-input" name="serviceUrl" type="url" inputmode="url" value="${escapeHtml(String(service.url ?? ''))}" placeholder="https://app.local/dashboard" maxlength="2048" autocomplete="off" spellcheck="false" aria-label="Service ${index + 1} open URL, optional" ${errorAttributes(urlField)}>
-          ${fieldError(urlField)}
-        </div>
+        <details class="service-options" ${serviceOptionsInvalid ? 'open' : ''}>
+          <summary>Options${serviceOptionsSet ? ' <span class="optional-label">Set</span>' : ''}</summary>
+          <div class="service-options-fields">
+            <div class="service-field">
+              <label class="service-url-label" for="${urlField}">Open URL <span class="optional-label">Optional</span></label>
+              <input id="${urlField}" class="service-input" name="serviceUrl" type="url" inputmode="url" value="${escapeHtml(String(service.url ?? ''))}" placeholder="https://app.local/dashboard" maxlength="2048" autocomplete="off" spellcheck="false" aria-label="Service ${index + 1} open URL, optional" ${errorAttributes(urlField)}>
+              ${fieldError(urlField)}
+            </div>
+          </div>
+        </details>
         <p class="shared-port-warning service-warning" data-service-warning="${index}" role="status" ${warning ? '' : 'hidden'}>${escapeHtml(warning)}</p>
       </div>`;
   }).join('');
@@ -1103,11 +1167,11 @@ function renderProjectForm(mode) {
         <label for="stop-command">Custom stop command <span class="optional-label">Optional</span></label>
         <input id="stop-command" name="stopCommand" value="${escapeHtml(state.draft.stopCommand || '')}" placeholder="docker compose down" ${errorAttributes('stop-command')}>
         ${fieldError('stop-command')}
-        <p class="field-hint">Leave empty to stop only the process tree Runlist started.</p>
+        <p class="field-hint">Leave empty to stop only Runlist's process tree. Custom commands are user-controlled and confirmed before every run.</p>
 
         <fieldset id="services" class="service-editor" ${state.servicesLocked ? 'disabled' : ''} ${errors.services ? 'aria-invalid="true" aria-describedby="services-hint services-error" tabindex="-1"' : 'aria-describedby="services-hint"'}>
           <legend>Services <span class="optional-label">Optional</span></legend>
-          <p id="services-hint" class="field-hint">${state.servicesLocked ? 'Stop this project before changing its services.' : 'Names and ports confirm what is running. An optional HTTP or HTTPS URL changes where Open app goes. Up to 32 services.'}</p>
+          <p id="services-hint" class="field-hint">${state.servicesLocked ? 'Stop this project before changing its services.' : 'Add up to 32 named service ports.'}</p>
           ${errors.services ? `<p id="services-error" class="field-error" role="alert">${escapeHtml(errors.services)}</p>` : ''}
           <div class="service-list-header" aria-hidden="true"><span>Name</span><span>Port</span></div>
           <div class="service-list">
@@ -1201,6 +1265,48 @@ function renderProjectDiagnosis() {
     app.innerHTML = '<section class="diagnosis-screen"><p class="screen-copy">These diagnostics are no longer available.</p></section>';
     return;
   }
+  if (diagnosis.approved) {
+    app.innerHTML = `
+      <section class="diagnosis-screen">
+        <header class="screen-header">
+          <h2>Repair approved</h2>
+          <button class="icon-button" data-action="close-screen" aria-label="Close approved repair">${icon('close')}</button>
+        </header>
+        <div class="diagnosis-notice" role="status" aria-live="polite">
+          <strong>${escapeHtml(diagnosis.name)} is updated</strong>
+          <p>The reviewed setup is saved. Runlist has not started it.</p>
+        </div>
+        <div class="repair-actions">
+          <button class="primary-button" data-action="retry-repair">Retry start</button>
+          <button class="secondary-button" data-action="close-screen">Done</button>
+        </div>
+      </section>`;
+    return;
+  }
+  const repairHtml = diagnosis.repair ? `
+    <section class="repair-proposal" aria-labelledby="repair-proposal-heading">
+      <h3 id="repair-proposal-heading" class="diagnosis-heading">Repair proposal</h3>
+      ${diagnosis.repair.stale ? `
+        <p class="repair-stale" role="alert">This proposal is stale because the saved setup or retained failed start changed. It cannot be approved.</p>` : ''}
+      <div class="repair-comparison" role="table" aria-label="Current and proposed project setup">
+        <div class="repair-comparison-heading" role="row">
+          <strong role="columnheader">Field</strong>
+          <strong role="columnheader">Current</strong>
+          <strong role="columnheader">Proposed</strong>
+        </div>
+        ${diagnosis.repair.comparison.map((item) => `
+          <div class="repair-comparison-row" role="row">
+            <strong role="rowheader">${escapeHtml(item.field)}</strong>
+            <span role="cell">${escapeHtml(item.current)}</span>
+            <span role="cell">${escapeHtml(item.proposed)}</span>
+            <small class="repair-change ${escapeHtml(item.change)}">${escapeHtml(item.change)}</small>
+          </div>`).join('')}
+      </div>
+      <div class="repair-actions">
+        <button class="primary-button" data-action="approve-repair" ${diagnosis.repair.stale ? 'disabled' : ''}>Approve complete proposal</button>
+        <button class="secondary-button" data-action="reject-repair">Reject proposal</button>
+      </div>
+    </section>` : '';
   app.innerHTML = `
     <section class="diagnosis-screen">
       <header class="screen-header">
@@ -1224,13 +1330,15 @@ function renderProjectDiagnosis() {
       <p class="diagnosis-exclusion">Runlist does not provide environment variables, source files, shell history, process environments, or unconfigured network data.</p>
       <button class="primary-button diagnosis-copy-button" data-action="copy-diagnosis-request">Copy diagnosis request</button>
       <p id="diagnosis-copy-status" class="diagnosis-copy-status" aria-live="polite">Copy the request, then paste it into your agent chat.</p>
+      <button class="secondary-button repair-refresh-button" data-action="refresh-repair">Refresh proposal</button>
+      ${repairHtml}
       ${diagnosis.agentReady ? '' : `
         <div class="diagnosis-setup">
           <strong>Need to connect an agent?</strong>
           <p>Use Runlist's existing Agent connections screen for Copilot, Codex, or Claude.</p>
           <button class="secondary-button" data-action="show-agent-connections">Open Agent connections</button>
         </div>`}
-      <p class="diagnosis-review-note">Any command or service change proposed by an agent still requires your review and approval in Runlist.</p>
+      <p class="diagnosis-review-note">A proposal never changes the saved setup or retries the project until you explicitly approve and then choose Retry start.</p>
     </section>`;
 }
 
@@ -1280,9 +1388,10 @@ function currentDraft(form = document.getElementById('project-form')) {
     folder: fieldValue('folder'),
     startCommand: fieldValue('startCommand'),
     stopCommand: fieldValue('stopCommand'),
-    services: [...(form?.querySelectorAll('.service-row') || [])].map((row) => ({
+    services: [...(form?.querySelectorAll('.service-row') || [])].map((row, index) => ({
       name: row.querySelector('[name="serviceName"]')?.value || '',
       port: row.querySelector('[name="servicePort"]')?.value || '',
+      portVariable: state.draft.services?.[index]?.portVariable || '',
       url: row.querySelector('[name="serviceUrl"]')?.value || ''
     }))
   };
@@ -1396,7 +1505,9 @@ app.addEventListener('click', (event) => {
       const services = currentDraft().services;
       if (services.length < 32) {
         const index = services.length;
-        updateServiceDraft([...services, { name: '', port: '', url: '' }], `service-name-${index}`);
+        updateServiceDraft([...services, {
+          name: '', port: '', portVariable: '', url: ''
+        }], `service-name-${index}`);
       }
     },
     'remove-service': () => {
@@ -1412,6 +1523,7 @@ app.addEventListener('click', (event) => {
     },
     'register-agent': () => vscode.postMessage({ type: 'registerAgent', agent: button.dataset.agent }),
     'show-agent-connections': () => vscode.postMessage({ type: 'showAgentSetup' }),
+    'manage-group': () => vscode.postMessage({ type: 'manageRunGroups', id: button.dataset.id }),
     'toggle-menu': () => toggleMenu(button),
     open: () => {
       closeMenus();
@@ -1422,6 +1534,13 @@ app.addEventListener('click', (event) => {
       id: button.dataset.id,
       port: Number(button.dataset.port)
     }),
+    'resolve-service-port': () => {
+      vscode.postMessage({
+        type: 'resolveServicePort',
+        id: button.dataset.id,
+        port: Number(button.dataset.port)
+      });
+    },
     'copy-phone-url': () => vscode.postMessage({
       type: 'copyPhoneUrl',
       id: button.dataset.id,
@@ -1461,6 +1580,10 @@ app.addEventListener('click', (event) => {
     },
     'ask-agent': () => vscode.postMessage({ type: 'showDiagnosis', id: button.dataset.id }),
     'copy-diagnosis-request': () => vscode.postMessage({ type: 'copyDiagnosisRequest' }),
+    'refresh-repair': () => vscode.postMessage({ type: 'refreshProjectRepair' }),
+    'approve-repair': () => vscode.postMessage({ type: 'approveProjectRepair' }),
+    'reject-repair': () => vscode.postMessage({ type: 'rejectProjectRepair' }),
+    'retry-repair': () => vscode.postMessage({ type: 'retryProjectRepair' }),
     'open-output-url': () => {
       event.preventDefault();
       vscode.postMessage({ type: 'openOutputUrl', url: button.dataset.url });
@@ -1476,6 +1599,17 @@ app.addEventListener('click', (event) => {
     start: () => vscode.postMessage({ type: 'startProject', id: button.dataset.id }),
     stop: () => vscode.postMessage({ type: 'stopProject', id: button.dataset.id }),
     restart: () => vscode.postMessage({ type: 'restartProject', id: button.dataset.id }),
+    'force-close-ports': () => {
+      closeMenus();
+      button.disabled = true;
+      vscode.postMessage({ type: 'forceCloseProjectPorts', id: button.dataset.id });
+    },
+    'force-close-ports-and-start': () => {
+      button.disabled = true;
+      vscode.postMessage({ type: 'forceCloseProjectPortsAndStart', id: button.dataset.id });
+    },
+    'start-group': () => vscode.postMessage({ type: 'startRunGroup', id: button.dataset.id }),
+    'stop-group': () => vscode.postMessage({ type: 'stopRunGroup', id: button.dataset.id }),
     handoff: () => {
       button.disabled = true;
       vscode.postMessage({ type: 'handoffProject', id: button.dataset.id });
@@ -1585,36 +1719,32 @@ function initializeTimelineClock() {
   }
 }
 
-window.addEventListener('message', (event) => {
-  if (event.data?.messageToken !== state.messageToken) {
-    return;
-  }
-  if (event.data?.type === 'projectMetrics') {
-    const project = state.projects.find((item) => String(item.id) === String(event.data.id));
+const hostMessageHandlers = {
+  projectMetrics: (message) => {
+    const project = state.projects.find((item) => String(item.id) === String(message.id));
     if (project) {
-      project.resourceMetrics = event.data.metrics;
-      project.runtimePulse = event.data.runtimePulse;
-      project.httpResponsePulse = event.data.httpResponsePulse;
+      project.resourceMetrics = message.metrics;
+      project.runtimePulse = message.runtimePulse;
+      project.httpResponsePulse = message.httpResponsePulse;
     }
-    const metrics = document.querySelector(`[data-resource-metrics][data-project-id="${CSS.escape(String(event.data.id || ''))}"]`);
+    const metrics = document.querySelector(`[data-resource-metrics][data-project-id="${CSS.escape(String(message.id || ''))}"]`);
     if (metrics) {
       metrics.innerHTML = resourceMetricsContent(
-        event.data.metrics,
-        event.data.runtimePulse,
-        event.data.httpResponsePulse
+        message.metrics,
+        message.runtimePulse,
+        message.httpResponsePulse
       );
       metrics.setAttribute(
         'aria-label',
-        resourceMetricsLabel(event.data.metrics, event.data.httpResponsePulse)
+        resourceMetricsLabel(message.metrics, message.httpResponsePulse)
       );
     }
-    return;
-  }
-  if (event.data?.type === 'projectHttpPulse') {
-    const project = state.projects.find((item) => String(item.id) === String(event.data.id));
-    const metrics = document.querySelector(`[data-resource-metrics][data-project-id="${CSS.escape(String(event.data.id || ''))}"]`);
+  },
+  projectHttpPulse: (message) => {
+    const project = state.projects.find((item) => String(item.id) === String(message.id));
+    const metrics = document.querySelector(`[data-resource-metrics][data-project-id="${CSS.escape(String(message.id || ''))}"]`);
     if (project && metrics) {
-      project.httpResponsePulse = event.data.httpResponsePulse;
+      project.httpResponsePulse = message.httpResponsePulse;
       metrics.innerHTML = resourceMetricsContent(
         project.resourceMetrics,
         project.runtimePulse,
@@ -1625,55 +1755,68 @@ window.addEventListener('message', (event) => {
         resourceMetricsLabel(project.resourceMetrics, project.httpResponsePulse)
       );
     }
-    return;
-  }
-  if (event.data?.type === 'projectOutputPeek') {
-    updateProjectOutputPeek(event.data.id, event.data.entries);
-    return;
-  }
-  if (event.data?.type === 'diagnosisRequestCopied') {
+  },
+  projectOutputPeek: (message) => updateProjectOutputPeek(message.id, message.entries),
+  diagnosisRequestCopied: () => {
     const status = document.getElementById('diagnosis-copy-status');
     if (status) {
       status.textContent = 'Diagnosis request copied. Paste it into your agent chat.';
     }
-    return;
-  }
-  if (event.data?.type !== 'projectOutput') {
-    return;
-  }
-  const outputPanel = document.querySelector('.output-panel');
-  const output = document.getElementById('project-output');
-  if (!outputPanel || !output) {
-    return;
-  }
-  const shouldFollow = outputFollowLatest || outputIsNearBottom(outputPanel);
-  const previousScrollTop = outputPanel.scrollTop;
-  const focusedLink = focusedOutputLink(output);
-  const failure = document.getElementById('project-output-failure');
-  if (failure) {
-    failure.innerHTML = outputFailureSummaryHtml(event.data.failureSummary);
-  }
-  outputPanel.dataset.empty = String(!event.data.output);
-  output.innerHTML = outputEntriesHtml(event.data.entries, event.data.failureSummary);
-  const copyButton = document.querySelector('.output-copy-button');
-  if (copyButton) {
-    copyButton.disabled = !event.data.output;
-  }
-  if (shouldFollow) {
-    outputFollowLatest = true;
-    outputPanel.scrollTop = outputPanel.scrollHeight;
-    clearOutputUpdateStatus();
-  } else {
-    outputFollowLatest = false;
-    outputPanel.scrollTop = previousScrollTop;
-    const status = document.getElementById('output-update-status');
-    if (status) {
-      status.textContent = 'New output is available.';
+  },
+  projectOutput: (message) => {
+    const outputPanel = document.querySelector('.output-panel');
+    const output = document.getElementById('project-output');
+    if (!outputPanel || !output) {
+      return;
     }
+    const shouldFollow = outputFollowLatest || outputIsNearBottom(outputPanel);
+    const previousScrollTop = outputPanel.scrollTop;
+    const focusedLink = focusedOutputLink(output);
+    const failure = document.getElementById('project-output-failure');
+    if (failure) {
+      failure.innerHTML = outputFailureSummaryHtml(message.failureSummary);
+    }
+    outputPanel.dataset.empty = String(!message.output);
+    output.innerHTML = outputEntriesHtml(message.entries, message.failureSummary);
+    const copyButton = document.querySelector('.output-copy-button');
+    if (copyButton) {
+      copyButton.disabled = !message.output;
+    }
+    if (shouldFollow) {
+      outputFollowLatest = true;
+      outputPanel.scrollTop = outputPanel.scrollHeight;
+      clearOutputUpdateStatus();
+    } else {
+      outputFollowLatest = false;
+      outputPanel.scrollTop = previousScrollTop;
+      const status = document.getElementById('output-update-status');
+      if (status) {
+        status.textContent = 'New output is available.';
+      }
+    }
+    restoreOutputLinkFocus(output, focusedLink);
+    updateOutputJumpButton();
+  },
+  outputCopied: () => {
+    const copyButton = document.querySelector('.output-copy-button');
+    if (!copyButton) {
+      return;
+    }
+    copyButton.textContent = 'Copied';
+    setTimeout(() => {
+      copyButton.textContent = 'Copy output';
+    }, 1500);
+  },
+  restoreProjectMenuFocus: (message) => {
+    closeMenus();
+    document.querySelector(`.more-button[data-id="${CSS.escape(message.id)}"]`)?.focus();
   }
-  restoreOutputLinkFocus(output, focusedLink);
-  updateOutputJumpButton();
-});
+};
+
+window.addEventListener('message', createWebviewMessageRouter({
+  handlers: hostMessageHandlers,
+  messageToken: state.messageToken
+}));
 
 function outputPeekInteractionActive(slot) {
   if (slot.contains(document.activeElement)) {
@@ -1735,28 +1878,6 @@ function restoreOutputLinkFocus(output, focusedLink) {
     .filter((link) => link.dataset.url === focusedLink.url);
   matchingLinks[focusedLink.occurrence]?.focus({ preventScroll: true });
 }
-
-window.addEventListener('message', (event) => {
-  if (event.data?.messageToken !== state.messageToken || event.data?.type !== 'outputCopied') {
-    return;
-  }
-  const copyButton = document.querySelector('.output-copy-button');
-  if (!copyButton) {
-    return;
-  }
-  copyButton.textContent = 'Copied';
-  setTimeout(() => {
-    copyButton.textContent = 'Copy output';
-  }, 1500);
-});
-
-window.addEventListener('message', (event) => {
-  if (event.data?.messageToken !== state.messageToken || event.data?.type !== 'restoreProjectMenuFocus') {
-    return;
-  }
-  closeMenus();
-  document.querySelector(`.more-button[data-id="${CSS.escape(event.data.id)}"]`)?.focus();
-});
 
 app.addEventListener('submit', (event) => {
   if (event.target.id !== 'project-form') {

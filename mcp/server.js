@@ -8,7 +8,11 @@ const {
   redactSensitiveText
 } = require('../project-diagnostics');
 const { ProcessOwnershipStore } = require('../project-process');
-const { findProjectByFolder, upsertProject } = require('../project-store');
+const {
+  createProjectRepairProposal,
+  projectConfigurationRevision
+} = require('../project-repair');
+const { findProjectByFolder, readProjects, upsertProject } = require('../project-store');
 const { version: SERVER_VERSION } = require('../package.json');
 
 const SERVER_NAME = 'runlist-mcp-server';
@@ -27,7 +31,7 @@ const processOwnership = PROJECTS_FILE
 const setupTool = {
   name: 'runlist_setup_project',
   title: 'Set up a Runlist project',
-  description: 'Add a local project to Runlist, or update the existing entry for the same folder. You may give the project a friendly custom name and an advanced custom stop command. Runlist normally stops only the process tree it launched. Before calling, identify every service the project starts and provide its explicit port. When the project explicitly defines an HTTP or HTTPS browser URL for a service, you may include it as an override. The saved setup remains blocked until the user reviews and approves it in Runlist.',
+  description: 'Add a local project to Runlist, or update the existing entry for the same folder. You may give the project a friendly custom name and an advanced custom stop command. Runlist normally stops only the process tree it launched. Before calling, identify every service the project starts and provide its explicit port. Include a port variable only when the start command is explicitly documented to honor it for that service; never guess one. When the project explicitly defines an HTTP or HTTPS browser URL for a service, you may include it as an override. The saved setup remains blocked until the user reviews and approves it in Runlist.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -102,6 +106,7 @@ const setupTool = {
               properties: {
                 name: { type: 'string' },
                 port: { type: 'integer' },
+                portVariable: { type: 'string' },
                 url: { type: 'string' }
               },
               required: ['name', 'port'],
@@ -185,7 +190,8 @@ const diagnosticsTool = {
       },
       retainedOutput: { type: 'string', maxLength: 12000 },
       outputTruncated: { type: 'boolean' },
-      failedAt: { type: 'number' }
+      failedAt: { type: 'number' },
+      projectRevision: { type: 'string', minLength: 64, maxLength: 64 }
     },
     required: [
       'project',
@@ -196,13 +202,85 @@ const diagnosticsTool = {
       'failureSummary',
       'retainedOutput',
       'outputTruncated',
-      'failedAt'
+      'failedAt',
+      'projectRevision'
     ],
     additionalProperties: false
   },
   annotations: {
     title: 'Get Runlist start diagnostics',
     readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false
+  }
+};
+
+const repairTool = {
+  name: 'runlist_propose_project_repair',
+  title: 'Propose a Runlist setup repair',
+  description: 'Save a bounded setup proposal for one retained failed start. This does not change the saved project or run any command. The user must review and approve the complete comparison in Runlist.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      projectId: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 200,
+        description: 'Exact project ID returned by runlist_get_project_diagnostics.'
+      },
+      projectRevision: {
+        type: 'string',
+        minLength: 64,
+        maxLength: 64,
+        description: 'Exact project revision returned with the selected failed-start diagnostics.'
+      },
+      failedAt: {
+        type: 'number',
+        description: 'Exact failedAt value returned with the selected failed-start diagnostics.'
+      },
+      proposal: {
+        type: 'object',
+        minProperties: 1,
+        properties: {
+          name: { type: 'string', maxLength: 100 },
+          folder: { type: 'string', maxLength: 4096 },
+          startCommand: { type: 'string', maxLength: 4096 },
+          stopCommand: { type: 'string', maxLength: 4096 },
+          services: {
+            type: 'array',
+            maxItems: 32,
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string', minLength: 1, maxLength: 64 },
+                port: { type: 'integer', minimum: 1, maximum: 65535 },
+                url: { type: 'string', maxLength: 2048 }
+              },
+              required: ['name', 'port'],
+              additionalProperties: false
+            }
+          }
+        },
+        additionalProperties: false
+      }
+    },
+    required: ['projectId', 'projectRevision', 'failedAt', 'proposal'],
+    additionalProperties: false
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      projectId: { type: 'string' },
+      projectRevision: { type: 'string' },
+      failedAt: { type: 'number' }
+    },
+    required: ['projectId', 'projectRevision', 'failedAt'],
+    additionalProperties: false
+  },
+  annotations: {
+    title: 'Propose a Runlist setup repair',
+    readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: true,
     openWorldHint: false
@@ -255,14 +333,14 @@ function handleRequest(message) {
           version: SERVER_VERSION,
           description: 'Adds local projects to the Runlist VS Code extension.'
         },
-        instructions: 'Use runlist_setup_project when the user asks to save a local project in Runlist. Inspect the project first, identify every service it starts, and provide the absolute folder path, exact start command, and an explicit unique port for each service. Include an optional HTTP or HTTPS service URL only when the project defines it explicitly; never guess one. Omit stopCommand for ordinary development servers so Runlist stops only the process tree it launched. Provide a custom stop command only when the project daemonizes or manages external services such as Docker or databases. You may also provide a friendly custom project name when the user requests one. Tell the user that Runlist will require them to review and approve the saved setup before its commands can run. Use runlist_get_project_diagnostics only when the user supplies a project ID copied from Runlist after a failed start. Diagnose the returned context without reading other projects or changing the saved setup. Any proposed setup change must still be saved through runlist_setup_project for explicit review and approval in Runlist.'
+        instructions: 'Use runlist_setup_project when the user asks to save a local project in Runlist. Inspect the project first, identify every service it starts, and provide the absolute folder path, exact start command, and an explicit unique port for each service. Include an optional HTTP or HTTPS service URL only when the project defines it explicitly; never guess one. Omit stopCommand for ordinary development servers so Runlist stops only the process tree it launched. Provide a custom stop command only when the project daemonizes or manages external services such as Docker or databases. You may also provide a friendly custom project name when the user requests one. Tell the user that Runlist will require them to review and approve the saved setup before its commands can run. Use runlist_get_project_diagnostics only when the user supplies a project ID copied from Runlist after a failed start. Diagnose only the returned context. If a setup change is appropriate, use runlist_propose_project_repair with the exact project ID, revision, and failedAt value. Never run the project or apply the repair yourself; Runlist shows the complete proposal for user approval.'
       });
       break;
     case 'ping':
       result(message.id, {});
       break;
     case 'tools/list':
-      result(message.id, { tools: [setupTool, diagnosticsTool] });
+      result(message.id, { tools: [setupTool, diagnosticsTool, repairTool] });
       break;
     case 'tools/call':
       callTool(message);
@@ -276,6 +354,10 @@ function callTool(message) {
   const name = message.params?.name;
   if (name === diagnosticsTool.name) {
     callDiagnosticsTool(message);
+    return;
+  }
+  if (name === repairTool.name) {
+    callRepairTool(message);
     return;
   }
   if (name !== setupTool.name) {
@@ -360,10 +442,7 @@ function callDiagnosticsTool(message) {
     if (!fs.existsSync(PROJECTS_FILE)) {
       throw new Error('Runlist project storage is unavailable.');
     }
-    const savedProjects = JSON.parse(fs.readFileSync(PROJECTS_FILE, 'utf8'));
-    if (!Array.isArray(savedProjects)) {
-      throw new Error('Runlist project storage is invalid.');
-    }
+    const savedProjects = readProjects(PROJECTS_FILE);
     const project = savedProjects.find((candidate) => candidate?.id === projectId);
     if (!project) {
       throw new Error('That saved Runlist project was not found.');
@@ -376,6 +455,10 @@ function callDiagnosticsTool(message) {
       throw new Error(`${project.name} does not have a retained failed start to diagnose.`);
     }
     const boundedOutput = boundedDiagnosticOutput(diagnostic.retainedOutput);
+    const projectRevision = projectConfigurationRevision(project);
+    if (!diagnostic.projectRevision || diagnostic.projectRevision !== projectRevision) {
+      throw new Error(`${project.name}'s saved setup changed after this failed start. Start it again before requesting a repair.`);
+    }
     const structuredContent = {
       project: {
         id: project.id,
@@ -400,7 +483,8 @@ function callDiagnosticsTool(message) {
       },
       retainedOutput: boundedOutput.output,
       outputTruncated: diagnostic.outputTruncated === true || boundedOutput.truncated,
-      failedAt: Number.isFinite(diagnostic.failedAt) ? diagnostic.failedAt : 0
+      failedAt: Number.isFinite(diagnostic.failedAt) ? diagnostic.failedAt : 0,
+      projectRevision
     };
     result(message.id, {
       content: [{
@@ -412,6 +496,31 @@ function callDiagnosticsTool(message) {
     });
   } catch (toolFailure) {
     toolError(message.id, `Could not get Runlist diagnostics: ${toolFailure.message}`);
+  }
+}
+
+function callRepairTool(message) {
+  if (!PROJECTS_FILE) {
+    toolError(message.id, 'Runlist storage is unavailable. Restart VS Code and try again.');
+    return;
+  }
+  try {
+    const proposal = createProjectRepairProposal(PROJECTS_FILE, message.params?.arguments);
+    const structuredContent = {
+      projectId: proposal.projectId,
+      projectRevision: proposal.projectRevision,
+      failedAt: proposal.failedAt
+    };
+    result(message.id, {
+      content: [{
+        type: 'text',
+        text: `A repair proposal is ready for review in Runlist. No saved setup was changed and no command was run.\n${JSON.stringify(structuredContent)}`
+      }],
+      structuredContent,
+      isError: false
+    });
+  } catch (toolFailure) {
+    toolError(message.id, `Could not propose the Runlist repair: ${toolFailure.message}`);
   }
 }
 

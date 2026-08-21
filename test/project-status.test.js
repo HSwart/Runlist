@@ -7,11 +7,14 @@ const test = require('node:test');
 const {
   areServicesRunning,
   httpServiceUrl,
+  hasUnownedPortReservation,
   isPortOpen,
   isPrimaryServiceOpen,
   isPrimaryServiceResponding,
+  managedRuntimeProjectIds,
   primaryServiceUrl,
   probeHttpService,
+  projectServicesLocked,
   projectStatus,
   reachableServiceUrls,
   runningAppProjectIds,
@@ -23,6 +26,59 @@ const {
   servicePortStatus,
   stoppableProjectIds
 } = require('../project-status');
+
+test('does not treat a port-only reservation as a managed process', () => {
+  assert.deepEqual([...managedRuntimeProjectIds({
+    localProcessIds: [],
+    processRuntime: new Map(),
+    startAttemptIds: [],
+    portRuntime: new Map([['port-only', 'running']])
+  })], []);
+  assert.deepEqual([...managedRuntimeProjectIds({
+    localProcessIds: ['local'],
+    processRuntime: new Map([['remote', { state: 'running' }]]),
+    startAttemptIds: ['starting'],
+    portRuntime: new Map([['port-only', 'running']])
+  })].sort(), ['local', 'remote', 'starting']);
+});
+
+test('flags a port reservation without process ownership as unsafe for deletion', () => {
+  const portRuntime = new Map([['port-only', 'running'], ['owned', 'running']]);
+  const processRuntime = new Map([['owned', { state: 'running' }]]);
+
+  assert.equal(hasUnownedPortReservation('port-only', {
+    localProcessIds: [],
+    portRuntime,
+    processRuntime
+  }), true);
+  assert.equal(hasUnownedPortReservation('owned', {
+    localProcessIds: [],
+    portRuntime,
+    processRuntime
+  }), false);
+  assert.equal(hasUnownedPortReservation('local', {
+    localProcessIds: ['local'],
+    portRuntime: new Map([['local', 'starting']]),
+    processRuntime: new Map()
+  }), false);
+});
+
+test('locks service metadata only for managed or ownership-uncertain runtime state', () => {
+  for (const status of [
+    'running',
+    'starting',
+    'not-ready',
+    'not-responding',
+    'ownership-lost',
+    'stopping'
+  ]) {
+    assert.equal(projectServicesLocked(status), true, status);
+  }
+  assert.equal(projectServicesLocked('active'), false);
+  assert.equal(projectServicesLocked('port-in-use'), false);
+  assert.equal(projectServicesLocked('stopped'), false);
+  assert.equal(projectServicesLocked('stopped', true), true);
+});
 
 async function listen(server, host = '127.0.0.1') {
   await new Promise((resolve) => server.listen(0, host, resolve));
@@ -47,6 +103,32 @@ test('detects whether configured local service ports are accepting connections',
 
   await close(server);
   assert.equal(await isPortOpen(port), false);
+});
+
+test('detects an IPv6-only loopback service without treating it as IPv4', async (t) => {
+  const server = net.createServer();
+  try {
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen({ port: 0, host: '::1', ipv6Only: true }, resolve);
+    });
+  } catch (error) {
+    if (['EADDRNOTAVAIL', 'EAFNOSUPPORT', 'EPROTONOSUPPORT'].includes(error.code)) {
+      t.skip('IPv6 loopback is unavailable on this host.');
+      return;
+    }
+    throw error;
+  }
+  t.after(() => close(server));
+  const { port } = server.address();
+
+  assert.equal(await isPortOpen(port, { host: '127.0.0.1' }), false);
+  assert.equal(await isPortOpen(port), true);
+  assert.deepEqual(await servicePortStatus([{ name: 'ipv6', port }]), {
+    allOpen: true,
+    anyOpen: true,
+    openPorts: [port]
+  });
 });
 
 test('counts redirects, authentication challenges, and HTTP errors as responses', async (t) => {
@@ -348,13 +430,14 @@ test('derives a truthful ordered startup timeline from observed service state', 
   }).at(-1).state, 'attention');
 });
 
-test('treats partial unmanaged service availability as active', () => {
+test('treats partial unmanaged service availability as a blocking port conflict', () => {
   assert.equal(projectStatus({
     allOpen: false,
     anyOpen: true,
     hasServices: true,
-    managed: false
-  }), 'active');
+    managed: false,
+    partialPortConflict: true
+  }), 'port-in-use-unknown');
   assert.equal(projectStatus({
     allOpen: true,
     anyOpen: true,
@@ -393,6 +476,23 @@ test('represents clean exits and no-service projects with process state', () => 
   assert.equal(projectStatus({ hasServices: false, managed: true, processActive: true }), 'running');
   assert.equal(projectStatus({ hasServices: false, managed: true, processActive: false }), 'stopped');
   assert.equal(projectStatus({ hasServices: false, managed: false, processActive: false }), 'stopped');
+});
+
+test('distinguishes a live process whose launching host is unavailable', () => {
+  assert.equal(projectStatus({
+    allOpen: true,
+    anyOpen: true,
+    hasServices: true,
+    managed: true,
+    ownerAvailable: false,
+    processActive: true
+  }), 'ownership-lost');
+  assert.equal(projectStatus({
+    hasServices: false,
+    managed: true,
+    ownerAvailable: false,
+    processActive: true
+  }), 'ownership-lost');
 });
 
 test('uses a safe primary service URL override or derives localhost from its port', () => {
@@ -438,8 +538,9 @@ test('shows a clear nonresponding state without changing stop safety', () => {
   assert.match(webview, /project\.httpUnresponsive \? 'Detected, web service not responding' : 'Detected running'/);
   assert.match(webview, /const statusClass = projectStatus === 'active' && project\.httpUnresponsive[\s\S]*\? 'not-responding'[\s\S]*: displayStatus/);
   assert.match(webview, /project-status status-\$\{statusClass\}/);
-  assert.match(webview, /\['running', 'starting', 'not-ready', 'not-responding', 'active'\]\.includes\(projectStatus\)/);
-  assert.match(webview, /aria-label="\$\{escapeHtml\(service\.name\)\} on port/);
+  assert.match(webview, /\['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active'\]\.includes\(projectStatus\)/);
+  assert.match(webview, /const serviceAriaLabel = `\$\{service\.name\} on port/);
+  assert.match(webview, /aria-label="\$\{escapeHtml\(serviceAriaLabel\)\}"/);
   assert.match(styles, /\.service-indicator\.not-responding/);
 });
 
@@ -476,7 +577,9 @@ test('selects only projects that can be stopped together', () => {
     { id: 'stopping', status: 'stopping' },
     { id: 'stopped', status: 'stopped' },
     { id: 'conflict', status: 'port-in-use' },
-    { id: 'unknown-owner', status: 'port-in-use-unknown' }
+    { id: 'unknown-owner', status: 'port-in-use-unknown' },
+    { id: 'ownership-lost', status: 'ownership-lost' },
+    { id: 'ownership-lost-custom', status: 'ownership-lost', stopCommand: 'docker compose down' }
   ];
 
   assert.deepEqual(stoppableProjectIds(projects), [
@@ -484,7 +587,8 @@ test('selects only projects that can be stopped together', () => {
     'starting',
     'not-ready',
     'not-responding',
-    'detected-with-custom-stop'
+    'detected-with-custom-stop',
+    'ownership-lost-custom'
   ]);
   assert.deepEqual(stoppableProjectIds(), []);
 });

@@ -1,6 +1,11 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { readRootProcess } = require('./process-metrics');
+const { writeFileAtomically } = require('./project-store');
+
+const OWNER_HEARTBEAT_TIMEOUT_MS = 10000;
+const INVALID_RECORD_GRACE_MS = 2000;
 
 function servicePorts(project) {
   return [...new Set((project?.services || [])
@@ -36,7 +41,12 @@ class PortReservationStore {
   constructor(directory, options = {}) {
     this.directory = directory;
     this.pid = options.pid || process.pid;
+    this.platform = options.platform || process.platform;
     this.isProcessAlive = options.isProcessAlive || processIsAlive;
+    this.readProcessIdentity = options.readProcessIdentity || readProcessIdentity;
+    this.now = options.now || Date.now;
+    this.ownerHeartbeatTimeoutMs = options.ownerHeartbeatTimeoutMs ?? OWNER_HEARTBEAT_TIMEOUT_MS;
+    this.invalidRecordGraceMs = options.invalidRecordGraceMs ?? INVALID_RECORD_GRACE_MS;
     this.locks = new Map();
     fs.mkdirSync(directory, { recursive: true });
     this.removeStaleLocks();
@@ -63,9 +73,12 @@ class PortReservationStore {
       const lockPath = this.lockPath(port);
       const lock = readLock(lockPath);
       if (!lock) {
+        if (invalidRecordIsStale(lockPath, this.invalidRecordGraceMs, this.now())) {
+          tryUnlink(lockPath);
+        }
         continue;
       }
-      if (!lock.projectId || !lock.pid || !this.isProcessAlive(lock.pid)) {
+      if (!lock.projectId || !lock.pid || !this.lockOwnerIsAlive(lock)) {
         tryUnlink(lockPath);
         continue;
       }
@@ -104,20 +117,91 @@ class PortReservationStore {
       const lockPath = path.join(this.directory, filename);
       const lock = readLock(lockPath);
       if (lock?.projectId === projectId) {
-        fs.writeFileSync(lockPath, JSON.stringify({ ...lock, state }), { mode: 0o600 });
+        writeJsonAtomically(lockPath, { ...lock, heartbeatAt: this.now(), state });
       }
     }
+  }
+
+  capture(projectId) {
+    return new Map([...this.locks]
+      .filter(([, lock]) => lock.projectId === projectId)
+      .map(([port, lock]) => [port, lock.token]));
+  }
+
+  setProcess(projectId, childPid, childIdentity, expectedGeneration) {
+    let updated = 0;
+    for (const filename of this.lockFiles()) {
+      const lockPath = path.join(this.directory, filename);
+      const lock = readLock(lockPath);
+      const port = Number(filename.match(/\d+/)?.[0]);
+      const expectedToken = expectedGeneration instanceof Map
+        ? expectedGeneration.get(port)
+        : this.locks.get(port)?.token;
+      if (lock?.projectId === projectId && expectedToken && lock.token === expectedToken) {
+        writeJsonAtomically(lockPath, {
+          ...lock,
+          heartbeatAt: this.now(),
+          childPid,
+          ...(typeof childIdentity === 'string' ? { childIdentity } : {})
+        });
+        updated += 1;
+      }
+    }
+    return updated;
+  }
+
+  async reconcileProcessIdentities() {
+    const candidates = this.lockFiles().map((filename) => {
+      const lockPath = path.join(this.directory, filename);
+      return { lockPath, lock: readLock(lockPath) };
+    }).filter(({ lock }) => lock
+      && typeof lock.childIdentity === 'string'
+      && Number.isInteger(lock.childPid)
+      && !this.hostOwnerIsAvailable(lock)
+      && this.isProcessAlive(lock.childPid));
+    const identities = new Map();
+    let removed = 0;
+    for (const { lockPath, lock } of candidates) {
+      let identity = identities.get(lock.childPid);
+      if (!identities.has(lock.childPid)) {
+        identity = await Promise.resolve(this.readProcessIdentity(lock.childPid, this.platform))
+          .catch(() => undefined);
+        identities.set(lock.childPid, identity);
+      }
+      if (!identity || identity === lock.childIdentity) {
+        continue;
+      }
+      const current = readLock(lockPath);
+      if (current?.token === lock.token
+        && current.childPid === lock.childPid
+        && current.childIdentity === lock.childIdentity
+        && !this.hostOwnerIsAvailable(current)) {
+        tryUnlink(lockPath);
+        removed += 1;
+      }
+    }
+    return removed;
   }
 
   snapshot() {
     const projects = new Map();
     for (const filename of this.lockFiles()) {
       const lockPath = path.join(this.directory, filename);
-      const lock = readLock(lockPath);
+      let lock = readLock(lockPath);
       if (!lock) {
+        if (invalidRecordIsStale(lockPath, this.invalidRecordGraceMs, this.now())) {
+          tryUnlink(lockPath);
+        }
         continue;
       }
-      if (!lock.projectId || !lock.pid || !this.isProcessAlive(lock.pid)) {
+      const local = this.locks.get(Number(filename.match(/\d+/)?.[0]));
+      if (local?.token === lock.token
+        && this.now() - (lock.heartbeatAt || 0) >= 1000) {
+        const updated = { ...lock, heartbeatAt: this.now() };
+        writeJsonAtomically(lockPath, updated);
+        lock = updated;
+      }
+      if (!lock.projectId || !lock.pid || !this.lockOwnerIsAlive(lock)) {
         tryUnlink(lockPath);
         continue;
       }
@@ -134,30 +218,38 @@ class PortReservationStore {
 
   acquire(port, projectId) {
     const lockPath = this.lockPath(port);
-    const token = crypto.randomUUID();
-    let descriptor;
-    try {
-      descriptor = fs.openSync(lockPath, 'wx');
-      fs.writeFileSync(descriptor, JSON.stringify({
-        pid: this.pid,
-        projectId,
-        state: 'starting',
-        token
-      }));
-    } catch (error) {
-      if (descriptor !== undefined) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const token = crypto.randomUUID();
+      let descriptor;
+      try {
+        descriptor = fs.openSync(lockPath, 'wx');
+        fs.writeFileSync(descriptor, JSON.stringify({
+          pid: this.pid,
+          projectId,
+          state: 'starting',
+          heartbeatAt: this.now(),
+          token
+        }));
         fs.closeSync(descriptor);
-        tryUnlink(lockPath);
+        this.locks.set(port, { projectId, token });
+        return undefined;
+      } catch (error) {
+        if (descriptor !== undefined) {
+          fs.closeSync(descriptor);
+          tryUnlink(lockPath);
+        }
+        if (error.code !== 'EEXIST') {
+          throw error;
+        }
+        const owner = readLock(lockPath);
+        if (!owner && invalidRecordIsStale(lockPath, this.invalidRecordGraceMs, this.now())) {
+          tryUnlink(lockPath);
+          continue;
+        }
+        return { port, projectId: owner?.projectId };
       }
-      if (error.code !== 'EEXIST') {
-        throw error;
-      }
-      const owner = readLock(lockPath);
-      return { port, projectId: owner?.projectId };
     }
-    fs.closeSync(descriptor);
-    this.locks.set(port, { projectId, token });
-    return undefined;
+    return { port, projectId: undefined };
   }
 
   releasePort(port) {
@@ -176,11 +268,28 @@ class PortReservationStore {
     for (const filename of this.lockFiles()) {
       const lockPath = path.join(this.directory, filename);
       const lock = readLock(lockPath);
-      if (!lock || (lock.pid && this.isProcessAlive(lock.pid))) {
+      if (!lock) {
+        if (invalidRecordIsStale(lockPath, this.invalidRecordGraceMs, this.now())) {
+          tryUnlink(lockPath);
+        }
+        continue;
+      }
+      if (lock.pid && this.lockOwnerIsAlive(lock)) {
         continue;
       }
       tryUnlink(lockPath);
     }
+  }
+
+  lockOwnerIsAlive(lock) {
+    return Boolean(this.hostOwnerIsAvailable(lock)
+      || (lock.childPid && this.isProcessAlive(lock.childPid)));
+  }
+
+  hostOwnerIsAvailable(lock) {
+    const heartbeatCurrent = !Number.isFinite(lock.heartbeatAt)
+      || this.now() - lock.heartbeatAt <= this.ownerHeartbeatTimeoutMs;
+    return Boolean(lock.pid && heartbeatCurrent && this.isProcessAlive(lock.pid));
   }
 
   lockFiles() {
@@ -200,6 +309,18 @@ function readLock(lockPath) {
   }
 }
 
+function invalidRecordIsStale(filePath, graceMs, now) {
+  try {
+    return now - fs.statSync(filePath).mtimeMs >= graceMs;
+  } catch {
+    return false;
+  }
+}
+
+function writeJsonAtomically(filePath, value) {
+  writeFileAtomically(filePath, JSON.stringify(value));
+}
+
 function tryUnlink(lockPath) {
   try {
     fs.unlinkSync(lockPath);
@@ -217,6 +338,10 @@ function processIsAlive(pid) {
   } catch (error) {
     return error.code === 'EPERM';
   }
+}
+
+async function readProcessIdentity(pid, platform) {
+  return (await readRootProcess(pid, platform))?.identity;
 }
 
 function releaseProjectPorts(reservations, projectId) {

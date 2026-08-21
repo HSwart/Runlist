@@ -17,7 +17,7 @@ const project = {
 const serviceUrls = [{ port: 4310, url: 'http://127.0.0.1:4310/dashboard' }];
 
 test('offers a preview while a safe web service is reachable', () => {
-  for (const status of ['running', 'starting', 'not-ready', 'not-responding', 'active']) {
+  for (const status of ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active']) {
     assert.equal(projectPreviewUrl(project, status, serviceUrls), serviceUrls[0].url);
   }
 

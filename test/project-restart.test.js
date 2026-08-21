@@ -3,13 +3,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const { restartProjectSafely } = require('../project-process');
+const { ProjectLifecycleCoordinator } = require('../project-lifecycle');
 
 test('exposes an accessible single-project Restart overflow action', () => {
   const script = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
 
   assert.match(script, /data-action="restart" data-id="\$\{projectId\}" role="menuitem" aria-label="Restart \$\{projectName\}"/);
   assert.match(script, /const detectedWithoutStop = projectStatus === 'active' && !project\.stopCommand/);
-  assert.match(script, /\['running', 'not-ready', 'not-responding', 'active'\]\.includes\(projectStatus\)[\s\S]*&& !detectedWithoutStop/);
+  assert.match(script, /\['running', 'not-ready', 'not-responding', 'ownership-lost', 'active'\]\.includes\(projectStatus\)[\s\S]*&& !detectedWithoutStop[\s\S]*&& !ownershipLostWithoutStop/);
   assert.match(script, /\$\{canRestart \? '' : 'disabled'\}/);
   assert.match(script, /data-action="restart"[\s\S]*\$\{icon\('refresh', 'menu-icon'\)\}<span>Restart<\/span>/);
   assert.match(script, /restart: \(\) => vscode\.postMessage\(\{ type: 'restartProject', id: button\.dataset\.id \}\)/);
@@ -75,6 +76,18 @@ test('does not Start when remote Stop completion cannot be confirmed', async () 
   assert.deepEqual(calls, ['stop', 'wait']);
 });
 
+test('reports Restart failure when the new Start is rejected', async () => {
+  const calls = [];
+  const result = await restartProjectSafely(new Set(), 'project-1', {
+    stop: async () => { calls.push('stop'); return true; },
+    waitForStop: async () => { calls.push('wait'); return true; },
+    start: async () => { calls.push('start'); return false; }
+  });
+
+  assert.equal(result, false);
+  assert.deepEqual(calls, ['stop', 'wait', 'start']);
+});
+
 test('ignores duplicate Restart requests while one is active', async () => {
   const restarting = new Set();
   let releaseStop;
@@ -113,15 +126,61 @@ test('ignores a stale Restart request while a shared transition is active', asyn
   assert.equal(stops, 0);
 });
 
+test('preserves temporary service ports through a whole-project Restart', async () => {
+  const portOverrides = [{
+    serviceName: 'api',
+    savedPort: 4000,
+    port: 4001,
+    variable: 'API_PORT'
+  }];
+  const ownership = {
+    ownerAvailable: true,
+    processActive: true,
+    state: 'running',
+    portOverrides
+  };
+  let stoppedProject;
+  let startOptions;
+  const host = {
+    projects: [{
+      id: 'project-1',
+      name: 'Project',
+      services: [{ name: 'api', port: 4000, portVariable: 'API_PORT' }]
+    }],
+    processOwnership: { snapshot: () => new Map([['project-1', ownership]]) },
+    portReservations: { snapshot: () => new Map([['project-1', 'running']]) },
+    restartingProjectIds: new Set(),
+    getProjectStatus: () => 'running',
+    stopProject: async (id, project) => {
+      stoppedProject = project;
+      return true;
+    },
+    waitForProjectStopCompletion: async () => true,
+    startProject: async (id, options) => {
+      startOptions = options;
+      return true;
+    }
+  };
+  const lifecycle = new ProjectLifecycleCoordinator(host);
+
+  assert.equal(await lifecycle.restart('project-1'), true);
+  assert.equal(stoppedProject.services[0].port, 4001);
+  assert.deepEqual(startOptions, { allowPortConflict: true, portOverrides });
+});
+
 test('holds process ownership while deleting a saved project', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
-  const refreshOwnership = source.indexOf('const latestSharedOwnership = this.processOwnership.snapshot().get(id)');
+  const refreshOwnership = source.indexOf('const latestProcessRuntime = this.processOwnership.snapshot()');
+  const verifyPortOwnership = source.indexOf('hasUnownedPortReservation(id', refreshOwnership);
+  const latestOwnership = source.indexOf('const latestSharedOwnership = latestProcessRuntime.get(id)', verifyPortOwnership);
   const reserveDeletion = source.indexOf('const deletionConflict = this.processOwnership.reserve(id)', refreshOwnership);
   const removeSavedProject = source.indexOf('removeProject(this.projectsFile, id)', reserveDeletion);
   const releaseDeletion = source.indexOf('this.processOwnership.release(id)', removeSavedProject);
 
   assert.ok(refreshOwnership >= 0);
-  assert.ok(refreshOwnership < reserveDeletion);
+  assert.ok(refreshOwnership < verifyPortOwnership);
+  assert.ok(verifyPortOwnership < latestOwnership);
+  assert.ok(latestOwnership < reserveDeletion);
   assert.ok(reserveDeletion < removeSavedProject);
   assert.ok(removeSavedProject < releaseDeletion);
   assert.match(source, /if \(hadTrackedProcess\)[\s\S]*cleanupTrackedProcessForDeletion[\s\S]*this\.processOwnership\.release\(id\)/);
@@ -131,10 +190,12 @@ test('prevents service metadata changes while a project is running', () => {
   const extensionSource = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const webviewSource = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
 
-  assert.match(extensionSource, /servicesLocked && servicesChanged/);
+  assert.match(extensionSource, /const servicesLocked = existingProject && this\.projectSetupLocked\(projectId\)/);
   assert.match(extensionSource, /if \(servicesChanged\)[\s\S]*this\.processOwnership\.reserve\(projectId\)/);
   assert.match(extensionSource, /if \(servicesReservation\)[\s\S]*this\.processOwnership\.release\(projectId\)/);
-  assert.match(extensionSource, /servicesLocked: this\.mode === 'edit'[\s\S]*'running', 'starting', 'not-ready', 'not-responding', 'stopping', 'active'/);
+  assert.match(extensionSource, /projectSetupLocked\(id, runtime = \{\}\)[\s\S]*projectServicesLocked[\s\S]*hasUnownedPortReservation/);
+  assert.match(extensionSource, /servicesLocked: this\.mode === 'edit'[\s\S]*this\.projectSetupLocked\(this\.selectedProjectId\)/);
+  assert.match(extensionSource, /this\.getProjectStatus\(project\.id\) === 'active'[\s\S]*this\.projectSetupLocked\(project\.id, lockSnapshot\)/);
   assert.match(webviewSource, /<fieldset id="services"[^>]*\$\{state\.servicesLocked \? 'disabled' : ''\}/);
   assert.match(webviewSource, /Stop this project before changing its services\./);
   assert.match(webviewSource, /project\.openPorts\?\.includes\(service\.port\)/);
@@ -145,7 +206,7 @@ test('re-reads the saved project after Start acquires process ownership', () => 
   const startProject = source.indexOf('async startProject(id, options = {})');
   const reserveOwnership = source.indexOf('this.processOwnership.reserve(id)', startProject);
   const rereadProjects = source.indexOf('projects = this.projects', reserveOwnership);
-  const reservePorts = source.indexOf('this.portReservations.reserve(project)', rereadProjects);
+  const reservePorts = source.indexOf('this.portReservations.reserve(launchProject)', rereadProjects);
 
   assert.ok(startProject >= 0);
   assert.ok(startProject < reserveOwnership);
@@ -153,30 +214,47 @@ test('re-reads the saved project after Start acquires process ownership', () => 
   assert.ok(rereadProjects < reservePorts);
 });
 
-test('treats a custom stop command as the complete stop strategy', () => {
+test('does not escalate a custom stop into port or process cleanup', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const stopProject = source.indexOf('async stopProject(id, projectSnapshot, options = {})');
-  const customStop = source.indexOf('if (project.stopCommand)', stopProject);
-  const customReturn = source.indexOf('return true;', customStop);
-  const defaultStop = source.indexOf('return this.stopOwnedProjectProcess(id, project, options);', customStop);
+  const customStop = source.indexOf('if (stopProject.stopCommand)', stopProject);
+  const confirmCommand = source.indexOf('await this.confirmCustomStopCommand(stopProject)', customStop);
+  const verifyPostcondition = source.indexOf('customStopPostcondition({', confirmCommand);
+  const customStopEnd = source.indexOf('return this.stopOwnedProjectProcess(id, stopProject, options);', verifyPostcondition);
+  const customStopSource = source.slice(customStop, customStopEnd);
 
   assert.ok(stopProject >= 0);
-  assert.ok(customStop >= 0);
-  assert.ok(customStop < customReturn);
-  assert.ok(customReturn < defaultStop);
+  assert.ok(customStop < confirmCommand);
+  assert.ok(confirmCommand < verifyPostcondition);
+  assert.doesNotMatch(customStopSource, /forceCloseProjectPorts|stopOwnedProjectProcess/);
+});
+
+test('uses the saved custom stop during awaited shutdown without opening a deactivation modal', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+
+  assert.match(
+    source,
+    /const confirmed = options\.approvedLaunchStop === true\s*\|\| await this\.confirmCustomStopCommand\(stopProject\)/
+  );
+  assert.match(
+    source,
+    /this\.lifecycle\.stop\(id, \{ \.\.\.project, reviewRequired: false \}, \{\s*approvedLaunchStop: true/
+  );
 });
 
 test('routes remote custom stops through the launching VS Code window', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const consumeRequests = source.indexOf('this.processOwnership.consumeStopRequests()');
-  const dispatchToOwner = source.indexOf('void this.stopProject(id, project', consumeRequests);
+  const dispatchToOwner = source.indexOf('void Promise.resolve(this.stopProject(id, project', consumeRequests);
+  const completeRequest = source.indexOf('this.processOwnership.completeStopRequest(id)', dispatchToOwner);
   const stopProject = source.indexOf('async stopProject(id, projectSnapshot, options = {})');
   const sharedOwnership = source.indexOf('const sharedOwnership = this.processOwnership.snapshot().get(id)', stopProject);
-  const requestRemoteStop = source.indexOf('return this.stopOwnedProjectProcess(id, project, options);', sharedOwnership);
-  const runCustomStop = source.indexOf('const customStopSucceeded = await this.runCustomStopCommand(project)', sharedOwnership);
+  const requestRemoteStop = source.indexOf('return this.stopOwnedProjectProcess(id, stopProject, options);', sharedOwnership);
+  const runCustomStop = source.indexOf('const customStopResult = await this.runCustomStopCommand(stopProject)', sharedOwnership);
 
   assert.ok(consumeRequests >= 0);
   assert.ok(consumeRequests < dispatchToOwner);
+  assert.ok(dispatchToOwner < completeRequest);
   assert.ok(stopProject < sharedOwnership);
   assert.ok(sharedOwnership < requestRemoteStop);
   assert.ok(requestRemoteStop < runCustomStop);

@@ -89,12 +89,13 @@ test('recognizes accessible directories and rejects missing or inaccessible fold
 test('wires an accessible terminal action and restores or redirects focus after folder errors', () => {
   const root = path.join(__dirname, '..');
   const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const router = fs.readFileSync(path.join(root, 'webview-message-router.js'), 'utf8');
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
 
   assert.match(webview, /data-action="open-terminal"[^>]*role="menuitem"[^>]*title="Open a terminal in \$\{projectName\}"/);
   assert.match(webview, /<span>Open terminal here<\/span>/);
   assert.match(webview, /'open-terminal': \(\) => \{[\s\S]*type: 'openProjectTerminal'/);
-  assert.match(extension, /case 'openProjectTerminal':[\s\S]*await this\.openProjectTerminal\(message\.id\)/);
+  assert.match(router, /openProjectTerminal: \(message\) => host\.openProjectTerminal\(message\.id\)/);
   assert.match(extension, /projectFolderIsAccessible\(fs, project\.folder\)[\s\S]*'Edit project'/);
   assert.match(extension, /selection === 'Edit project'[\s\S]*this\.showEditProject\(id\)/);
   assert.match(extension, /this\.focusTarget = \{ type: 'project-menu', id \};[\s\S]*this\.renderProjectList\(\)/);
@@ -132,12 +133,13 @@ test('copies exact persisted paths without normalization, quoting, or escaping',
 test('wires an accessible project-path action with confirmation and focus restoration', () => {
   const root = path.join(__dirname, '..');
   const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const router = fs.readFileSync(path.join(root, 'webview-message-router.js'), 'utf8');
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
 
   assert.match(webview, /data-action="copy-project-path"[^>]*role="menuitem"[^>]*title="Copy the saved folder path for \$\{projectName\}"/);
   assert.match(webview, /<span>Copy project path<\/span>/);
   assert.match(webview, /'copy-project-path': \(\) => \{[\s\S]*type: 'copyProjectPath'/);
-  assert.match(extension, /case 'copyProjectPath':[\s\S]*await this\.copyProjectPath\(message\.id\)/);
+  assert.match(router, /copyProjectPath: \(message\) => host\.copyProjectPath\(message\.id\)/);
   assert.match(extension, /writeProjectPathToClipboard\(vscode, project\.folder\)/);
   assert.match(extension, /Copied \$\{project\.name\} path\./);
   assert.match(extension, /finally \{[\s\S]*this\.focusTarget = \{ type: 'project-menu', id \};[\s\S]*this\.renderProjectList\(\)/);

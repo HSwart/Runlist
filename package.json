@@ -2,7 +2,7 @@
   "name": "runlist",
   "displayName": "Runlist",
   "description": "Control local projects across repositories from one focused sidebar.",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "publisher": "hankoswart",
   "license": "SEE LICENSE IN LICENSE",
   "icon": "media/runlist.png",
@@ -41,7 +41,9 @@
   "activationEvents": [
     "onView:runlist.projects",
     "onCommand:runlist.addProject",
-    "onCommand:runlist.showAgentSetup"
+    "onCommand:runlist.showAgentSetup",
+    "onCommand:runlist.transferProjects",
+    "onCommand:runlist.manageGroups"
   ],
   "main": "./extension.js",
   "extensionKind": [
@@ -58,6 +60,16 @@
         "command": "runlist.showAgentSetup",
         "title": "Set Up Agent Connections",
         "icon": "$(plug)"
+      },
+      {
+        "command": "runlist.transferProjects",
+        "title": "Import or Export Projects",
+        "icon": "$(files)"
+      },
+      {
+        "command": "runlist.manageGroups",
+        "title": "Manage Run Groups",
+        "icon": "$(run-all)"
       }
     ],
     "mcpServerDefinitionProviders": [
@@ -95,6 +107,16 @@
           "command": "runlist.showAgentSetup",
           "when": "view == runlist.projects",
           "group": "navigation@2"
+        },
+        {
+          "command": "runlist.transferProjects",
+          "when": "view == runlist.projects",
+          "group": "navigation@3"
+        },
+        {
+          "command": "runlist.manageGroups",
+          "when": "view == runlist.projects",
+          "group": "navigation@4"
         }
       ],
       "commandPalette": [
@@ -107,6 +129,7 @@
   },
   "scripts": {
     "test": "node --test",
+    "test:smoke": "node smoke/run.js",
     "validate:marketplace": "node scripts/validate-marketplace.js --preparation",
     "validate:marketplace:publish": "node scripts/validate-marketplace.js",
     "validate:marketplace:vsix": "node scripts/validate-vsix.js",
@@ -114,6 +137,7 @@
     "publish:marketplace": "npm run validate:marketplace:publish && npm run validate:marketplace:vsix && vsce publish --azure-credential --packagePath releases/runlist.vsix"
   },
   "devDependencies": {
+    "@vscode/test-electron": "3.1.0",
     "@vscode/vsce": "3.9.2"
   }
 }

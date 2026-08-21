@@ -38,6 +38,7 @@ test('does not ship stale product branding', () => {
     'project-output.js',
     'project-process.js',
     'project-store.js',
+    'service-port-overrides.js',
     'skill-installation.js',
     'skills/runlist/SKILL.md',
     'skills/runlist/agents/openai.yaml'

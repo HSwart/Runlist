@@ -19,8 +19,15 @@ test('leads with the stylized Runlist preview', () => {
 test('keeps README positioning and installation claims accurate', () => {
   assert.match(readme, /Every local app, across every repository/);
   assert.match(readme, /optionally let a supported coding agent propose the setup for your approval/);
-  assert.match(readme, /never stops an unknown process to free one/);
+  assert.match(readme, /asks before closing an external process to free one/);
+  assert.match(readme, /revalidates each process identity before termination/);
   assert.doesNotMatch(readme, /github\.com\/HSwart\/Runlist\/releases\/download/);
   assert.match(readme, /Install from the VS Code Marketplace/);
   assert.match(readme, /marketplace\.visualstudio\.com\/items\?itemName=hankoswart\.runlist/);
+  assert.match(
+    readme,
+    /Export one or all project setups.*import a file after a preview.*review and approve/is
+  );
+  assert.match(readme, /run groups.*saved order.*reverse/is);
+  assert.match(readme, /repair proposal.*current.*proposed.*Retry start/is);
 });

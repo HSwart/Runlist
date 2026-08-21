@@ -7,7 +7,12 @@ const HTTP_PROBE_TIMEOUT_MS = 700;
 const TIMED_OUT = Symbol('timed-out');
 
 function isPortOpen(port, options = {}) {
-  const host = options.host || '127.0.0.1';
+  const hosts = options.host ? [options.host] : ['127.0.0.1', '::1'];
+  return Promise.all(hosts.map((host) => isHostPortOpen(port, host, options)))
+    .then((results) => results.some(Boolean));
+}
+
+function isHostPortOpen(port, host, options) {
   const timeout = options.timeout || 300;
 
   return new Promise((resolve) => {
@@ -327,6 +332,8 @@ function projectStatus({
   hasServices = false,
   knownConflict = false,
   managed = false,
+  ownerAvailable,
+  partialPortConflict = false,
   httpUnresponsive = false,
   processActive = false,
   readinessTimedOut = false,
@@ -334,6 +341,9 @@ function projectStatus({
 }) {
   if (stopping) {
     return 'stopping';
+  }
+  if (managed && processActive && ownerAvailable === false) {
+    return 'ownership-lost';
   }
   if (!hasServices) {
     return processActive ? 'running' : 'stopped';
@@ -360,7 +370,7 @@ function projectStatus({
     if (ambiguousConflict) {
       return 'port-in-use-unknown';
     }
-    return 'active';
+    return partialPortConflict ? 'port-in-use-unknown' : 'active';
   }
   if (managed) {
     return readinessTimedOut ? 'not-ready' : 'starting';
@@ -376,7 +386,7 @@ function stoppableProjectIds(projects) {
   return (projects || [])
     .filter((project) => !project.reviewRequired
       && (['running', 'starting', 'not-ready', 'not-responding'].includes(project.status)
-        || (project.status === 'active' && Boolean(project.stopCommand))))
+        || (['active', 'ownership-lost'].includes(project.status) && Boolean(project.stopCommand))))
     .map((project) => project.id);
 }
 
@@ -388,14 +398,50 @@ function runningAppProjectIds(projects) {
     .map((project) => project.id);
 }
 
+function managedRuntimeProjectIds({
+  localProcessIds = [],
+  processRuntime = new Map(),
+  startAttemptIds = []
+} = {}) {
+  return new Set([
+    ...localProcessIds,
+    ...processRuntime.keys(),
+    ...startAttemptIds
+  ]);
+}
+
+function hasUnownedPortReservation(projectId, {
+  localProcessIds = [],
+  portRuntime = new Map(),
+  processRuntime = new Map()
+} = {}) {
+  return portRuntime.has(projectId)
+    && !new Set(localProcessIds).has(projectId)
+    && !processRuntime.has(projectId);
+}
+
+function projectServicesLocked(status, unownedPortReservation = false) {
+  return unownedPortReservation || [
+    'running',
+    'starting',
+    'not-ready',
+    'not-responding',
+    'ownership-lost',
+    'stopping'
+  ].includes(status);
+}
+
 module.exports = {
   areServicesRunning,
+  hasUnownedPortReservation,
   httpServiceUrl,
   isPortOpen,
   isPrimaryServiceOpen,
   isPrimaryServiceResponding,
+  managedRuntimeProjectIds,
   primaryServiceUrl,
   probeHttpService,
+  projectServicesLocked,
   projectStatus,
   reachableServiceUrls,
   runningAppProjectIds,

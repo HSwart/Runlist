@@ -1,6 +1,6 @@
 # Security Policy
 
-Runlist starts local development projects by running commands saved by the user. It stops the process trees it launched by default and can run an optional custom stop command. We take vulnerabilities that could make this behavior unsafe seriously.
+Runlist starts local development projects by running commands saved by the user. It stops the process trees it launched by default, can run an optional custom stop command, and can close exact configured-port listeners only after native confirmation and identity revalidation. We take vulnerabilities that could make this behavior unsafe seriously.
 
 ## Supported versions
 
@@ -8,8 +8,8 @@ Security updates are provided for the latest published version of Runlist.
 
 | Version | Supported |
 | --- | --- |
-| 0.0.6 | Yes |
-| 0.0.5 | No |
+| 0.0.7 | Yes |
+| 0.0.6 | No |
 | Earlier versions | No |
 
 ## Report a vulnerability privately

@@ -24,7 +24,8 @@ When the user pastes a Runlist diagnosis request containing a project ID:
 
 1. Call `runlist_get_project_diagnostics` with that exact project ID. Do not substitute a name or folder and do not request diagnostics for other projects.
 2. Diagnose only the returned saved setup, platform, lifecycle result, failure summary, and sanitized retained output. Explain the likely cause and the smallest safe next step.
-3. Do not run commands, install dependencies, edit files, rerun the project, or change its Runlist setup unless the user separately asks you to do so.
-4. If a Runlist command or service change is appropriate, propose it clearly. Save it only through `runlist_setup_project`; Runlist will keep the update blocked until the user reviews and approves it.
+3. Do not run commands, install dependencies, edit files, rerun the project, or change its saved Runlist setup.
+4. If the saved name, folder, start command, stop command, or services should change, call `runlist_propose_project_repair` with the exact `projectId`, `projectRevision`, and `failedAt` values returned by the diagnostics. Include only the setup fields that should change.
+5. Tell the user to select **Refresh proposal** in Runlist, inspect the complete current-versus-proposed comparison, and approve or reject it there. Runlist never applies or retries the proposal automatically.
 
 If no retained failure is available, tell the user to start the project from Runlist again and use **View output → Ask your agent** after the failure.

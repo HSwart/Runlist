@@ -2,6 +2,7 @@ const { execFile } = require('child_process');
 
 const MAX_PROCESS_COUNT = 64;
 const COMMAND_TIMEOUT_MS = 4000;
+const ROOT_PROCESS_COMMAND_TIMEOUT_MS = 10000;
 
 class OwnedProcessMetrics {
   constructor(options = {}) {
@@ -78,9 +79,11 @@ class OwnedProcessMetrics {
 }
 
 async function readRootProcess(pid, platform = process.platform, options = {}) {
-  const rows = platform === 'win32'
-    ? await readWindowsProcesses(pid, false, options)
-    : await readPosixProcesses([pid], pid, options);
+  if (platform === 'win32') {
+    return readWindowsRootProcess(pid, options);
+  }
+
+  const rows = await readPosixProcesses([pid], undefined, options);
   return rows.find((row) => row.pid === pid);
 }
 
@@ -125,7 +128,8 @@ async function readPosixProcesses(pids, processGroupId, options = {}) {
   ], commandOptions(options));
   return String(output).split(/\r?\n/)
     .map(parsePosixProcess)
-    .filter((row) => row && row.processGroupId === processGroupId);
+    .filter((row) => row
+      && (processGroupId === undefined || row.processGroupId === processGroupId));
 }
 
 function parsePosixProcess(line) {
@@ -177,6 +181,20 @@ async function readWindowsProcesses(pid, includeTree, options = {}) {
   return parseWindowsProcessOutput(output);
 }
 
+async function readWindowsRootProcess(pid, options = {}) {
+  const runFile = options.runFile || execFileText;
+  const output = await runFile('powershell.exe', [
+    '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', windowsRootProcessScript(pid)
+  ], commandOptions({
+    ...options,
+    timeoutMs: options.rootTimeoutMs || ROOT_PROCESS_COMMAND_TIMEOUT_MS
+  }));
+  if (!String(output).trim()) {
+    return undefined;
+  }
+  return parseWindowsProcessOutput(output).find((row) => row.pid === pid);
+}
+
 function parseWindowsProcessOutput(output) {
   const parsed = JSON.parse(output);
   return (Array.isArray(parsed) ? parsed : [parsed]).map((row) => ({
@@ -209,6 +227,16 @@ function windowsProcessScript(pid, includeTree) {
     '}',
     `if($queue.Count -gt 0){throw 'Runlist process tree exceeds ${MAX_PROCESS_COUNT} processes.'}`,
     '@($rows) | ConvertTo-Json -Compress'
+  ].join(';');
+}
+
+function windowsRootProcessScript(pid) {
+  return [
+    "$ErrorActionPreference='Stop'",
+    `$rootPid=${pid}`,
+    '$process=Get-Process -Id $rootPid -ErrorAction Stop',
+    '$row=[pscustomobject]@{pid=[int]$process.Id;parentPid=0;startedAt=$process.StartTime.ToUniversalTime().Ticks.ToString();cpuSeconds=[double]$process.TotalProcessorTime.TotalSeconds;memoryBytes=[double]$process.WorkingSet64}',
+    '$row | ConvertTo-Json -Compress'
   ].join(';');
 }
 
@@ -252,6 +280,7 @@ module.exports = {
   parseCpuTime,
   parsePosixProcess,
   parseWindowsProcessOutput,
+  readRootProcess,
   readOwnedProcessTree,
   windowsProcessScript
 };

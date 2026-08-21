@@ -8,11 +8,273 @@ const {
   cleanupTrackedProcessForDeletion,
   customStopSpawnOptions,
   ProcessOwnershipStore,
+  projectStopStrategy,
   projectProcessSpawnOptions,
+  recordStartedProcess,
+  rollbackStartedProcess,
+  shutdownTrackedProcesses,
+  shouldRequestRemoteCustomStop,
   startExitFailed,
   terminateProcessTree,
   terminateTrackedProcess
 } = require('../project-process');
+
+test('uses the retrying atomic writer for lifecycle ownership state', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'project-process.js'), 'utf8');
+
+  assert.match(source, /const \{ writeFileAtomically \} = require\('\.\/project-store'\)/);
+  assert.match(source, /function writeJsonAtomically[\s\S]*writeFileAtomically\(filePath, JSON\.stringify\(value\)\)/);
+});
+
+test('runs a custom stop locally when the launching host is unavailable', () => {
+  const project = { stopCommand: 'docker compose down' };
+
+  assert.equal(shouldRequestRemoteCustomStop(project, {
+    ownerAvailable: true,
+    processActive: true
+  }, false, false), true);
+  assert.equal(shouldRequestRemoteCustomStop(project, {
+    ownerAvailable: false,
+    processActive: true
+  }, false, false), false);
+  assert.equal(shouldRequestRemoteCustomStop(project, {
+    ownerAvailable: true,
+    processActive: true
+  }, true, false), false);
+});
+
+test('uses the launch-time folder and stop command for the current process', () => {
+  assert.deepEqual(projectStopStrategy({
+    id: 'project-1',
+    name: 'Project',
+    folder: 'C:\\new-folder',
+    stopCommand: 'new stop'
+  }, {
+    cwd: 'C:\\launch-folder',
+    stopCommand: ''
+  }), {
+    id: 'project-1',
+    name: 'Project',
+    folder: 'C:\\launch-folder',
+    stopCommand: ''
+  });
+});
+
+test('uses launch-time temporary services when stopping from another window', () => {
+  const project = {
+    id: 'project-1',
+    name: 'Project',
+    folder: '/saved',
+    services: [
+      { name: 'web', port: 3000 },
+      {
+        name: 'api',
+        port: 4000,
+        portVariable: 'API_PORT',
+        url: 'http://127.0.0.1:4000/health'
+      }
+    ]
+  };
+
+  const runtimeProject = projectStopStrategy(project, {
+    portOverrides: [{
+      serviceName: 'api',
+      savedPort: 4000,
+      port: 4001,
+      variable: 'API_PORT'
+    }]
+  });
+
+  assert.equal(runtimeProject.services[0].port, 3000);
+  assert.deepEqual(runtimeProject.services[1], {
+    name: 'api',
+    port: 4001,
+    portVariable: 'API_PORT',
+    url: 'http://127.0.0.1:4001/health',
+    savedPort: 4000,
+    temporaryPort: true
+  });
+});
+
+test('records child identity and launch-time Stop details in both coordination stores', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-process-record-'));
+  const ownership = new ProcessOwnershipStore(path.join(root, 'ownership'), {
+    pid: 101,
+    isProcessAlive: () => true,
+    readProcessIdentity: async () => '303:original'
+  });
+  const { PortReservationStore } = require('../port-gate');
+  const reservations = new PortReservationStore(path.join(root, 'ports'), {
+    pid: 101,
+    isProcessAlive: () => true
+  });
+  const project = {
+    id: 'project-1',
+    folder: 'C:\\launch-folder',
+    stopCommand: 'npm stop',
+    services: [{ name: 'web', port: 4311, savedPort: 4310, temporaryPort: true }]
+  };
+  const child = { pid: 303 };
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  ownership.reserve(project.id);
+  reservations.reserve(project);
+  const identity = await recordStartedProcess(
+    ownership,
+    reservations,
+    project,
+    child,
+    {
+      state: 'running',
+      launchedAt: 1234,
+      portOverrides: [{
+        serviceName: 'web',
+        savedPort: 4310,
+        port: 4311,
+        variable: 'PORT'
+      }]
+    }
+  );
+
+  assert.equal(identity, '303:original');
+  assert.equal(await child.runlistIdentity, '303:original');
+  assert.deepEqual(
+    (({ childPid, childIdentity, cwd, stopCommand }) => ({
+      childPid,
+      childIdentity,
+      cwd,
+      stopCommand
+    }))(ownership.snapshot().get(project.id)),
+    {
+      childPid: 303,
+      childIdentity: '303:original',
+      cwd: 'C:\\launch-folder',
+      stopCommand: 'npm stop'
+    }
+  );
+  const portLock = JSON.parse(fs.readFileSync(path.join(root, 'ports', 'port-4311.lock'), 'utf8'));
+  assert.equal(portLock.childPid, 303);
+  assert.equal(portLock.childIdentity, '303:original');
+  assert.deepEqual(ownership.snapshot().get(project.id).portOverrides, [{
+    serviceName: 'web',
+    savedPort: 4310,
+    port: 4311,
+    variable: 'PORT'
+  }]);
+});
+
+test('releases coordination only after a failed launch is confirmed terminated', async () => {
+  const processes = new Map([['project-1', { pid: 303 }]]);
+  const released = [];
+  const ownership = { release: (id) => released.push(`ownership:${id}`) };
+  const reservations = { release: (id) => released.push(`ports:${id}`) };
+
+  const stopped = await rollbackStartedProcess(
+    processes,
+    'project-1',
+    ownership,
+    reservations,
+    { terminateTrackedProcess: async (tracked, id) => tracked.delete(id) }
+  );
+  assert.deepEqual(stopped, { stopped: true });
+  assert.deepEqual(released, ['ownership:project-1', 'ports:project-1']);
+
+  processes.set('project-1', { pid: 304 });
+  released.length = 0;
+  const failed = await rollbackStartedProcess(
+    processes,
+    'project-1',
+    ownership,
+    reservations,
+    { terminateTrackedProcess: async () => { throw new Error('still running'); } }
+  );
+  assert.equal(failed.stopped, false);
+  assert.match(failed.error.message, /still running/);
+  assert.deepEqual(released, []);
+});
+
+test('recovers an old corrupt ownership record but preserves a fresh partial write', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-corrupt-ownership-'));
+  const probe = new ProcessOwnershipStore(directory, {
+    pid: 101,
+    invalidRecordGraceMs: 1000,
+    isProcessAlive: () => false
+  });
+  const ownershipPath = probe.ownershipPath('project-1');
+  fs.writeFileSync(ownershipPath, '{');
+  const old = new Date(Date.now() - 10000);
+  fs.utimesSync(ownershipPath, old, old);
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  assert.equal(probe.reserve('project-1'), undefined);
+  probe.release('project-1');
+  fs.writeFileSync(ownershipPath, '{');
+  assert.deepEqual(probe.reserve('project-1'), { kind: 'uncertain' });
+});
+
+test('keeps ownership and port reservations until reload shutdown confirms the process stopped', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-process-shutdown-'));
+  const ownership = new ProcessOwnershipStore(path.join(root, 'ownership'), {
+    pid: 101,
+    isProcessAlive: () => true
+  });
+  const { PortReservationStore } = require('../port-gate');
+  const reservations = new PortReservationStore(path.join(root, 'ports'), {
+    pid: 101,
+    isProcessAlive: () => true
+  });
+  const project = { id: 'project-1', services: [{ name: 'web', port: 4310 }] };
+  const processes = new Map([['project-1', { pid: 303 }]]);
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  ownership.reserve(project.id);
+  ownership.setProcess(project.id, 303);
+  reservations.reserve(project);
+  let finishTermination;
+  const termination = new Promise((resolve) => { finishTermination = resolve; });
+
+  const shutdown = shutdownTrackedProcesses(processes, ownership, reservations, {
+    terminateTrackedProcess: async () => termination
+  });
+  await Promise.resolve();
+
+  assert.equal(ownership.snapshot().has(project.id), true);
+  assert.equal(reservations.snapshot().has(project.id), true);
+
+  finishTermination();
+  assert.deepEqual(await shutdown, [{ status: 'fulfilled', value: true }]);
+  assert.equal(ownership.snapshot().has(project.id), false);
+  assert.equal(reservations.snapshot().has(project.id), false);
+});
+
+test('preserves ownership and port reservations when reload shutdown cannot stop the process', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-process-shutdown-failure-'));
+  const ownership = new ProcessOwnershipStore(path.join(root, 'ownership'), {
+    pid: 101,
+    isProcessAlive: () => true
+  });
+  const { PortReservationStore } = require('../port-gate');
+  const reservations = new PortReservationStore(path.join(root, 'ports'), {
+    pid: 101,
+    isProcessAlive: () => true
+  });
+  const project = { id: 'project-1', services: [{ name: 'web', port: 4310 }] };
+  const processes = new Map([['project-1', { pid: 303 }]]);
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  ownership.reserve(project.id);
+  ownership.setProcess(project.id, 303);
+  reservations.reserve(project);
+
+  const [result] = await shutdownTrackedProcesses(processes, ownership, reservations, {
+    terminateTrackedProcess: async () => { throw new Error('still running'); }
+  });
+
+  assert.equal(result.status, 'rejected');
+  assert.match(result.reason.message, /still running/);
+  assert.equal(ownership.snapshot().has(project.id), true);
+  assert.equal(reservations.snapshot().has(project.id), true);
+});
 
 test('launches POSIX commands in an owned process group and keeps Windows launches attached', () => {
   assert.deepEqual(projectProcessSpawnOptions('linux'), { detached: true });
@@ -22,16 +284,19 @@ test('launches POSIX commands in an owned process group and keeps Windows launch
 
 test('runs explicit custom stop commands through the platform shell', () => {
   assert.deepEqual(customStopSpawnOptions('linux'), {
+    detached: true,
     shell: true,
-    stdio: ['ignore', 'ignore', 'pipe']
+    stdio: ['ignore', 'pipe', 'pipe']
   });
   assert.deepEqual(customStopSpawnOptions('darwin'), {
+    detached: true,
     shell: true,
-    stdio: ['ignore', 'ignore', 'pipe']
+    stdio: ['ignore', 'pipe', 'pipe']
   });
   assert.deepEqual(customStopSpawnOptions('win32'), {
+    detached: false,
     shell: true,
-    stdio: ['ignore', 'ignore', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true
   });
 });
@@ -93,6 +358,34 @@ test('escalates only the owned POSIX process group when descendants ignore SIGTE
   assert.deepEqual(signals, [[-505, 'SIGTERM'], [-505, 'SIGKILL']]);
 });
 
+test('confirms an empty POSIX process group when signal-zero is denied after termination', async () => {
+  const signals = [];
+  await terminateProcessTree(506, {
+    platform: 'darwin',
+    kill: (pid, signal) => {
+      if (signal === 0) {
+        throw Object.assign(new Error('not permitted'), { code: 'EPERM' });
+      }
+      signals.push([pid, signal]);
+    },
+    readProcessGroup: async () => []
+  });
+
+  assert.deepEqual(signals, [[-506, 'SIGTERM']]);
+});
+
+test('keeps a POSIX process group blocked when the EPERM fallback cannot verify it', async () => {
+  await assert.rejects(terminateProcessTree(507, {
+    platform: 'darwin',
+    kill: () => {
+      throw Object.assign(new Error('not permitted'), { code: 'EPERM' });
+    },
+    readProcessGroup: async () => {
+      throw new Error('ps unavailable');
+    }
+  }), /not permitted/);
+});
+
 test('keeps a live process handle when tree termination fails', async () => {
   const child = { pid: 606, exitCode: null, signalCode: null };
   const processes = new Map([['project', child]]);
@@ -130,6 +423,114 @@ test('does not hide unrelated tree termination failures after process exit', asy
     }
   }), /unexpected failure/);
   assert.equal(processes.has('project'), false);
+});
+
+test('treats a missing exited process as stopped when the platform terminator loses the race', async () => {
+  const child = {
+    pid: 609,
+    exitCode: 0,
+    signalCode: null,
+    runlistIdentity: Promise.resolve('609:original')
+  };
+  const processes = new Map([['project', child]]);
+
+  assert.equal(await terminateTrackedProcess(processes, 'project', {
+    platform: 'win32',
+    readProcessIdentity: async () => undefined,
+    spawnProcess: () => {
+      const taskkill = new EventEmitter();
+      taskkill.stderr = new EventEmitter();
+      taskkill.stderr.setEncoding = () => {};
+      process.nextTick(() => taskkill.emit('exit', 128));
+      return taskkill;
+    }
+  }), true);
+  assert.equal(processes.has('project'), false);
+});
+
+test('allows confirmed recovery to reconcile an exact tracked process that already disappeared', async () => {
+  const child = {
+    pid: 612,
+    exitCode: null,
+    signalCode: null,
+    runlistIdentity: Promise.resolve('612:original')
+  };
+  const processes = new Map([['project', child]]);
+  let terminationCalls = 0;
+
+  assert.equal(await terminateTrackedProcess(processes, 'project', {
+    allowMissing: true,
+    platform: 'win32',
+    readProcessIdentity: async () => undefined,
+    spawnProcess: () => {
+      terminationCalls += 1;
+    }
+  }), true);
+
+  assert.equal(terminationCalls, 0);
+  assert.equal(processes.has('project'), false);
+});
+
+test('does not treat an unreadable but live tracked process as missing during recovery', async () => {
+  const child = {
+    pid: 613,
+    exitCode: null,
+    signalCode: null,
+    runlistIdentity: Promise.resolve('613:original')
+  };
+  const processes = new Map([['project', child]]);
+
+  await assert.rejects(terminateTrackedProcess(processes, 'project', {
+    allowMissing: true,
+    isProcessAlive: () => true,
+    platform: 'win32',
+    readProcessIdentity: async () => undefined
+  }), /could not verify.*process identity/i);
+
+  assert.equal(processes.get('project'), child);
+});
+
+test('refuses to terminate a reused process identifier', async () => {
+  const child = {
+    pid: 610,
+    exitCode: null,
+    signalCode: null,
+    runlistIdentity: Promise.resolve('610:original')
+  };
+  const processes = new Map([['project', child]]);
+  let terminationCalls = 0;
+
+  await assert.rejects(terminateTrackedProcess(processes, 'project', {
+    platform: 'win32',
+    readProcessIdentity: async () => '610:replacement',
+    spawnProcess: () => {
+      terminationCalls += 1;
+    }
+  }), /process identity changed/i);
+
+  assert.equal(terminationCalls, 0);
+  assert.equal(processes.get('project'), child);
+});
+
+test('refuses a PID-only termination when process identity capture failed', async () => {
+  const child = {
+    pid: 611,
+    exitCode: null,
+    signalCode: null,
+    runlistIdentity: Promise.resolve(undefined)
+  };
+  const processes = new Map([['project', child]]);
+  let terminationCalls = 0;
+
+  await assert.rejects(terminateTrackedProcess(processes, 'project', {
+    platform: 'win32',
+    spawnProcess: () => {
+      terminationCalls += 1;
+    }
+  }), /could not verify.*process identity/i);
+
+  assert.equal(terminationCalls, 0);
+  assert.equal(processes.get('project'), child);
 });
 
 test('fails safely when the process identifier is unavailable', async () => {
@@ -248,8 +649,111 @@ test('coordinates owned process stopping across VS Code hosts without sharing ki
   assert.deepEqual(otherWindow.requestStop('project-1'), { kind: 'requested' });
   assert.deepEqual(owner.consumeStopRequests(), ['project-1']);
   assert.deepEqual(owner.consumeStopRequests(), []);
+  assert.equal(otherWindow.snapshot().get('project-1').state, 'stopping');
+  assert.equal(owner.completeStopRequest('project-1'), true);
+  assert.equal(otherWindow.snapshot().get('project-1').state, 'running');
   assert.equal(owner.release('project-1'), true);
   assert.equal(otherWindow.snapshot().has('project-1'), false);
+});
+
+test('retries a cross-window Stop when a stale request file is present', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-process-stale-stop-'));
+  const alive = new Set([101, 202, 303]);
+  const isProcessAlive = (pid) => alive.has(pid);
+  const owner = new ProcessOwnershipStore(directory, { pid: 101, isProcessAlive });
+  const requester = new ProcessOwnershipStore(directory, { pid: 202, isProcessAlive });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  owner.reserve('project-1');
+  owner.setProcess('project-1', 303);
+  fs.writeFileSync(owner.stopRequestPath('project-1'), JSON.stringify({
+    projectId: 'project-1',
+    requesterPid: 999,
+    token: 'stale-token'
+  }));
+
+  assert.equal(requester.requestStop('project-1').kind, 'requested');
+  assert.deepEqual(owner.consumeStopRequests(), ['project-1']);
+});
+
+test('expires a reused host PID after its ownership heartbeat stops', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-process-heartbeat-'));
+  let now = 1000;
+  const alive = new Set([101]);
+  const owner = new ProcessOwnershipStore(directory, {
+    pid: 101,
+    now: () => now,
+    ownerHeartbeatTimeoutMs: 5000,
+    isProcessAlive: (pid) => alive.has(pid)
+  });
+  const observer = new ProcessOwnershipStore(directory, {
+    pid: 202,
+    now: () => now,
+    ownerHeartbeatTimeoutMs: 5000,
+    isProcessAlive: (pid) => alive.has(pid)
+  });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  owner.reserve('project-1');
+  owner.setProcess('project-1', 303);
+  assert.equal(observer.snapshot().get('project-1').ownerAvailable, true);
+
+  now = 7001;
+  assert.equal(observer.snapshot().has('project-1'), false);
+  assert.equal(observer.reserve('project-1'), undefined);
+});
+
+test('persists process identity and refuses recovered termination after PID reuse', async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-process-identity-'));
+  let childIdentity = '303:original';
+  const owner = new ProcessOwnershipStore(directory, {
+    pid: 101,
+    isProcessAlive: () => true,
+    readProcessIdentity: async () => childIdentity
+  });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  owner.reserve('project-1');
+  owner.setProcess('project-1', 303);
+  assert.equal(await owner.trackProcessIdentity('project-1', 303), '303:original');
+  assert.equal(owner.snapshot().get('project-1').childIdentity, '303:original');
+
+  childIdentity = '303:replacement';
+  await assert.rejects(
+    owner.terminateOwnedProcess('project-1'),
+    /process identity changed/i
+  );
+});
+
+test('removes unavailable ownership when the persisted child PID identity was reused', async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-process-reconcile-'));
+  let now = 1000;
+  const owner = new ProcessOwnershipStore(directory, {
+    pid: 101,
+    now: () => now,
+    ownerHeartbeatTimeoutMs: 5000,
+    isProcessAlive: (pid) => [101, 303].includes(pid),
+    readProcessIdentity: async () => '303:original'
+  });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  owner.reserve('project-1');
+  owner.setProcess('project-1', 303, {
+    childIdentity: '303:original',
+    identityRequired: true
+  });
+  now = 7001;
+  const observer = new ProcessOwnershipStore(directory, {
+    pid: 202,
+    now: () => now,
+    ownerHeartbeatTimeoutMs: 5000,
+    isProcessAlive: (pid) => pid === 303,
+    readProcessIdentity: async () => '303:replacement'
+  });
+
+  assert.equal(await observer.reconcileProcessIdentities(), 1);
+  assert.equal(observer.snapshot().has('project-1'), false);
+  assert.equal(observer.reserve('project-1'), undefined);
 });
 
 test('recovers an exact owned process tree from persisted ownership details', async (t) => {
