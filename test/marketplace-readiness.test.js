@@ -11,7 +11,15 @@ test('validates Marketplace metadata for the selected publisher and release', ()
   const result = validateMarketplace(root, { preparation: true });
 
   assert.equal(manifest.name, 'runlist');
-  assert.equal(manifest.displayName, 'Runlist');
+  assert.equal(manifest.displayName, 'Runlist: Local Development Control Panel');
+  assert.equal(
+    manifest.description,
+    'Start, stop, monitor, and group dev servers, workers, and project commands across repositories from one VS Code sidebar.'
+  );
+  assert.ok(manifest.keywords.includes('dev server'));
+  assert.ok(manifest.keywords.includes('process manager'));
+  assert.ok(manifest.keywords.includes('npm scripts'));
+  assert.ok(!manifest.keywords.includes('project manager'));
   assert.equal(manifest.publisher, 'hankoswart');
   assert.equal(manifest.repository.url, 'https://github.com/HSwart/Runlist.git');
   assert.equal(
