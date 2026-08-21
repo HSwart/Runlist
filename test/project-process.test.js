@@ -60,6 +60,37 @@ test('uses the launch-time folder and stop command for the current process', () 
   });
 });
 
+test('uses launch-time temporary services when stopping from another window', () => {
+  const project = {
+    id: 'project-1',
+    name: 'Project',
+    folder: '/saved',
+    services: [
+      { name: 'web', port: 3000 },
+      { name: 'api', port: 4000, url: 'http://127.0.0.1:4000/health' }
+    ]
+  };
+
+  const runtimeProject = projectStopStrategy(project, {
+    portOverrides: [{
+      serviceName: 'api',
+      savedPort: 4000,
+      port: 4001,
+      variable: 'API_PORT'
+    }]
+  });
+
+  assert.equal(runtimeProject.services[0].port, 3000);
+  assert.deepEqual(runtimeProject.services[1], {
+    name: 'api',
+    port: 4001,
+    url: 'http://127.0.0.1:4001/health',
+    savedPort: 4000,
+    portVariable: 'API_PORT',
+    temporaryPort: true
+  });
+});
+
 test('records child identity and launch-time Stop details in both coordination stores', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-process-record-'));
   const ownership = new ProcessOwnershipStore(path.join(root, 'ownership'), {
@@ -76,7 +107,7 @@ test('records child identity and launch-time Stop details in both coordination s
     id: 'project-1',
     folder: 'C:\\launch-folder',
     stopCommand: 'npm stop',
-    services: [{ name: 'web', port: 4310 }]
+    services: [{ name: 'web', port: 4311, savedPort: 4310, temporaryPort: true }]
   };
   const child = { pid: 303 };
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -88,7 +119,16 @@ test('records child identity and launch-time Stop details in both coordination s
     reservations,
     project,
     child,
-    { state: 'running', launchedAt: 1234 }
+    {
+      state: 'running',
+      launchedAt: 1234,
+      portOverrides: [{
+        serviceName: 'web',
+        savedPort: 4310,
+        port: 4311,
+        variable: 'PORT'
+      }]
+    }
   );
 
   assert.equal(identity, '303:original');
@@ -107,9 +147,15 @@ test('records child identity and launch-time Stop details in both coordination s
       stopCommand: 'npm stop'
     }
   );
-  const portLock = JSON.parse(fs.readFileSync(path.join(root, 'ports', 'port-4310.lock'), 'utf8'));
+  const portLock = JSON.parse(fs.readFileSync(path.join(root, 'ports', 'port-4311.lock'), 'utf8'));
   assert.equal(portLock.childPid, 303);
   assert.equal(portLock.childIdentity, '303:original');
+  assert.deepEqual(ownership.snapshot().get(project.id).portOverrides, [{
+    serviceName: 'web',
+    savedPort: 4310,
+    port: 4311,
+    variable: 'PORT'
+  }]);
 });
 
 test('releases coordination only after a failed launch is confirmed terminated', async () => {

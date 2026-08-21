@@ -36,6 +36,7 @@
     'refreshProjectRepair',
     'registerAgent',
     'rejectProjectRepair',
+    'resolveServicePort',
     'restartProject',
     'retryProjectRepair',
     'saveProject',
@@ -65,6 +66,7 @@
     'openProject',
     'openProjectFolder',
     'openProjectTerminal',
+    'resolveServicePort',
     'restartProject',
     'showDiagnosis',
     'showEdit',
@@ -114,6 +116,12 @@
     if (value.type === 'copyServiceUrl'
       && (!validId(value.id)
         || !Number.isInteger(Number(value.port))
+        || Number(value.port) < 1
+        || Number(value.port) > 65535)) {
+      return undefined;
+    }
+    if (value.type === 'resolveServicePort'
+      && (!Number.isInteger(Number(value.port))
         || Number(value.port) < 1
         || Number(value.port) > 65535)) {
       return undefined;

@@ -430,13 +430,14 @@ test('derives a truthful ordered startup timeline from observed service state', 
   }).at(-1).state, 'attention');
 });
 
-test('treats partial unmanaged service availability as active', () => {
+test('treats partial unmanaged service availability as a blocking port conflict', () => {
   assert.equal(projectStatus({
     allOpen: false,
     anyOpen: true,
     hasServices: true,
-    managed: false
-  }), 'active');
+    managed: false,
+    partialPortConflict: true
+  }), 'port-in-use-unknown');
   assert.equal(projectStatus({
     allOpen: true,
     anyOpen: true,
@@ -538,7 +539,8 @@ test('shows a clear nonresponding state without changing stop safety', () => {
   assert.match(webview, /const statusClass = projectStatus === 'active' && project\.httpUnresponsive[\s\S]*\? 'not-responding'[\s\S]*: displayStatus/);
   assert.match(webview, /project-status status-\$\{statusClass\}/);
   assert.match(webview, /\['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active'\]\.includes\(projectStatus\)/);
-  assert.match(webview, /aria-label="\$\{escapeHtml\(service\.name\)\} on port/);
+  assert.match(webview, /const serviceAriaLabel = `\$\{service\.name\} on port/);
+  assert.match(webview, /aria-label="\$\{escapeHtml\(serviceAriaLabel\)\}"/);
   assert.match(styles, /\.service-indicator\.not-responding/);
 });
 

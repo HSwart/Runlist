@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const { restartProjectSafely } = require('../project-process');
+const { ProjectLifecycleCoordinator } = require('../project-lifecycle');
 
 test('exposes an accessible single-project Restart overflow action', () => {
   const script = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
@@ -125,6 +126,48 @@ test('ignores a stale Restart request while a shared transition is active', asyn
   assert.equal(stops, 0);
 });
 
+test('preserves temporary service ports through a whole-project Restart', async () => {
+  const portOverrides = [{
+    serviceName: 'api',
+    savedPort: 4000,
+    port: 4001,
+    variable: 'API_PORT'
+  }];
+  const ownership = {
+    ownerAvailable: true,
+    processActive: true,
+    state: 'running',
+    portOverrides
+  };
+  let stoppedProject;
+  let startOptions;
+  const host = {
+    projects: [{
+      id: 'project-1',
+      name: 'Project',
+      services: [{ name: 'api', port: 4000 }]
+    }],
+    processOwnership: { snapshot: () => new Map([['project-1', ownership]]) },
+    portReservations: { snapshot: () => new Map([['project-1', 'running']]) },
+    restartingProjectIds: new Set(),
+    getProjectStatus: () => 'running',
+    stopProject: async (id, project) => {
+      stoppedProject = project;
+      return true;
+    },
+    waitForProjectStopCompletion: async () => true,
+    startProject: async (id, options) => {
+      startOptions = options;
+      return true;
+    }
+  };
+  const lifecycle = new ProjectLifecycleCoordinator(host);
+
+  assert.equal(await lifecycle.restart('project-1'), true);
+  assert.equal(stoppedProject.services[0].port, 4001);
+  assert.deepEqual(startOptions, { allowPortConflict: true, portOverrides });
+});
+
 test('holds process ownership while deleting a saved project', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const refreshOwnership = source.indexOf('const latestProcessRuntime = this.processOwnership.snapshot()');
@@ -163,7 +206,7 @@ test('re-reads the saved project after Start acquires process ownership', () => 
   const startProject = source.indexOf('async startProject(id, options = {})');
   const reserveOwnership = source.indexOf('this.processOwnership.reserve(id)', startProject);
   const rereadProjects = source.indexOf('projects = this.projects', reserveOwnership);
-  const reservePorts = source.indexOf('this.portReservations.reserve(project)', rereadProjects);
+  const reservePorts = source.indexOf('this.portReservations.reserve(launchProject)', rereadProjects);
 
   assert.ok(startProject >= 0);
   assert.ok(startProject < reserveOwnership);

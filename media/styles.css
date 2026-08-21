@@ -922,12 +922,14 @@ button:active:not(:disabled) {
   margin-top: 8px;
 }
 
-.project-services > span {
+.project-services > .service-chip {
+  width: 100%;
   max-width: 100%;
   min-height: 22px;
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 5px;
+  gap: 2px 6px;
   padding: 2px 7px;
   color: var(--vscode-foreground);
   background: var(
@@ -941,9 +943,23 @@ button:active:not(:disabled) {
   font-variant-numeric: tabular-nums;
 }
 
-.service-name,
+.service-main {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .service-separator {
   flex: 0 0 auto;
+}
+
+.service-name {
+  min-width: 0;
+  max-width: 35%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .service-separator {
@@ -953,6 +969,24 @@ button:active:not(:disabled) {
 .service-address {
   flex: 1 1 auto;
   color: var(--vscode-descriptionForeground);
+}
+
+.service-temporary-badge {
+  flex: 0 0 auto;
+  padding: 0 3px;
+  color: var(--vscode-badge-foreground);
+  background: var(--vscode-badge-background);
+  border-radius: 2px;
+  font-family: var(--vscode-font-family);
+  font-size: 9px;
+  line-height: 14px;
+  white-space: nowrap;
+}
+
+.service-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }
 
 .project-live-details {
@@ -1172,7 +1206,8 @@ button:active:not(:disabled) {
   font-weight: 600;
 }
 
-.copy-url-button {
+.copy-url-button,
+.resolve-port-button {
   width: 18px;
   height: 18px;
   display: inline-grid;
@@ -1185,13 +1220,19 @@ button:active:not(:disabled) {
   border-radius: 3px;
 }
 
-.copy-url-button:hover {
+.copy-url-button:hover,
+.resolve-port-button:hover {
   background: var(--vscode-toolbar-hoverBackground);
 }
 
-.copy-url-button .icon {
+.copy-url-button .icon,
+.resolve-port-button .icon {
   width: 12px;
   height: 12px;
+}
+
+.resolve-port-button {
+  color: var(--vscode-editorWarning-foreground, var(--vscode-icon-foreground));
 }
 
 .service-indicator {
@@ -2258,6 +2299,10 @@ input[aria-invalid='true'] {
   .stop-all-button,
   .output-jump-button,
   .output-copy-button {
+    min-height: 44px;
+  }
+
+  .resolve-port-button {
     min-height: 44px;
   }
 

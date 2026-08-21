@@ -121,9 +121,9 @@ test('wires one accessible contextual control through guarded handoff and port r
   assert.match(webview, /'force-close-ports': \(\) => \{[\s\S]*type: 'forceCloseProjectPorts'/);
   assert.match(webview, /'force-close-ports-and-start': \(\) => \{[\s\S]*type: 'forceCloseProjectPortsAndStart'/);
   assert.match(extension, /handoffProject\(id\)[\s\S]*this\.lifecycle\.handoff\(id\)/);
-  assert.match(extension, /async forceCloseProjectPorts\(id, intent\)[\s\S]*recoverProjectPorts\(project, intent/);
-  assert.match(extension, /relatedPortProjectIds\([\s\S]*this\.portReservations\.conflicts\(project\)[\s\S]*this\.projects/);
-  assert.match(extension, /managedPortBlockers\(relatedProjectIds, processRuntime, this\.projects\)/);
+  assert.match(extension, /async forceCloseProjectPorts\(id, intent, options = \{\}\)[\s\S]*recoverProjectPorts\(recoveryProject, intent/);
+  assert.match(extension, /relatedPortProjectIds\([\s\S]*this\.portReservations\.conflicts\(recoveryProject\)[\s\S]*effectiveProjects/);
+  assert.match(extension, /managedPortBlockers\(relatedProjectIds, processRuntime, effectiveProjects\)/);
   assert.match(extension, /name: owner \? `\$\{owner\.name\} Runlist process`[\s\S]*ports: \[\],[\s\S]*terminateTree: true/);
   assert.match(extension, /protectedPids: new Set\(\[[\s\S]*process\.pid,[\s\S]*process\.ppid/);
   assert.match(extension, /showWarningMessage\([\s\S]*\{ modal: true, detail: confirmation\.detail \}/);

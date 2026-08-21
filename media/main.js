@@ -646,6 +646,9 @@ function renderList() {
         const conflict = project.portConflict;
         const conflictOwnerName = escapeHtml(conflict?.ownerName || 'Another app');
         const conflictProjectNames = (conflict?.projectNames || []).map(escapeHtml).join(', ');
+        const blockedServiceCount = (project.services || [])
+          .filter((service) => project.openPorts?.includes(service.port)).length;
+        const blockedServiceLabel = `${blockedServiceCount || 1} ${blockedServiceCount === 1 ? 'service' : 'services'} blocked`;
         const statusLabels = {
           running: 'Running',
           starting: 'Starting…',
@@ -654,8 +657,8 @@ function renderList() {
           'ownership-lost': 'Running — control unavailable',
           stopping: 'Stopping…',
           active: project.httpUnresponsive ? 'Detected, web service not responding' : 'Detected running',
-          'port-in-use': conflict?.ownerName ? `Port in use by ${conflictOwnerName}` : 'Port in use',
-          'port-in-use-unknown': 'Port in use — owner unknown',
+          'port-in-use': conflict?.ownerName ? `${blockedServiceLabel} by ${conflictOwnerName}` : blockedServiceLabel,
+          'port-in-use-unknown': blockedServiceLabel,
           'review-required': 'Review setup',
           stopped: 'Stopped'
         };
@@ -780,22 +783,42 @@ function renderList() {
                     && portOpen
                     && project.webPorts?.includes(service.port)
                     && !project.respondingPorts?.includes(service.port);
-                  const indicator = conflicted
+                  const portBlocked = conflicted && portOpen;
+                  const waiting = ['starting', 'not-ready'].includes(projectStatus) && !portOpen;
+                  const canResolve = !reviewRequired
+                    && !project.forceClosing
+                    && !project.handoffInProgress
+                    && (portBlocked || (projectStatus === 'not-ready' && waiting));
+                  const indicator = portBlocked
                     ? 'conflict'
                     : webNotResponding
                       ? 'not-responding'
                       : portOpen
                         ? 'running'
                         : '';
-                  const title = webNotResponding
-                    ? ` title="${escapeHtml(service.name)} port is open, but its web service is not responding"`
-                    : '';
-                  const ariaLabel = webNotResponding
-                    ? ` aria-label="${escapeHtml(service.name)} on port ${escapeHtml(String(service.port))}: web service not responding"`
-                    : '';
+                  const serviceState = portBlocked
+                    ? 'Port in use'
+                    : webNotResponding
+                      ? 'No web response'
+                      : portOpen
+                        ? 'Ready'
+                        : waiting
+                          ? 'Waiting'
+                          : 'Stopped';
                   const copyLabel = `Copy ${escapeHtml(service.name)} URL`;
+                  const resolveLabel = `Resolve port issue for ${escapeHtml(service.name)} on port ${escapeHtml(String(service.port))}`;
                   const address = serviceLocalAddress(service);
-                  return `<span${title}${ariaLabel}><span class="service-indicator ${indicator}" aria-hidden="true"></span><span class="service-name">${escapeHtml(service.name)}</span><span class="service-separator" aria-hidden="true">·</span><span class="service-address auto-scroll" title="${escapeHtml(address.fullUrl)}"><span class="auto-scroll-content">${escapeHtml(address.label)}</span></span>${canCopyUrl ? `<button class="copy-url-button" data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(String(service.port))}" aria-label="${copyLabel}" title="${copyLabel}">${icon('copy')}</button>` : ''}</span>`;
+                  const savedPort = service.savedPort || service.port;
+                  const temporaryDetail = service.temporaryPort
+                    ? `Temporary for this launch. Saved as port ${savedPort} via ${service.portVariable}.`
+                    : '';
+                  const serviceAriaLabel = `${service.name} on port ${service.port}: ${serviceState.toLocaleLowerCase()}.${temporaryDetail ? ` ${temporaryDetail}` : ''}`;
+                  const temporaryBadge = temporaryDetail
+                    ? `<span class="service-temporary-badge" title="${escapeHtml(temporaryDetail)}" aria-hidden="true">temp</span>`
+                    : '';
+                  const serviceActions = `${canCopyUrl ? `<button class="copy-url-button" data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(String(service.port))}" aria-label="${copyLabel}" title="${copyLabel}">${icon('copy')}</button>` : ''}${canResolve ? `<button class="resolve-port-button" data-action="resolve-service-port" data-id="${projectId}" data-port="${escapeHtml(String(savedPort))}" aria-label="${resolveLabel}" title="${resolveLabel}">${icon('refresh')}</button>` : ''}`;
+                  const serviceTitle = temporaryDetail ? `${serviceState}. ${temporaryDetail}` : serviceState;
+                  return `<div class="service-chip" role="group" aria-label="${escapeHtml(serviceAriaLabel)}" title="${escapeHtml(serviceTitle)}"><div class="service-main"><span class="service-indicator ${indicator}" aria-hidden="true"></span><span class="service-name">${escapeHtml(service.name)}</span><span class="service-separator" aria-hidden="true">·</span><span class="service-address auto-scroll" title="${escapeHtml(address.fullUrl)}"><span class="auto-scroll-content">${escapeHtml(address.label)}</span></span>${temporaryBadge}</div>${serviceActions ? `<div class="service-actions">${serviceActions}</div>` : ''}</div>`;
                   }).join('')}
                 </div>
                 ${(project.timeline || project.previewUrl || project.startupHistory?.length) ? `<button class="preview-toggle" data-action="toggle-preview" data-id="${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} ${project.timeline || project.startupHistory?.length ? 'project details' : 'preview'} for ${projectName}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" title="${project.detailsExpanded ? 'Collapse' : 'Expand'} ${project.timeline || project.startupHistory?.length ? 'project details' : 'app preview'}">${icon('chevron-down')}</button>` : ''}
@@ -1496,6 +1519,13 @@ app.addEventListener('click', (event) => {
       id: button.dataset.id,
       port: Number(button.dataset.port)
     }),
+    'resolve-service-port': () => {
+      vscode.postMessage({
+        type: 'resolveServicePort',
+        id: button.dataset.id,
+        port: Number(button.dataset.port)
+      });
+    },
     'copy-phone-url': () => vscode.postMessage({
       type: 'copyPhoneUrl',
       id: button.dataset.id,

@@ -1,0 +1,43 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const test = require('node:test');
+
+test('offers an accessible Resolve action only for an affected service', () => {
+  const root = path.join(__dirname, '..');
+  const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
+  const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
+
+  assert.match(webview, /const portBlocked = conflicted && portOpen/);
+  assert.match(webview, /projectStatus === 'not-ready' && waiting/);
+  assert.match(webview, /serviceAriaLabel = `\$\{service\.name\} on port/);
+  assert.doesNotMatch(webview, /class="service-state"/);
+  assert.match(webview, /data-action="resolve-service-port"[^>]*aria-label="\$\{resolveLabel\}"[^>]*>\$\{icon\('refresh'\)\}/);
+  assert.match(webview, /type: 'resolveServicePort'[^}]*id: button\.dataset\.id[^}]*port: Number\(button\.dataset\.port\)/);
+  assert.match(styles, /\.service-chip \{[\s\S]*grid-template-columns: minmax\(0, 1fr\) auto/);
+  assert.doesNotMatch(styles, /@media \(max-width: 300px\)[\s\S]*\.service-actions \{[\s\S]*grid-column: 1/);
+  assert.match(styles, /@media \(pointer: coarse\)[\s\S]*\.resolve-port-button \{[\s\S]*min-height: 44px/);
+});
+
+test('keeps temporary launch details accessible without adding a second service row', () => {
+  const webview = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
+  const styles = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.css'), 'utf8');
+
+  assert.match(webview, /service\.temporaryPort/);
+  assert.match(webview, /Temporary for this launch\. Saved as port \$\{savedPort\} via \$\{service\.portVariable\}/);
+  assert.match(webview, /class="service-temporary-badge"[^>]*aria-hidden="true">temp<\/span>/);
+  assert.doesNotMatch(webview, /class="service-temporary"/);
+  assert.match(styles, /\.service-temporary-badge \{/);
+  assert.match(webview, /const savedPort = service\.savedPort \|\| service\.port/);
+});
+
+test('threads temporary ports through reservation, environment, ownership, and exact recovery', () => {
+  const extension = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+
+  assert.match(extension, /this\.portReservations\.reserve\(launchProject\)/);
+  assert.match(extension, /servicePortStatus\(launchProject\.services\)/);
+  assert.match(extension, /env: projectLaunchEnvironment\(process\.env, portOverrides\)/);
+  assert.match(extension, /recordStartedProcess\([\s\S]*launchProject[\s\S]*portOverrides/);
+  assert.match(extension, /recoveryProject = selectedService[\s\S]*services: \[selectedService\]/);
+  assert.match(extension, /forceCloseProjectPorts\(id, 'start', \{ servicePort: savedPort \}\)/);
+});

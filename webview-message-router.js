@@ -23,6 +23,7 @@ function createRunlistWebviewRouter(host, adapters = {}) {
       refreshProjectRepair: () => host.refreshProjectRepair(),
       registerAgent: (message) => host.registerAgent(message.agent),
       rejectProjectRepair: () => host.rejectProjectRepair(),
+      resolveServicePort: (message) => host.resolveServicePort(message.id, Number(message.port)),
       restartProject: (message) => host.restartProject(message.id),
       retryProjectRepair: () => host.retryProjectRepair(),
       saveProject: (message) => host.saveProject(message.project),

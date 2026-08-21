@@ -333,6 +333,7 @@ function projectStatus({
   knownConflict = false,
   managed = false,
   ownerAvailable,
+  partialPortConflict = false,
   httpUnresponsive = false,
   processActive = false,
   readinessTimedOut = false,
@@ -369,7 +370,7 @@ function projectStatus({
     if (ambiguousConflict) {
       return 'port-in-use-unknown';
     }
-    return 'active';
+    return partialPortConflict ? 'port-in-use-unknown' : 'active';
   }
   if (managed) {
     return readinessTimedOut ? 'not-ready' : 'starting';

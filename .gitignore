@@ -56,3 +56,6 @@ Thumbs.db
 # Local feature-review screenshots
 /review-screenshots/
 /Runlist Demos/
+
+# Local deferred product ideas
+/FUTURE_FEATURE_IDEAS.local.md

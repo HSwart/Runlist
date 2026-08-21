@@ -29,6 +29,8 @@ test('validates commands sent from the webview before routing', async () => {
   assert.ok(WEBVIEW_COMMAND_TYPES.has('startProject'));
   assert.equal(validateWebviewCommand({ type: 'startProject', id: '' }), undefined);
   assert.equal(validateWebviewCommand({ type: 'copyServiceUrl', id: 'project-1', port: 70000 }), undefined);
+  assert.equal(validateWebviewCommand({ type: 'resolveServicePort', id: 'project-1', port: 0 }), undefined);
+  assert.equal(validateWebviewCommand({ type: 'resolveServicePort', id: 'project-1', port: 4310 })?.port, 4310);
   assert.equal(validateWebviewCommand({ type: 'registerAgent', agent: 'unknown' }), undefined);
 
   const calls = [];
@@ -46,7 +48,8 @@ test('maps validated webview commands to the provider boundary', async () => {
     forceCloseProjectPorts: async (id, intent) => calls.push(['force-close', id, intent]),
     showAddProject: async (focus) => calls.push(['add', focus]),
     startProject: async (id) => calls.push(['start', id]),
-    copyServiceUrl: async (id, port) => calls.push(['copy-service', id, port])
+    copyServiceUrl: async (id, port) => calls.push(['copy-service', id, port]),
+    resolveServicePort: async (id, port) => calls.push(['resolve-service', id, port])
   };
   const route = createRunlistWebviewRouter(host);
 
@@ -55,13 +58,15 @@ test('maps validated webview commands to the provider boundary', async () => {
   assert.equal(await route({ type: 'forceCloseProjectPorts', id: 'project-1' }), true);
   assert.equal(await route({ type: 'forceCloseProjectPortsAndStart', id: 'project-2' }), true);
   assert.equal(await route({ type: 'copyServiceUrl', id: 'project-1', port: '4310' }), true);
+  assert.equal(await route({ type: 'resolveServicePort', id: 'project-1', port: '4311' }), true);
   assert.equal(await route({ type: 'copyServiceUrl', id: 'project-1', port: 'bad' }), false);
   assert.deepEqual(calls, [
     ['add', { type: 'action', action: 'show-add' }],
     ['start', 'project-1'],
     ['force-close', 'project-1', 'stop'],
     ['force-close', 'project-2', 'start'],
-    ['copy-service', 'project-1', 4310]
+    ['copy-service', 'project-1', 4310],
+    ['resolve-service', 'project-1', 4311]
   ]);
 });
 

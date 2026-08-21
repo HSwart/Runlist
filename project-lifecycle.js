@@ -285,7 +285,7 @@ class ProjectLifecycleCoordinator {
     return succeeded;
   }
 
-  restart(id) {
+  restart(id, options = {}) {
     if (this.shuttingDown) {
       return Promise.resolve(false);
     }
@@ -293,10 +293,9 @@ class ProjectLifecycleCoordinator {
     if (!project) {
       return false;
     }
-    const runtimeProject = projectStopStrategy(
-      project,
-      this.host.processOwnership.snapshot().get(id)
-    );
+    const ownership = this.host.processOwnership.snapshot().get(id);
+    const runtimeProject = projectStopStrategy(project, ownership);
+    const portOverrides = options.portOverrides || ownership?.portOverrides;
     return this.track(restartProjectSafely(this.host.restartingProjectIds, id, {
       canRestart: () => {
         const status = this.host.getProjectStatus(id);
@@ -309,7 +308,9 @@ class ProjectLifecycleCoordinator {
       },
       stop: () => this.host.stopProject(id, runtimeProject),
       waitForStop: () => this.host.waitForProjectStopCompletion(id),
-      start: () => this.host.startProject(id)
+      start: () => this.host.startProject(id, {
+        ...(portOverrides?.length ? { allowPortConflict: true, portOverrides } : {})
+      })
     }));
   }
 

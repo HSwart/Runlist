@@ -4,6 +4,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { readRootProcess } = require('./process-metrics');
 const { writeFileAtomically } = require('./project-store');
+const { projectWithPortOverrides } = require('./service-port-overrides');
 
 const OWNER_HEARTBEAT_TIMEOUT_MS = 10000;
 const INVALID_RECORD_GRACE_MS = 2000;
@@ -138,13 +139,18 @@ function projectStopStrategy(project, ownership) {
   if (!project || !ownership) {
     return project;
   }
-  return {
+  const launchProject = {
     ...project,
     ...(typeof ownership.cwd === 'string' ? { folder: ownership.cwd } : {}),
     ...(typeof ownership.stopCommand === 'string'
       ? { stopCommand: ownership.stopCommand }
       : {})
   };
+  try {
+    return projectWithPortOverrides(launchProject, ownership.portOverrides);
+  } catch {
+    return launchProject;
+  }
 }
 
 function recordStartedProcess(processOwnership, portReservations, project, child, details = {}) {
@@ -369,6 +375,9 @@ class ProcessOwnershipStore {
         : {}),
       ...(typeof details.stopCommand === 'string'
         ? { stopCommand: details.stopCommand }
+        : {}),
+      ...(validRuntimePortOverrides(details.portOverrides)
+        ? { portOverrides: details.portOverrides.map((override) => ({ ...override })) }
         : {}),
       ...(typeof details.childIdentity === 'string'
         ? { childIdentity: details.childIdentity }
@@ -682,6 +691,26 @@ function validOwnership(value, projectId) {
     && Number.isInteger(value.hostPid)
     && value.hostPid > 0
     && typeof value.token === 'string');
+}
+
+function validRuntimePortOverrides(value) {
+  return Array.isArray(value)
+    && value.length <= 32
+    && value.every((override) => override
+      && typeof override === 'object'
+      && !Array.isArray(override)
+      && typeof override.serviceName === 'string'
+      && override.serviceName.length > 0
+      && override.serviceName.length <= 64
+      && Number.isInteger(override.savedPort)
+      && override.savedPort >= 1
+      && override.savedPort <= 65535
+      && Number.isInteger(override.port)
+      && override.port >= 1
+      && override.port <= 65535
+      && typeof override.variable === 'string'
+      && override.variable.length > 0
+      && override.variable.length <= 256);
 }
 
 function projectKey(projectId) {
