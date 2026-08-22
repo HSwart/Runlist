@@ -102,6 +102,8 @@ test('renders one lazy, sandboxed, accessible expandable preview', () => {
   assert.match(webview, /id="details-\$\{projectId\}" class="project-live-details" \$\{project\.detailsExpanded \? '' : 'hidden'\}/);
   assert.match(webview, /data-timeline-elapsed data-started-at=/);
   assert.doesNotMatch(webview, /data-timeline-elapsed[^>]*aria-live/);
+  assert.match(webview, /id="project-lifecycle-status"[^>]*role="status"[^>]*aria-live="polite"/);
+  assert.match(webview, /announceProjectStatusChanges\(state\.projects\)/);
   assert.match(webview, /\(timeline\.failed \|\| timeline\.attention\) && timeline\.outputAvailable/);
   assert.doesNotMatch(webview, /icon\('arrow-down'\)/);
   assert.match(webview, /class="project-services-summary" data-action="open-services"[\s\S]*Services · \$\{project\.services\.length\}/);

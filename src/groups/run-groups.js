@@ -348,7 +348,7 @@ async function runGroupManagementWorkflow(options) {
       if (!name) {
         return { status: 'cancelled' };
       }
-      await options.saveGroup({ ...group, name });
+      await options.saveGroup({ ...group, name }, group);
       return { status: 'saved' };
     }
 
@@ -361,7 +361,7 @@ async function runGroupManagementWorkflow(options) {
     if (approved !== confirm) {
       return { status: 'cancelled' };
     }
-    await options.removeGroup(group.id);
+    await options.removeGroup(group.id, group);
     return { status: 'removed' };
   } catch (error) {
     await options.window.showErrorMessage(`Could not manage run groups: ${error.message}`);
@@ -418,7 +418,7 @@ async function editRunGroup(group, options) {
         name,
         projectIds,
         startMode: group?.startMode || 'sequential'
-      });
+      }, group);
       return { status: 'saved' };
     }
     if (choice.action === 'add') {

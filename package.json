@@ -2,7 +2,7 @@
   "name": "runlist",
   "displayName": "Runlist",
   "description": "Control local projects across repositories from one focused sidebar.",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "publisher": "hankoswart",
   "license": "SEE LICENSE IN LICENSE",
   "icon": "media/runlist.png",

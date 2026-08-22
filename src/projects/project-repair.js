@@ -2,7 +2,13 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { readProjectDiagnostics } = require('./project-diagnostics');
-const { normalizeProjectInput, readProjects, upsertProject } = require('./project-store');
+const {
+  normalizeProjectInput,
+  readProjects,
+  upsertProject,
+  withProjectStoreLock
+} = require('./project-store');
+const { rewriteLoopbackServiceUrl } = require('../ports/service-port-overrides');
 
 const PROJECT_REPAIR_SCHEMA_VERSION = 1;
 const PROPOSAL_KEYS = new Set([
@@ -29,13 +35,13 @@ function projectConfigurationRevision(project) {
     stopCommand: project.stopCommand || '',
     reviewRequired: project.reviewRequired === true,
     launchProfiles: project.launchProfiles || [],
-    selectedLaunchProfileId: project.selectedLaunchProfileId || 'default',
     tags: project.tags || [],
     services: (project.services || []).map((service) => ({
       name: service.name,
       port: service.port,
       portVariable: service.portVariable || '',
-      url: service.url || ''
+      url: service.url || '',
+      ...(service.healthCheck ? { healthCheck: service.healthCheck } : {})
     }))
   };
   return crypto.createHash('sha256').update(JSON.stringify(configuration)).digest('hex');
@@ -59,8 +65,7 @@ function createProjectRepairProposal(projectsFile, input) {
   }
 
   const proposedProject = normalizeProjectInput({
-    ...project,
-    ...input.proposal,
+    ...projectProposalInput(project, input.proposal, diagnostic.launchProfileId),
     id: project.id
   }, {
     allowStoredName: !Object.hasOwn(input.proposal, 'name'),
@@ -86,6 +91,13 @@ function createProjectRepairProposal(projectsFile, input) {
 }
 
 function approveProjectRepairProposal(projectsFile, projectId) {
+  return withProjectStoreLock(projectsFile, () => approveProjectRepairProposalLocked(
+    projectsFile,
+    projectId
+  ));
+}
+
+function approveProjectRepairProposalLocked(projectsFile, projectId) {
   const proposal = readProjectRepairProposal(projectsFile, projectId);
   if (!proposal) {
     throw repairError('PROPOSAL_NOT_FOUND', 'This repair proposal is no longer available.');
@@ -103,8 +115,10 @@ function approveProjectRepairProposal(projectsFile, projectId) {
 
   const approved = upsertProject(projectsFile, {
     ...proposal.proposedProject,
-    id: projectId
-  }, { allowStoredName: true, reviewRequired: false }).project;
+    id: projectId,
+    pinned: project.pinned === true,
+    selectedLaunchProfileId: project.selectedLaunchProfileId || 'default'
+  }, { allowStoredName: true, lockHeld: true, reviewRequired: false }).project;
   clearProjectRepairProposal(projectsFile, projectId);
   return approved;
 }
@@ -140,28 +154,59 @@ function projectRepairComparison(current, proposed) {
     compareValue('Start command', current.startCommand, proposed.startCommand),
     compareValue('Stop command', current.stopCommand, proposed.stopCommand)
   ];
-  const currentServices = new Map((current.services || [])
+  appendServiceComparison(comparison, '', current.services, proposed.services);
+  const currentProfiles = new Map((current.launchProfiles || []).map((profile) => [profile.id, profile]));
+  const proposedProfiles = new Map((proposed.launchProfiles || []).map((profile) => [profile.id, profile]));
+  for (const profileId of new Set([...currentProfiles.keys(), ...proposedProfiles.keys()])) {
+    const currentProfile = currentProfiles.get(profileId);
+    const proposedProfile = proposedProfiles.get(profileId);
+    if (JSON.stringify(currentProfile) === JSON.stringify(proposedProfile)) {
+      continue;
+    }
+    const profileName = proposedProfile?.name || currentProfile?.name || 'Removed profile';
+    const prefix = `Profile: ${profileName} - `;
+    comparison.push(compareValue(
+      `${prefix}start command`,
+      currentProfile?.startCommand,
+      proposedProfile?.startCommand
+    ));
+    comparison.push(compareValue(
+      `${prefix}stop command`,
+      currentProfile?.stopCommand,
+      proposedProfile?.stopCommand
+    ));
+    appendServiceComparison(
+      comparison,
+      prefix,
+      currentProfile?.services,
+      proposedProfile?.services
+    );
+  }
+  return comparison;
+}
+
+function appendServiceComparison(comparison, prefix, currentValue, proposedValue) {
+  const currentServices = new Map((currentValue || [])
     .map((service) => [service.name.toLocaleLowerCase(), service]));
-  const proposedServices = new Map((proposed.services || [])
+  const proposedServices = new Map((proposedValue || [])
     .map((service) => [service.name.toLocaleLowerCase(), service]));
   const serviceNames = new Set([...currentServices.keys(), ...proposedServices.keys()]);
   for (const name of serviceNames) {
     const currentService = currentServices.get(name);
     const proposedService = proposedServices.get(name);
     comparison.push(compareValue(
-      `Service: ${proposedService?.name || currentService?.name}`,
+      `${prefix}Service: ${proposedService?.name || currentService?.name}`,
       formatService(currentService),
       formatService(proposedService)
     ));
   }
-  const currentOrder = (current.services || []).map((service) => service.name).join(' → ');
-  const proposedOrder = (proposed.services || []).map((service) => service.name).join(' → ');
+  const currentOrder = (currentValue || []).map((service) => service.name).join(' -> ');
+  const proposedOrder = (proposedValue || []).map((service) => service.name).join(' -> ');
   if (currentOrder !== proposedOrder
     && [...currentServices.keys()].every((name) => proposedServices.has(name))
     && currentServices.size === proposedServices.size) {
-    comparison.push(compareValue('Service order', currentOrder, proposedOrder));
+    comparison.push(compareValue(`${prefix}Service order`, currentOrder, proposedOrder));
   }
-  return comparison;
 }
 
 function compareValue(field, currentValue, proposedValue) {
@@ -191,8 +236,93 @@ function formatService(service) {
     return '';
   }
   const url = service.url || `http://localhost:${service.port}`;
-  const portVariable = service.portVariable ? ` · temporary via ${service.portVariable}` : '';
-  return `${service.name} :${service.port} — ${url}${portVariable}`;
+  const portVariable = service.portVariable ? `; temporary via ${service.portVariable}` : '';
+  const healthCheck = formatHealthCheck(service.healthCheck);
+  return `${service.name} :${service.port} - ${url}${portVariable}${healthCheck}`;
+}
+
+function formatHealthCheck(healthCheck) {
+  if (healthCheck?.mode === 'port') {
+    return '; health: port only';
+  }
+  if (healthCheck?.mode !== 'http') {
+    return '';
+  }
+  const target = healthCheck.target || 'service URL';
+  const expectedStatus = healthCheck.expectedStatus
+    ? `, status ${healthCheck.expectedStatus}`
+    : '';
+  const timeout = healthCheck.timeoutMs ? `, ${healthCheck.timeoutMs} ms` : '';
+  const retries = healthCheck.retries
+    ? `, ${healthCheck.retries} ${healthCheck.retries === 1 ? 'retry' : 'retries'}`
+    : '';
+  return `; health: ${healthCheck.method || 'HEAD'} ${target}${expectedStatus}${timeout}${retries}`;
+}
+
+function projectProposalInput(project, proposal, launchProfileId) {
+  if (!launchProfileId || launchProfileId === 'default') {
+    return {
+      ...project,
+      ...proposal,
+      ...(proposal.services
+        ? { services: preserveOmittedServiceMetadata(project.services, proposal.services) }
+        : {})
+    };
+  }
+  const launchProfile = (project.launchProfiles || [])
+    .find((profile) => profile.id === launchProfileId);
+  if (!launchProfile) {
+    throw repairError('STALE_PROPOSAL', 'The launch profile used by this failed start is no longer available.');
+  }
+  const profileKeys = ['startCommand', 'stopCommand', 'services'];
+  const profileChanges = Object.fromEntries(profileKeys
+    .filter((key) => Object.hasOwn(proposal, key))
+    .map((key) => [
+      key,
+      key === 'services'
+        ? preserveOmittedServiceMetadata(launchProfile.services, proposal.services)
+        : proposal[key]
+    ]));
+  const projectChanges = Object.fromEntries(Object.entries(proposal)
+    .filter(([key]) => !profileKeys.includes(key)));
+  return {
+    ...project,
+    ...projectChanges,
+    launchProfiles: project.launchProfiles.map((profile) => (
+      profile.id === launchProfileId ? { ...profile, ...profileChanges } : profile
+    ))
+  };
+}
+
+function preserveOmittedServiceMetadata(currentServices = [], proposedServices = []) {
+  const currentByName = new Map(currentServices.map((service) => [service.name, service]));
+  return proposedServices.map((service) => {
+    const current = currentByName.get(service.name);
+    if (!current) {
+      return service;
+    }
+    const healthCheck = !Object.hasOwn(service, 'healthCheck') && current.healthCheck
+      ? {
+          ...current.healthCheck,
+          ...(current.healthCheck.target
+            ? {
+                target: rewriteLoopbackServiceUrl(
+                  current.healthCheck.target,
+                  current.port,
+                  service.port
+                )
+              }
+            : {})
+        }
+      : service.healthCheck;
+    return {
+      ...service,
+      ...(!Object.hasOwn(service, 'portVariable') && current.portVariable
+        ? { portVariable: current.portVariable }
+        : {}),
+      ...(healthCheck ? { healthCheck } : {})
+    };
+  });
 }
 
 function validateProposalEnvelope(input) {
@@ -204,7 +334,7 @@ function validateProposalEnvelope(input) {
   if (unsupportedEnvelopeKeys.length) {
     throw repairError('INVALID_PROPOSAL', `Unsupported repair argument: ${unsupportedEnvelopeKeys.join(', ')}.`);
   }
-  if (typeof input.projectId !== 'string' || !input.projectId || input.projectId.length > 200) {
+  if (typeof input.projectId !== 'string' || !input.projectId || input.projectId.length > 256) {
     throw repairError('INVALID_PROPOSAL', 'projectId must identify one saved Runlist project.');
   }
   if (typeof input.projectRevision !== 'string' || !/^[a-f0-9]{64}$/.test(input.projectRevision)) {

@@ -1,6 +1,8 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
+const { execFileSync } = require('child_process');
 const { safeServiceUrl } = require('../services/external-url');
 const { optionalPortVariableValidationMessage } = require('../ports/service-port-overrides');
 const { normalizeProjectTags } = require('./project-tags');
@@ -15,6 +17,12 @@ const ATOMIC_RENAME_MAX_ATTEMPTS = 5;
 const ATOMIC_RENAME_RETRY_DELAY_MS = 10;
 const ATOMIC_RENAME_WAIT = new Int32Array(new SharedArrayBuffer(4));
 const TRANSIENT_RENAME_ERROR_CODES = new Set(['EACCES', 'EBUSY', 'EPERM']);
+const STORE_LOCK_MAX_ATTEMPTS = 400;
+const STORE_LOCK_RETRY_MS = 5;
+const STORE_LOCK_WAIT = new Int32Array(new SharedArrayBuffer(4));
+const HELD_STORE_LOCKS = new Set();
+const CURRENT_PROCESS_IDENTITY = synchronousProcessIdentity(process.pid)
+  || `${process.pid}:runtime:${Math.round(Date.now() - (process.uptime() * 1000))}`;
 
 class ProjectStoreError extends Error {
   constructor(code, message, options) {
@@ -24,9 +32,16 @@ class ProjectStoreError extends Error {
   }
 }
 
-function initializeProjectStore(filePath, legacyProjects = []) {
+function initializeProjectStore(filePath, legacyProjects = [], options = {}) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   if (!fs.existsSync(filePath)) {
+    if (!options.lockHeld) {
+      return withProjectStoreLock(filePath, () => initializeProjectStore(
+        filePath,
+        legacyProjects,
+        { lockHeld: true }
+      ));
+    }
     if (fs.existsSync(`${filePath}.bak`)) {
       return recoverProjects(filePath);
     }
@@ -37,14 +52,14 @@ function initializeProjectStore(filePath, legacyProjects = []) {
     writeFileAtomically(filePath, serializeProjectDocument(projects));
     return projects;
   }
-  return loadProjects(filePath);
+  return loadProjects(filePath, options);
 }
 
 function readProjects(filePath) {
   return initializeProjectStore(filePath);
 }
 
-function loadProjects(filePath) {
+function loadProjects(filePath, options = {}) {
   const contents = fs.readFileSync(filePath, 'utf8');
   let document;
   try {
@@ -53,9 +68,15 @@ function loadProjects(filePath) {
     if (error instanceof ProjectStoreError && error.code === 'UNSUPPORTED_VERSION') {
       throw error;
     }
+    if (!options.lockHeld) {
+      return withProjectStoreLock(filePath, () => loadProjects(filePath, { lockHeld: true }));
+    }
     return recoverProjects(filePath, contents, error);
   }
   if (document.legacy || document.migrated) {
+    if (!options.lockHeld) {
+      return withProjectStoreLock(filePath, () => loadProjects(filePath, { lockHeld: true }));
+    }
     writeFileAtomically(`${filePath}.bak`, contents);
     writeFileAtomically(filePath, serializeProjectDocument(document.projects, {
       ...(document.groups?.length ? { groups: document.groups } : {})
@@ -64,7 +85,13 @@ function loadProjects(filePath) {
   return document.projects;
 }
 
-function writeProjects(filePath, projects) {
+function writeProjects(filePath, projects, options = {}) {
+  if (!options.lockHeld) {
+    return withProjectStoreLock(filePath, () => writeProjects(filePath, projects, {
+      ...options,
+      lockHeld: true
+    }));
+  }
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const validatedProjects = validateStoredProjects(projects);
   let groups;
@@ -77,6 +104,239 @@ function writeProjects(filePath, projects) {
   writeFileAtomically(filePath, serializeProjectDocument(validatedProjects, {
     ...(groups?.length ? { groups } : {})
   }));
+}
+
+function withProjectStoreLock(filePath, operation) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const lockPath = `${filePath}.write-lock`;
+  if (HELD_STORE_LOCKS.has(lockPath)) {
+    return operation();
+  }
+  let acquired = false;
+  let lockToken;
+  for (let attempt = 0; attempt < STORE_LOCK_MAX_ATTEMPTS; attempt += 1) {
+    let descriptor;
+    try {
+      lockToken = crypto.randomUUID();
+      descriptor = fs.openSync(lockPath, 'wx', 0o600);
+      fs.writeFileSync(descriptor, JSON.stringify({
+        pid: process.pid,
+        processIdentity: CURRENT_PROCESS_IDENTITY,
+        createdAt: Date.now(),
+        token: lockToken
+      }));
+      fs.closeSync(descriptor);
+      descriptor = undefined;
+      acquired = true;
+      break;
+    } catch (error) {
+      if (descriptor !== undefined) {
+        fs.closeSync(descriptor);
+        descriptor = undefined;
+        try {
+          fs.unlinkSync(lockPath);
+        } catch (unlinkError) {
+          if (unlinkError.code !== 'ENOENT') {
+            throw unlinkError;
+          }
+        }
+      }
+      if (error.code !== 'EEXIST') {
+        throw error;
+      }
+      const observed = storeLockObservation(lockPath);
+      if (observed && removeObservedStoreLock(
+        lockPath,
+        observed,
+        projectStoreLockRecordIsAbandoned
+      )) {
+        continue;
+      }
+      Atomics.wait(STORE_LOCK_WAIT, 0, 0, STORE_LOCK_RETRY_MS);
+    }
+  }
+  if (!acquired) {
+    throw projectStoreError(
+      'STORE_BUSY',
+      'Runlist project storage is busy in another VS Code window. Try again.'
+    );
+  }
+  HELD_STORE_LOCKS.add(lockPath);
+  try {
+    return operation();
+  } finally {
+    HELD_STORE_LOCKS.delete(lockPath);
+    const observed = storeLockObservation(lockPath);
+    if (observed) {
+      removeObservedStoreLock(
+        lockPath,
+        observed,
+        (record) => record?.token === lockToken
+      );
+    }
+  }
+}
+
+function projectStoreLockIsAbandoned(lockPath) {
+  try {
+    const record = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+    return projectStoreLockRecordIsAbandoned(record);
+  } catch {
+    return false;
+  }
+}
+
+function projectStoreLockRecordIsAbandoned(record) {
+  if (!Number.isInteger(record?.pid) || record.pid <= 0) {
+    return false;
+  }
+  try {
+    process.kill(record.pid, 0);
+  } catch (error) {
+    return error.code === 'ESRCH';
+  }
+  if (typeof record.processIdentity === 'string') {
+    const currentIdentity = record.pid === process.pid
+      ? CURRENT_PROCESS_IDENTITY
+      : synchronousProcessIdentity(record.pid);
+    return Boolean(currentIdentity && currentIdentity !== record.processIdentity);
+  }
+  return false;
+}
+
+function removeObservedStoreLock(lockPath, observed, canRemove) {
+  const cleanupPath = `${lockPath}.cleanup`;
+  let cleanupToken;
+  let acquired = false;
+  for (let attempt = 0; attempt < STORE_LOCK_MAX_ATTEMPTS; attempt += 1) {
+    let descriptor;
+    try {
+      cleanupToken = crypto.randomUUID();
+      descriptor = fs.openSync(cleanupPath, 'wx', 0o600);
+      fs.writeFileSync(descriptor, JSON.stringify({
+        pid: process.pid,
+        processIdentity: CURRENT_PROCESS_IDENTITY,
+        token: cleanupToken
+      }));
+      fs.closeSync(descriptor);
+      descriptor = undefined;
+      acquired = true;
+      break;
+    } catch (error) {
+      if (descriptor !== undefined) {
+        fs.closeSync(descriptor);
+        try {
+          fs.unlinkSync(cleanupPath);
+        } catch (unlinkError) {
+          if (unlinkError.code !== 'ENOENT') {
+            throw unlinkError;
+          }
+        }
+      }
+      if (error.code !== 'EEXIST') {
+        throw error;
+      }
+      if (projectStoreLockIsAbandoned(cleanupPath)) {
+        try {
+          fs.unlinkSync(cleanupPath);
+        } catch (unlinkError) {
+          if (unlinkError.code !== 'ENOENT') {
+            throw unlinkError;
+          }
+        }
+        continue;
+      }
+      Atomics.wait(STORE_LOCK_WAIT, 0, 0, STORE_LOCK_RETRY_MS);
+    }
+  }
+  if (!acquired) {
+    return false;
+  }
+  try {
+    const current = storeLockObservation(lockPath);
+    if (!sameStoreLockObservation(current, observed)) {
+      return false;
+    }
+    let record;
+    try {
+      record = JSON.parse(current.contents);
+    } catch {
+      record = undefined;
+    }
+    if (!canRemove(record, lockPath)) {
+      return false;
+    }
+    fs.unlinkSync(lockPath);
+    return true;
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return false;
+    }
+    throw error;
+  } finally {
+    const cleanup = storeLockObservation(cleanupPath);
+    if (cleanup) {
+      try {
+        const record = JSON.parse(cleanup.contents);
+        if (record.token === cleanupToken) {
+          fs.unlinkSync(cleanupPath);
+        }
+      } catch {
+        // Leave uncertain cleanup ownership in place rather than deleting another host's marker.
+      }
+    }
+  }
+}
+
+function storeLockObservation(filePath) {
+  try {
+    const stat = fs.statSync(filePath);
+    return {
+      contents: fs.readFileSync(filePath, 'utf8'),
+      device: stat.dev,
+      inode: stat.ino,
+      modifiedAt: stat.mtimeMs,
+      size: stat.size
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function sameStoreLockObservation(left, right) {
+  return Boolean(left && right
+    && left.contents === right.contents
+    && left.device === right.device
+    && left.inode === right.inode
+    && left.modifiedAt === right.modifiedAt
+    && left.size === right.size);
+}
+
+function synchronousProcessIdentity(pid) {
+  try {
+    if (process.platform === 'linux') {
+      const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+      const close = stat.lastIndexOf(')');
+      const fields = stat.slice(close + 2).split(' ');
+      return fields[19] ? `${pid}:${fields[19]}` : undefined;
+    }
+    if (process.platform === 'win32') {
+      const script = `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().Ticks`;
+      const startedAt = String(execFileSync('powershell.exe', [
+        '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script
+      ], { encoding: 'utf8', windowsHide: true, timeout: 1000 })).trim();
+      return startedAt ? `${pid}:${startedAt}` : undefined;
+    }
+    const startedAt = String(execFileSync('ps', ['-p', String(pid), '-o', 'lstart='], {
+      encoding: 'utf8',
+      env: { ...process.env, LC_ALL: 'C' },
+      timeout: 1000,
+      windowsHide: true
+    })).trim();
+    return startedAt ? `${pid}:${startedAt}` : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function recoverProjects(filePath, primaryContents, primaryError) {
@@ -188,6 +448,7 @@ function parseProjectDocument(contents) {
   const projects = validateStoredProjects(value.projects, { schemaVersion: value.schemaVersion });
   return {
     legacy: false,
+    schemaVersion: value.schemaVersion,
     migrated: value.schemaVersion !== PROJECT_STORE_SCHEMA_VERSION,
     projects,
     groups: value.groups === undefined
@@ -600,7 +861,8 @@ function validateStoredHealthCheck(value, serviceIndex) {
 
 function validHealthTarget(value) {
   const target = value.trim();
-  return Boolean(target) && (target.startsWith('/') || Boolean(safeServiceUrl(target)));
+  const relativePath = target.startsWith('/') && !['/', '\\'].includes(target[1]);
+  return Boolean(target) && (relativePath || Boolean(safeServiceUrl(target)));
 }
 
 function readRunGroups(filePath) {
@@ -608,7 +870,11 @@ function readRunGroups(filePath) {
   return parseProjectDocument(fs.readFileSync(filePath, 'utf8')).groups || [];
 }
 
-function upsertRunGroup(filePath, input) {
+function upsertRunGroup(filePath, input, options = {}) {
+  return withProjectStoreLock(filePath, () => upsertRunGroupLocked(filePath, input, options));
+}
+
+function upsertRunGroupLocked(filePath, input, options = {}) {
   const projects = readProjects(filePath);
   const groups = readRunGroups(filePath);
   const index = input.id
@@ -616,6 +882,14 @@ function upsertRunGroup(filePath, input) {
     : -1;
   if (input.id && index === -1) {
     throw new Error('The Runlist group being edited no longer exists.');
+  }
+  const existing = index >= 0 ? groups[index] : undefined;
+  if (options.expectedGroup
+    && JSON.stringify(existing) !== JSON.stringify(options.expectedGroup)) {
+    throw projectStoreError(
+      'STALE_GROUP',
+      'This run group changed in another VS Code window. Reopen it before saving.'
+    );
   }
   const name = normalizeRunGroupName(input.name);
   const projectIds = normalizeRunGroupProjects(input.projectIds, projects);
@@ -636,22 +910,39 @@ function upsertRunGroup(filePath, input) {
   } else {
     groups.push(group);
   }
-  writeRunGroups(filePath, projects, groups);
+  writeRunGroups(filePath, projects, groups, { lockHeld: true });
   return { action: index >= 0 ? 'updated' : 'created', group };
 }
 
-function removeRunGroup(filePath, id) {
+function removeRunGroup(filePath, id, options = {}) {
+  return withProjectStoreLock(filePath, () => removeRunGroupLocked(filePath, id, options));
+}
+
+function removeRunGroupLocked(filePath, id, options = {}) {
   const projects = readProjects(filePath);
   const groups = readRunGroups(filePath);
+  const existing = groups.find((group) => group.id === id);
+  if (options.expectedGroup
+    && JSON.stringify(existing) !== JSON.stringify(options.expectedGroup)) {
+    throw projectStoreError(
+      'STALE_GROUP',
+      'This run group changed in another VS Code window. Reopen it before removing it.'
+    );
+  }
   const nextGroups = groups.filter((group) => group.id !== id);
   if (nextGroups.length === groups.length) {
     return false;
   }
-  writeRunGroups(filePath, projects, nextGroups);
+  writeRunGroups(filePath, projects, nextGroups, { lockHeld: true });
   return true;
 }
 
-function writeRunGroups(filePath, projects, groups) {
+function writeRunGroups(filePath, projects, groups, options = {}) {
+  if (!options.lockHeld) {
+    return withProjectStoreLock(filePath, () => writeRunGroups(filePath, projects, groups, {
+      lockHeld: true
+    }));
+  }
   const validatedGroups = validateRunGroups(groups, projects);
   const currentContents = fs.readFileSync(filePath, 'utf8');
   parseProjectDocument(currentContents);
@@ -694,6 +985,12 @@ function normalizeRunGroupProjects(value, projects) {
 }
 
 function upsertProject(filePath, input, options = {}) {
+  if (!options.lockHeld) {
+    return withProjectStoreLock(filePath, () => upsertProject(filePath, input, {
+      ...options,
+      lockHeld: true
+    }));
+  }
   const folder = normalizeFolder(input.folder);
   const projects = readProjects(filePath);
   const index = input.id
@@ -705,6 +1002,19 @@ function upsertProject(filePath, input, options = {}) {
   }
 
   const existing = index >= 0 ? projects[index] : undefined;
+  if (options.expectProjectAbsent && existing) {
+    throw projectStoreError(
+      'STALE_PROJECT',
+      'This project was added in another VS Code window. Retry the setup before saving.'
+    );
+  }
+  if (options.expectedProject
+    && JSON.stringify(existing) !== JSON.stringify(options.expectedProject)) {
+    throw projectStoreError(
+      'STALE_PROJECT',
+      'This project changed in another VS Code window. Reopen it before saving.'
+    );
+  }
   const project = normalizeProjectInput(input, {
     allowStoredName: options.allowStoredName === true,
     existing,
@@ -717,7 +1027,7 @@ function upsertProject(filePath, input, options = {}) {
   } else {
     projects.push(project);
   }
-  writeProjects(filePath, projects);
+  writeProjects(filePath, projects, { lockHeld: true });
 
   return {
     action: existing ? 'updated' : 'created',
@@ -733,16 +1043,24 @@ function findProjectByFolder(filePath, folder) {
 }
 
 function removeProject(filePath, id) {
+  return withProjectStoreLock(filePath, () => removeProjectLocked(filePath, id));
+}
+
+function removeProjectLocked(filePath, id) {
   const projects = readProjects(filePath);
   const nextProjects = projects.filter((project) => project.id !== id);
   if (nextProjects.length === projects.length) {
     return false;
   }
-  writeProjects(filePath, nextProjects);
+  writeProjects(filePath, nextProjects, { lockHeld: true });
   return true;
 }
 
 function toggleProjectPinned(filePath, id) {
+  return withProjectStoreLock(filePath, () => toggleProjectPinnedLocked(filePath, id));
+}
+
+function toggleProjectPinnedLocked(filePath, id) {
   const projects = readProjects(filePath);
   const index = projects.findIndex((project) => project.id === id);
   if (index === -1) {
@@ -757,7 +1075,7 @@ function toggleProjectPinned(filePath, id) {
   if (!pinned) {
     delete projects[index].pinned;
   }
-  writeProjects(filePath, projects);
+  writeProjects(filePath, projects, { lockHeld: true });
   return projects[index];
 }
 
@@ -772,6 +1090,10 @@ function normalizeRunGroupStartMode(value) {
 }
 
 function selectProjectLaunchProfile(filePath, id, profileId) {
+  return withProjectStoreLock(filePath, () => selectProjectLaunchProfileLocked(filePath, id, profileId));
+}
+
+function selectProjectLaunchProfileLocked(filePath, id, profileId) {
   const projects = readProjects(filePath);
   const index = projects.findIndex((project) => project.id === id);
   if (index === -1) {
@@ -788,7 +1110,7 @@ function selectProjectLaunchProfile(filePath, id, profileId) {
   } else {
     projects[index].selectedLaunchProfileId = profileId;
   }
-  writeProjects(filePath, projects);
+  writeProjects(filePath, projects, { lockHeld: true });
   return projects[index];
 }
 
@@ -999,6 +1321,7 @@ module.exports = {
   toggleProjectPinned,
   upsertProject,
   upsertRunGroup,
+  withProjectStoreLock,
   writeFileAtomically,
   writeProjects
 };

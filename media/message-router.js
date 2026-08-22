@@ -178,11 +178,11 @@
       .includes(value.type) && !validId(value.id)) {
       return undefined;
     }
-    if (value.type === 'projectOutputPeek' && !Array.isArray(value.entries)) {
+    if (value.type === 'projectOutputPeek' && !validOutputEntries(value.entries)) {
       return undefined;
     }
     if (value.type === 'projectOutput'
-      && (!Array.isArray(value.entries) || typeof value.output !== 'string')) {
+      && (!validOutputEntries(value.entries) || typeof value.output !== 'string')) {
       return undefined;
     }
     if (value.type === 'projectMetrics'
@@ -224,6 +224,25 @@
 
   function optionalArray(value) {
     return value === undefined || value === null || Array.isArray(value);
+  }
+
+  function validOutputEntries(value) {
+    return Array.isArray(value) && value.length <= 2000 && value.every((entry) => {
+      if (!isRecord(entry) || !['blank', 'raw', 'structured'].includes(entry.kind)) {
+        return false;
+      }
+      if (typeof entry.message !== 'string' || entry.message.length > 20000) {
+        return false;
+      }
+      if (entry.kind !== 'structured') {
+        return true;
+      }
+      return (entry.level === undefined
+          || (typeof entry.level === 'string'
+            && ['log', 'info', 'warning', 'error'].includes(entry.level)))
+        && (entry.time === undefined
+          || (typeof entry.time === 'string' && entry.time.length <= 100));
+    });
   }
 
   function isRecord(value) {

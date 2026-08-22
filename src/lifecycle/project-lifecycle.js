@@ -25,6 +25,9 @@ class ProjectLifecycleCoordinator {
     this.statusPollIntervalMs = options.statusPollIntervalMs ?? 2000;
     this.remoteStopTimeoutMs = options.remoteStopTimeoutMs ?? 38000;
     this.servicePortStatus = options.servicePortStatus;
+    this.isServiceReady = options.isServiceReady || (async (service) => (
+      await this.servicePortStatus([service])
+    ).allOpen);
     this.operations = new Set();
     this.shuttingDown = false;
   }
@@ -192,11 +195,17 @@ class ProjectLifecycleCoordinator {
     }
   }
 
-  async waitUntilServiceReady(service, timeoutMs = this.startReadinessTimeoutMs) {
+  async waitUntilServiceReady(service, timeoutMs = this.startReadinessTimeoutMs, shouldContinue) {
     const deadline = this.now() + timeoutMs;
     while (true) {
-      const status = await this.servicePortStatus([service]);
-      if (status.allOpen) {
+      if (shouldContinue && !shouldContinue()) {
+        return false;
+      }
+      const ready = await this.isServiceReady(service);
+      if (shouldContinue && !shouldContinue()) {
+        return false;
+      }
+      if (ready) {
         return true;
       }
       if (this.now() >= deadline) {

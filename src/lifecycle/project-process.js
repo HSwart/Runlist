@@ -9,6 +9,9 @@ const { projectWithPortOverrides } = require('../ports/service-port-overrides');
 
 const OWNER_HEARTBEAT_TIMEOUT_MS = 10000;
 const INVALID_RECORD_GRACE_MS = 2000;
+const OWNERSHIP_UPDATE_MAX_ATTEMPTS = 200;
+const OWNERSHIP_UPDATE_RETRY_MS = 5;
+const OWNERSHIP_UPDATE_WAIT = new Int32Array(new SharedArrayBuffer(4));
 
 function projectProcessSpawnOptions(platform = process.platform) {
   return platform === 'win32'
@@ -30,6 +33,13 @@ async function terminateProcessTree(pid, options = {}) {
   }
 
   const platform = options.platform || process.platform;
+  if (options.expectedIdentity) {
+    const readIdentity = options.readProcessIdentity || readProcessIdentity;
+    const currentIdentity = await readIdentity(pid, platform);
+    if (currentIdentity !== options.expectedIdentity) {
+      throw new Error('Runlist did not stop the process because its process identity changed.');
+    }
+  }
   if (platform !== 'win32') {
     const kill = options.kill || process.kill;
     try {
@@ -98,7 +108,13 @@ async function terminateTrackedProcess(processes, id, options = {}) {
 
   processes.delete(id);
   try {
-    await terminateProcessTree(child.pid, options);
+    await terminateProcessTree(child.pid, {
+      ...options,
+      ...(expectedIdentity ? {
+        expectedIdentity,
+        readProcessIdentity: readIdentity
+      } : {})
+    });
   } catch (error) {
     if (child.exitCode !== null || child.signalCode !== null) {
       if (expectedIdentity) {
@@ -279,7 +295,13 @@ async function waitForProcessGroupExit(pid, kill, options) {
   const termDeadline = Date.now() + (options.terminateTimeoutMs ?? 5000);
   while (await processGroupIsAlive(pid, kill, options)) {
     if (Date.now() >= termDeadline) {
-      kill(-pid, 'SIGKILL');
+      try {
+        kill(-pid, 'SIGKILL');
+      } catch (error) {
+        if (error.code !== 'ESRCH') {
+          throw error;
+        }
+      }
       break;
     }
     await delay(options.pollIntervalMs ?? 100);
@@ -374,7 +396,13 @@ class ProcessOwnershipStore {
         fs.writeFileSync(descriptor, JSON.stringify(ownership));
         fs.closeSync(descriptor);
         this.owned.set(projectId, { ownershipPath, token });
-        tryUnlink(this.stopRequestPath(projectId));
+        const existingRequest = readJson(this.stopRequestPath(projectId));
+        if (existingRequest && existingRequest.token !== token) {
+          updateJsonRecord(
+            this.stopRequestPath(projectId),
+            (request) => sameStopRequest(request, existingRequest)
+          );
+        }
         return undefined;
       } catch (error) {
         if (descriptor !== undefined) {
@@ -388,8 +416,7 @@ class ProcessOwnershipStore {
 
       const existing = readJson(ownershipPath);
       if (!validOwnership(existing, projectId)) {
-        if (invalidRecordIsStale(ownershipPath, this.invalidRecordGraceMs, this.now())) {
-          tryUnlink(ownershipPath);
+        if (removeInvalidJsonRecord(ownershipPath, this.invalidRecordGraceMs, this.now())) {
           continue;
         }
         return { kind: 'uncertain' };
@@ -402,8 +429,19 @@ class ProcessOwnershipStore {
           ownership: existing
         };
       }
-      tryUnlink(ownershipPath);
-      tryUnlink(this.stopRequestPath(projectId));
+      const removed = updateJsonRecord(
+        ownershipPath,
+        (current) => validOwnership(current, projectId)
+          && current.token === existing.token
+          && !this.ownerIsAvailable(current)
+          && !(current.childPid && this.isProcessAlive(current.childPid))
+      );
+      if (removed) {
+        updateJsonRecord(
+          this.stopRequestPath(projectId),
+          (request) => request?.token === existing.token
+        );
+      }
     }
     return { kind: 'uncertain' };
   }
@@ -531,10 +569,21 @@ class ProcessOwnershipStore {
       }
     }
 
+    const latest = readJson(owned.ownershipPath);
+    if (latest?.token !== owned.token
+      || latest.hostPid !== this.pid
+      || latest.childPid !== current.childPid) {
+      throw new Error('Runlist did not stop the process because its launch ownership changed.');
+    }
+
     try {
       await terminateProcessTree(current.childPid, {
         platform: this.platform,
-        ...options
+        ...options,
+        ...(expectedIdentity ? {
+          expectedIdentity,
+          readProcessIdentity: options.readProcessIdentity || this.readProcessIdentity
+        } : {})
       });
     } catch (error) {
       if (!this.isProcessAlive(current.childPid)) {
@@ -550,10 +599,14 @@ class ProcessOwnershipStore {
     if (!owned) {
       return false;
     }
-    const current = readJson(owned.ownershipPath);
-    if (current?.token === owned.token) {
-      tryUnlink(owned.ownershipPath);
-      tryUnlink(this.stopRequestPath(projectId));
+    if (updateJsonRecord(
+      owned.ownershipPath,
+      (current) => current?.token === owned.token
+    )) {
+      updateJsonRecord(
+        this.stopRequestPath(projectId),
+        (request) => request?.token === owned.token
+      );
     }
     this.owned.delete(projectId);
     this.pendingProcessIdentities.delete(projectId);
@@ -582,13 +635,18 @@ class ProcessOwnershipStore {
       if (!identity || identity === ownership.childIdentity) {
         continue;
       }
-      const current = readJson(ownershipPath);
-      if (current?.token === ownership.token
-        && current.childPid === ownership.childPid
-        && current.childIdentity === ownership.childIdentity
-        && !this.ownerIsAvailable(current)) {
-        tryUnlink(ownershipPath);
-        tryUnlink(this.stopRequestPath(ownership.projectId));
+      const removedCurrent = updateJsonRecord(
+        ownershipPath,
+        (current) => current?.token === ownership.token
+          && current.childPid === ownership.childPid
+          && current.childIdentity === ownership.childIdentity
+          && !this.ownerIsAvailable(current)
+      );
+      if (removedCurrent) {
+        updateJsonRecord(
+          this.stopRequestPath(ownership.projectId),
+          (request) => request?.token === ownership.token
+        );
         removed += 1;
       }
     }
@@ -601,23 +659,38 @@ class ProcessOwnershipStore {
       const ownershipPath = path.join(this.directory, filename);
       let ownership = readJson(ownershipPath);
       if (!validOwnership(ownership)) {
-        if (invalidRecordIsStale(ownershipPath, this.invalidRecordGraceMs, this.now())) {
-          tryUnlink(ownershipPath);
-        }
+        removeInvalidJsonRecord(ownershipPath, this.invalidRecordGraceMs, this.now());
         continue;
       }
       const local = this.owned.get(ownership.projectId);
       if (local?.token === ownership.token
         && this.now() - (ownership.heartbeatAt || 0) >= 1000) {
-        const updated = { ...ownership, heartbeatAt: this.now() };
-        writeJsonAtomically(ownershipPath, updated);
-        ownership = updated;
+        updateJsonRecord(
+          ownershipPath,
+          (current) => current?.token === ownership.token,
+          (current) => ({ ...current, heartbeatAt: this.now() })
+        );
+        ownership = readJson(ownershipPath);
+      }
+      if (!validOwnership(ownership)) {
+        continue;
       }
       const hostAlive = this.ownerIsAvailable(ownership);
       const processAlive = ownership.childPid && this.isProcessAlive(ownership.childPid);
       if (!hostAlive && !processAlive) {
-        tryUnlink(ownershipPath);
-        tryUnlink(this.stopRequestPath(ownership.projectId));
+        const removed = updateJsonRecord(
+          ownershipPath,
+          (current) => validOwnership(current, ownership.projectId)
+            && current.token === ownership.token
+            && !this.ownerIsAvailable(current)
+            && !(current.childPid && this.isProcessAlive(current.childPid))
+        );
+        if (removed) {
+          updateJsonRecord(
+            this.stopRequestPath(ownership.projectId),
+            (request) => request?.token === ownership.token
+          );
+        }
         continue;
       }
       const stopRequested = readJson(this.stopRequestPath(ownership.projectId))?.token === ownership.token;
@@ -664,7 +737,14 @@ class ProcessOwnershipStore {
         if (existingRequest?.token === ownership.token) {
           return { kind: 'requested' };
         }
-        tryUnlink(requestPath);
+        if (existingRequest) {
+          updateJsonRecord(
+            requestPath,
+            (request) => sameStopRequest(request, existingRequest)
+          );
+        } else {
+          removeInvalidJsonRecord(requestPath, this.invalidRecordGraceMs, this.now());
+        }
       }
     }
     return { kind: 'uncertain' };
@@ -677,8 +757,11 @@ class ProcessOwnershipStore {
     if (request?.requesterPid !== this.pid || request?.token !== ownership?.token) {
       return false;
     }
-    tryUnlink(requestPath);
-    return true;
+    return updateJsonRecord(
+      requestPath,
+      (current) => sameStopRequest(current, request)
+        && current.token === ownership.token
+    );
   }
 
   consumeStopRequests() {
@@ -696,7 +779,10 @@ class ProcessOwnershipStore {
         this.consumedStopRequests.delete(projectId);
       }
       if (request && request.token !== owned.token) {
-        tryUnlink(requestPath);
+        updateJsonRecord(
+          requestPath,
+          (current) => sameStopRequest(current, request)
+        );
       }
     }
     return projectIds;
@@ -710,7 +796,13 @@ class ProcessOwnershipStore {
       this.consumedStopRequests.delete(projectId);
       return false;
     }
-    tryUnlink(requestPath);
+    if (!updateJsonRecord(
+      requestPath,
+      (current) => sameStopRequest(current, request)
+        && current.token === owned.token
+    )) {
+      return false;
+    }
     this.consumedStopRequests.delete(projectId);
     return true;
   }
@@ -720,15 +812,18 @@ class ProcessOwnershipStore {
     if (!owned) {
       return false;
     }
-    const current = readJson(owned.ownershipPath);
-    if (current?.token !== owned.token) {
+    const updated = updateJsonRecord(
+      owned.ownershipPath,
+      (current) => current?.token === owned.token,
+      (current) => ({
+        ...update(current),
+        heartbeatAt: this.now()
+      })
+    );
+    if (!updated) {
       this.owned.delete(projectId);
       return false;
     }
-    writeJsonAtomically(owned.ownershipPath, {
-      ...update(current),
-      heartbeatAt: this.now()
-    });
     return true;
   }
 
@@ -782,6 +877,89 @@ function projectKey(projectId) {
 
 function writeJsonAtomically(filePath, value) {
   writeFileAtomically(filePath, JSON.stringify(value));
+}
+
+function updateJsonRecord(filePath, matches, update) {
+  const updatePath = `${filePath}.update`;
+  let acquired = false;
+  for (let attempt = 0; attempt < OWNERSHIP_UPDATE_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const descriptor = fs.openSync(updatePath, 'wx', 0o600);
+      fs.writeFileSync(descriptor, JSON.stringify({ pid: process.pid }));
+      fs.closeSync(descriptor);
+      acquired = true;
+      break;
+    } catch (error) {
+      if (error.code !== 'EEXIST') {
+        throw error;
+      }
+      if (updateMarkerIsAbandoned(updatePath, INVALID_RECORD_GRACE_MS, Date.now())) {
+        tryUnlink(updatePath);
+        continue;
+      }
+      Atomics.wait(OWNERSHIP_UPDATE_WAIT, 0, 0, OWNERSHIP_UPDATE_RETRY_MS);
+    }
+  }
+  if (!acquired) {
+    throw new Error('Runlist could not safely update shared process ownership.');
+  }
+  try {
+    const current = readJson(filePath);
+    const fingerprint = fileFingerprint(filePath);
+    if (!matches(current, fingerprint)) {
+      return false;
+    }
+    if (typeof update === 'function') {
+      writeJsonAtomically(filePath, update(current));
+    } else {
+      tryUnlink(filePath);
+    }
+    return true;
+  } finally {
+    tryUnlink(updatePath);
+  }
+}
+
+function removeInvalidJsonRecord(filePath, graceMs, now) {
+  if (!invalidRecordIsStale(filePath, graceMs, now)) {
+    return false;
+  }
+  const observedFingerprint = fileFingerprint(filePath);
+  if (!observedFingerprint) {
+    return false;
+  }
+  return updateJsonRecord(
+    filePath,
+    (current, fingerprint) => !current && fingerprint === observedFingerprint
+  );
+}
+
+function fileFingerprint(filePath) {
+  try {
+    const contents = fs.readFileSync(filePath);
+    const stat = fs.statSync(filePath);
+    return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${crypto
+      .createHash('sha256')
+      .update(contents)
+      .digest('hex')}`;
+  } catch {
+    return undefined;
+  }
+}
+
+function sameStopRequest(left, right) {
+  return Boolean(left && right
+    && left.token === right.token
+    && left.requesterPid === right.requesterPid
+    && left.requestedAt === right.requestedAt);
+}
+
+function updateMarkerIsAbandoned(filePath, graceMs, now) {
+  const marker = readJson(filePath);
+  if (Number.isInteger(marker?.pid) && marker.pid > 0) {
+    return !processIsAlive(marker.pid);
+  }
+  return invalidRecordIsStale(filePath, graceMs, now);
 }
 
 function readJson(filePath) {
@@ -854,6 +1032,7 @@ module.exports = {
   ProcessOwnershipStore,
   projectStopStrategy,
   projectProcessSpawnOptions,
+  readProcessIdentity,
   recordStartedProcess,
   restartProjectSafely,
   rollbackStartedProcess,

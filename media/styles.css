@@ -927,6 +927,11 @@ button:active:not(:disabled) {
   width: min(174px, calc(100vw - 20px));
 }
 
+.launch-profile-menu.open-left {
+  right: 0;
+  left: auto;
+}
+
 .profile-check {
   width: 12px;
   flex: 0 0 12px;
@@ -1001,7 +1006,7 @@ button:active:not(:disabled) {
   z-index: 20;
   top: 33px;
   right: 0;
-  width: 174px;
+  width: min(174px, calc(100vw - 20px));
   padding: 4px;
   color: var(--vscode-menu-foreground, var(--vscode-foreground));
   background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
@@ -2030,6 +2035,24 @@ select[aria-invalid='true'] {
 
   .service-health-wide {
     grid-column: auto;
+  }
+}
+
+@media (max-width: 200px) {
+  .service-list-header {
+    display: none;
+  }
+
+  .service-row {
+    grid-template-columns: minmax(0, 1fr) 28px;
+  }
+
+  .service-row > .service-field:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .service-options {
+    grid-column: 1 / -1;
   }
 }
 

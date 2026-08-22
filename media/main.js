@@ -13,6 +13,7 @@ let searchQuery = String(state.searchQuery || '');
 let selectedTagFilter = String(state.tagFilter || '');
 let tagsExpanded = Boolean(persistedWebviewState.tagsExpanded);
 let outputFollowLatest = true;
+let announcedProjectStatuses = new Map();
 let previewLoadGeneration = 0;
 let previewLoadTimer;
 let runningAppNavigatorFrame;
@@ -438,14 +439,16 @@ function serviceDisplayDetails(project, service) {
   const projectStatus = project.status || 'stopped';
   const conflicted = ['port-in-use', 'port-in-use-unknown'].includes(projectStatus);
   const portOpen = project.openPorts?.includes(service.port);
+  const portBlocked = conflicted
+    && portOpen
+    && project.portConflict?.port === service.port;
   const canUseUrl = project.serviceUrls?.some((entry) => entry.port === service.port)
     && !project.reviewRequired
-    && !conflicted;
-  const webNotResponding = !conflicted
+    && !portBlocked;
+  const webNotResponding = !portBlocked
     && portOpen
     && project.webPorts?.includes(service.port)
     && !project.respondingPorts?.includes(service.port);
-  const portBlocked = conflicted && portOpen;
   const waiting = ['starting', 'not-ready'].includes(projectStatus) && !portOpen;
   const canResolve = !project.reviewRequired
     && !project.lifecycleBlocked
@@ -640,7 +643,7 @@ function runGroupsHtml() {
         return `
           <div class="run-group-item">
             <div class="run-group-row">
-              <button class="run-group-toggle" data-action="toggle-run-group" data-id="${groupId}" aria-expanded="${expanded}" aria-controls="${settingsId}" title="${groupName}">
+              <button class="run-group-toggle" data-action="toggle-run-group" data-id="${groupId}" aria-expanded="${expanded}"${expanded ? ` aria-controls="${settingsId}"` : ''} title="${groupName}">
                 ${icon('chevron-down')}
                 <span class="run-group-details">
                   <strong>${groupName}</strong>
@@ -678,7 +681,7 @@ function tagFilterHtml() {
   return `
     <section class="project-tag-filter" aria-label="Project tag filter">
       <div class="project-tag-filter-bar">
-        <button class="tag-filter-toggle" data-action="toggle-tag-filter" aria-expanded="${tagsExpanded}" aria-controls="project-tag-choices">
+        <button class="tag-filter-toggle" data-action="toggle-tag-filter" aria-expanded="${tagsExpanded}"${tagsExpanded ? ' aria-controls="project-tag-choices"' : ''}>
           ${icon('chevron-down')}<span>Tags</span>
         </button>
         ${activeTag ? `<button class="active-tag-chip" data-action="select-tag-filter" data-tag="${escapeHtml(activeTag)}" aria-label="Clear tag filter ${escapeHtml(activeTag)}" title="Clear tag filter">${escapeHtml(activeTag)} ${icon('close')}</button>` : ''}
@@ -732,6 +735,7 @@ function renderList() {
       <span id="project-count"><strong>${state.projects.length}</strong> ${state.projects.length === 1 ? 'project' : 'projects'}</span>
       <span id="summary-status" class="summary-status">${statusSummaryHtml(state.projects)}</span>
     </header>
+    <span id="project-lifecycle-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span>
     ${runGroupsHtml()}
     ${state.stopAllCount > 1 ? `
       <div class="bulk-actions">
@@ -818,7 +822,8 @@ function renderList() {
         const blocked = conflicted || project.lifecycleBlocked;
         const launchProfiles = project.launchProfiles || [];
         const hasLaunchProfiles = launchProfiles.length > 1;
-        const launchProfileMenuId = `profile-${projectId}`;
+        const launchProfileMenuId = `profile:${projectId}`;
+        const projectActionMenuId = `actions:${projectId}`;
         const launchProfileDisabledReason = project.launchProfileChangeDisabled
           ? 'Stop this project to change profile.'
           : '';
@@ -881,8 +886,8 @@ function renderList() {
                 <button class="run-button ${reviewRequired ? 'review' : blocked ? 'blocked' : primaryAction.mode}" data-action="${primaryAction.action}" data-id="${projectId}" aria-label="${actionTitle}" title="${actionTitle}" ${primaryAction.disabled ? 'disabled' : ''}>
                   ${reviewRequired ? icon('edit') : productIcon(primaryAction.mode === 'stop' ? 'stop' : 'play')}
                 </button>
-                <button class="more-button menu-trigger" data-action="toggle-menu" data-id="${projectId}" data-menu-target="${projectId}" aria-label="More actions for ${projectName}" aria-haspopup="menu" aria-expanded="false">${icon('more')}</button>
-                <div class="action-menu" data-menu-id="${projectId}" role="menu" aria-label="Actions for ${projectName}" hidden>
+                <button class="more-button menu-trigger" data-action="toggle-menu" data-id="${projectId}" data-menu-target="${projectActionMenuId}" aria-label="More actions for ${projectName}" aria-haspopup="menu" aria-expanded="false">${icon('more')}</button>
+                <div class="action-menu" data-menu-id="${projectActionMenuId}" role="menu" aria-label="Actions for ${projectName}" hidden>
                   <button data-action="open" data-id="${projectId}" role="menuitem" ${canOpen ? '' : 'disabled'} title="${openTitle}">
                     ${icon('external', 'menu-icon')}<span>Open app</span>
                   </button>
@@ -941,6 +946,33 @@ function renderList() {
     </section>`;
 
   applyProjectFilter(searchQuery);
+  announceProjectStatusChanges(state.projects);
+  document.getElementById('project-search')?.addEventListener('input', handleSearchInput);
+  scheduleAutoScrollUpdate();
+  scheduleRunningAppNavigatorUpdate();
+  initializeProjectPreview();
+  initializeTimelineClock();
+}
+
+function announceProjectStatusChanges(projects) {
+  const next = new Map((projects || []).map((project) => [
+    String(project.id),
+    `${project.name}: ${project.forceClosing
+      ? 'Closing processes'
+      : project.handoffInProgress
+        ? 'Switching projects'
+        : statusLabels[project.status || 'stopped'] || 'Stopped'}`
+  ]));
+  if (announcedProjectStatuses.size) {
+    const changes = [...next]
+      .filter(([id, label]) => announcedProjectStatuses.get(id) !== label)
+      .map(([, label]) => label);
+    const status = document.getElementById('project-lifecycle-status');
+    if (status && changes.length) {
+      status.textContent = changes.join('. ');
+    }
+  }
+  announcedProjectStatuses = next;
 }
 
 function applyProjectFilter(query) {
@@ -1630,7 +1662,7 @@ function currentDraft(
       ...profile,
       services: (profile.services || []).map((service) => ({ ...service }))
     })),
-    selectedLaunchProfileId: fieldValue('launchProfileId') || editingProfileId,
+    selectedLaunchProfileId: String(state.draft.selectedLaunchProfileId || 'default'),
     editingLaunchProfileId: editingProfileId
   };
   const profileValues = {
@@ -1644,7 +1676,7 @@ function currentDraft(
     draft.launchProfiles = draft.launchProfiles.map((profile) => profile.id === editingProfileId
       ? {
           ...profile,
-          name: fieldValue('launchProfileName') || profile.name,
+          name: fieldValue('launchProfileName'),
           ...profileValues
         }
       : profile);
@@ -1771,7 +1803,7 @@ app.addEventListener('click', (event) => {
     return;
   }
 
-  if (button.dataset.action !== 'toggle-menu') {
+  if (!['toggle-menu', 'toggle-profile-menu'].includes(button.dataset.action)) {
     closeMenus();
   }
 
@@ -2353,7 +2385,8 @@ app.addEventListener('focusin', (event) => {
       action: element.dataset.action,
       id: element.dataset.id,
       agent: element.dataset.agent,
-      tab: element.dataset.tab
+      tab: element.dataset.tab,
+      port: element.dataset.port
     };
   }
   if (target) {
@@ -2444,6 +2477,7 @@ function closeMenus(exceptId) {
     const isOpenMenu = menu.dataset.menuId === exceptId;
     menu.hidden = !isOpenMenu;
     menu.classList.remove('open-up');
+    menu.classList.remove('open-left');
     const trigger = document.querySelector(`.menu-trigger[data-menu-target="${CSS.escape(menu.dataset.menuId)}"]`);
     trigger?.setAttribute('aria-expanded', String(isOpenMenu));
   });
@@ -2462,6 +2496,9 @@ function toggleMenu(button) {
     const menuBounds = menu.getBoundingClientRect();
     if (menuBounds.bottom > window.innerHeight - 8) {
       menu.classList.add('open-up');
+    }
+    if (menuBounds.right > window.innerWidth - 8) {
+      menu.classList.add('open-left');
     }
     menu.querySelector('button:not(:disabled)')?.focus();
   });
@@ -2490,18 +2527,22 @@ function applyInitialFocus() {
     if (target.tab) {
       selector += `[data-tab="${CSS.escape(target.tab)}"]`;
     }
+    if (target.port) {
+      selector += `[data-port="${CSS.escape(target.port)}"]`;
+    }
     element = document.querySelector(selector);
+  }
+  const hiddenMenu = element?.closest('.action-menu[hidden]');
+  if (hiddenMenu) {
+    element = document.querySelector(
+      `.menu-trigger[data-menu-target="${CSS.escape(hiddenMenu.dataset.menuId)}"]`
+    );
   }
   requestAnimationFrame(() => element?.focus());
 }
 
 if (state.mode === 'list') {
   renderList();
-  document.getElementById('project-search')?.addEventListener('input', handleSearchInput);
-  scheduleAutoScrollUpdate();
-  scheduleRunningAppNavigatorUpdate();
-  initializeProjectPreview();
-  initializeTimelineClock();
 } else if (state.mode === 'agents') {
   renderAgentSetup();
 } else if (state.mode === 'output') {

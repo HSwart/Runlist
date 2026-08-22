@@ -68,6 +68,27 @@ test('persists create, rename, ordered edit, and removal for run groups', (t) =>
   assert.deepEqual(readRunGroups(projectsFile), []);
 });
 
+test('rejects stale run-group edits and removal across windows', (t) => {
+  const { first, projectsFile, second } = fixture(t);
+  const original = upsertRunGroup(projectsFile, {
+    name: 'Daily apps',
+    projectIds: [first.id]
+  }).group;
+  const changed = upsertRunGroup(projectsFile, {
+    ...original,
+    projectIds: [first.id, second.id]
+  }, { expectedGroup: original }).group;
+
+  assert.throws(() => upsertRunGroup(projectsFile, {
+    ...original,
+    name: 'Stale rename'
+  }, { expectedGroup: original }), (error) => error.code === 'STALE_GROUP');
+  assert.throws(() => removeRunGroup(projectsFile, original.id, {
+    expectedGroup: original
+  }), (error) => error.code === 'STALE_GROUP');
+  assert.deepEqual(readRunGroups(projectsFile), [changed]);
+});
+
 test('removing a project prunes only its memberships', (t) => {
   const { first, projectsFile, second } = fixture(t);
   upsertRunGroup(projectsFile, {

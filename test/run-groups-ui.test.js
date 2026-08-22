@@ -24,6 +24,7 @@ test('renders compact keyboard-accessible group controls in the sidebar', () => 
   assert.match(webview, /data-action="stop-group"[^>]*aria-label="Stop group/);
   assert.match(webview, /data-action="manage-group"[^>]*aria-label="Manage group/);
   assert.match(webview, /data-action="toggle-run-group"[^>]*aria-expanded=/);
+  assert.match(webview, /aria-expanded="\$\{expanded\}"\$\{expanded \? ` aria-controls=/);
   assert.match(webview, /<label for="run-group-mode-/);
   assert.match(webview, /data-run-group-mode/);
   assert.match(webview, /'start-group': \(\) => vscode\.postMessage\(\{ type: 'startRunGroup'/);

@@ -8,7 +8,8 @@ test('offers an accessible Resolve action only for an affected service', () => {
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
   const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
 
-  assert.match(webview, /const portBlocked = conflicted && portOpen/);
+  assert.match(webview, /const portBlocked = conflicted[\s\S]*project\.portConflict\?\.port === service\.port/);
+  assert.match(webview, /const canUseUrl =[\s\S]*&& !portBlocked/);
   assert.match(webview, /projectStatus === 'not-ready' && waiting/);
   assert.match(webview, /class="service-detail-state">\$\{details\.state\}/);
   assert.match(webview, /data-action="resolve-service-port"[^>]*>\$\{icon\('refresh'\)\}<span>Resolve port<\/span>/);
@@ -53,11 +54,21 @@ test('collects temporary port settings on the fly without editing the project', 
 
 test('threads temporary ports through reservation, environment, ownership, and exact recovery', () => {
   const extension = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const webview = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
 
   assert.match(extension, /this\.portReservations\.reserve\(launchProject\)/);
   assert.match(extension, /servicePortStatus\(launchProject\.services\)/);
   assert.match(extension, /env: projectLaunchEnvironment\(process\.env, portOverrides\)/);
   assert.match(extension, /recordStartedProcess\([\s\S]*launchProject[\s\S]*portOverrides/);
+  assert.match(extension, /const launchToken = this\.processOwnership\.snapshot\(\)\.get\(project\.id\)\?\.token/);
+  assert.match(extension, /waitUntilServiceReady\([\s\S]*launchIsCurrent/);
+  assert.match(extension, /expectedOwnershipToken: launchToken/);
   assert.match(extension, /recoveryProject = selectedService[\s\S]*services: \[selectedService\]/);
   assert.match(extension, /forceCloseProjectPorts\(id, 'start', \{ servicePort: savedPort \}\)/);
+  assert.match(extension, /displayedConflict\?\.port !== savedPort/);
+  assert.match(extension, /this\.startProject\(id, \{ allowPortConflict: true \}\)/);
+  assert.match(webview, /port: element\.dataset\.port/);
+  assert.match(webview, /selector \+= `\[data-port=/);
+  assert.match(extension, /handleProjectStoreChange\(\)[\s\S]*this\.statusRevision \+= 1/);
+  assert.match(extension, /this\.statusRefreshPending = true/);
 });

@@ -60,6 +60,11 @@ function writeProjectDiagnostics(projectsFile, projectId, details = {}) {
     ...(typeof details.projectRevision === 'string' && /^[a-f0-9]{64}$/.test(details.projectRevision)
       ? { projectRevision: details.projectRevision }
       : {}),
+    ...(typeof details.launchProfileId === 'string'
+      && details.launchProfileId.length > 0
+      && details.launchProfileId.length <= 256
+      ? { launchProfileId: details.launchProfileId }
+      : {}),
     platform: String(details.platform || process.platform).slice(0, 32),
     lifecycleState: String(details.lifecycleState || 'stopped').slice(0, 64),
     exitCode: Number.isInteger(details.exitCode) ? details.exitCode : null,

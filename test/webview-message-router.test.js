@@ -83,6 +83,24 @@ test('rejects the wrong token, unknown types, and malformed payloads', () => {
     entries: 'not-an-array'
   }, 'token'), undefined);
   assert.equal(validateWebviewMessage({
+    type: 'projectOutputPeek',
+    messageToken: 'token',
+    id: 'project-1',
+    entries: [null]
+  }, 'token'), undefined);
+  assert.equal(validateWebviewMessage({
+    type: 'projectOutputPeek',
+    messageToken: 'token',
+    id: 'project-1',
+    entries: [{ kind: 'structured', level: {}, message: 'ready' }]
+  }, 'token'), undefined);
+  assert.equal(validateWebviewMessage({
+    type: 'projectOutputPeek',
+    messageToken: 'token',
+    id: 'project-1',
+    entries: [{ kind: 'raw', message: {} }]
+  }, 'token'), undefined);
+  assert.equal(validateWebviewMessage({
     type: 'restoreProjectMenuFocus',
     messageToken: 'token',
     id: ''

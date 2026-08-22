@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { spawn } = require('node:child_process');
 const test = require('node:test');
 const {
   initializeProjectStore,
@@ -11,9 +12,21 @@ const {
   removeProject,
   selectProjectLaunchProfile,
   serializeProjectDocument,
+  toggleProjectPinned,
   upsertProject,
   writeProjects
 } = require('../src/projects/project-store');
+
+function waitForWorker(child) {
+  return new Promise((resolve, reject) => {
+    let stderr = '';
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.once('error', reject);
+    child.once('exit', (code) => code === 0
+      ? resolve()
+      : reject(new Error(stderr || `worker exited with ${code}`)));
+  });
+}
 
 function projectStoreFixture(t) {
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-store-'));
@@ -25,6 +38,167 @@ function projectStoreFixture(t) {
   t.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
   return { temporaryRoot, projectFolder, storageFolder, projectsFile };
 }
+
+test('serializes independent project writes across extension hosts', async (t) => {
+  const { temporaryRoot, projectsFile } = projectStoreFixture(t);
+  const storeModule = path.join(__dirname, '..', 'src', 'projects', 'project-store.js');
+  const workerSource = `
+    const { upsertProject } = require(process.argv[1]);
+    upsertProject(process.argv[2], {
+      folder: process.argv[3],
+      startCommand: 'npm start',
+      services: []
+    }, { reviewRequired: false });
+  `;
+  const workers = Array.from({ length: 8 }, (_, index) => {
+    const folder = path.join(temporaryRoot, `worker-${index}`);
+    fs.mkdirSync(folder);
+    return spawn(process.execPath, [
+      '-e', workerSource, storeModule, projectsFile, folder
+    ], { stdio: ['ignore', 'ignore', 'pipe'] });
+  });
+
+  await Promise.all(workers.map(waitForWorker));
+  assert.deepEqual(
+    readProjects(projectsFile).map((project) => path.basename(project.folder)).sort(),
+    Array.from({ length: 8 }, (_, index) => `worker-${index}`)
+  );
+});
+
+test('does not let a delayed schema migration overwrite a newer project save', async (t) => {
+  const { temporaryRoot, projectFolder, projectsFile } = projectStoreFixture(t);
+  const storeModule = path.join(__dirname, '..', 'src', 'projects', 'project-store.js');
+  const marker = path.join(temporaryRoot, 'migration-read.marker');
+  const staleProject = {
+    id: 'stale-project',
+    name: 'Stale project',
+    folder: projectFolder,
+    startCommand: 'npm start'
+  };
+  fs.writeFileSync(projectsFile, JSON.stringify([staleProject]));
+  const workerSource = `
+    const fs = require('node:fs');
+    const originalRead = fs.readFileSync;
+    const wait = new Int32Array(new SharedArrayBuffer(4));
+    let firstProjectRead = true;
+    fs.readFileSync = function(filePath, ...args) {
+      const value = originalRead.call(this, filePath, ...args);
+      if (firstProjectRead && filePath === process.argv[2]) {
+        firstProjectRead = false;
+        fs.writeFileSync(process.argv[3], 'read');
+        Atomics.wait(wait, 0, 0, 200);
+      }
+      return value;
+    };
+    require(process.argv[1]).readProjects(process.argv[2]);
+  `;
+  const worker = spawn(process.execPath, [
+    '-e', workerSource, storeModule, projectsFile, marker
+  ], { stdio: ['ignore', 'ignore', 'pipe'] });
+
+  const deadline = Date.now() + 2000;
+  while (!fs.existsSync(marker) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(fs.existsSync(marker), true);
+
+  const newerProject = {
+    id: 'newer-project',
+    name: 'Newer project',
+    folder: projectFolder,
+    startCommand: 'npm run dev',
+    services: [],
+    reviewRequired: false
+  };
+  fs.writeFileSync(projectsFile, serializeProjectDocument([newerProject]));
+  await waitForWorker(worker);
+
+  assert.deepEqual(readProjects(projectsFile), [newerProject]);
+});
+
+test('rejects an edit snapshot after another window changes the project', (t) => {
+  const { projectFolder, projectsFile } = projectStoreFixture(t);
+  const saved = upsertProject(projectsFile, {
+    folder: projectFolder,
+    startCommand: 'npm start',
+    services: []
+  }, { reviewRequired: false }).project;
+  toggleProjectPinned(projectsFile, saved.id);
+
+  assert.throws(() => upsertProject(projectsFile, {
+    ...saved,
+    startCommand: 'npm run dev'
+  }, {
+    expectedProject: saved,
+    reviewRequired: false
+  }), (error) => error.code === 'STALE_PROJECT');
+  assert.equal(readProjects(projectsFile)[0].pinned, true);
+});
+
+test('rejects a create snapshot after another window adds the same folder', (t) => {
+  const { projectFolder, projectsFile } = projectStoreFixture(t);
+  upsertProject(projectsFile, {
+    folder: projectFolder,
+    startCommand: 'npm start',
+    services: []
+  }, { reviewRequired: false });
+
+  assert.throws(() => upsertProject(projectsFile, {
+    folder: projectFolder,
+    startCommand: 'npm run dev',
+    services: []
+  }, {
+    expectProjectAbsent: true,
+    reviewRequired: true
+  }), (error) => error.code === 'STALE_PROJECT');
+  assert.equal(readProjects(projectsFile)[0].startCommand, 'npm start');
+});
+
+test('recovers a store lock after its PID is reused by another process identity', (t) => {
+  const { projectFolder, projectsFile } = projectStoreFixture(t);
+  const saved = upsertProject(projectsFile, {
+    folder: projectFolder,
+    startCommand: 'npm start',
+    services: []
+  }, { reviewRequired: false }).project;
+  fs.writeFileSync(`${projectsFile}.write-lock`, JSON.stringify({
+    pid: process.pid,
+    processIdentity: 'reused-process-identity',
+    token: 'stale-lock'
+  }));
+
+  assert.equal(toggleProjectPinned(projectsFile, saved.id).pinned, true);
+  assert.equal(fs.existsSync(`${projectsFile}.write-lock`), false);
+});
+
+test('closes and removes a store lock when writing its metadata fails', (t) => {
+  const { projectFolder, projectsFile } = projectStoreFixture(t);
+  const originalWrite = fs.writeFileSync;
+  let failLockMetadata = true;
+  fs.writeFileSync = function(target, ...args) {
+    if (failLockMetadata && typeof target === 'number') {
+      failLockMetadata = false;
+      throw Object.assign(new Error('metadata denied'), { code: 'EIO' });
+    }
+    return originalWrite.call(this, target, ...args);
+  };
+  try {
+    assert.throws(() => upsertProject(projectsFile, {
+      folder: projectFolder,
+      startCommand: 'npm start',
+      services: []
+    }), /metadata denied/);
+  } finally {
+    fs.writeFileSync = originalWrite;
+  }
+
+  assert.equal(fs.existsSync(`${projectsFile}.write-lock`), false);
+  assert.equal(upsertProject(projectsFile, {
+    folder: projectFolder,
+    startCommand: 'npm start',
+    services: []
+  }).action, 'created');
+});
 
 test('round-trips the current document through the reusable store boundary', (t) => {
   const { projectFolder } = projectStoreFixture(t);
@@ -163,6 +337,13 @@ test('migrates version-two storage and validates explicit service health checks'
     ...updated,
     services: [{ ...updated.services[0], healthCheck: { mode: 'http', timeoutMs: 5000 } }]
   }), /100 to 3000/);
+  assert.throws(() => upsertProject(projectsFile, {
+    ...updated,
+    services: [{
+      ...updated.services[0],
+      healthCheck: { mode: 'http', target: '//example.test/health' }
+    }]
+  }), /safe HTTP URL or path/);
 });
 
 test('migrates version-four storage and persists normalized project tags', (t) => {

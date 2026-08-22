@@ -97,9 +97,12 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.match(listed.result.tools[0].inputSchema.properties.stopCommand.description, /optional.*custom/i);
   assert.match(listed.result.tools[0].inputSchema.properties.stopCommand.description, /advanced/i);
   assert.equal(listed.result.tools[1].name, 'runlist_get_project_diagnostics');
+  assert.ok(listed.result.tools[1].outputSchema.properties.project.properties.launchProfile);
+  assert.ok(listed.result.tools[1].outputSchema.properties.project.required.includes('launchProfile'));
   assert.equal(listed.result.tools[1].annotations.readOnlyHint, true);
   assert.equal(listed.result.tools[1].annotations.openWorldHint, false);
   assert.deepEqual(listed.result.tools[1].inputSchema.required, ['projectId']);
+  assert.equal(listed.result.tools[1].inputSchema.properties.projectId.maxLength, 256);
   assert.equal(listed.result.tools[2].name, 'runlist_propose_project_repair');
   assert.equal(listed.result.tools[2].annotations.readOnlyHint, false);
   assert.equal(listed.result.tools[2].annotations.openWorldHint, false);
@@ -107,6 +110,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
     listed.result.tools[2].inputSchema.required,
     ['projectId', 'projectRevision', 'failedAt', 'proposal']
   );
+  assert.equal(listed.result.tools[2].inputSchema.properties.projectId.maxLength, 256);
   assert.equal(
     Object.hasOwn(
       listed.result.tools[2].inputSchema.properties.proposal.properties.services.items.properties,
@@ -114,6 +118,19 @@ test('serves the setup tool over MCP stdio', async (t) => {
     ),
     false
   );
+
+  const rejectedLegacyServiceField = await request('tools/call', {
+    name: 'runlist_setup_project',
+    arguments: {
+      name: 'Agent app',
+      folder: projectFolder,
+      startCommand: 'npm run dev',
+      services: [{ name: 'web', port: 3000, portVariable: 'PORT' }]
+    }
+  });
+  assert.equal(rejectedLegacyServiceField.result.isError, true);
+  assert.match(rejectedLegacyServiceField.result.content[0].text, /unsupported services\[0\] field/i);
+  assert.deepEqual(readProjects(projectsFile), []);
 
   const called = await request('tools/call', {
     name: 'runlist_setup_project',
@@ -141,6 +158,35 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.equal(storedProjects.length, 1);
   assert.equal(storedProjects[0].reviewRequired, true);
 
+  upsertProject(projectsFile, {
+    ...storedProjects[0],
+    pinned: true,
+    tags: ['Backend'],
+    launchProfiles: [{
+      id: 'worker',
+      name: 'Worker',
+      startCommand: 'npm run worker',
+      services: []
+    }]
+  }, { reviewRequired: true });
+  const setupUpdated = await request('tools/call', {
+    name: 'runlist_setup_project',
+    arguments: {
+      folder: projectFolder,
+      startCommand: 'npm run dev',
+      services: [{ name: 'web', port: 3000 }]
+    }
+  });
+  assert.equal(setupUpdated.result.isError, false);
+  assert.equal(setupUpdated.result.structuredContent.action, 'updated');
+  assert.equal(Object.hasOwn(setupUpdated.result.structuredContent.project, 'tags'), false);
+  assert.equal(Object.hasOwn(setupUpdated.result.structuredContent.project, 'pinned'), false);
+  assert.equal(Object.hasOwn(setupUpdated.result.structuredContent.project, 'launchProfiles'), false);
+  storedProjects = readProjects(projectsFile);
+  assert.deepEqual(storedProjects[0].tags, ['Backend']);
+  assert.equal(storedProjects[0].pinned, true);
+  assert.equal(storedProjects[0].launchProfiles[0].id, 'worker');
+
   const reviewBlockedDiagnostics = await request('tools/call', {
     name: 'runlist_get_project_diagnostics',
     arguments: { projectId: storedProjects[0].id }
@@ -164,6 +210,13 @@ test('serves the setup tool over MCP stdio', async (t) => {
   });
   assert.equal(unknownDiagnostics.result.isError, true);
   assert.match(unknownDiagnostics.result.content[0].text, /was not found/i);
+
+  const longUnknownDiagnostics = await request('tools/call', {
+    name: 'runlist_get_project_diagnostics',
+    arguments: { projectId: 'x'.repeat(256) }
+  });
+  assert.equal(longUnknownDiagnostics.result.isError, true);
+  assert.match(longUnknownDiagnostics.result.content[0].text, /was not found/i);
 
   upsertProject(projectsFile, {
     ...storedProjects[0],
@@ -249,6 +302,61 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.equal(noOutputDiagnostics.result.structuredContent.retainedOutput, '');
   assert.equal(noOutputDiagnostics.result.structuredContent.signal, 'SIGTERM');
 
+  const profiledProject = upsertProject(projectsFile, {
+    ...storedProjects[0],
+    launchProfiles: [{
+      id: 'tests',
+      name: 'Tests',
+      startCommand: 'npm run test:profile',
+      services: [{ name: 'test-api', port: 4311 }]
+    }],
+    selectedLaunchProfileId: 'tests'
+  }, { reviewRequired: false }).project;
+  const profiledRevision = projectConfigurationRevision(profiledProject);
+  writeProjectDiagnostics(projectsFile, profiledProject.id, {
+    lifecycleState: 'stopped',
+    summary: { message: 'profile failed' },
+    output: '',
+    failedAt: 5678,
+    projectRevision: profiledRevision,
+    launchProfileId: 'tests'
+  });
+  const profileDiagnostics = await request('tools/call', {
+    name: 'runlist_get_project_diagnostics',
+    arguments: { projectId: profiledProject.id }
+  });
+  assert.equal(profileDiagnostics.result.isError, false);
+  assert.deepEqual(profileDiagnostics.result.structuredContent.project.launchProfile, {
+    id: 'tests',
+    name: 'Tests'
+  });
+  assert.equal(
+    profileDiagnostics.result.structuredContent.project.startCommand,
+    'npm run test:profile'
+  );
+  assert.deepEqual(profileDiagnostics.result.structuredContent.project.services, [{
+    name: 'test-api', port: 4311
+  }]);
+
+  const profileRepair = await request('tools/call', {
+    name: 'runlist_propose_project_repair',
+    arguments: {
+      projectId: profiledProject.id,
+      projectRevision: profiledRevision,
+      failedAt: 5678,
+      proposal: { startCommand: 'npm run test:fixed' }
+    }
+  });
+  assert.equal(profileRepair.result.isError, false);
+  const proposedProfile = readProjectRepairProposal(projectsFile, profiledProject.id)
+    .proposedProject.launchProfiles.find((profile) => profile.id === 'tests');
+  assert.equal(proposedProfile.startCommand, 'npm run test:fixed');
+  assert.equal(
+    readProjectRepairProposal(projectsFile, profiledProject.id).proposedProject.startCommand,
+    profiledProject.startCommand
+  );
+  clearProjectRepairProposal(projectsFile, profiledProject.id);
+
   const processOwnership = new ProcessOwnershipStore(
     path.join(temporaryRoot, 'process-ownership')
   );
@@ -328,4 +436,17 @@ test('serves the setup tool over MCP stdio', async (t) => {
   });
   assert.equal(unsafeUrl.result.isError, true);
   assert.match(unsafeUrl.result.content[0].text, /valid HTTP or HTTPS URL/);
+});
+
+test('keeps MCP port variables launch-only and rejects stale setup fields', () => {
+  const serverSource = fs.readFileSync(path.join(__dirname, '..', 'mcp', 'server.js'), 'utf8');
+  assert.doesNotMatch(serverSource, /Include a port variable/);
+  assert.match(serverSource, /const serviceKeys = new Set\(\['name', 'port', 'url'\]\)/);
+  assert.match(serverSource, /expectedProject: existingProject/);
+  assert.match(serverSource, /expectProjectAbsent: true/);
+});
+
+test('does not probe review-required projects before approval', () => {
+  const extensionSource = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  assert.match(extensionSource, /effectiveProjects\.map\(async \(project\) => \{[\s\S]*if \(project\.reviewRequired\) \{[\s\S]*return \[project\.id, 'stopped'/);
 });

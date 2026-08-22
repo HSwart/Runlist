@@ -90,6 +90,59 @@ test('coordinates reservations across independent extension hosts', (t) => {
   secondHost.dispose();
 });
 
+test('serializes complete overlapping multi-port reservations across hosts', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-port-transaction-'));
+  const alive = new Set([101, 202]);
+  const first = new PortReservationStore(directory, {
+    pid: 101,
+    isProcessAlive: (pid) => alive.has(pid)
+  });
+  const second = new PortReservationStore(directory, {
+    pid: 202,
+    isProcessAlive: (pid) => alive.has(pid)
+  });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  assert.equal(first.reserve({
+    id: 'first',
+    services: [{ port: 4310 }, { port: 4311 }]
+  }), undefined);
+  assert.deepEqual(second.reserve({
+    id: 'second',
+    services: [{ port: 4311 }, { port: 4312 }]
+  }), { port: 4311, projectId: 'first' });
+  assert.deepEqual(second.conflicts({
+    id: 'second',
+    services: [{ port: 4311 }, { port: 4312 }]
+  }), [{ port: 4311, projectId: 'first' }]);
+  assert.equal(fs.existsSync(path.join(directory, 'port-4312.lock')), false);
+});
+
+test('retries a reservation after its confirmed owner has exited', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-port-dead-owner-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const reservations = new PortReservationStore(directory, {
+    pid: 202,
+    isProcessAlive: (pid) => pid === 202
+  });
+  fs.writeFileSync(path.join(directory, 'port-4310.lock'), JSON.stringify({
+    pid: 101,
+    projectId: 'stopped-project',
+    state: 'running',
+    heartbeatAt: Date.now(),
+    token: 'stale-token'
+  }));
+
+  assert.equal(reservations.reserve({
+    id: 'next-project',
+    services: [{ port: 4310 }]
+  }), undefined);
+  assert.equal(JSON.parse(fs.readFileSync(
+    path.join(directory, 'port-4310.lock'),
+    'utf8'
+  )).projectId, 'next-project');
+});
+
 test('reports every live Runlist reservation that blocks a project', (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-port-conflicts-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));

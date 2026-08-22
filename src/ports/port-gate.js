@@ -6,6 +6,9 @@ const { writeFileAtomically } = require('../projects/project-store');
 
 const OWNER_HEARTBEAT_TIMEOUT_MS = 10000;
 const INVALID_RECORD_GRACE_MS = 2000;
+const LOCK_UPDATE_MAX_ATTEMPTS = 200;
+const LOCK_UPDATE_RETRY_MS = 5;
+const LOCK_UPDATE_WAIT = new Int32Array(new SharedArrayBuffer(4));
 
 function servicePorts(project) {
   return [...new Set((project?.services || [])
@@ -49,10 +52,14 @@ class PortReservationStore {
     this.invalidRecordGraceMs = options.invalidRecordGraceMs ?? INVALID_RECORD_GRACE_MS;
     this.locks = new Map();
     fs.mkdirSync(directory, { recursive: true });
-    this.removeStaleLocks();
+    this.withReservationTransaction(() => this.removeStaleLocks());
   }
 
   reserve(project) {
+    return this.withReservationTransaction(() => this.reserveUnlocked(project));
+  }
+
+  reserveUnlocked(project) {
     const acquired = [];
     for (const port of servicePorts(project).sort((left, right) => left - right)) {
       const conflict = this.acquire(port, project.id);
@@ -68,18 +75,20 @@ class PortReservationStore {
   }
 
   conflicts(project) {
+    return this.withReservationTransaction(() => this.conflictsUnlocked(project));
+  }
+
+  conflictsUnlocked(project) {
     const conflicts = [];
     for (const port of servicePorts(project).sort((left, right) => left - right)) {
       const lockPath = this.lockPath(port);
       const lock = readLock(lockPath);
       if (!lock) {
-        if (invalidRecordIsStale(lockPath, this.invalidRecordGraceMs, this.now())) {
-          tryUnlink(lockPath);
-        }
+        removeInvalidLock(lockPath, this.invalidRecordGraceMs, this.now());
         continue;
       }
       if (!lock.projectId || !lock.pid || !this.lockOwnerIsAlive(lock)) {
-        tryUnlink(lockPath);
+        updateLock(lockPath, (current) => current?.token === lock.token);
         continue;
       }
       if (lock.projectId !== project.id) {
@@ -90,6 +99,10 @@ class PortReservationStore {
   }
 
   release(projectId) {
+    return this.withReservationTransaction(() => this.releaseUnlocked(projectId));
+  }
+
+  releaseUnlocked(projectId) {
     for (const [port, lock] of this.locks) {
       if (lock.projectId === projectId) {
         this.releasePort(port);
@@ -98,11 +111,15 @@ class PortReservationStore {
   }
 
   releaseShared(projectId) {
+    return this.withReservationTransaction(() => this.releaseSharedUnlocked(projectId));
+  }
+
+  releaseSharedUnlocked(projectId) {
     for (const filename of this.lockFiles()) {
       const lockPath = path.join(this.directory, filename);
       const lock = readLock(lockPath);
       if (lock?.projectId === projectId) {
-        tryUnlink(lockPath);
+        updateLock(lockPath, (current) => current?.token === lock.token);
       }
     }
     for (const [port, lock] of this.locks) {
@@ -117,7 +134,11 @@ class PortReservationStore {
       const lockPath = path.join(this.directory, filename);
       const lock = readLock(lockPath);
       if (lock?.projectId === projectId) {
-        writeJsonAtomically(lockPath, { ...lock, heartbeatAt: this.now(), state });
+        updateLock(
+          lockPath,
+          (current) => current?.token === lock.token && current.projectId === projectId,
+          (current) => ({ ...current, heartbeatAt: this.now(), state })
+        );
       }
     }
   }
@@ -138,13 +159,18 @@ class PortReservationStore {
         ? expectedGeneration.get(port)
         : this.locks.get(port)?.token;
       if (lock?.projectId === projectId && expectedToken && lock.token === expectedToken) {
-        writeJsonAtomically(lockPath, {
-          ...lock,
-          heartbeatAt: this.now(),
-          childPid,
-          ...(typeof childIdentity === 'string' ? { childIdentity } : {})
-        });
-        updated += 1;
+        if (updateLock(
+          lockPath,
+          (current) => current?.token === expectedToken && current.projectId === projectId,
+          (current) => ({
+            ...current,
+            heartbeatAt: this.now(),
+            childPid,
+            ...(typeof childIdentity === 'string' ? { childIdentity } : {})
+          })
+        )) {
+          updated += 1;
+        }
       }
     }
     return updated;
@@ -176,33 +202,48 @@ class PortReservationStore {
         && current.childPid === lock.childPid
         && current.childIdentity === lock.childIdentity
         && !this.hostOwnerIsAvailable(current)) {
-        tryUnlink(lockPath);
-        removed += 1;
+        if (updateLock(
+          lockPath,
+          (latest) => latest?.token === lock.token
+            && latest.childPid === lock.childPid
+            && latest.childIdentity === lock.childIdentity
+            && !this.hostOwnerIsAvailable(latest)
+        )) {
+          removed += 1;
+        }
       }
     }
     return removed;
   }
 
   snapshot() {
+    return this.withReservationTransaction(() => this.snapshotUnlocked());
+  }
+
+  snapshotUnlocked() {
     const projects = new Map();
     for (const filename of this.lockFiles()) {
       const lockPath = path.join(this.directory, filename);
       let lock = readLock(lockPath);
       if (!lock) {
-        if (invalidRecordIsStale(lockPath, this.invalidRecordGraceMs, this.now())) {
-          tryUnlink(lockPath);
-        }
+        removeInvalidLock(lockPath, this.invalidRecordGraceMs, this.now());
         continue;
       }
       const local = this.locks.get(Number(filename.match(/\d+/)?.[0]));
       if (local?.token === lock.token
         && this.now() - (lock.heartbeatAt || 0) >= 1000) {
-        const updated = { ...lock, heartbeatAt: this.now() };
-        writeJsonAtomically(lockPath, updated);
-        lock = updated;
+        updateLock(
+          lockPath,
+          (current) => current?.token === lock.token,
+          (current) => ({ ...current, heartbeatAt: this.now() })
+        );
+        lock = readLock(lockPath);
+      }
+      if (!lock) {
+        continue;
       }
       if (!lock.projectId || !lock.pid || !this.lockOwnerIsAlive(lock)) {
-        tryUnlink(lockPath);
+        updateLock(lockPath, (current) => current?.token === lock.token);
         continue;
       }
       projects.set(lock.projectId, lock.state || 'running');
@@ -211,9 +252,11 @@ class PortReservationStore {
   }
 
   dispose() {
-    for (const port of [...this.locks.keys()]) {
-      this.releasePort(port);
-    }
+    this.withReservationTransaction(() => {
+      for (const port of [...this.locks.keys()]) {
+        this.releasePort(port);
+      }
+    });
   }
 
   acquire(port, projectId) {
@@ -242,9 +285,18 @@ class PortReservationStore {
           throw error;
         }
         const owner = readLock(lockPath);
-        if (!owner && invalidRecordIsStale(lockPath, this.invalidRecordGraceMs, this.now())) {
-          tryUnlink(lockPath);
+        if (!owner && removeInvalidLock(lockPath, this.invalidRecordGraceMs, this.now())) {
           continue;
+        }
+        if (owner && (!owner.projectId || !owner.pid || !this.lockOwnerIsAlive(owner))) {
+          const removed = updateLock(
+            lockPath,
+            (current) => current?.token === owner.token
+              && (!current.projectId || !current.pid || !this.lockOwnerIsAlive(current))
+          );
+          if (removed) {
+            continue;
+          }
         }
         return { port, projectId: owner?.projectId };
       }
@@ -259,7 +311,7 @@ class PortReservationStore {
     }
     const current = readLock(this.lockPath(port));
     if (current?.token === owned.token) {
-      tryUnlink(this.lockPath(port));
+      updateLock(this.lockPath(port), (latest) => latest?.token === owned.token);
     }
     this.locks.delete(port);
   }
@@ -269,15 +321,13 @@ class PortReservationStore {
       const lockPath = path.join(this.directory, filename);
       const lock = readLock(lockPath);
       if (!lock) {
-        if (invalidRecordIsStale(lockPath, this.invalidRecordGraceMs, this.now())) {
-          tryUnlink(lockPath);
-        }
+        removeInvalidLock(lockPath, this.invalidRecordGraceMs, this.now());
         continue;
       }
       if (lock.pid && this.lockOwnerIsAlive(lock)) {
         continue;
       }
-      tryUnlink(lockPath);
+      updateLock(lockPath, (current) => current?.token === lock.token);
     }
   }
 
@@ -299,6 +349,54 @@ class PortReservationStore {
   lockPath(port) {
     return path.join(this.directory, `port-${port}.lock`);
   }
+
+  withReservationTransaction(operation) {
+    const transactionPath = path.join(this.directory, '.reservation-transaction.lock');
+    let token;
+    for (let attempt = 0; attempt < LOCK_UPDATE_MAX_ATTEMPTS; attempt += 1) {
+      let descriptor;
+      try {
+        token = crypto.randomUUID();
+        descriptor = fs.openSync(transactionPath, 'wx', 0o600);
+        fs.writeFileSync(descriptor, JSON.stringify({ pid: process.pid, token }));
+        fs.closeSync(descriptor);
+        descriptor = undefined;
+        break;
+      } catch (error) {
+        if (descriptor !== undefined) {
+          fs.closeSync(descriptor);
+          tryUnlink(transactionPath);
+        }
+        if (error.code !== 'EEXIST') {
+          throw error;
+        }
+        const existing = readLock(transactionPath);
+        if (existing && !processIsAlive(existing.pid)) {
+          updateLock(
+            transactionPath,
+            (current) => current?.token === existing.token && !processIsAlive(current.pid)
+          );
+          continue;
+        }
+        if (!existing && removeInvalidLock(
+          transactionPath,
+          this.invalidRecordGraceMs,
+          this.now()
+        )) {
+          continue;
+        }
+        Atomics.wait(LOCK_UPDATE_WAIT, 0, 0, LOCK_UPDATE_RETRY_MS);
+      }
+    }
+    if (!token || readLock(transactionPath)?.token !== token) {
+      throw new Error('Runlist could not safely coordinate shared port reservations.');
+    }
+    try {
+      return operation();
+    } finally {
+      updateLock(transactionPath, (current) => current?.token === token);
+    }
+  }
 }
 
 function readLock(lockPath) {
@@ -319,6 +417,82 @@ function invalidRecordIsStale(filePath, graceMs, now) {
 
 function writeJsonAtomically(filePath, value) {
   writeFileAtomically(filePath, JSON.stringify(value));
+}
+
+function updateLock(lockPath, matches, update) {
+  const updatePath = `${lockPath}.update`;
+  let acquired = false;
+  for (let attempt = 0; attempt < LOCK_UPDATE_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const descriptor = fs.openSync(updatePath, 'wx');
+      fs.writeFileSync(descriptor, JSON.stringify({ pid: process.pid }));
+      fs.closeSync(descriptor);
+      acquired = true;
+      break;
+    } catch (error) {
+      if (error.code !== 'EEXIST') {
+        throw error;
+      }
+      if (updateMarkerIsAbandoned(updatePath, INVALID_RECORD_GRACE_MS, Date.now())) {
+        tryUnlink(updatePath);
+        continue;
+      }
+      Atomics.wait(LOCK_UPDATE_WAIT, 0, 0, LOCK_UPDATE_RETRY_MS);
+    }
+  }
+  if (!acquired) {
+    throw new Error('Runlist could not safely update a shared port reservation.');
+  }
+  try {
+    const current = readLock(lockPath);
+    const fingerprint = fileFingerprint(lockPath);
+    if (!matches(current, fingerprint)) {
+      return false;
+    }
+    if (typeof update === 'function') {
+      writeJsonAtomically(lockPath, update(current));
+    } else {
+      tryUnlink(lockPath);
+    }
+    return true;
+  } finally {
+    tryUnlink(updatePath);
+  }
+}
+
+function removeInvalidLock(lockPath, graceMs, now) {
+  if (!invalidRecordIsStale(lockPath, graceMs, now)) {
+    return false;
+  }
+  const observedFingerprint = fileFingerprint(lockPath);
+  if (!observedFingerprint) {
+    return false;
+  }
+  return updateLock(
+    lockPath,
+    (current, fingerprint) => !current && fingerprint === observedFingerprint
+  );
+}
+
+function fileFingerprint(filePath) {
+  try {
+    const contents = fs.readFileSync(filePath);
+    const stat = fs.statSync(filePath);
+    return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${crypto
+      .createHash('sha256')
+      .update(contents)
+      .digest('hex')}`;
+  } catch {
+    return undefined;
+  }
+}
+
+function updateMarkerIsAbandoned(filePath, graceMs, now) {
+  const marker = readLock(filePath);
+  if (Number.isInteger(marker?.pid) && marker.pid > 0) {
+    return !processIsAlive(marker.pid);
+  }
+  return invalidRecordIsStale(filePath, graceMs, now);
 }
 
 function tryUnlink(lockPath) {

@@ -358,6 +358,28 @@ test('escalates only the owned POSIX process group when descendants ignore SIGTE
   assert.deepEqual(signals, [[-505, 'SIGTERM'], [-505, 'SIGKILL']]);
 });
 
+test('accepts a POSIX process group that exits immediately before escalation', async () => {
+  const signals = [];
+  let livenessChecks = 0;
+  await terminateProcessTree(507, {
+    platform: 'darwin',
+    terminateTimeoutMs: 0,
+    kill: (pid, signal) => {
+      signals.push([pid, signal]);
+      if (signal === 0) {
+        livenessChecks += 1;
+        if (livenessChecks === 1) {
+          return;
+        }
+      }
+      if (signal === 'SIGKILL' || signal === 0) {
+        throw Object.assign(new Error('not found'), { code: 'ESRCH' });
+      }
+    }
+  });
+  assert.deepEqual(signals, [[-507, 'SIGTERM'], [-507, 0], [-507, 'SIGKILL'], [-507, 0]]);
+});
+
 test('confirms an empty POSIX process group when signal-zero is denied after termination', async () => {
   const signals = [];
   await terminateProcessTree(506, {
@@ -509,6 +531,24 @@ test('refuses to terminate a reused process identifier', async () => {
   }), /process identity changed/i);
 
   assert.equal(terminationCalls, 0);
+  assert.equal(processes.get('project'), child);
+});
+
+test('revalidates tracked process identity immediately before tree termination', async () => {
+  const child = {
+    pid: 120,
+    exitCode: null,
+    signalCode: null,
+    runlistIdentity: '120:first'
+  };
+  const processes = new Map([['project', child]]);
+  let reads = 0;
+
+  await assert.rejects(() => terminateTrackedProcess(processes, 'project', {
+    platform: 'win32',
+    readProcessIdentity: async () => (++reads === 1 ? '120:first' : '120:replacement')
+  }), /identity changed/i);
+  assert.equal(reads, 2);
   assert.equal(processes.get('project'), child);
 });
 
@@ -701,6 +741,60 @@ test('expires a reused host PID after its ownership heartbeat stops', (t) => {
   now = 7001;
   assert.equal(observer.snapshot().has('project-1'), false);
   assert.equal(observer.reserve('project-1'), undefined);
+});
+
+test('does not let a stale heartbeat overwrite a newer process owner', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-process-heartbeat-race-'));
+  let now = 1000;
+  let replaceOwner = false;
+  let ownershipPath;
+  const owner = new ProcessOwnershipStore(directory, {
+    pid: 101,
+    now: () => {
+      if (replaceOwner) {
+        replaceOwner = false;
+        fs.writeFileSync(ownershipPath, JSON.stringify({
+          projectId: 'project-1',
+          hostPid: 202,
+          platform: 'linux',
+          state: 'starting',
+          heartbeatAt: now,
+          token: 'new-owner-token'
+        }));
+      }
+      return now;
+    },
+    isProcessAlive: (pid) => [101, 202].includes(pid)
+  });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  owner.reserve('project-1');
+  ownershipPath = owner.ownershipPath('project-1');
+  now = 3000;
+  replaceOwner = true;
+
+  const snapshot = owner.snapshot().get('project-1');
+  assert.equal(snapshot.token, 'new-owner-token');
+  assert.equal(snapshot.hostPid, 202);
+  assert.equal(JSON.parse(fs.readFileSync(ownershipPath, 'utf8')).token, 'new-owner-token');
+});
+
+test('recovers an ownership update marker only after its owner is gone', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-process-update-owner-'));
+  const owner = new ProcessOwnershipStore(directory, {
+    pid: 101,
+    now: () => 1000,
+    isProcessAlive: (pid) => pid === 101
+  });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  owner.reserve('project-1');
+  fs.writeFileSync(`${owner.ownershipPath('project-1')}.update`, JSON.stringify({
+    pid: 2147483647
+  }));
+
+  assert.equal(owner.setState('project-1', 'running'), true);
+  assert.equal(owner.snapshot().get('project-1').state, 'running');
 });
 
 test('persists process identity and refuses recovered termination after PID reuse', async (t) => {

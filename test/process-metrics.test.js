@@ -228,6 +228,32 @@ test('uses exact POSIX process-group queries and ignores rows outside that group
   assert.equal(parseCpuTime('1-02:03:04.5'), 93784.5);
 });
 
+test('uses Linux kernel start ticks for process identity', async () => {
+  const rows = await readOwnedProcessTree(41, 'linux', {
+    runFile: async (command) => command === 'pgrep'
+      ? '41\n42\n'
+      : [
+        ' 41 1 41 Sun Aug 16 12:00:00 2026 00:01.00 1024',
+        ' 42 41 41 Sun Aug 16 12:00:01 2026 00:00.50 2048'
+      ].join('\n'),
+    readLinuxStartTicks: async (pid) => String(987654 + pid)
+  });
+
+  assert.deepEqual(rows.map(({ pid, identity }) => ({ pid, identity })), [
+    { pid: 41, identity: '41:linux:987695' },
+    { pid: 42, identity: '42:linux:987696' }
+  ]);
+});
+
+test('fails closed when Linux kernel process identity is unavailable', async () => {
+  const actual = await readRootProcess(55, 'linux', {
+    runFile: async () => ' 55 1 55 Sun Aug 16 12:00:00 2026 00:01.00 1024',
+    readLinuxStartTicks: async () => { throw new Error('procfs unavailable'); }
+  });
+
+  assert.equal(actual, undefined);
+});
+
 test('builds a bounded Windows descendant query without a system-wide process request', () => {
   const script = windowsProcessScript(55, true);
   assert.match(script, /ProcessId = /);

@@ -165,6 +165,33 @@ test('applies a confirmed preview with one versioned store replacement', (t) => 
   assert.deepEqual(readProjects(fixture.projectsFile), result);
 });
 
+test('current exports clear optional project metadata omitted by the source', (t) => {
+  const fixture = transferFixture(t);
+  const folder = fixture.folder('replace-metadata');
+  const existing = {
+    ...project('existing-id', 'Existing', folder),
+    pinned: true,
+    tags: ['frontend'],
+    launchProfiles: [{
+      id: 'tests',
+      name: 'Tests',
+      startCommand: 'npm test',
+      services: []
+    }],
+    selectedLaunchProfileId: 'tests'
+  };
+  const imported = parseImportDocument(exportProjectDocument([
+    project('incoming-id', 'Existing', folder)
+  ]));
+
+  const preview = previewProjectImport([existing], imported);
+  assert.equal(preview.entries[0].status, 'update');
+  assert.equal(preview.entries[0].project.pinned, undefined);
+  assert.equal(preview.entries[0].project.tags, undefined);
+  assert.equal(preview.entries[0].project.launchProfiles, undefined);
+  assert.equal(preview.entries[0].project.selectedLaunchProfileId, undefined);
+});
+
 test('rejects a stale preview without replacing newer project data', (t) => {
   const fixture = transferFixture(t);
   const initial = project('initial-id', 'Initial', fixture.folder('initial'));

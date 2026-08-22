@@ -32,6 +32,33 @@ test('round-trips alternate launch profiles through the project form model', () 
   assert.equal(setup.selectedLaunchProfileId, 'tests');
 });
 
+test('reveals and validates an invalid profile even when another profile is being edited', () => {
+  const validation = validateProjectForm({
+    folder: '/tmp/project',
+    startCommand: 'npm start',
+    services: [{ name: 'web', port: '3000' }],
+    launchProfiles: [{
+      id: 'tests',
+      name: 'Tests',
+      startCommand: '',
+      services: [{
+        name: 'api',
+        port: '4311',
+        healthCheck: { mode: 'http', timeoutMs: '5000' }
+      }]
+    }],
+    selectedLaunchProfileId: 'default',
+    editingLaunchProfileId: 'default'
+  });
+
+  assert.equal(validation.errorProfileId, 'tests');
+  assert.equal(validation.values.editingLaunchProfileId, 'tests');
+  assert.equal(validation.values.selectedLaunchProfileId, 'default');
+  assert.equal(validation.errors['start-command'], 'Enter a start command.');
+  assert.match(validation.errors['service-health-timeout-0'], /100 to 3000/);
+  assert.equal(validation.firstField, 'start-command');
+});
+
 test('validates and stores explicit health checks without changing defaults', () => {
   const input = {
     folder: 'C:\\project',
@@ -68,6 +95,17 @@ test('validates and stores explicit health checks without changing defaults', ()
     }]
   });
   assert.equal(invalid.firstField, 'service-health-timeout-0');
+
+  for (const target of ['//example.test/health', '/\\example.test/health']) {
+    const escaped = validateProjectForm({
+      ...input,
+      services: [{
+        ...input.services[0],
+        healthCheck: { ...input.services[0].healthCheck, target }
+      }]
+    });
+    assert.match(escaped.errors['service-health-target-0'], /safe HTTP\/HTTPS URL/);
+  }
 });
 
 test('validates and normalizes optional project tags', () => {

@@ -229,6 +229,12 @@ test('does not escalate a custom stop into port or process cleanup', () => {
   assert.doesNotMatch(customStopSource, /forceCloseProjectPorts|stopOwnedProjectProcess/);
 });
 
+test('verifies the custom stop shell identity before timeout cleanup', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  assert.match(source, /const stopProcessIdentity = readProcessIdentity\(stopProcess\.pid\)/);
+  assert.match(source, /terminateProcessTree\(stopProcess\.pid, \{[\s\S]*expectedIdentity,[\s\S]*readProcessIdentity/);
+});
+
 test('uses the saved custom stop during awaited shutdown without opening a deactivation modal', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
 

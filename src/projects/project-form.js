@@ -76,55 +76,15 @@ function projectFormActiveProfile(values) {
     };
 }
 
-function validateProjectForm(input) {
-  const values = projectFormValues(input);
-  const activeProfile = projectFormActiveProfile(values);
+function validateProfileServices(services) {
   const errors = {};
-  if (values.name.trim().length > 100) {
-    errors['project-name'] = 'Project name cannot contain more than 100 characters.';
-  }
-  try {
-    normalizeProjectTags(values.tags);
-  } catch (error) {
-    errors.tags = error.message;
-  }
-  if (!values.folder.trim()) {
-    errors.folder = 'Choose a project folder.';
-  }
-  if (!activeProfile.startCommand.trim()) {
-    errors['start-command'] = 'Enter a start command.';
-  }
-  if (activeProfile.services.length > MAX_SERVICES) {
+  if (services.length > MAX_SERVICES) {
     errors.services = `Configure no more than ${MAX_SERVICES} services.`;
   }
-  if (values.launchProfiles.length >= MAX_LAUNCH_PROFILES) {
-    errors['launch-profile-name'] = `Configure no more than ${MAX_LAUNCH_PROFILES} launch profiles.`;
-  }
-  const profileNames = new Map([[DEFAULT_LAUNCH_PROFILE_NAME.toLocaleLowerCase(), DEFAULT_LAUNCH_PROFILE_ID]]);
-  values.launchProfiles.forEach((profile) => {
-    const name = profile.name.trim();
-    const normalized = name.toLocaleLowerCase();
-    if (!name || name.length > 100) {
-      if (profile.id === activeProfile.id) {
-        errors['launch-profile-name'] = 'Profile name must contain 1 to 100 characters.';
-      } else {
-        errors.form ||= 'Every launch profile needs a name containing 1 to 100 characters.';
-      }
-    } else if (profileNames.has(normalized)) {
-      if (profile.id === activeProfile.id) {
-        errors['launch-profile-name'] = 'Use a unique launch profile name.';
-      } else {
-        errors.form ||= 'Launch profile names must be unique.';
-      }
-    } else {
-      profileNames.set(normalized, profile.id);
-    }
-  });
-
   const names = new Map();
   const ports = new Map();
   const portVariables = new Map();
-  activeProfile.services.forEach((service, index) => {
+  services.forEach((service, index) => {
     const name = service.name.trim();
     const portText = service.port.trim();
     const url = service.url.trim();
@@ -181,7 +141,7 @@ function validateProjectForm(input) {
     }
     if (health.mode === 'http') {
       const target = health.target.trim();
-      if (target && !target.startsWith('/') && !safeServiceUrl(target)) {
+      if (target && !validRelativeHealthPath(target) && !safeServiceUrl(target)) {
         errors[`service-health-target-${index}`] = 'Enter a safe HTTP/HTTPS URL or a path beginning with /.';
       }
       if (!['HEAD', 'GET'].includes(health.method)) {
@@ -204,8 +164,75 @@ function validateProjectForm(input) {
       }
     }
   });
+  return errors;
+}
 
-  const serviceFields = activeProfile.services.flatMap((service, index) => [
+function validateProjectForm(input) {
+  const values = projectFormValues(input);
+  const activeProfile = projectFormActiveProfile(values);
+  const errors = {};
+  if (values.name.trim().length > 100) {
+    errors['project-name'] = 'Project name cannot contain more than 100 characters.';
+  }
+  try {
+    normalizeProjectTags(values.tags);
+  } catch (error) {
+    errors.tags = error.message;
+  }
+  if (!values.folder.trim()) {
+    errors.folder = 'Choose a project folder.';
+  }
+  if (values.launchProfiles.length >= MAX_LAUNCH_PROFILES) {
+    errors.form = `Configure no more than ${MAX_LAUNCH_PROFILES} launch profiles.`;
+  }
+
+  const profiles = [
+    {
+      id: DEFAULT_LAUNCH_PROFILE_ID,
+      name: DEFAULT_LAUNCH_PROFILE_NAME,
+      startCommand: values.startCommand,
+      stopCommand: values.stopCommand,
+      services: values.services
+    },
+    ...values.launchProfiles
+  ];
+  const profileErrors = new Map(profiles.map((profile) => [profile.id, {}]));
+  const profileNames = new Map();
+  for (const profile of profiles) {
+    const name = profile.name.trim();
+    const normalized = name.toLocaleLowerCase();
+    if (profile.id !== DEFAULT_LAUNCH_PROFILE_ID && (!name || name.length > 100)) {
+      profileErrors.get(profile.id)['launch-profile-name'] = 'Profile name must contain 1 to 100 characters.';
+    } else if (profileNames.has(normalized)) {
+      const duplicateMessage = 'Use a unique launch profile name.';
+      profileErrors.get(profile.id)['launch-profile-name'] = duplicateMessage;
+      const firstProfileId = profileNames.get(normalized);
+      if (firstProfileId !== DEFAULT_LAUNCH_PROFILE_ID) {
+        profileErrors.get(firstProfileId)['launch-profile-name'] = duplicateMessage;
+      }
+    } else {
+      profileNames.set(normalized, profile.id);
+    }
+    if (!profile.startCommand.trim()) {
+      profileErrors.get(profile.id)['start-command'] = 'Enter a start command.';
+    }
+    Object.assign(profileErrors.get(profile.id), validateProfileServices(profile.services));
+  }
+
+  const profileValidationOrder = [
+    activeProfile,
+    ...profiles.filter((profile) => profile.id !== activeProfile.id)
+  ];
+  const invalidProfile = profileValidationOrder.find((profile) => (
+    Object.keys(profileErrors.get(profile.id)).length > 0
+  ));
+  if (invalidProfile) {
+    Object.assign(errors, profileErrors.get(invalidProfile.id));
+    values.editingLaunchProfileId = invalidProfile.id;
+  }
+
+  const visibleServices = invalidProfile?.services || activeProfile.services;
+  const serviceFields = visibleServices.flatMap((service, index) => [
     `service-name-${index}`,
     `service-port-${index}`,
     `service-port-variable-${index}`,
@@ -221,8 +248,13 @@ function validateProjectForm(input) {
     errors,
     firstField: ['project-name', 'tags', 'folder', 'launch-profile-name', 'start-command', 'stop-command', 'services', ...serviceFields, 'form']
       .find((field) => errors[field]),
+    errorProfileId: invalidProfile?.id,
     values
   };
+}
+
+function validRelativeHealthPath(value) {
+  return value.startsWith('/') && !['/', '\\'].includes(value[1]);
 }
 
 function projectFormServices(values) {
