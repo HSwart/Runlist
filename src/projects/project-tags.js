@@ -24,7 +24,7 @@ function normalizeProjectTags(value) {
     if (tag.length > MAX_PROJECT_TAG_LENGTH) {
       throw new Error(`Each tag must contain no more than ${MAX_PROJECT_TAG_LENGTH} characters.`);
     }
-    const identity = tag.toLocaleLowerCase();
+    const identity = tag.toLowerCase();
     if (!seen.has(identity)) {
       seen.add(identity);
       tags.push(tag);
@@ -44,7 +44,7 @@ function projectTagVocabulary(projects) {
   const firstByIdentity = new Map();
   for (const project of projects || []) {
     for (const tag of project.tags || []) {
-      const identity = tag.toLocaleLowerCase();
+      const identity = tag.toLowerCase();
       if (!firstByIdentity.has(identity)) {
         firstByIdentity.set(identity, tag);
       }
