@@ -40,8 +40,9 @@ test('does not treat a port-only reservation as a managed process', () => {
     localProcessIds: ['local'],
     processRuntime: new Map([['remote', { state: 'running' }]]),
     startAttemptIds: ['starting'],
+    detachedProjectIds: ['detached'],
     portRuntime: new Map([['port-only', 'running']])
-  })].sort(), ['local', 'remote', 'starting']);
+  })].sort(), ['detached', 'local', 'remote', 'starting']);
 });
 
 test('flags a port reservation without process ownership as unsafe for deletion', () => {

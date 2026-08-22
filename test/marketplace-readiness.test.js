@@ -14,6 +14,8 @@ test('validates Marketplace metadata for the selected publisher and release', ()
   assert.equal(manifest.displayName, 'Runlist');
   assert.equal(manifest.publisher, 'hankoswart');
   assert.equal(manifest.repository.url, 'https://github.com/HSwart/Runlist.git');
+  assert.equal(manifest.keywords.includes('project manager'), false);
+  assert.equal(manifest.keywords.includes('process control'), true);
   assert.equal(
     manifest.scripts['publish:marketplace'],
     'npm run validate:marketplace:publish && npm run validate:marketplace:vsix && vsce publish --azure-credential --packagePath releases/runlist.vsix'

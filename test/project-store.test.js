@@ -10,6 +10,7 @@ const {
   parseProjectDocument,
   readProjects,
   removeProject,
+  saveProjectSnapshot,
   selectProjectLaunchProfile,
   serializeProjectDocument,
   toggleProjectPinned,
@@ -151,6 +152,23 @@ test('rejects a create snapshot after another window adds the same folder', (t) 
     expectProjectAbsent: true,
     reviewRequired: true
   }), (error) => error.code === 'STALE_PROJECT');
+  assert.equal(readProjects(projectsFile)[0].startCommand, 'npm start');
+});
+
+test('manual Add cannot overwrite an existing project with the same folder', (t) => {
+  const { projectFolder, projectsFile } = projectStoreFixture(t);
+  upsertProject(projectsFile, {
+    folder: projectFolder,
+    startCommand: 'npm start',
+    services: []
+  }, { reviewRequired: false });
+
+  assert.throws(() => saveProjectSnapshot(projectsFile, {
+    folder: projectFolder,
+    startCommand: 'npm run replacement',
+    services: []
+  }), (error) => error.code === 'STALE_PROJECT'
+    && /folder is already saved/i.test(error.message));
   assert.equal(readProjects(projectsFile)[0].startCommand, 'npm start');
 });
 

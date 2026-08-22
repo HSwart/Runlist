@@ -506,11 +506,13 @@ function runningAppProjectIds(projects) {
 }
 
 function managedRuntimeProjectIds({
+  detachedProjectIds = [],
   localProcessIds = [],
   processRuntime = new Map(),
   startAttemptIds = []
 } = {}) {
   return new Set([
+    ...detachedProjectIds,
     ...localProcessIds,
     ...processRuntime.keys(),
     ...startAttemptIds

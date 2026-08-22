@@ -21,9 +21,9 @@ Runlist is a focused VS Code sidebar for saving, starting, stopping, and opening
 ## Process and port safety
 
 - Support Windows, macOS, and Linux.
-- Treat configured ports as lightweight service metadata, not as a port-management system.
-- Never terminate a process merely because it owns a configured port.
-- Stop only the exact process tree Runlist launched, unless the user supplied an explicit custom stop command.
+- Treat configured ports as lightweight service metadata and an explicit recovery boundary, not as proof that Runlist owns a process.
+- Close an external listener only after showing its exact port and PID in a clear modal warning, receiving explicit confirmation, and revalidating its process identity.
+- Stop the exact process tree Runlist launched by default. Keep confirmed external-listener recovery and explicit custom stop commands as separate user actions.
 - Preserve safe coordination across multiple VS Code windows.
 - Be conservative when ownership or state is uncertain and explain failures clearly.
 

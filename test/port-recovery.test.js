@@ -29,15 +29,18 @@ test('identifies only live available Runlist owners as close-and-start blockers'
   ]);
 
   assert.deepEqual(managedPortBlockers(
-    ['live', 'live', 'stopping', 'orphan', 'exited'],
+    ['live', 'live', 'stopping', 'orphan', 'exited', 'detached'],
     runtime,
     [
       { id: 'live', name: 'Live project' },
-      { id: 'stopping', name: 'Stopping project' }
-    ]
+      { id: 'stopping', name: 'Stopping project' },
+      { id: 'detached', name: 'Detached project' }
+    ],
+    new Set(['detached'])
   ), [
     { id: 'live', name: 'Live project' },
-    { id: 'stopping', name: 'Stopping project' }
+    { id: 'stopping', name: 'Stopping project' },
+    { id: 'detached', name: 'Detached project' }
   ]);
 });
 
@@ -340,18 +343,20 @@ test('never offers to terminate the current extension host', async () => {
   assert.deepEqual(result, { status: 'protected', processes: ['node (PID 999)'] });
 });
 
-test('builds a plain-language native confirmation with services, ports, and exact PIDs', () => {
+test('warns clearly before closing external listeners with exact services, ports, and PIDs', () => {
   assert.deepEqual(portClosureConfirmation(project, 'start', [4280, 7071], [
     { pid: 120, identity: '120:first', name: 'node', ports: [4280] },
     { pid: 240, identity: '240:first', name: 'func', ports: [7071] }
   ]), {
     message: 'Close the processes blocking AppSuite Attributes Finder?',
-    confirmLabel: 'Close processes and start',
+    confirmLabel: 'Yes, close processes and start',
     detail: [
       'web :4280 — node (PID 120)',
       'api :7071 — func (PID 240)',
       '',
-      'These processes may belong to another app. Unsaved work in them could be lost.'
+      'Runlist may not have started these processes. Closing them can stop another app and discard unsaved work.',
+      '',
+      'Are you sure you want to continue?'
     ].join('\n')
   });
 });

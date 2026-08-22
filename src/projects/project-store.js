@@ -1005,7 +1005,7 @@ function upsertProject(filePath, input, options = {}) {
   if (options.expectProjectAbsent && existing) {
     throw projectStoreError(
       'STALE_PROJECT',
-      'This project was added in another VS Code window. Retry the setup before saving.'
+      'This folder is already saved in Runlist. Open the existing project before changing its setup.'
     );
   }
   if (options.expectedProject
@@ -1033,6 +1033,16 @@ function upsertProject(filePath, input, options = {}) {
     action: existing ? 'updated' : 'created',
     project
   };
+}
+
+function saveProjectSnapshot(filePath, input, options = {}) {
+  const existingProject = options.existingProject;
+  return upsertProject(filePath, input, {
+    ...(existingProject
+      ? { expectedProject: options.expectedProject }
+      : { expectProjectAbsent: true }),
+    reviewRequired: false
+  });
 }
 
 function findProjectByFolder(filePath, folder) {
@@ -1316,6 +1326,7 @@ module.exports = {
   readRunGroups,
   removeProject,
   removeRunGroup,
+  saveProjectSnapshot,
   serializeProjectDocument,
   selectProjectLaunchProfile,
   toggleProjectPinned,

@@ -1021,8 +1021,14 @@ function lastUsefulLine(value) {
     .at(-1);
 }
 
-function startExitFailed({ code, hasServices, stoppedIntentionally }) {
-  return !stoppedIntentionally && (code !== 0 || hasServices);
+function startExitDetached({ code, hasCustomStop, hasServices, stoppedIntentionally }) {
+  return !stoppedIntentionally && code === 0 && hasServices && hasCustomStop;
+}
+
+function startExitFailed(details) {
+  return !details.stoppedIntentionally
+    && !startExitDetached(details)
+    && (details.code !== 0 || details.hasServices);
 }
 
 module.exports = {
@@ -1038,6 +1044,7 @@ module.exports = {
   rollbackStartedProcess,
   shutdownTrackedProcesses,
   shouldRequestRemoteCustomStop,
+  startExitDetached,
   startExitFailed,
   terminateProcessTree,
   terminateTrackedProcess

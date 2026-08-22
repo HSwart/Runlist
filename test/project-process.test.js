@@ -14,6 +14,7 @@ const {
   rollbackStartedProcess,
   shutdownTrackedProcesses,
   shouldRequestRemoteCustomStop,
+  startExitDetached,
   startExitFailed,
   terminateProcessTree,
   terminateTrackedProcess
@@ -302,10 +303,33 @@ test('runs explicit custom stop commands through the platform shell', () => {
 });
 
 test('retains a failed start when a managed command exits before its services are ready', () => {
-  assert.equal(startExitFailed({ code: 0, hasServices: true, stoppedIntentionally: false }), true);
+  assert.equal(startExitFailed({
+    code: 0,
+    hasCustomStop: false,
+    hasServices: true,
+    stoppedIntentionally: false
+  }), true);
+  assert.equal(startExitFailed({
+    code: 0,
+    hasCustomStop: true,
+    hasServices: true,
+    stoppedIntentionally: false
+  }), false);
   assert.equal(startExitFailed({ code: 1, hasServices: false, stoppedIntentionally: false }), true);
   assert.equal(startExitFailed({ code: 0, hasServices: false, stoppedIntentionally: false }), false);
   assert.equal(startExitFailed({ code: 1, hasServices: true, stoppedIntentionally: true }), false);
+  assert.equal(startExitDetached({
+    code: 0,
+    hasCustomStop: true,
+    hasServices: true,
+    stoppedIntentionally: false
+  }), true);
+  assert.equal(startExitDetached({
+    code: 0,
+    hasCustomStop: false,
+    hasServices: true,
+    stoppedIntentionally: false
+  }), false);
 });
 
 test('terminates only the requested POSIX process group', async () => {
@@ -482,6 +506,7 @@ test('allows confirmed recovery to reconcile an exact tracked process that alrea
 
   assert.equal(await terminateTrackedProcess(processes, 'project', {
     allowMissing: true,
+    isProcessAlive: () => false,
     platform: 'win32',
     readProcessIdentity: async () => undefined,
     spawnProcess: () => {

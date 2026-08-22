@@ -76,14 +76,19 @@ function portClosureConfirmation(project, intent, openPorts, processes) {
   for (const processInfo of (processes || []).filter((candidate) => !candidate.ports?.length)) {
     lines.push(`Project process — ${processInfo.name} (PID ${processInfo.pid})`);
   }
-  lines.push('', 'These processes may belong to another app. Unsaved work in them could be lost.');
+  lines.push(
+    '',
+    'Runlist may not have started these processes. Closing them can stop another app and discard unsaved work.',
+    '',
+    'Are you sure you want to continue?'
+  );
   return {
     message: intent === 'start'
       ? `Close the processes blocking ${project.name}?`
       : openPorts.length
         ? `Close the processes using ${project.name}'s ports?`
         : `Close the saved process running ${project.name}?`,
-    confirmLabel: intent === 'start' ? 'Close processes and start' : 'Close processes',
+    confirmLabel: intent === 'start' ? 'Yes, close processes and start' : 'Yes, close processes',
     detail: lines.join('\n')
   };
 }
@@ -155,11 +160,17 @@ function groupProcesses(listeners) {
   ));
 }
 
-function managedPortBlockers(projectIds, processRuntime, projects = []) {
+function managedPortBlockers(
+  projectIds,
+  processRuntime,
+  projects = [],
+  localDetachedProjectIds = new Set()
+) {
   const names = new Map(projects.map((project) => [project.id, project.name]));
   return [...new Set(projectIds || [])].map((projectId) => {
     const ownership = processRuntime?.get(projectId);
-    if (!ownership?.ownerAvailable || !ownership.processActive) {
+    if (!localDetachedProjectIds.has(projectId)
+      && (!ownership?.ownerAvailable || !ownership.processActive)) {
       return undefined;
     }
     return {

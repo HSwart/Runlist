@@ -1,5 +1,6 @@
 const path = require('path');
 const { spawn } = require('child_process');
+const crypto = require('crypto');
 
 const SERVER_NAME = 'runlist';
 const MACOS_CODEX_CLI = '/Applications/Codex.app/Contents/Resources/codex';
@@ -124,11 +125,11 @@ function serverEnvironmentArguments(projectsFile) {
   ];
 }
 
-function buildCodexAddArguments({ projectsFile, runtimePath, serverPath }) {
+function buildCodexAddArguments({ projectsFile, runtimePath, serverPath }, serverName = SERVER_NAME) {
   return [
     'mcp',
     'add',
-    SERVER_NAME,
+    serverName,
     ...serverEnvironmentArguments(projectsFile),
     '--',
     runtimePath,
@@ -136,7 +137,7 @@ function buildCodexAddArguments({ projectsFile, runtimePath, serverPath }) {
   ];
 }
 
-function buildClaudeAddArguments({ projectsFile, runtimePath, serverPath }) {
+function buildClaudeAddArguments({ projectsFile, runtimePath, serverPath }, serverName = SERVER_NAME) {
   return [
     'mcp',
     'add',
@@ -145,7 +146,7 @@ function buildClaudeAddArguments({ projectsFile, runtimePath, serverPath }) {
     ...serverEnvironmentArguments(projectsFile),
     '--scope',
     'user',
-    SERVER_NAME,
+    serverName,
     '--',
     runtimePath,
     serverPath
@@ -253,15 +254,34 @@ function isMissingServerError(error) {
 
 async function refreshRegistration({
   addArguments,
+  candidateAddArguments,
+  candidateRemoveArguments,
   candidates,
   clientLabel,
   environment,
+  getArguments,
   platform,
   removeArguments
 }, run = runProcess) {
   const execute = (command, args) => run(command, args, { environment, platform });
   const command = await findCommand(candidates, clientLabel, execute);
 
+  let registrationExists = true;
+  try {
+    await execute(command, getArguments);
+  } catch (error) {
+    if (!isMissingServerError(error)) {
+      throw error;
+    }
+    registrationExists = false;
+  }
+
+  if (!registrationExists) {
+    await execute(command, addArguments);
+    return;
+  }
+
+  await execute(command, candidateAddArguments);
   try {
     await execute(command, removeArguments);
   } catch (error) {
@@ -269,13 +289,26 @@ async function refreshRegistration({
       throw error;
     }
   }
+  try {
+    await execute(command, addArguments);
+  } catch (error) {
+    error.fallbackRegistration = candidateAddArguments;
+    throw error;
+  }
 
-  await execute(command, addArguments);
+  try {
+    await execute(command, candidateRemoveArguments);
+  } catch {
+    // The requested registration is active; a temporary preflight entry is harmless.
+  }
 }
 
 async function registerWithCodex(options, run = runProcess) {
+  const candidateName = options.candidateName || `${SERVER_NAME}-refresh-${crypto.randomUUID()}`;
   return refreshRegistration({
     addArguments: buildCodexAddArguments(options),
+    candidateAddArguments: buildCodexAddArguments(options, candidateName),
+    candidateRemoveArguments: ['mcp', 'remove', candidateName],
     candidates: codexCommandCandidates(
       options.platform,
       options.environment,
@@ -283,14 +316,18 @@ async function registerWithCodex(options, run = runProcess) {
     ),
     clientLabel: 'Codex',
     environment: options.environment,
+    getArguments: ['mcp', 'get', SERVER_NAME, '--json'],
     platform: options.platform,
     removeArguments: ['mcp', 'remove', SERVER_NAME]
   }, run);
 }
 
 async function registerWithClaude(options, run = runProcess) {
+  const candidateName = options.candidateName || `${SERVER_NAME}-refresh-${crypto.randomUUID()}`;
   return refreshRegistration({
     addArguments: buildClaudeAddArguments(options),
+    candidateAddArguments: buildClaudeAddArguments(options, candidateName),
+    candidateRemoveArguments: ['mcp', 'remove', '--scope', 'user', candidateName],
     candidates: claudeCommandCandidates(
       options.platform,
       options.environment,
@@ -298,6 +335,7 @@ async function registerWithClaude(options, run = runProcess) {
     ),
     clientLabel: 'Claude Code',
     environment: options.environment,
+    getArguments: ['mcp', 'get', SERVER_NAME],
     platform: options.platform,
     removeArguments: ['mcp', 'remove', '--scope', 'user', SERVER_NAME]
   }, run);

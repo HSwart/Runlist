@@ -76,6 +76,7 @@ const {
   rollbackStartedProcess,
   shutdownTrackedProcesses,
   shouldRequestRemoteCustomStop,
+  startExitDetached,
   startExitFailed,
   terminateProcessTree,
   terminateTrackedProcess
@@ -150,9 +151,9 @@ const {
   readRunGroups,
   removeProject,
   removeRunGroup,
+  saveProjectSnapshot,
   selectProjectLaunchProfile,
   toggleProjectPinned,
-  upsertProject,
   upsertRunGroup
 } = require('./src/projects/project-store');
 
@@ -204,6 +205,7 @@ class RunlistViewProvider {
     this.projectFailureDetails = new Map();
     this.outputUpdateScheduler = createOutputUpdateScheduler((id) => this.sendProjectOutput(id));
     this.managedProjectIds = new Set();
+    this.detachedProjectIds = new Set();
     this.portReservations = new PortReservationStore(
       path.join(path.dirname(projectsFile), 'port-reservations')
     );
@@ -514,11 +516,14 @@ class RunlistViewProvider {
       const projects = this.projects;
       const portRuntime = this.portReservations.snapshot();
       const processRuntime = this.processOwnership.snapshot();
-      const handoffOwnerIds = new Set([...processRuntime]
-        .filter(([, ownership]) => ownership.ownerAvailable
-          && ownership.processActive
-          && ownership.state !== 'stopping')
-        .map(([id]) => id));
+      const handoffOwnerIds = new Set([
+        ...this.detachedProjectIds,
+        ...[...processRuntime]
+          .filter(([, ownership]) => ownership.ownerAvailable
+            && ownership.processActive
+            && ownership.state !== 'stopping')
+          .map(([id]) => id)
+      ]);
       for (const [id, request] of [...this.remoteStopRequests]) {
         const ownership = processRuntime.get(id);
         if (!ownership) {
@@ -540,6 +545,7 @@ class RunlistViewProvider {
         }
       }
       const managedProjectIds = managedRuntimeProjectIds({
+        detachedProjectIds: this.detachedProjectIds,
         localProcessIds: this.processes.keys(),
         processRuntime,
         startAttemptIds: this.startAttempts.keys()
@@ -1626,14 +1632,14 @@ class RunlistViewProvider {
     }
 
     try {
-      const saved = upsertProject(this.projectsFile, {
+      const saved = saveProjectSnapshot(this.projectsFile, {
         id: projectId,
         name,
         folder,
         ...setup
       }, {
-        expectedProject: existingProject ? this.formProjectSnapshot : undefined,
-        reviewRequired: false
+        existingProject,
+        expectedProject: this.formProjectSnapshot
       });
       projectId = saved.project.id;
       clearProjectDiagnostics(this.projectsFile, projectId);
@@ -1683,7 +1689,7 @@ class RunlistViewProvider {
       return;
     }
     const sharedOwnership = processRuntime.get(id);
-    const detail = this.processes.has(id) || sharedOwnership
+    const detail = this.processes.has(id) || this.detachedProjectIds.has(id) || sharedOwnership
       ? 'This removes the saved project from Runlist and stops its running process. Project files are not deleted.'
       : 'This removes the saved project from Runlist. Project files are not deleted.';
     const choice = await vscode.window.showWarningMessage(
@@ -1718,6 +1724,7 @@ class RunlistViewProvider {
     }
     const latestSharedOwnership = latestProcessRuntime.get(id);
     const hadTrackedProcess = this.processes.has(id);
+    const hadDetachedProcess = this.detachedProjectIds.has(id);
     try {
       if (hadTrackedProcess) {
         const stopped = await cleanupTrackedProcessForDeletion(
@@ -1730,11 +1737,11 @@ class RunlistViewProvider {
           return;
         }
         this.processOwnership.release(id);
-      } else if (latestSharedOwnership) {
+      } else if (hadDetachedProcess || latestSharedOwnership) {
         const stopRequested = await this.stopProject(id, latestProject);
         if (!stopRequested || !await this.waitForProjectStopCompletion(id)) {
           vscode.window.showErrorMessage(
-            `Could not delete ${project.name}: Runlist could not confirm that its launched process stopped.`
+            `Could not delete ${project.name}: Runlist could not confirm that the project stopped.`
           );
           return;
         }
@@ -1756,6 +1763,7 @@ class RunlistViewProvider {
       const remainingProjects = projects.filter((item) => item.id !== id);
       const adjacentProject = remainingProjects[projectIndex] || remainingProjects[projectIndex - 1];
       this.managedProjectIds.delete(id);
+      this.detachedProjectIds.delete(id);
       this.statusRevision += 1;
       this.portReservations.releaseShared(id);
       this.releaseStartReservation(id);
@@ -1960,6 +1968,7 @@ class RunlistViewProvider {
     this.projectServiceUrls.delete(id);
     this.projectWebPorts.delete(id);
     this.projectTimelineFailures.delete(id);
+    this.detachedProjectIds.delete(id);
     this.projectAttemptMetadata.delete(id);
     this.projectStatuses.set(id, 'starting');
     this.renderProjectList();
@@ -2043,24 +2052,37 @@ class RunlistViewProvider {
       child.once('exit', (code, signal) => {
         if (this.processes.get(id) === child) {
           const stoppedIntentionally = this.stoppingProjectIds.has(id);
-          const startFailed = startExitFailed({ code, hasServices, stoppedIntentionally });
+          const exitDetails = {
+            code,
+            hasCustomStop: Boolean(launchProject.stopCommand),
+            hasServices,
+            stoppedIntentionally
+          };
+          const detached = startExitDetached(exitDetails);
+          const startFailed = startExitFailed(exitDetails);
           this.statusRevision += 1;
           this.processes.delete(id);
           this.forgetProjectMetrics(id);
           this.projectRuntime.delete(id);
           this.processOwnership.release(id);
-          this.managedProjectIds.delete(id);
           this.releaseStartReservation(id);
-          this.projectStatuses.set(id, 'stopped');
-          this.startReadinessDeadlines.delete(id);
-          this.readinessWarnings.delete(id);
+          if (detached) {
+            this.detachedProjectIds.add(id);
+            this.projectStatuses.set(id, 'starting');
+          } else {
+            this.managedProjectIds.delete(id);
+            this.detachedProjectIds.delete(id);
+            this.projectStatuses.set(id, 'stopped');
+            this.startReadinessDeadlines.delete(id);
+            this.readinessWarnings.delete(id);
+          }
           if (startFailed) {
             this.showStartFailure(project, {
               code,
               signal,
               projectRevision: savedProjectRevision
             });
-          } else {
+          } else if (!detached) {
             this.projectAttemptMetadata.delete(id);
             this.projectTimelineFailures.delete(id);
           }
@@ -2424,7 +2446,12 @@ class RunlistViewProvider {
       relatedProjectIds.add(id);
     }
     if (intent === 'start') {
-      const blockers = managedPortBlockers(relatedProjectIds, processRuntime, effectiveProjects);
+      const blockers = managedPortBlockers(
+        relatedProjectIds,
+        processRuntime,
+        effectiveProjects,
+        this.detachedProjectIds
+      );
       if (blockers.length) {
         const names = blockers.map((blocker) => blocker.name).join(', ');
         vscode.window.showWarningMessage(
@@ -2658,6 +2685,7 @@ class RunlistViewProvider {
     this.statusRevision += 1;
     if (succeeded) {
       this.managedProjectIds.delete(id);
+      this.detachedProjectIds.delete(id);
       this.processOwnership.release(id);
       this.projectRuntime.delete(id);
       this.projectAttemptMetadata.delete(id);
@@ -3160,7 +3188,11 @@ class RunlistViewProvider {
 
       await this.lifecycle.waitForIdle();
       const ownership = this.processOwnership.snapshot();
-      await Promise.allSettled([...this.processes.keys()].map((id) => {
+      const shutdownProjectIds = new Set([
+        ...this.processes.keys(),
+        ...this.detachedProjectIds
+      ]);
+      await Promise.allSettled([...shutdownProjectIds].map((id) => {
         const persisted = ownership.get(id);
         const savedProject = this.projects.find((project) => project.id === id);
         const project = projectStopStrategy(savedProject || {

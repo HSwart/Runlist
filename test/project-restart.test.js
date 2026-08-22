@@ -184,6 +184,8 @@ test('holds process ownership while deleting a saved project', () => {
   assert.ok(reserveDeletion < removeSavedProject);
   assert.ok(removeSavedProject < releaseDeletion);
   assert.match(source, /if \(hadTrackedProcess\)[\s\S]*cleanupTrackedProcessForDeletion[\s\S]*this\.processOwnership\.release\(id\)/);
+  assert.match(source, /const hadDetachedProcess = this\.detachedProjectIds\.has\(id\)/);
+  assert.match(source, /else if \(hadDetachedProcess \|\| latestSharedOwnership\)[\s\S]*this\.stopProject\(id, latestProject\)/);
 });
 
 test('prevents service metadata changes while a project is running', () => {
@@ -281,7 +283,9 @@ test('does not report an intentional custom-stop exit as a start failure', () =>
   const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
 
   assert.match(source, /const stoppedIntentionally = this\.stoppingProjectIds\.has\(id\)/);
-  assert.match(source, /const startFailed = startExitFailed\(\{ code, hasServices, stoppedIntentionally \}\);[\s\S]*if \(startFailed\) \{[\s\S]*this\.showStartFailure\(/);
+  assert.match(source, /const exitDetails = \{[\s\S]*hasCustomStop: Boolean\(launchProject\.stopCommand\)[\s\S]*stoppedIntentionally[\s\S]*\};/);
+  assert.match(source, /const detached = startExitDetached\(exitDetails\);[\s\S]*const startFailed = startExitFailed\(exitDetails\);/);
+  assert.match(source, /if \(detached\) \{[\s\S]*this\.detachedProjectIds\.add\(id\)[\s\S]*if \(startFailed\) \{[\s\S]*this\.showStartFailure\(/);
 });
 
 test('allows remote custom stops enough time for owner polling', () => {
