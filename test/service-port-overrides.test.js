@@ -9,7 +9,7 @@ const {
   projectLaunchEnvironment,
   projectWithPortOverrides,
   rewriteLoopbackServiceUrl
-} = require('../service-port-overrides');
+} = require('../src/ports/service-port-overrides');
 
 const project = {
   id: 'multi',
@@ -38,6 +38,29 @@ test('applies a temporary port to one service without changing the saved project
     temporaryPort: true
   });
   assert.equal(project.services[1].port, 4000);
+});
+
+test('rewrites a matching loopback health URL with the temporary service port', () => {
+  const configured = {
+    services: [{
+      name: 'api',
+      port: 4000,
+      url: 'http://localhost:4000/docs',
+      healthCheck: {
+        mode: 'http',
+        target: 'http://127.0.0.1:4000/health',
+        method: 'GET'
+      }
+    }]
+  };
+
+  const effective = projectWithPortOverrides(configured, [{
+    serviceName: 'api', savedPort: 4000, port: 4001, variable: 'API_PORT'
+  }]);
+
+  assert.equal(effective.services[0].url, 'http://localhost:4001/docs');
+  assert.equal(effective.services[0].healthCheck.target, 'http://127.0.0.1:4001/health');
+  assert.equal(configured.services[0].healthCheck.target, 'http://127.0.0.1:4000/health');
 });
 
 test('rejects stale, duplicate, unsafe, and colliding temporary settings', () => {
@@ -99,6 +122,18 @@ test('rewrites matching explicit and default loopback URL ports', () => {
   assert.equal(
     rewriteLoopbackServiceUrl('http://[::1]:3000/dashboard', 3000, 3001),
     'http://[::1]:3001/dashboard'
+  );
+  assert.equal(
+    rewriteLoopbackServiceUrl('http://0.0.0.0:3000/dashboard', 3000, 3001),
+    'http://0.0.0.0:3001/dashboard'
+  );
+  assert.equal(
+    rewriteLoopbackServiceUrl('http://127.0.0.2:3000/dashboard', 3000, 3001),
+    'http://127.0.0.2:3001/dashboard'
+  );
+  assert.equal(
+    rewriteLoopbackServiceUrl('http://[::]:3000/dashboard', 3000, 3001),
+    'http://[::]:3001/dashboard'
   );
   assert.equal(
     rewriteLoopbackServiceUrl('https://docs.example.test:5000/guide', 5000, 5001),

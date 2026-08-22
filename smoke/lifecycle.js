@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const vscode = require('vscode');
-const { readRootProcess } = require('../process-metrics');
+const { readRootProcess } = require('../src/lifecycle/process-metrics');
 
 async function run() {
   const smokeRoot = requiredEnvironment('RUNLIST_SMOKE_ROOT');
@@ -252,7 +252,7 @@ async function run() {
       'The orphan recovery fixture did not start.'
     );
     fs.writeFileSync(path.join(smokeRoot, 'orphan-recovery.pid'), String(orphanRecovery.pid));
-    const { upsertProject } = require(path.join(extension.extensionPath, 'project-store'));
+    const { upsertProject } = require(path.join(extension.extensionPath, 'src', 'projects', 'project-store'));
     upsertProject(api.projectsFile, {
       ...manual,
       stopCommand: command(nodePath, '-e', `process.kill(${orphanRecovery.pid})`)
@@ -292,7 +292,7 @@ async function run() {
     );
 
     assert.equal(await api.provider.startProject(failure.id), true, 'Runlist did not launch the failure fixture.');
-    const { readProjectDiagnostics } = require(path.join(extension.extensionPath, 'project-diagnostics'));
+    const { readProjectDiagnostics } = require(path.join(extension.extensionPath, 'src', 'projects', 'project-diagnostics'));
     await waitFor(
       () => Boolean(readProjectDiagnostics(api.projectsFile, failure.id)),
       'The failed start did not retain diagnostics.',
@@ -302,7 +302,7 @@ async function run() {
     assert.match(diagnostics.failureSummary.message, /controlled smoke failure/i);
     assert.equal(api.provider.getProjectStatus(failure.id), 'stopped');
 
-    const { removeProject } = require(path.join(extension.extensionPath, 'project-store'));
+    const { removeProject } = require(path.join(extension.extensionPath, 'src', 'projects', 'project-store'));
     assert.equal(removeProject(api.projectsFile, manual.id), true, 'The stopped manual fixture was not removed.');
     api.provider.renderProjectList();
     assert.equal(api.provider.projects.some((project) => project.id === manual.id), false);

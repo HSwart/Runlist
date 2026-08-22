@@ -10,7 +10,7 @@ const {
   processInvocation,
   registerWithClaude,
   registerWithCodex
-} = require('../agent-registration');
+} = require('../src/integrations/agent-registration');
 
 const options = {
   platform: 'linux',

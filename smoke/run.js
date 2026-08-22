@@ -2,8 +2,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { runTests } = require('@vscode/test-electron');
-const { terminateProcessTree } = require('../project-process');
-const { readRootProcess } = require('../process-metrics');
+const { terminateProcessTree } = require('../src/lifecycle/project-process');
+const { readRootProcess } = require('../src/lifecycle/process-metrics');
 
 async function main() {
   delete process.env.ELECTRON_RUN_AS_NODE;

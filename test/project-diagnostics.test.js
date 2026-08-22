@@ -11,7 +11,7 @@ const {
   readProjectDiagnostics,
   redactSensitiveText,
   writeProjectDiagnostics
-} = require('../project-diagnostics');
+} = require('../src/projects/project-diagnostics');
 
 test('sanitizes terminal controls and redacts credential-like diagnostic text', () => {
   const clean = boundedDiagnosticOutput([
@@ -54,14 +54,22 @@ test('stores one hashed, bounded failure record for the exact project', (t) => {
     exitCode: 1,
     summary: { message: 'TOKEN: secret-value' },
     output: '',
+    launchProfileId: 'tests',
     failedAt: 42
   });
 
   assert.equal(record.retainedOutput, '');
   assert.equal(record.failureSummary.message, 'TOKEN: [redacted]');
+  assert.equal(record.launchProfileId, 'tests');
   assert.equal(path.dirname(diagnosticsPath(projectsFile, projectId)), path.join(root, 'failed-start-diagnostics'));
   assert.deepEqual(readProjectDiagnostics(projectsFile, projectId), record);
   assert.equal(readProjectDiagnostics(projectsFile, 'another-project'), undefined);
+
+  const recordWithoutProfile = writeProjectDiagnostics(projectsFile, projectId, {
+    launchProfileId: '',
+    failedAt: 43
+  });
+  assert.equal(Object.hasOwn(recordWithoutProfile, 'launchProfileId'), false);
 
   clearProjectDiagnostics(projectsFile, projectId);
   assert.equal(readProjectDiagnostics(projectsFile, projectId), undefined);
@@ -84,6 +92,8 @@ test('wires retained-failure diagnosis into the sidebar without sending to an ag
   assert.match(extension, /copyDiagnosisRequest[\s\S]*vscode\.env\.clipboard\.writeText/);
   assert.doesNotMatch(extension, /copyDiagnosisRequest[\s\S]{0,1000}(?:fetch\(|openExternal|spawn\()/);
   assert.match(extension, /installMcpBridge[\s\S]*project-output\.js[\s\S]*project-diagnostics\.js/);
+  assert.match(extension, /savedProjectRevision = projectConfigurationRevision\(project\)/);
+  assert.match(extension, /projectRevision: savedProjectRevision/);
   assert.match(webview, /projectOutput\.canAskAgent[\s\S]*Ask your agent/);
   assert.match(webview, /Nothing is sent automatically/);
   assert.match(webview, /Open Agent connections/);

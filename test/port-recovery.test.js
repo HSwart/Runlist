@@ -5,7 +5,7 @@ const {
   portClosureConfirmation,
   recoverProjectPorts,
   relatedPortProjectIds
-} = require('../port-recovery');
+} = require('../src/ports/port-recovery');
 
 const project = {
   id: 'attributes',

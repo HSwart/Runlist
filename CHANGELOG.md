@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.0.8 — Flexible project runs
+
+- Add alternate launch profiles with their own commands, optional custom stop commands, and services, selectable from the existing Start controls.
+- Organize projects with tags, search by tag, and filter the sidebar from one compact disclosure.
+- Configure each service for default readiness, port-only checks, or bounded HTTP health checks with method, path, status, timeout, and retry options.
+- Run saved groups sequentially or in parallel while preserving ownership-safe rollback and Stop behavior.
+- Review bounded coding-agent repair proposals against the exact failed project revision before applying any setup changes.
+- Keep healthy services usable when only one port in a multi-port project is blocked, including launch-only temporary port recovery from the affected service row.
+- Harden project storage, process ownership, port reservations, and stop requests against stale writes, PID reuse, extension crashes, and multiple VS Code windows.
+- Improve narrow-sidebar keyboard focus, lifecycle announcements, service controls, and malformed-message handling without adding permanent card rows.
+
 ## 0.0.7 — Safer project control
 
 - Save ordered run groups that wait for each project to become ready and roll back only the projects that group run started when one fails.

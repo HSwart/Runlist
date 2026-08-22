@@ -103,6 +103,18 @@ function projectWithPortOverrides(project, overrides) {
         ...service,
         port: override.port,
         ...(service.url ? { url: rewriteLoopbackServiceUrl(service.url, service.port, override.port) } : {}),
+        ...(service.healthCheck?.target
+          ? {
+              healthCheck: {
+                ...service.healthCheck,
+                target: rewriteLoopbackServiceUrl(
+                  service.healthCheck.target,
+                  service.port,
+                  override.port
+                )
+              }
+            }
+          : {}),
         savedPort: service.port,
         portVariable: override.variable,
         temporaryPort: true
@@ -187,7 +199,7 @@ function rewriteLoopbackServiceUrl(value, savedPort, temporaryPort) {
   try {
     const url = new URL(value);
     const host = url.hostname.toLocaleLowerCase('en-US');
-    const loopback = host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+    const loopback = isLocalServiceHost(host);
     const urlPort = url.port
       ? Number(url.port)
       : url.protocol === 'http:'
@@ -203,6 +215,15 @@ function rewriteLoopbackServiceUrl(value, savedPort, temporaryPort) {
   } catch {
     return value;
   }
+}
+
+function isLocalServiceHost(host) {
+  return host === 'localhost'
+    || host === 'localhost.'
+    || host === '0.0.0.0'
+    || host === '[::]'
+    || host === '[::1]'
+    || /^127(?:\.\d{1,3}){3}$/.test(host);
 }
 
 module.exports = {

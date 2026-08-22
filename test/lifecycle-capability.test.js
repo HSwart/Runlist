@@ -3,7 +3,7 @@ const test = require('node:test');
 const {
   detectLifecycleCapability,
   projectLifecycleCapability
-} = require('../lifecycle-capability');
+} = require('../src/lifecycle/lifecycle-capability');
 
 test('supports native local lifecycle on macOS, Windows, and Linux', () => {
   const local = detectLifecycleCapability({});

@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
-const { handoffProjectSafely } = require('../project-process');
+const { handoffProjectSafely } = require('../src/lifecycle/project-process');
 
 function actions(calls, overrides = {}) {
   return {
@@ -112,7 +112,7 @@ test('rejects duplicate handoffs for the same requested project', async () => {
 
 test('wires one accessible contextual control through guarded handoff and port recovery', () => {
   const extension = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
-  const lifecycle = fs.readFileSync(path.join(__dirname, '..', 'project-lifecycle.js'), 'utf8');
+  const lifecycle = fs.readFileSync(path.join(__dirname, '..', 'src', 'lifecycle', 'project-lifecycle.js'), 'utf8');
   const webview = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
 
   assert.match(webview, /const primaryAction = projectPrimaryAction\(project\)/);

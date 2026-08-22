@@ -9,7 +9,7 @@ const {
   registerWithClaude,
   registerWithCodex,
   runProcess
-} = require('../agent-registration');
+} = require('../src/integrations/agent-registration');
 
 const windowsTest = process.platform === 'win32' ? test : test.skip;
 

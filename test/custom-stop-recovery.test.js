@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { customStopPostcondition } = require('../custom-stop-recovery');
+const { customStopPostcondition } = require('../src/lifecycle/custom-stop-recovery');
 
 test('requires a successful command and every verifiable postcondition', () => {
   assert.equal(customStopPostcondition({

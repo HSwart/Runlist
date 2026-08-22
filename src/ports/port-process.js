@@ -1,6 +1,6 @@
 const { execFile } = require('child_process');
-const { readRootProcess } = require('./process-metrics');
-const { terminateProcessTree } = require('./project-process');
+const { readRootProcess } = require('../lifecycle/process-metrics');
+const { terminateProcessTree } = require('../lifecycle/project-process');
 
 const COMMAND_TIMEOUT_MS = 10000;
 const TERMINATION_GRACE_MS = 3000;
@@ -87,7 +87,12 @@ async function terminateListenerProcess(listener, options = {}) {
 
   if (platform === 'win32' || options.terminateTree) {
     const terminate = options.terminateProcessTree || terminateProcessTree;
-    await terminate(pid, { platform, ...options.terminationOptions });
+    await terminate(pid, {
+      platform,
+      ...options.terminationOptions,
+      expectedIdentity,
+      readProcessIdentity: readIdentity
+    });
     return;
   }
 
@@ -238,7 +243,10 @@ function windowsProcessDetailsScript(pids) {
     'foreach($ownerProcessId in $requestedProcessIds){',
     '  $ownerProcess=Get-Process -Id ([int]$ownerProcessId) -ErrorAction SilentlyContinue',
     '  if($null -eq $ownerProcess){continue}',
-    '  $rows += [pscustomobject]@{pid=[int]$ownerProcess.Id;name=[string]$ownerProcess.ProcessName;startedAt=$ownerProcess.StartTime.ToUniversalTime().Ticks.ToString()}',
+    '  try {',
+    '    $startedAt=$ownerProcess.StartTime.ToUniversalTime().Ticks.ToString()',
+    '    $rows += [pscustomobject]@{pid=[int]$ownerProcess.Id;name=[string]$ownerProcess.ProcessName;startedAt=$startedAt}',
+    '  } catch { continue }',
     '}',
     '@($rows) | ConvertTo-Json -Compress'
   ].join(';');

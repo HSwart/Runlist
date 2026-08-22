@@ -1,6 +1,6 @@
 const os = require('node:os');
-const qrcode = require('./vendor/qrcode-generator');
-const { safeServiceUrl } = require('./external-url');
+const qrcode = require('../../vendor/qrcode-generator');
+const { safeServiceUrl } = require('../services/external-url');
 
 function ipv4Parts(value) {
   const parts = String(value || '').split('.');

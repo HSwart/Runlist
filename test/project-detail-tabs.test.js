@@ -5,7 +5,7 @@ const test = require('node:test');
 const {
   availableProjectDetailTabs,
   preferredProjectDetailTab
-} = require('../project-detail-tabs');
+} = require('../src/webview/project-detail-tabs');
 
 test('offers only relevant detail tabs and defaults to a live preview', () => {
   assert.deepEqual(availableProjectDetailTabs(), ['overview']);
@@ -14,11 +14,12 @@ test('offers only relevant detail tabs and defaults to a live preview', () => {
     'output'
   ]);
   const liveTabs = availableProjectDetailTabs({
+    servicesAvailable: true,
     outputAvailable: true,
     previewAvailable: true,
     historyAvailable: true
   });
-  assert.deepEqual(liveTabs, ['overview', 'output', 'preview', 'history']);
+  assert.deepEqual(liveTabs, ['overview', 'services', 'output', 'preview', 'history']);
   assert.equal(preferredProjectDetailTab(liveTabs), 'preview');
   assert.equal(preferredProjectDetailTab(liveTabs, 'output'), 'output');
   assert.equal(preferredProjectDetailTab(['overview'], 'preview'), 'overview');
@@ -30,7 +31,7 @@ test('renders a stable accessible tabbed workspace and preserves its selected ta
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
   const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
 
-  assert.match(extension, /availableProjectDetailTabs\([\s\S]*outputAvailable:[\s\S]*previewAvailable:/);
+  assert.match(extension, /availableProjectDetailTabs\([\s\S]*servicesAvailable:[\s\S]*outputAvailable:[\s\S]*previewAvailable:/);
   assert.match(webview, /class="project-detail-tabs" role="tablist"/);
   assert.match(webview, /class="project-detail-tab" role="tab"[\s\S]*aria-selected=/);
   assert.match(webview, /class="project-detail-panel" role="tabpanel"[\s\S]*tabindex="0"/);
@@ -63,7 +64,8 @@ test('uses the official refresh Codicon, actionable resource copy, and local add
   assert.doesNotMatch(webview, /M13\.6 3\.4A6/);
   assert.doesNotMatch(webview, />Resource use unavailable</);
   assert.match(webview, /Start this project in this VS Code window to measure CPU and memory\./);
-  assert.match(webview, /serviceLocalAddress\(service\)[\s\S]*service-address auto-scroll/);
-  assert.match(webview, /class="project-services" aria-label="Service addresses"/);
+  assert.match(webview, /serviceLocalAddress\(service\)[\s\S]*class="service-detail-body"/);
+  assert.match(webview, /class="project-services-summary"[^>]*data-action="open-services"/);
+  assert.match(webview, /class="service-detail-list" aria-label="Services for/);
   assert.match(webview, /`http:\/\/localhost:\$\{service\.port\}`/);
 });

@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { redactSensitiveText } = require('./project-diagnostics');
+const { redactSensitiveText } = require('../projects/project-diagnostics');
 
 const MAX_STARTUP_HISTORY = 5;
 const MAX_STARTUP_FAILURE_SUMMARY_CHARS = 240;

@@ -5,7 +5,7 @@ const test = require('node:test');
 
 const root = path.join(__dirname, '..');
 const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
-const router = fs.readFileSync(path.join(root, 'webview-message-router.js'), 'utf8');
+const router = fs.readFileSync(path.join(root, 'src', 'webview', 'webview-message-router.js'), 'utf8');
 const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
 
 test('renders a complete accessible repair comparison and approval boundary', () => {

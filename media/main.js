@@ -7,8 +7,13 @@ const persistedWebviewState = vscode.getState() || {};
 const detailTabState = { ...(persistedWebviewState.detailTabs || {}) };
 const phoneHandoffState = { ...(persistedWebviewState.phoneHandoffs || {}) };
 const startupFailureState = { ...(persistedWebviewState.startupFailures || {}) };
+const expandedServiceState = { ...(persistedWebviewState.expandedServices || {}) };
+let expandedRunGroupId = String(persistedWebviewState.expandedRunGroupId || '');
 let searchQuery = String(state.searchQuery || '');
+let selectedTagFilter = String(state.tagFilter || '');
+let tagsExpanded = Boolean(persistedWebviewState.tagsExpanded);
 let outputFollowLatest = true;
+let announcedProjectStatuses = new Map();
 let previewLoadGeneration = 0;
 let previewLoadTimer;
 let runningAppNavigatorFrame;
@@ -396,6 +401,7 @@ function projectOutputPeekHtml(entries, projectId, projectName) {
 
 const DETAIL_TAB_LABELS = {
   overview: 'Overview',
+  services: 'Services',
   output: 'Output',
   preview: 'Preview',
   history: 'History'
@@ -406,7 +412,10 @@ function saveWebviewState() {
     ...persistedWebviewState,
     detailTabs: detailTabState,
     phoneHandoffs: phoneHandoffState,
-    startupFailures: startupFailureState
+    startupFailures: startupFailureState,
+    expandedServices: expandedServiceState,
+    expandedRunGroupId,
+    tagsExpanded
   });
 }
 
@@ -424,6 +433,92 @@ function selectedProjectDetailTab(project) {
       : 'overview';
   detailTabState[project.id] = selected;
   return selected;
+}
+
+function serviceDisplayDetails(project, service) {
+  const projectStatus = project.status || 'stopped';
+  const conflicted = ['port-in-use', 'port-in-use-unknown'].includes(projectStatus);
+  const portOpen = project.openPorts?.includes(service.port);
+  const portBlocked = conflicted
+    && portOpen
+    && project.portConflict?.port === service.port;
+  const canUseUrl = project.serviceUrls?.some((entry) => entry.port === service.port)
+    && !project.reviewRequired
+    && !portBlocked;
+  const webNotResponding = !portBlocked
+    && portOpen
+    && project.webPorts?.includes(service.port)
+    && !project.respondingPorts?.includes(service.port);
+  const waiting = ['starting', 'not-ready'].includes(projectStatus) && !portOpen;
+  const canResolve = !project.reviewRequired
+    && !project.lifecycleBlocked
+    && !project.forceClosing
+    && !project.handoffInProgress
+    && (portBlocked || (projectStatus === 'not-ready' && waiting));
+  const state = portBlocked
+    ? 'Port in use'
+    : webNotResponding
+      ? 'No web response'
+      : portOpen
+        ? 'Ready'
+        : waiting
+          ? 'Waiting'
+          : 'Stopped';
+  const indicator = portBlocked
+    ? 'conflict'
+    : webNotResponding
+      ? 'not-responding'
+      : portOpen
+        ? 'running'
+        : '';
+  return { canResolve, canUseUrl, indicator, state };
+}
+
+function servicesSummary(project) {
+  const counts = new Map();
+  for (const service of project.services || []) {
+    const stateLabel = serviceDisplayDetails(project, service).state.toLocaleLowerCase();
+    counts.set(stateLabel, (counts.get(stateLabel) || 0) + 1);
+  }
+  return [...counts].map(([label, count]) => `${count} ${label}`).join(' · ');
+}
+
+function projectServicesDetailHtml(project, projectName) {
+  const projectId = escapeHtml(String(project.id));
+  return `
+    <section class="service-detail-list" aria-label="Services for ${projectName}">
+      ${(project.services || []).map((service) => {
+        const port = String(service.port);
+        const panelId = `service-detail-${projectId}-${escapeHtml(port)}`;
+        const expanded = String(expandedServiceState[project.id] || '') === port;
+        const details = serviceDisplayDetails(project, service);
+        const address = serviceLocalAddress(service);
+        const savedPort = service.savedPort || service.port;
+        const temporaryDetail = service.temporaryPort
+          ? `Temporary for this launch. Saved as port ${savedPort} via ${service.portVariable}.`
+          : '';
+        return `
+          <div class="service-detail-item">
+            <button class="service-detail-toggle" data-action="toggle-service-detail" data-id="${projectId}" data-port="${escapeHtml(port)}" aria-expanded="${expanded}" aria-controls="${panelId}">
+              <span class="service-indicator ${details.indicator}" aria-hidden="true"></span>
+              <span class="service-detail-name">${escapeHtml(service.name)}</span>
+              <span class="service-detail-port">:${escapeHtml(port)}</span>
+              <span class="service-detail-state">${details.state}</span>
+              ${icon('chevron-down')}
+            </button>
+            ${expanded ? `<div id="${panelId}" class="service-detail-body" role="region" aria-label="Controls for ${escapeHtml(service.name)}">
+              <code title="${escapeHtml(address.fullUrl)}">${escapeHtml(address.fullUrl)}</code>
+              ${temporaryDetail ? `<p>${escapeHtml(temporaryDetail)}</p>` : ''}
+              <div class="service-detail-actions">
+                <button data-action="open-service-url" data-id="${projectId}" data-port="${escapeHtml(port)}" ${details.canUseUrl ? '' : 'disabled'}>${icon('external')}<span>Open</span></button>
+                <button data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(port)}" ${details.canUseUrl ? '' : 'disabled'}>${icon('copy')}<span>Copy URL</span></button>
+                ${details.canResolve ? `<button data-action="resolve-service-port" data-id="${projectId}" data-port="${escapeHtml(String(savedPort))}">${icon('refresh')}<span>Resolve port</span></button>` : ''}
+              </div>
+              <p class="service-lifecycle-note">Start and Stop control the project process that owns this service.</p>
+            </div>` : ''}
+          </div>`;
+      }).join('')}
+    </section>`;
 }
 
 function projectDetailTabsHtml(project, projectName) {
@@ -489,6 +584,7 @@ function projectDetailTabsHtml(project, projectName) {
     : '<p class="project-detail-empty">No completed starts yet.</p>';
   const panels = {
     overview: overviewContent,
+    services: projectServicesDetailHtml(project, projectName),
     output: outputContent,
     preview: previewContent,
     history: historyContent
@@ -540,22 +636,60 @@ function runGroupsHtml() {
         const groupId = escapeHtml(group.id);
         const groupName = escapeHtml(group.name);
         const memberNames = group.memberNames.map(escapeHtml).join(' → ') || 'No saved projects';
+        const expanded = String(group.id) === expandedRunGroupId;
+        const settingsId = `run-group-settings-${groupId}`;
+        const modeLabel = group.startMode === 'parallel' ? 'Parallel' : 'Sequential';
         const actionLabel = group.canStop ? `Stop group ${groupName}` : `Start group ${groupName}`;
         return `
-          <div class="run-group-row">
-            <div class="run-group-details">
-              <strong>${groupName}</strong>
-              <span title="${memberNames}">${memberNames}</span>
-              ${group.progress ? `<small role="status" aria-live="polite">${escapeHtml(group.progress)}</small>` : ''}
+          <div class="run-group-item">
+            <div class="run-group-row">
+              <button class="run-group-toggle" data-action="toggle-run-group" data-id="${groupId}" aria-expanded="${expanded}"${expanded ? ` aria-controls="${settingsId}"` : ''} title="${groupName}">
+                ${icon('chevron-down')}
+                <span class="run-group-details">
+                  <strong>${groupName}</strong>
+                  <span role="status" aria-live="polite">${group.progress ? escapeHtml(group.progress) : `${group.projectIds.length} project${group.projectIds.length === 1 ? '' : 's'} · ${modeLabel}`}</span>
+                </span>
+              </button>
+              <div class="run-group-actions">
+                ${group.canStop
+                  ? `<button data-action="stop-group" data-id="${groupId}" aria-label="Stop group ${groupName}" title="${group.lifecycleBlocked ? 'Lifecycle controls are available only for local projects' : actionLabel}" ${group.busy || group.lifecycleBlocked ? 'disabled' : ''}>${productIcon('stop')}</button>`
+                  : `<button data-action="start-group" data-id="${groupId}" aria-label="Start group ${groupName}" title="${group.lifecycleBlocked ? 'Lifecycle controls are available only for local projects' : actionLabel}" ${group.busy || group.lifecycleBlocked || !group.projectIds.length ? 'disabled' : ''}>${productIcon(group.busy ? 'loading' : 'play')}</button>`}
+                <button data-action="manage-group" data-id="${groupId}" aria-label="Manage group ${groupName}" title="Manage ${groupName}" ${group.busy ? 'disabled' : ''}>${icon('more')}</button>
+              </div>
             </div>
-            <div class="run-group-actions">
-              ${group.canStop
-                ? `<button data-action="stop-group" data-id="${groupId}" aria-label="Stop group ${groupName}" title="${group.lifecycleBlocked ? 'Lifecycle controls are available only for local projects' : actionLabel}" ${group.busy || group.lifecycleBlocked ? 'disabled' : ''}>${productIcon('stop')}</button>`
-                : `<button data-action="start-group" data-id="${groupId}" aria-label="Start group ${groupName}" title="${group.lifecycleBlocked ? 'Lifecycle controls are available only for local projects' : actionLabel}" ${group.busy || group.lifecycleBlocked || !group.projectIds.length ? 'disabled' : ''}>${productIcon(group.busy ? 'loading' : 'play')}</button>`}
-              <button data-action="manage-group" data-id="${groupId}" aria-label="Manage group ${groupName}" title="Manage ${groupName}" ${group.busy ? 'disabled' : ''}>${icon('more')}</button>
-            </div>
+            ${expanded ? `<div class="run-group-settings" id="${settingsId}" role="region" aria-label="${groupName} settings">
+              <div class="run-group-members" title="${memberNames}">${memberNames}</div>
+              <label for="run-group-mode-${groupId}">Start mode</label>
+              <select id="run-group-mode-${groupId}" data-run-group-mode data-id="${groupId}" ${group.busy ? 'disabled' : ''}>
+                <option value="sequential" ${group.startMode === 'parallel' ? '' : 'selected'}>Sequential</option>
+                <option value="parallel" ${group.startMode === 'parallel' ? 'selected' : ''}>Parallel</option>
+              </select>
+            </div>` : ''}
           </div>`;
       }).join('')}
+    </section>`;
+}
+
+function tagFilterHtml() {
+  const tags = Array.isArray(state.tags) ? state.tags : [];
+  if (!tags.length) {
+    return '';
+  }
+  const activeTag = tags.find((tag) => (
+    tag.toLocaleLowerCase() === selectedTagFilter.toLocaleLowerCase()
+  ));
+  return `
+    <section class="project-tag-filter" aria-label="Project tag filter">
+      <div class="project-tag-filter-bar">
+        <button class="tag-filter-toggle" data-action="toggle-tag-filter" aria-expanded="${tagsExpanded}"${tagsExpanded ? ' aria-controls="project-tag-choices"' : ''}>
+          ${icon('chevron-down')}<span>Tags</span>
+        </button>
+        ${activeTag ? `<button class="active-tag-chip" data-action="select-tag-filter" data-tag="${escapeHtml(activeTag)}" aria-label="Clear tag filter ${escapeHtml(activeTag)}" title="Clear tag filter">${escapeHtml(activeTag)} ${icon('close')}</button>` : ''}
+      </div>
+      ${tagsExpanded ? `<div id="project-tag-choices" class="project-tag-choices" role="group" aria-label="Filter projects by tag">
+        <button data-action="select-tag-filter" data-tag="" aria-pressed="${!activeTag}">All projects</button>
+        ${tags.map((tag) => `<button data-action="select-tag-filter" data-tag="${escapeHtml(tag)}" aria-pressed="${tag === activeTag}">${escapeHtml(tag)}</button>`).join('')}
+      </div>` : ''}
     </section>`;
 }
 
@@ -601,6 +735,7 @@ function renderList() {
       <span id="project-count"><strong>${state.projects.length}</strong> ${state.projects.length === 1 ? 'project' : 'projects'}</span>
       <span id="summary-status" class="summary-status">${statusSummaryHtml(state.projects)}</span>
     </header>
+    <span id="project-lifecycle-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span>
     ${runGroupsHtml()}
     ${state.stopAllCount > 1 ? `
       <div class="bulk-actions">
@@ -613,6 +748,7 @@ function renderList() {
       ${icon('search', 'search-icon')}
       <input id="project-search" type="search" value="${escapeHtml(searchQuery)}" placeholder="Search projects" aria-label="Search projects" autocomplete="off" spellcheck="false">
     </div>
+    ${tagFilterHtml()}
     <span id="project-search-status" class="visually-hidden" aria-live="polite"></span>
     ${runningApps.length > 1 ? `
       <nav class="running-app-navigator" data-running-app-navigator aria-label="Running app navigator" hidden>
@@ -684,6 +820,13 @@ function renderList() {
           && !project.handoffInProgress
           && projectStatus !== 'stopping';
         const blocked = conflicted || project.lifecycleBlocked;
+        const launchProfiles = project.launchProfiles || [];
+        const hasLaunchProfiles = launchProfiles.length > 1;
+        const launchProfileMenuId = `profile:${projectId}`;
+        const projectActionMenuId = `actions:${projectId}`;
+        const launchProfileDisabledReason = project.launchProfileChangeDisabled
+          ? 'Stop this project to change profile.'
+          : '';
         const openTitle = canOpen
           ? `Open ${projectName} in your browser`
           : conflicted
@@ -731,11 +874,20 @@ function renderList() {
                 ${!reviewRequired ? readinessDetailsHtml(project, projectStatus) : ''}
               </div>
               <div class="project-actions">
+                ${hasLaunchProfiles ? `
+                  <div class="launch-profile-picker">
+                    <button class="launch-profile-trigger menu-trigger" data-action="toggle-profile-menu" data-id="${projectId}" data-menu-target="${launchProfileMenuId}" aria-label="Launch profile: ${escapeHtml(project.activeLaunchProfileName)}" aria-haspopup="menu" aria-expanded="false" title="${escapeHtml(launchProfileDisabledReason || `Launch profile: ${project.activeLaunchProfileName}`)}" ${project.launchProfileChangeDisabled ? 'disabled' : ''}>
+                      <span>${escapeHtml(project.activeLaunchProfileName)}</span>${icon('chevron-down')}
+                    </button>
+                    <div class="action-menu launch-profile-menu" data-menu-id="${launchProfileMenuId}" role="menu" aria-label="Launch profile for ${projectName}" hidden>
+                      ${launchProfiles.map((profile) => `<button data-action="select-launch-profile" data-id="${projectId}" data-profile-id="${escapeHtml(profile.id)}" role="menuitemradio" aria-checked="${profile.id === project.activeLaunchProfileId}"><span class="profile-check" aria-hidden="true">${profile.id === project.activeLaunchProfileId ? '✓' : ''}</span><span>${escapeHtml(profile.name)}</span></button>`).join('')}
+                    </div>
+                  </div>` : ''}
                 <button class="run-button ${reviewRequired ? 'review' : blocked ? 'blocked' : primaryAction.mode}" data-action="${primaryAction.action}" data-id="${projectId}" aria-label="${actionTitle}" title="${actionTitle}" ${primaryAction.disabled ? 'disabled' : ''}>
                   ${reviewRequired ? icon('edit') : productIcon(primaryAction.mode === 'stop' ? 'stop' : 'play')}
                 </button>
-                <button class="more-button" data-action="toggle-menu" data-id="${projectId}" aria-label="More actions for ${projectName}" aria-haspopup="menu" aria-expanded="false">${icon('more')}</button>
-                <div class="action-menu" data-menu-id="${projectId}" role="menu" aria-label="Actions for ${projectName}" hidden>
+                <button class="more-button menu-trigger" data-action="toggle-menu" data-id="${projectId}" data-menu-target="${projectActionMenuId}" aria-label="More actions for ${projectName}" aria-haspopup="menu" aria-expanded="false">${icon('more')}</button>
+                <div class="action-menu" data-menu-id="${projectActionMenuId}" role="menu" aria-label="Actions for ${projectName}" hidden>
                   <button data-action="open" data-id="${projectId}" role="menuitem" ${canOpen ? '' : 'disabled'} title="${openTitle}">
                     ${icon('external', 'menu-icon')}<span>Open app</span>
                   </button>
@@ -776,86 +928,66 @@ function renderList() {
               </div>
             </div>
             ${project.services?.length ? `
-              <div class="project-services-row">
-                <div class="project-services" aria-label="Service addresses">
-                  ${project.services.map((service) => {
-                  const portOpen = project.openPorts?.includes(service.port);
-                  const canCopyUrl = project.serviceUrls?.some((entry) => entry.port === service.port)
-                    && !reviewRequired
-                    && !conflicted;
-                  const webNotResponding = !conflicted
-                    && portOpen
-                    && project.webPorts?.includes(service.port)
-                    && !project.respondingPorts?.includes(service.port);
-                  const portBlocked = conflicted && portOpen;
-                  const waiting = ['starting', 'not-ready'].includes(projectStatus) && !portOpen;
-                  const canResolve = !reviewRequired
-                    && !project.lifecycleBlocked
-                    && !project.forceClosing
-                    && !project.handoffInProgress
-                    && (portBlocked || (projectStatus === 'not-ready' && waiting));
-                  const indicator = portBlocked
-                    ? 'conflict'
-                    : webNotResponding
-                      ? 'not-responding'
-                      : portOpen
-                        ? 'running'
-                        : '';
-                  const serviceState = portBlocked
-                    ? 'Port in use'
-                    : webNotResponding
-                      ? 'No web response'
-                      : portOpen
-                        ? 'Ready'
-                        : waiting
-                          ? 'Waiting'
-                          : 'Stopped';
-                  const copyLabel = `Copy ${escapeHtml(service.name)} URL`;
-                  const resolveLabel = `Resolve port issue for ${escapeHtml(service.name)} on port ${escapeHtml(String(service.port))}`;
-                  const address = serviceLocalAddress(service);
-                  const savedPort = service.savedPort || service.port;
-                  const temporaryDetail = service.temporaryPort
-                    ? `Temporary for this launch. Saved as port ${savedPort} via ${service.portVariable}.`
-                    : '';
-                  const serviceAriaLabel = `${service.name} on port ${service.port}: ${serviceState.toLocaleLowerCase()}.${temporaryDetail ? ` ${temporaryDetail}` : ''}`;
-                  const temporaryBadge = temporaryDetail
-                    ? `<span class="service-temporary-badge" title="${escapeHtml(temporaryDetail)}" aria-hidden="true">temp</span>`
-                    : '';
-                  const serviceActions = `${canCopyUrl ? `<button class="copy-url-button" data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(String(service.port))}" aria-label="${copyLabel}" title="${copyLabel}">${icon('copy')}</button>` : ''}${canResolve ? `<button class="resolve-port-button" data-action="resolve-service-port" data-id="${projectId}" data-port="${escapeHtml(String(savedPort))}" aria-label="${resolveLabel}" title="${resolveLabel}">${icon('refresh')}</button>` : ''}`;
-                  const serviceTitle = temporaryDetail ? `${serviceState}. ${temporaryDetail}` : serviceState;
-                  return `<div class="service-chip" role="group" aria-label="${escapeHtml(serviceAriaLabel)}" title="${escapeHtml(serviceTitle)}"><div class="service-main"><span class="service-indicator ${indicator}" aria-hidden="true"></span><span class="service-name">${escapeHtml(service.name)}</span><span class="service-separator" aria-hidden="true">·</span><span class="service-address auto-scroll" title="${escapeHtml(address.fullUrl)}"><span class="auto-scroll-content">${escapeHtml(address.label)}</span></span>${temporaryBadge}</div>${serviceActions ? `<div class="service-actions">${serviceActions}</div>` : ''}</div>`;
-                  }).join('')}
-                </div>
-                ${(project.timeline || project.previewUrl || project.startupHistory?.length) ? `<button class="preview-toggle" data-action="toggle-preview" data-id="${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} ${project.timeline || project.startupHistory?.length ? 'project details' : 'preview'} for ${projectName}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" title="${project.detailsExpanded ? 'Collapse' : 'Expand'} ${project.timeline || project.startupHistory?.length ? 'project details' : 'app preview'}">${icon('chevron-down')}</button>` : ''}
-              </div>` : ''}
+              <button class="project-services-summary" data-action="open-services" data-id="${projectId}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} services for ${projectName}">
+                <span><strong>Services · ${project.services.length}</strong><small>${escapeHtml(servicesSummary(project))}</small></span>
+                ${icon('chevron-down')}
+              </button>` : ''}
             ${!project.services?.length && project.startupHistory?.length ? `
               <div class="project-details-toggle-row">
                 <button class="preview-toggle" data-action="toggle-preview" data-id="${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} project details for ${projectName}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" title="${project.detailsExpanded ? 'Collapse' : 'Expand'} project details">${icon('chevron-down')}</button>
               </div>` : ''}
-            ${(project.timeline || project.previewUrl || project.startupHistory?.length) ? `<div id="details-${projectId}" class="project-live-details" ${project.detailsExpanded ? '' : 'hidden'}>${projectDetailTabsHtml(project, projectName)}</div>` : ''}
+            ${(project.services?.length || project.timeline || project.previewUrl || project.startupHistory?.length) ? `<div id="details-${projectId}" class="project-live-details" ${project.detailsExpanded ? '' : 'hidden'}>${projectDetailTabsHtml(project, projectName)}</div>` : ''}
           </article>`;
       }).join('')}
       <div class="search-empty" data-search-empty hidden>
         <h2>No matching projects</h2>
-        <p>Try a different name or folder.</p>
+        <p>Try a different search or tag.</p>
       </div>
     </section>`;
 
   applyProjectFilter(searchQuery);
+  announceProjectStatusChanges(state.projects);
+  document.getElementById('project-search')?.addEventListener('input', handleSearchInput);
+  scheduleAutoScrollUpdate();
+  scheduleRunningAppNavigatorUpdate();
+  initializeProjectPreview();
+  initializeTimelineClock();
+}
+
+function announceProjectStatusChanges(projects) {
+  const next = new Map((projects || []).map((project) => [
+    String(project.id),
+    `${project.name}: ${project.forceClosing
+      ? 'Closing processes'
+      : project.handoffInProgress
+        ? 'Switching projects'
+        : statusLabels[project.status || 'stopped'] || 'Stopped'}`
+  ]));
+  if (announcedProjectStatuses.size) {
+    const changes = [...next]
+      .filter(([id, label]) => announcedProjectStatuses.get(id) !== label)
+      .map(([, label]) => label);
+    const status = document.getElementById('project-lifecycle-status');
+    if (status && changes.length) {
+      status.textContent = changes.join('. ');
+    }
+  }
+  announcedProjectStatuses = next;
 }
 
 function applyProjectFilter(query) {
   searchQuery = query;
   const normalizedQuery = normalizeSearchQuery(query);
+  const normalizedTag = selectedTagFilter.toLocaleLowerCase();
   const matchingProjects = state.projects.filter((project) => {
-    if (!normalizedQuery) {
-      return true;
-    }
-
     const searchableText = String(
       project.searchText || [project.name, project.folder].filter(Boolean).join('\n')
     ).toLocaleLowerCase();
-    return searchableText.includes(normalizedQuery);
+    const matchesQuery = !normalizedQuery || searchableText.includes(normalizedQuery);
+    const matchesTag = !normalizedTag || (project.tags || []).some((tag) => (
+      String(tag).toLocaleLowerCase() === normalizedTag
+    ));
+    return matchesQuery && matchesTag;
   });
   const matchingIds = new Set(matchingProjects.map((project) => String(project.id)));
 
@@ -863,10 +995,10 @@ function applyProjectFilter(query) {
     row.hidden = !matchingIds.has(row.dataset.projectId);
   });
 
-  const searching = normalizedQuery.length > 0;
+  const filtering = normalizedQuery.length > 0 || normalizedTag.length > 0;
   const projectCount = document.getElementById('project-count');
   if (projectCount) {
-    projectCount.innerHTML = searching
+    projectCount.innerHTML = filtering
       ? `<strong>${matchingIds.size}</strong> of ${state.projects.length} projects`
       : `<strong>${state.projects.length}</strong> ${state.projects.length === 1 ? 'project' : 'projects'}`;
   }
@@ -878,13 +1010,13 @@ function applyProjectFilter(query) {
 
   const emptyState = document.querySelector('[data-search-empty]');
   if (emptyState) {
-    emptyState.hidden = !searching || matchingIds.size > 0;
+    emptyState.hidden = !filtering || matchingIds.size > 0;
   }
 
   const status = document.getElementById('project-search-status');
   if (status) {
-    status.textContent = searching
-      ? `${matchingIds.size} ${matchingIds.size === 1 ? 'project' : 'projects'} found`
+    status.textContent = filtering
+      ? `${matchingIds.size} ${matchingIds.size === 1 ? 'project' : 'projects'} shown${normalizedTag ? `, filtered by ${selectedTagFilter}` : ''}`
       : '';
   }
   scheduleAutoScrollUpdate();
@@ -903,6 +1035,9 @@ function revealRunningApp(id) {
       search.value = '';
     }
     vscode.postMessage({ type: 'setSearchQuery', query: '' });
+    selectedTagFilter = '';
+    state.tagFilter = '';
+    vscode.postMessage({ type: 'setTagFilter', tag: '' });
     applyProjectFilter('');
   }
 
@@ -1070,7 +1205,13 @@ window.addEventListener('resize', scheduleRunningAppNavigatorUpdate);
 window.addEventListener('scroll', scheduleRunningAppNavigatorUpdate, { passive: true });
 
 function sharedPortWarningText(draft, serviceIndex) {
-  const port = Number(draft?.services?.[serviceIndex]?.port);
+  const editingProfileId = String(
+    draft?.editingLaunchProfileId
+    || draft?.selectedLaunchProfileId
+    || 'default'
+  );
+  const port = Number(draftLaunchProfileOptions(draft)
+    .find((profile) => profile.id === editingProfileId)?.services?.[serviceIndex]?.port);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     return '';
   }
@@ -1102,14 +1243,39 @@ function renderProjectForm(mode) {
   const fieldError = (field) => errors[field]
     ? `<p id="${field}-error" class="field-error" role="alert">${escapeHtml(errors[field])}</p>`
     : '';
-  const services = state.draft.services || [];
+  const profileOptions = draftLaunchProfileOptions(state.draft);
+  const editingProfileId = String(
+    state.draft.editingLaunchProfileId
+    || state.draft.selectedLaunchProfileId
+    || 'default'
+  );
+  const activeProfile = profileOptions.find((profile) => profile.id === editingProfileId)
+    || profileOptions[0];
+  const services = activeProfile.services || [];
   const serviceRows = services.map((service, index) => {
     const nameField = `service-name-${index}`;
     const portField = `service-port-${index}`;
     const urlField = `service-url-${index}`;
+    const healthModeField = `service-health-mode-${index}`;
+    const healthTargetField = `service-health-target-${index}`;
+    const healthMethodField = `service-health-method-${index}`;
+    const healthStatusField = `service-health-status-${index}`;
+    const healthTimeoutField = `service-health-timeout-${index}`;
+    const healthRetriesField = `service-health-retries-${index}`;
+    const health = service.healthCheck || {
+      mode: 'default', target: '', method: 'HEAD', expectedStatus: '', timeoutMs: '700', retries: '0'
+    };
     const warning = sharedPortWarningText(state.draft, index);
-    const serviceOptionsSet = Boolean(String(service.url || '').trim());
-    const serviceOptionsInvalid = Boolean(errors[urlField]);
+    const serviceOptionsSet = Boolean(String(service.url || '').trim()) || health.mode !== 'default';
+    const serviceOptionsInvalid = [
+      urlField,
+      healthModeField,
+      healthTargetField,
+      healthMethodField,
+      healthStatusField,
+      healthTimeoutField,
+      healthRetriesField
+    ].some((field) => Boolean(errors[field]));
     const removeLabel = String(service.name || '').trim()
       ? `Remove ${String(service.name).trim()} service`
       : `Remove service ${index + 1}`;
@@ -1134,6 +1300,47 @@ function renderProjectForm(mode) {
               <input id="${urlField}" class="service-input" name="serviceUrl" type="url" inputmode="url" value="${escapeHtml(String(service.url ?? ''))}" placeholder="https://app.local/dashboard" maxlength="2048" autocomplete="off" spellcheck="false" aria-label="Service ${index + 1} open URL, optional" ${errorAttributes(urlField)}>
               ${fieldError(urlField)}
             </div>
+            <div class="service-field">
+              <label class="service-url-label" for="${healthModeField}">Health check</label>
+              <select id="${healthModeField}" name="serviceHealthMode" data-service-health-mode="${index}" ${errorAttributes(healthModeField)}>
+                <option value="default" ${health.mode === 'default' ? 'selected' : ''}>Default</option>
+                <option value="port" ${health.mode === 'port' ? 'selected' : ''}>Port only</option>
+                <option value="http" ${health.mode === 'http' ? 'selected' : ''}>HTTP request</option>
+              </select>
+              ${fieldError(healthModeField)}
+              <p class="field-hint">Default uses the Open URL when set; otherwise it checks only the port.</p>
+            </div>
+            ${health.mode === 'http' ? `
+              <div class="service-health-fields">
+                <div class="service-field service-health-wide">
+                  <label class="service-url-label" for="${healthTargetField}">Health URL or path <span class="optional-label">Optional</span></label>
+                  <input id="${healthTargetField}" class="service-input" name="serviceHealthTarget" value="${escapeHtml(health.target || '')}" placeholder="/health" autocomplete="off" spellcheck="false" ${errorAttributes(healthTargetField)}>
+                  ${fieldError(healthTargetField)}
+                </div>
+                <div class="service-field">
+                  <label class="service-url-label" for="${healthMethodField}">Method</label>
+                  <select id="${healthMethodField}" name="serviceHealthMethod" ${errorAttributes(healthMethodField)}>
+                    <option value="HEAD" ${health.method === 'HEAD' ? 'selected' : ''}>HEAD</option>
+                    <option value="GET" ${health.method === 'GET' ? 'selected' : ''}>GET</option>
+                  </select>
+                  ${fieldError(healthMethodField)}
+                </div>
+                <div class="service-field">
+                  <label class="service-url-label" for="${healthStatusField}">Expected status <span class="optional-label">Optional</span></label>
+                  <input id="${healthStatusField}" class="service-input" name="serviceHealthStatus" type="number" min="100" max="599" value="${escapeHtml(String(health.expectedStatus ?? ''))}" placeholder="Any" ${errorAttributes(healthStatusField)}>
+                  ${fieldError(healthStatusField)}
+                </div>
+                <div class="service-field">
+                  <label class="service-url-label" for="${healthTimeoutField}">Timeout (ms)</label>
+                  <input id="${healthTimeoutField}" class="service-input" name="serviceHealthTimeout" type="number" min="100" max="3000" step="100" value="${escapeHtml(String(health.timeoutMs ?? 700))}" ${errorAttributes(healthTimeoutField)}>
+                  ${fieldError(healthTimeoutField)}
+                </div>
+                <div class="service-field">
+                  <label class="service-url-label" for="${healthRetriesField}">Retries</label>
+                  <input id="${healthRetriesField}" class="service-input" name="serviceHealthRetries" type="number" min="0" max="2" step="1" value="${escapeHtml(String(health.retries ?? 0))}" ${errorAttributes(healthRetriesField)}>
+                  ${fieldError(healthRetriesField)}
+                </div>
+              </div>` : ''}
           </div>
         </details>
         <p class="shared-port-warning service-warning" data-service-warning="${index}" role="status" ${warning ? '' : 'hidden'}>${escapeHtml(warning)}</p>
@@ -1152,6 +1359,11 @@ function renderProjectForm(mode) {
         <input id="project-name" name="name" value="${escapeHtml(state.draft.name || '')}" placeholder="Defaults to folder name" maxlength="100" ${errorAttributes('project-name')}>
         ${fieldError('project-name')}
 
+        <label for="tags">Tags <span class="optional-label">Optional</span></label>
+        <input id="tags" name="tags" value="${escapeHtml(state.draft.tags || '')}" placeholder="frontend, customer portal" maxlength="406" autocomplete="off" spellcheck="false" ${errorAttributes('tags')}>
+        ${fieldError('tags')}
+        <p class="field-hint">Separate up to 12 tags with commas.</p>
+
         <label for="folder">Project folder</label>
         <div class="folder-control">
           <input id="folder" name="folder" value="${escapeHtml(state.draft.folder || '')}" placeholder="Choose a folder" ${errorAttributes('folder')}>
@@ -1160,12 +1372,29 @@ function renderProjectForm(mode) {
         ${state.canUseCurrentWorkspace ? '<button class="workspace-button" type="button" data-action="use-current-workspace">Use current workspace</button>' : ''}
         ${fieldError('folder')}
 
+        <fieldset class="launch-profile-editor" ${state.servicesLocked ? 'disabled' : ''}>
+          <legend>Launch profile</legend>
+          <div class="launch-profile-toolbar">
+            <label class="visually-hidden" for="launch-profile-select">Launch profile</label>
+            <select id="launch-profile-select" name="launchProfileId" aria-describedby="launch-profile-hint">
+              ${profileOptions.map((profile) => `<option value="${escapeHtml(profile.id)}" ${profile.id === activeProfile.id ? 'selected' : ''}>${escapeHtml(profile.name)}</option>`).join('')}
+            </select>
+            <button type="button" class="profile-tool-button" data-action="add-launch-profile" ${profileOptions.length >= 12 ? 'disabled' : ''}>Add</button>
+            <button type="button" class="profile-tool-button" data-action="delete-launch-profile" ${activeProfile.id === 'default' ? 'disabled' : ''}>Delete</button>
+          </div>
+          ${activeProfile.id === 'default' ? '' : `
+            <label for="launch-profile-name">Profile name</label>
+            <input id="launch-profile-name" name="launchProfileName" value="${escapeHtml(activeProfile.name)}" maxlength="100" ${errorAttributes('launch-profile-name')}>
+            ${fieldError('launch-profile-name')}`}
+          <p id="launch-profile-hint" class="field-hint">${state.servicesLocked ? 'Stop this project before choosing another profile.' : 'Choose which saved commands and services Start will use.'}</p>
+        </fieldset>
+
         <label for="start-command">Start command</label>
-        <input id="start-command" name="startCommand" value="${escapeHtml(state.draft.startCommand || '')}" placeholder="npm run dev" ${errorAttributes('start-command')}>
+        <input id="start-command" name="startCommand" value="${escapeHtml(activeProfile.startCommand || '')}" placeholder="npm run dev" ${errorAttributes('start-command')}>
         ${fieldError('start-command')}
 
         <label for="stop-command">Custom stop command <span class="optional-label">Optional</span></label>
-        <input id="stop-command" name="stopCommand" value="${escapeHtml(state.draft.stopCommand || '')}" placeholder="docker compose down" ${errorAttributes('stop-command')}>
+        <input id="stop-command" name="stopCommand" value="${escapeHtml(activeProfile.stopCommand || '')}" placeholder="docker compose down" ${errorAttributes('stop-command')}>
         ${fieldError('stop-command')}
         <p class="field-hint">Leave empty to stop only Runlist's process tree. Custom commands are user-controlled and confirmed before every run.</p>
 
@@ -1380,21 +1609,98 @@ function jumpToLatestOutput() {
   panel.focus();
 }
 
-function currentDraft(form = document.getElementById('project-form')) {
+function draftLaunchProfileOptions(draft = {}) {
+  return [
+    {
+      id: 'default',
+      name: 'Default',
+      startCommand: String(draft.startCommand || ''),
+      stopCommand: String(draft.stopCommand || ''),
+      services: Array.isArray(draft.services) ? draft.services : []
+    },
+    ...(Array.isArray(draft.launchProfiles) ? draft.launchProfiles : [])
+  ];
+}
+
+function currentDraft(
+  form = document.getElementById('project-form'),
+  editingProfileId = String(
+    state.draft.editingLaunchProfileId
+    || state.draft.selectedLaunchProfileId
+    || 'default'
+  )
+) {
   const fieldValue = (name) => form?.elements.namedItem(name)?.value || '';
-  return {
+  const activeServices = draftLaunchProfileOptions(state.draft)
+    .find((profile) => profile.id === editingProfileId)?.services || [];
+  const services = [...(form?.querySelectorAll('.service-row') || [])].map((row, index) => ({
+    name: row.querySelector('[name="serviceName"]')?.value || '',
+    port: row.querySelector('[name="servicePort"]')?.value || '',
+    portVariable: activeServices[index]?.portVariable || '',
+    url: row.querySelector('[name="serviceUrl"]')?.value || '',
+    healthCheck: {
+      mode: row.querySelector('[name="serviceHealthMode"]')?.value || 'default',
+      target: row.querySelector('[name="serviceHealthTarget"]')?.value
+        ?? activeServices[index]?.healthCheck?.target ?? '',
+      method: row.querySelector('[name="serviceHealthMethod"]')?.value
+        || activeServices[index]?.healthCheck?.method || 'HEAD',
+      expectedStatus: row.querySelector('[name="serviceHealthStatus"]')?.value
+        ?? activeServices[index]?.healthCheck?.expectedStatus ?? '',
+      timeoutMs: row.querySelector('[name="serviceHealthTimeout"]')?.value
+        ?? activeServices[index]?.healthCheck?.timeoutMs ?? '700',
+      retries: row.querySelector('[name="serviceHealthRetries"]')?.value
+        ?? activeServices[index]?.healthCheck?.retries ?? '0'
+    }
+  }));
+  const draft = {
+    ...state.draft,
     id: state.draft.id,
     name: fieldValue('name'),
+    tags: fieldValue('tags'),
     folder: fieldValue('folder'),
+    launchProfiles: (state.draft.launchProfiles || []).map((profile) => ({
+      ...profile,
+      services: (profile.services || []).map((service) => ({ ...service }))
+    })),
+    selectedLaunchProfileId: String(state.draft.selectedLaunchProfileId || 'default'),
+    editingLaunchProfileId: editingProfileId
+  };
+  const profileValues = {
     startCommand: fieldValue('startCommand'),
     stopCommand: fieldValue('stopCommand'),
-    services: [...(form?.querySelectorAll('.service-row') || [])].map((row, index) => ({
-      name: row.querySelector('[name="serviceName"]')?.value || '',
-      port: row.querySelector('[name="servicePort"]')?.value || '',
-      portVariable: state.draft.services?.[index]?.portVariable || '',
-      url: row.querySelector('[name="serviceUrl"]')?.value || ''
-    }))
+    services
   };
+  if (editingProfileId === 'default') {
+    Object.assign(draft, profileValues);
+  } else {
+    draft.launchProfiles = draft.launchProfiles.map((profile) => profile.id === editingProfileId
+      ? {
+          ...profile,
+          name: fieldValue('launchProfileName'),
+          ...profileValues
+        }
+      : profile);
+  }
+  return draft;
+}
+
+function nextLaunchProfileName(profiles) {
+  const names = new Set(profiles.map((profile) => String(profile.name).toLocaleLowerCase()));
+  for (let number = 2; number <= 99; number += 1) {
+    const name = `Profile ${number}`;
+    if (!names.has(name.toLocaleLowerCase())) {
+      return name;
+    }
+  }
+  return 'New profile';
+}
+
+function updateLaunchProfileDraft(draft, focusId) {
+  state.draft = draft;
+  state.formErrors = {};
+  vscode.postMessage({ type: 'updateDraft', draft });
+  renderProjectForm(state.mode);
+  requestAnimationFrame(() => document.getElementById(focusId)?.focus());
 }
 
 function clearServiceErrors() {
@@ -1406,7 +1712,15 @@ function clearServiceErrors() {
 }
 
 function updateServiceDraft(services, focusId) {
-  state.draft = { ...currentDraft(), services };
+  const draft = currentDraft();
+  if (draft.editingLaunchProfileId === 'default') {
+    draft.services = services;
+  } else {
+    draft.launchProfiles = (draft.launchProfiles || []).map((profile) => (
+      profile.id === draft.editingLaunchProfileId ? { ...profile, services } : profile
+    ));
+  }
+  state.draft = draft;
   clearServiceErrors();
   vscode.postMessage({ type: 'updateDraft', draft: state.draft });
   renderProjectForm(state.mode);
@@ -1489,7 +1803,7 @@ app.addEventListener('click', (event) => {
     return;
   }
 
-  if (button.dataset.action !== 'toggle-menu') {
+  if (!['toggle-menu', 'toggle-profile-menu'].includes(button.dataset.action)) {
     closeMenus();
   }
 
@@ -1502,17 +1816,59 @@ app.addEventListener('click', (event) => {
     'pick-folder': () => vscode.postMessage({ type: 'pickFolder', draft: currentDraft() }),
     'use-current-workspace': () => vscode.postMessage({ type: 'useCurrentWorkspace', draft: currentDraft() }),
     'add-service': () => {
-      const services = currentDraft().services;
+      const draft = currentDraft();
+      const services = draftLaunchProfileOptions(draft)
+        .find((profile) => profile.id === draft.editingLaunchProfileId)?.services || [];
       if (services.length < 32) {
         const index = services.length;
         updateServiceDraft([...services, {
-          name: '', port: '', portVariable: '', url: ''
+          name: '',
+          port: '',
+          portVariable: '',
+          url: '',
+          healthCheck: {
+            mode: 'default', target: '', method: 'HEAD', expectedStatus: '', timeoutMs: '700', retries: '0'
+          }
         }], `service-name-${index}`);
       }
     },
+    'add-launch-profile': () => {
+      const draft = currentDraft();
+      const profiles = draftLaunchProfileOptions(draft);
+      if (profiles.length >= 12) {
+        return;
+      }
+      const source = profiles.find((profile) => profile.id === draft.editingLaunchProfileId)
+        || profiles[0];
+      const id = `profile-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      draft.launchProfiles = [...(draft.launchProfiles || []), {
+        id,
+        name: nextLaunchProfileName(profiles),
+        startCommand: source.startCommand || '',
+        stopCommand: source.stopCommand || '',
+        services: (source.services || []).map((service) => ({ ...service }))
+      }];
+      draft.selectedLaunchProfileId = id;
+      draft.editingLaunchProfileId = id;
+      updateLaunchProfileDraft(draft, 'launch-profile-name');
+    },
+    'delete-launch-profile': () => {
+      const draft = currentDraft();
+      const id = draft.editingLaunchProfileId;
+      if (!id || id === 'default') {
+        return;
+      }
+      draft.launchProfiles = (draft.launchProfiles || []).filter((profile) => profile.id !== id);
+      draft.selectedLaunchProfileId = 'default';
+      draft.editingLaunchProfileId = 'default';
+      updateLaunchProfileDraft(draft, 'launch-profile-select');
+    },
     'remove-service': () => {
       const index = Number(button.dataset.serviceIndex);
-      const services = currentDraft().services.filter((service, serviceIndex) => serviceIndex !== index);
+      const draft = currentDraft();
+      const services = (draftLaunchProfileOptions(draft)
+        .find((profile) => profile.id === draft.editingLaunchProfileId)?.services || [])
+        .filter((service, serviceIndex) => serviceIndex !== index);
       const focusId = services.length
         ? `service-name-${Math.min(index, services.length - 1)}`
         : undefined;
@@ -1524,11 +1880,53 @@ app.addEventListener('click', (event) => {
     'register-agent': () => vscode.postMessage({ type: 'registerAgent', agent: button.dataset.agent }),
     'show-agent-connections': () => vscode.postMessage({ type: 'showAgentSetup' }),
     'manage-group': () => vscode.postMessage({ type: 'manageRunGroups', id: button.dataset.id }),
+    'toggle-tag-filter': () => {
+      tagsExpanded = !tagsExpanded;
+      saveWebviewState();
+      renderList();
+      requestAnimationFrame(() => document.querySelector('[data-action="toggle-tag-filter"]')?.focus());
+    },
+    'select-tag-filter': () => {
+      const tag = String(button.dataset.tag || '');
+      selectedTagFilter = tag && tag.toLocaleLowerCase() === selectedTagFilter.toLocaleLowerCase()
+        ? ''
+        : tag;
+      state.tagFilter = selectedTagFilter;
+      tagsExpanded = false;
+      saveWebviewState();
+      vscode.postMessage({ type: 'setTagFilter', tag: selectedTagFilter });
+      renderList();
+      requestAnimationFrame(() => document.querySelector('[data-action="toggle-tag-filter"]')?.focus());
+    },
+    'toggle-run-group': () => {
+      expandedRunGroupId = expandedRunGroupId === String(button.dataset.id)
+        ? ''
+        : String(button.dataset.id);
+      saveWebviewState();
+      renderList();
+      requestAnimationFrame(() => document.querySelector(
+        `[data-action="toggle-run-group"][data-id="${CSS.escape(String(button.dataset.id))}"]`
+      )?.focus());
+    },
     'toggle-menu': () => toggleMenu(button),
+    'toggle-profile-menu': () => toggleMenu(button),
+    'select-launch-profile': () => {
+      closeMenus();
+      vscode.postMessage({
+        type: 'selectLaunchProfile',
+        id: button.dataset.id,
+        profileId: button.dataset.profileId
+      });
+    },
     open: () => {
       closeMenus();
       vscode.postMessage({ type: 'openProject', id: button.dataset.id });
     },
+    'open-service-url': () => vscode.postMessage({
+      type: 'openServiceUrl',
+      id: button.dataset.id,
+      port: Number(button.dataset.port)
+    }),
     'copy-service-url': () => vscode.postMessage({
       type: 'copyServiceUrl',
       id: button.dataset.id,
@@ -1559,6 +1957,36 @@ app.addEventListener('click', (event) => {
         type: 'toggleProjectPreview',
         id: button.dataset.id
       });
+    },
+    'open-services': () => {
+      const project = state.projects.find((item) => String(item.id) === String(button.dataset.id));
+      if (!project) {
+        return;
+      }
+      const servicesSelected = project.detailsExpanded
+        && selectedProjectDetailTab(project) === 'services';
+      detailTabState[project.id] = 'services';
+      saveDetailTabState();
+      if (!project.detailsExpanded || servicesSelected) {
+        vscode.postMessage({ type: 'toggleProjectServices', id: project.id });
+      } else {
+        renderList();
+        requestAnimationFrame(() => document.querySelector(
+          `[data-action="open-services"][data-id="${CSS.escape(String(project.id))}"]`
+        )?.focus());
+      }
+    },
+    'toggle-service-detail': () => {
+      const projectId = String(button.dataset.id);
+      const port = String(button.dataset.port);
+      expandedServiceState[projectId] = String(expandedServiceState[projectId] || '') === port
+        ? ''
+        : port;
+      saveWebviewState();
+      renderList();
+      requestAnimationFrame(() => document.querySelector(
+        `[data-action="toggle-service-detail"][data-id="${CSS.escape(projectId)}"][data-port="${CSS.escape(port)}"]`
+      )?.focus());
     },
     'select-detail-tab': () => selectProjectDetailTab(button.dataset.id, button.dataset.tab),
     'refresh-preview': () => refreshProjectPreview(button.dataset.id),
@@ -1891,6 +2319,9 @@ app.addEventListener('input', (event) => {
   if (event.target.form?.id !== 'project-form') {
     return;
   }
+  if (event.target.id === 'launch-profile-select') {
+    return;
+  }
   const field = event.target.id;
   if (event.target.classList.contains('service-input')) {
     clearServiceErrors();
@@ -1911,6 +2342,34 @@ app.addEventListener('input', (event) => {
   vscode.postMessage({ type: 'updateDraft', draft });
 });
 
+app.addEventListener('change', (event) => {
+  if (event.target.matches('[data-run-group-mode]')) {
+    vscode.postMessage({
+      type: 'setRunGroupStartMode',
+      id: event.target.dataset.id,
+      startMode: event.target.value
+    });
+    return;
+  }
+  if (event.target.matches('[data-service-health-mode]')) {
+    const draft = currentDraft(event.target.form);
+    updateLaunchProfileDraft(draft, event.target.id);
+    return;
+  }
+  if (event.target.id !== 'launch-profile-select') {
+    return;
+  }
+  const previousId = String(
+    state.draft.editingLaunchProfileId
+    || state.draft.selectedLaunchProfileId
+    || 'default'
+  );
+  const draft = currentDraft(event.target.form, previousId);
+  draft.selectedLaunchProfileId = event.target.value;
+  draft.editingLaunchProfileId = event.target.value;
+  updateLaunchProfileDraft(draft, 'start-command');
+});
+
 app.addEventListener('focusin', (event) => {
   const element = event.target;
   let target;
@@ -1926,7 +2385,8 @@ app.addEventListener('focusin', (event) => {
       action: element.dataset.action,
       id: element.dataset.id,
       agent: element.dataset.agent,
-      tab: element.dataset.tab
+      tab: element.dataset.tab,
+      port: element.dataset.port
     };
   }
   if (target) {
@@ -1942,6 +2402,15 @@ function handleSearchInput(event) {
 }
 
 document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && tagsExpanded
+    && event.target.closest('.project-tag-filter')) {
+    event.preventDefault();
+    tagsExpanded = false;
+    saveWebviewState();
+    renderList();
+    requestAnimationFrame(() => document.querySelector('[data-action="toggle-tag-filter"]')?.focus());
+    return;
+  }
   const tab = event.target.closest('[role="tab"]');
   if (tab && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
     const tabs = [...tab.closest('[role="tablist"]').querySelectorAll('[role="tab"]')];
@@ -1976,14 +2445,14 @@ document.addEventListener('keydown', (event) => {
   }
 
   if (event.key === 'Escape') {
-    const trigger = document.querySelector('.more-button[aria-expanded="true"]');
+    const trigger = document.querySelector('.menu-trigger[aria-expanded="true"]');
     closeMenus();
     trigger?.focus();
   }
 });
 
 document.addEventListener('pointerdown', (event) => {
-  if (!event.target.closest('.action-menu, .more-button')) {
+  if (!event.target.closest('.action-menu, .menu-trigger')) {
     closeMenus();
   }
 }, true);
@@ -1996,7 +2465,7 @@ app.addEventListener('focusout', () => {
     if (!openMenu) {
       return;
     }
-    const trigger = document.querySelector(`.more-button[data-id="${CSS.escape(openMenu.dataset.menuId)}"]`);
+    const trigger = document.querySelector(`.menu-trigger[data-menu-target="${CSS.escape(openMenu.dataset.menuId)}"]`);
     if (!openMenu.contains(document.activeElement) && document.activeElement !== trigger) {
       closeMenus();
     }
@@ -2008,15 +2477,17 @@ function closeMenus(exceptId) {
     const isOpenMenu = menu.dataset.menuId === exceptId;
     menu.hidden = !isOpenMenu;
     menu.classList.remove('open-up');
-    const trigger = document.querySelector(`.more-button[data-id="${CSS.escape(menu.dataset.menuId)}"]`);
+    menu.classList.remove('open-left');
+    const trigger = document.querySelector(`.menu-trigger[data-menu-target="${CSS.escape(menu.dataset.menuId)}"]`);
     trigger?.setAttribute('aria-expanded', String(isOpenMenu));
   });
 }
 
 function toggleMenu(button) {
-  const menu = document.querySelector(`.action-menu[data-menu-id="${CSS.escape(button.dataset.id)}"]`);
+  const menuId = button.dataset.menuTarget || button.dataset.id;
+  const menu = document.querySelector(`.action-menu[data-menu-id="${CSS.escape(menuId)}"]`);
   const shouldOpen = menu?.hidden;
-  closeMenus(shouldOpen ? button.dataset.id : undefined);
+  closeMenus(shouldOpen ? menuId : undefined);
   if (!shouldOpen) {
     return;
   }
@@ -2025,6 +2496,9 @@ function toggleMenu(button) {
     const menuBounds = menu.getBoundingClientRect();
     if (menuBounds.bottom > window.innerHeight - 8) {
       menu.classList.add('open-up');
+    }
+    if (menuBounds.right > window.innerWidth - 8) {
+      menu.classList.add('open-left');
     }
     menu.querySelector('button:not(:disabled)')?.focus();
   });
@@ -2053,18 +2527,22 @@ function applyInitialFocus() {
     if (target.tab) {
       selector += `[data-tab="${CSS.escape(target.tab)}"]`;
     }
+    if (target.port) {
+      selector += `[data-port="${CSS.escape(target.port)}"]`;
+    }
     element = document.querySelector(selector);
+  }
+  const hiddenMenu = element?.closest('.action-menu[hidden]');
+  if (hiddenMenu) {
+    element = document.querySelector(
+      `.menu-trigger[data-menu-target="${CSS.escape(hiddenMenu.dataset.menuId)}"]`
+    );
   }
   requestAnimationFrame(() => element?.focus());
 }
 
 if (state.mode === 'list') {
   renderList();
-  document.getElementById('project-search')?.addEventListener('input', handleSearchInput);
-  scheduleAutoScrollUpdate();
-  scheduleRunningAppNavigatorUpdate();
-  initializeProjectPreview();
-  initializeTimelineClock();
 } else if (state.mode === 'agents') {
   renderAgentSetup();
 } else if (state.mode === 'output') {

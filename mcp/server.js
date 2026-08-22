@@ -6,13 +6,14 @@ const {
   boundedDiagnosticOutput,
   readProjectDiagnostics,
   redactSensitiveText
-} = require('../project-diagnostics');
-const { ProcessOwnershipStore } = require('../project-process');
+} = require('../src/projects/project-diagnostics');
+const { ProcessOwnershipStore } = require('../src/lifecycle/project-process');
 const {
   createProjectRepairProposal,
   projectConfigurationRevision
-} = require('../project-repair');
-const { findProjectByFolder, readProjects, upsertProject } = require('../project-store');
+} = require('../src/projects/project-repair');
+const { resolveLaunchProfile } = require('../src/projects/launch-profile');
+const { findProjectByFolder, readProjects, upsertProject } = require('../src/projects/project-store');
 const { version: SERVER_VERSION } = require('../package.json');
 
 const SERVER_NAME = 'runlist-mcp-server';
@@ -31,7 +32,7 @@ const processOwnership = PROJECTS_FILE
 const setupTool = {
   name: 'runlist_setup_project',
   title: 'Set up a Runlist project',
-  description: 'Add a local project to Runlist, or update the existing entry for the same folder. You may give the project a friendly custom name and an advanced custom stop command. Runlist normally stops only the process tree it launched. Before calling, identify every service the project starts and provide its explicit port. Include a port variable only when the start command is explicitly documented to honor it for that service; never guess one. When the project explicitly defines an HTTP or HTTPS browser URL for a service, you may include it as an override. The saved setup remains blocked until the user reviews and approves it in Runlist.',
+  description: 'Add a local project to Runlist, or update the existing entry for the same folder. You may give the project a friendly custom name and an advanced custom stop command. Runlist normally stops only the process tree it launched. Before calling, identify every service the project starts and provide its explicit port. When the project explicitly defines an HTTP or HTTPS browser URL for a service, you may include it as an override. The saved setup remains blocked until the user reviews and approves it in Runlist.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -140,7 +141,7 @@ const diagnosticsTool = {
       projectId: {
         type: 'string',
         minLength: 1,
-        maxLength: 200,
+        maxLength: 256,
         description: 'Exact Runlist project ID supplied by the Runlist diagnosis screen.'
       }
     },
@@ -157,6 +158,15 @@ const diagnosticsTool = {
           name: { type: 'string' },
           folder: { type: 'string' },
           startCommand: { type: 'string' },
+          launchProfile: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' }
+            },
+            required: ['id', 'name'],
+            additionalProperties: false
+          },
           services: {
             type: 'array',
             items: {
@@ -171,7 +181,7 @@ const diagnosticsTool = {
             }
           }
         },
-        required: ['id', 'name', 'folder', 'startCommand', 'services'],
+        required: ['id', 'name', 'folder', 'startCommand', 'launchProfile', 'services'],
         additionalProperties: false
       },
       platform: { type: 'string' },
@@ -219,14 +229,14 @@ const diagnosticsTool = {
 const repairTool = {
   name: 'runlist_propose_project_repair',
   title: 'Propose a Runlist setup repair',
-  description: 'Save a bounded setup proposal for one retained failed start. This does not change the saved project or run any command. The user must review and approve the complete comparison in Runlist.',
+  description: 'Save a bounded setup proposal for one retained failed start. Command and service changes apply to the exact launch profile that failed. This does not change the saved project or run any command. The user must review and approve the complete comparison in Runlist.',
   inputSchema: {
     type: 'object',
     properties: {
       projectId: {
         type: 'string',
         minLength: 1,
-        maxLength: 200,
+        maxLength: 256,
         description: 'Exact project ID returned by runlist_get_project_diagnostics.'
       },
       projectRevision: {
@@ -382,6 +392,17 @@ function callTool(message) {
     if (!Array.isArray(argumentsValue.services) || argumentsValue.services.length === 0) {
       throw new Error('services must list at least one service and port.');
     }
+    const serviceKeys = new Set(['name', 'port', 'url']);
+    argumentsValue.services.forEach((service, index) => {
+      if (!service || typeof service !== 'object' || Array.isArray(service)) {
+        throw new Error(`services[${index}] must be an object.`);
+      }
+      const unsupportedServiceKeys = Object.keys(service)
+        .filter((key) => !serviceKeys.has(key));
+      if (unsupportedServiceKeys.length) {
+        throw new Error(`unsupported services[${index}] field: ${unsupportedServiceKeys.join(', ')}`);
+      }
+    });
 
     const existingProject = findProjectByFolder(PROJECTS_FILE, argumentsValue.folder);
     let updateReserved = false;
@@ -395,7 +416,15 @@ function callTool(message) {
 
     let saved;
     try {
-      saved = upsertProject(PROJECTS_FILE, argumentsValue, { reviewRequired: true });
+      saved = upsertProject(PROJECTS_FILE, {
+        ...argumentsValue,
+        ...(existingProject ? { id: existingProject.id } : {})
+      }, {
+        ...(existingProject
+          ? { expectedProject: existingProject }
+          : { expectProjectAbsent: true }),
+        reviewRequired: true
+      });
     } finally {
       if (updateReserved) {
         processOwnership.release(existingProject.id);
@@ -403,7 +432,7 @@ function callTool(message) {
     }
     const structuredContent = {
       action: saved.action,
-      project: saved.project
+      project: setupToolProject(saved.project)
     };
     result(message.id, {
       content: [{
@@ -416,6 +445,23 @@ function callTool(message) {
   } catch (toolFailure) {
     toolError(message.id, `Could not set up the Runlist project: ${toolFailure.message}`);
   }
+}
+
+function setupToolProject(project) {
+  return {
+    id: project.id,
+    name: project.name,
+    folder: project.folder,
+    startCommand: project.startCommand,
+    ...(project.stopCommand ? { stopCommand: project.stopCommand } : {}),
+    reviewRequired: project.reviewRequired === true,
+    services: (project.services || []).map((service) => ({
+      name: service.name,
+      port: service.port,
+      ...(service.portVariable ? { portVariable: service.portVariable } : {}),
+      ...(service.url ? { url: service.url } : {})
+    }))
+  };
 }
 
 function callDiagnosticsTool(message) {
@@ -436,7 +482,7 @@ function callDiagnosticsTool(message) {
     const projectId = typeof argumentsValue.projectId === 'string'
       ? argumentsValue.projectId.trim()
       : '';
-    if (!projectId || projectId.length > 200) {
+    if (!projectId || projectId.length > 256) {
       throw new Error('projectId must be the exact ID copied from Runlist.');
     }
     if (!fs.existsSync(PROJECTS_FILE)) {
@@ -459,13 +505,21 @@ function callDiagnosticsTool(message) {
     if (!diagnostic.projectRevision || diagnostic.projectRevision !== projectRevision) {
       throw new Error(`${project.name}'s saved setup changed after this failed start. Start it again before requesting a repair.`);
     }
+    const diagnosedProject = resolveLaunchProfile(
+      project,
+      diagnostic.launchProfileId || 'default'
+    );
     const structuredContent = {
       project: {
         id: project.id,
         name: project.name,
         folder: project.folder,
-        startCommand: redactSensitiveText(project.startCommand),
-        services: Array.isArray(project.services) ? project.services.map((service) => ({
+        startCommand: redactSensitiveText(diagnosedProject.startCommand),
+        launchProfile: {
+          id: diagnosedProject.activeLaunchProfileId,
+          name: diagnosedProject.activeLaunchProfileName
+        },
+        services: Array.isArray(diagnosedProject.services) ? diagnosedProject.services.map((service) => ({
           name: service.name,
           port: service.port
         })) : []

@@ -3,7 +3,11 @@ function normalizeSearchQuery(value) {
 }
 
 function projectSearchText(project) {
-  return normalizeSearchQuery([project.name, project.folder].filter(Boolean).join('\n'));
+  return normalizeSearchQuery([
+    project.name,
+    project.folder,
+    ...(Array.isArray(project.tags) ? project.tags : [])
+  ].filter(Boolean).join('\n'));
 }
 
 function projectMatchesQuery(project, query) {

@@ -3,17 +3,17 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const { safeHttpUrl } = require('./external-url');
+const { safeHttpUrl } = require('./src/services/external-url');
 const {
   claudeBundledCliPaths,
   codexBundledCliPath,
   registerWithClaude,
   registerWithCodex
-} = require('./agent-registration');
+} = require('./src/integrations/agent-registration');
 const {
   agentSkillStatus,
   installAgentSkill
-} = require('./skill-installation');
+} = require('./src/integrations/skill-installation');
 const {
   hasUnownedPortReservation,
   managedRuntimeProjectIds,
@@ -27,32 +27,32 @@ const {
   servicePortStatus,
   serviceTimelineStages,
   stoppableProjectIds
-} = require('./project-status');
+} = require('./src/lifecycle/project-status');
 const {
   copyProjectPath: writeProjectPathToClipboard,
   openProjectInNewWindow,
   openProjectTerminal,
   projectFolderIsAccessible
-} = require('./project-navigation');
-const { previewFrameSources, projectPreviewService } = require('./preview-security');
-const { createPhoneHandoff } = require('./phone-handoff');
-const { OwnedProcessMetrics } = require('./process-metrics');
+} = require('./src/webview/project-navigation');
+const { previewFrameSources, projectPreviewService } = require('./src/webview/preview-security');
+const { createPhoneHandoff } = require('./src/webview/phone-handoff');
+const { OwnedProcessMetrics } = require('./src/lifecycle/process-metrics');
 const {
   findListeningProcesses,
   terminateListenerProcess
-} = require('./port-process');
+} = require('./src/ports/port-process');
 const {
   managedPortBlockers,
   portClosureConfirmation,
   recoverProjectPorts,
   relatedPortProjectIds
-} = require('./port-recovery');
-const { customStopPostcondition } = require('./custom-stop-recovery');
+} = require('./src/ports/port-recovery');
+const { customStopPostcondition } = require('./src/lifecycle/custom-stop-recovery');
 const {
   availableProjectDetailTabs,
   preferredProjectDetailTab
-} = require('./project-detail-tabs');
-const { HttpResponseHistory, RuntimePulseHistory } = require('./runtime-pulse');
+} = require('./src/webview/project-detail-tabs');
+const { HttpResponseHistory, RuntimePulseHistory } = require('./src/lifecycle/runtime-pulse');
 const {
   appendStartupHistory,
   averageReadyDuration,
@@ -60,17 +60,18 @@ const {
   readStartupHistory,
   replaceTimedOutStartupHistory,
   startupHistoryEntry
-} = require('./startup-history');
+} = require('./src/lifecycle/startup-history');
 const {
   canUseCurrentWorkspace,
   selectCurrentWorkspaceFolder
-} = require('./project-workspace');
+} = require('./src/projects/project-workspace');
 const {
   cleanupTrackedProcessForDeletion,
   customStopSpawnOptions,
   ProcessOwnershipStore,
   projectStopStrategy,
   projectProcessSpawnOptions,
+  readProcessIdentity,
   recordStartedProcess,
   rollbackStartedProcess,
   shutdownTrackedProcesses,
@@ -78,7 +79,7 @@ const {
   startExitFailed,
   terminateProcessTree,
   terminateTrackedProcess
-} = require('./project-process');
+} = require('./src/lifecycle/project-process');
 const {
   effectiveProjectPortOverrides,
   mergePortOverride,
@@ -87,24 +88,25 @@ const {
   portVariableValidationMessage,
   projectLaunchEnvironment,
   projectWithPortOverrides
-} = require('./service-port-overrides');
+} = require('./src/ports/service-port-overrides');
 const {
   detectLifecycleCapability,
   projectLifecycleCapability
-} = require('./lifecycle-capability');
+} = require('./src/lifecycle/lifecycle-capability');
 const {
   occupiedPortsBelongToProject,
   occupiedPortConflict,
   PortReservationStore
-} = require('./port-gate');
+} = require('./src/ports/port-gate');
 const {
   projectFormChanged,
+  projectFormSetup,
   projectFormServices,
   projectServicesChanged,
   projectFormValues,
   projectSaveError,
   validateProjectForm
-} = require('./project-form');
+} = require('./src/projects/project-form');
 const {
   appendProjectOutput,
   createOutputUpdateScheduler,
@@ -113,27 +115,33 @@ const {
   projectOutputPeek,
   sanitizeProjectOutput,
   startFailureSummary
-} = require('./project-output');
+} = require('./src/projects/project-output');
 const {
   clearProjectDiagnostics,
   readProjectDiagnostics,
   writeProjectDiagnostics
-} = require('./project-diagnostics');
-const { projectSearchText } = require('./project-search');
-const { ProjectLifecycleCoordinator } = require('./project-lifecycle');
-const { createRunlistWebviewRouter } = require('./webview-message-router');
+} = require('./src/projects/project-diagnostics');
+const { projectSearchText } = require('./src/projects/project-search');
+const { projectTagVocabulary } = require('./src/projects/project-tags');
+const {
+  launchProfileOptions,
+  resolveLaunchProfile,
+  selectedLaunchProfileId
+} = require('./src/projects/launch-profile');
+const { ProjectLifecycleCoordinator } = require('./src/lifecycle/project-lifecycle');
+const { createRunlistWebviewRouter } = require('./src/webview/webview-message-router');
 const {
   approveProjectRepairProposal,
   clearProjectRepairProposal,
   projectConfigurationRevision,
   projectRepairComparison,
   readProjectRepairProposal
-} = require('./project-repair');
-const { runProjectTransferWorkflow } = require('./project-transfer');
+} = require('./src/projects/project-repair');
+const { runProjectTransferWorkflow } = require('./src/projects/project-transfer');
 const {
   RunGroupCoordinator,
   runGroupManagementWorkflow
-} = require('./run-groups');
+} = require('./src/groups/run-groups');
 const {
   initializeProjectStore,
   pinnedProjectsFirst,
@@ -142,10 +150,11 @@ const {
   readRunGroups,
   removeProject,
   removeRunGroup,
+  selectProjectLaunchProfile,
   toggleProjectPinned,
   upsertProject,
   upsertRunGroup
-} = require('./project-store');
+} = require('./src/projects/project-store');
 
 const STORAGE_KEY = 'runlist.projects';
 const START_READINESS_TIMEOUT_MS = 30000;
@@ -170,8 +179,10 @@ class RunlistViewProvider {
     this.view = undefined;
     this.mode = 'list';
     this.searchQuery = '';
+    this.tagFilter = '';
     this.draft = {};
     this.formBaseline = {};
+    this.formProjectSnapshot = undefined;
     this.formErrors = {};
     this.focusTarget = undefined;
     this.lastFocusTarget = undefined;
@@ -221,8 +232,20 @@ class RunlistViewProvider {
     this.stoppingProjectIds = new Set();
     this.remoteStopRequests = new Map();
     this.statusRefreshInFlight = false;
+    this.statusRefreshPending = false;
+    this.statusRefreshPromise = undefined;
     this.statusRevision = 0;
     this.lifecycle = new ProjectLifecycleCoordinator(this, {
+      isServiceReady: async (service) => {
+        const portStatus = await servicePortStatus([service]);
+        if (!portStatus.allOpen) {
+          return false;
+        }
+        const httpStatus = await serviceHttpStatus([service], portStatus.openPorts, {
+          resolveUrl: (url) => this.externalServiceUrl(url)
+        });
+        return httpStatus.allResponding;
+      },
       remoteStopTimeoutMs: REMOTE_STOP_TIMEOUT_MS,
       servicePortStatus,
       showErrorMessage: (...args) => vscode.window.showErrorMessage(...args),
@@ -258,6 +281,7 @@ class RunlistViewProvider {
     this.mode = 'add';
     this.draft = {};
     this.formBaseline = projectFormValues({});
+    this.formProjectSnapshot = undefined;
     this.formErrors = {};
     this.focusTarget = { type: 'field', id: 'project-name' };
     this.returnFocus = returnFocus || this.defaultListFocusTarget();
@@ -305,12 +329,12 @@ class RunlistViewProvider {
       groups: this.groups,
       projects: this.projects,
       window: vscode.window,
-      saveGroup: async (group) => {
-        upsertRunGroup(this.projectsFile, group);
+      saveGroup: async (group, expectedGroup) => {
+        upsertRunGroup(this.projectsFile, group, { expectedGroup });
         this.renderProjectList();
       },
-      removeGroup: async (id) => {
-        removeRunGroup(this.projectsFile, id);
+      removeGroup: async (id, expectedGroup) => {
+        removeRunGroup(this.projectsFile, id, { expectedGroup });
         this.runGroupStates.delete(id);
         this.renderProjectList();
       },
@@ -351,6 +375,22 @@ class RunlistViewProvider {
     return this.lifecycle.stopGroup(id);
   }
 
+  async setRunGroupStartMode(id, startMode) {
+    try {
+      const group = this.groups.find((candidate) => candidate.id === id);
+      if (!group || this.runGroupStates.get(id)?.busy) {
+        return false;
+      }
+      upsertRunGroup(this.projectsFile, { ...group, startMode }, { expectedGroup: group });
+      this.renderProjectList();
+      return true;
+    } catch (error) {
+      vscode.window.showErrorMessage(`Could not change run group mode: ${error.message}`);
+      this.renderProjectList();
+      return false;
+    }
+  }
+
   lifecycleCapabilityFor(project) {
     return projectLifecycleCapability(this.lifecycleCapability, project, process.platform);
   }
@@ -370,6 +410,14 @@ class RunlistViewProvider {
       starting: {
         busy: true,
         message: `Starting ${project?.name || 'project'} (${progress.index + 1}/${progress.total})…`
+      },
+      'starting-parallel': {
+        busy: true,
+        message: `Starting ${progress.eligibleTotal} project${progress.eligibleTotal === 1 ? '' : 's'} in parallel…`
+      },
+      'parallel-progress': {
+        busy: true,
+        message: `${progress.readyCount} of ${progress.eligibleTotal} ready in parallel…`
       },
       skipped: {
         busy: true,
@@ -442,10 +490,14 @@ class RunlistViewProvider {
 
   async refreshProjectStatuses() {
     if (this.statusRefreshInFlight) {
-      return;
+      this.statusRefreshPending = true;
+      return this.statusRefreshPromise;
     }
 
     this.statusRefreshInFlight = true;
+    let finishRefresh;
+    const refreshPromise = new Promise((resolve) => { finishRefresh = resolve; });
+    this.statusRefreshPromise = refreshPromise;
     const revision = this.statusRevision;
     try {
       await Promise.all([
@@ -504,6 +556,9 @@ class RunlistViewProvider {
         processRuntime.get(project.id)
       ));
       const checks = await Promise.all(effectiveProjects.map(async (project) => {
+        if (project.reviewRequired) {
+          return [project.id, 'stopped', undefined, [], [], [], [], []];
+        }
         const capability = this.lifecycleCapabilityFor(project);
         if (!capability.supported) {
           return [project.id, 'unsupported', undefined, [], [], [], [], []];
@@ -670,7 +725,21 @@ class RunlistViewProvider {
       vscode.window.showErrorMessage(`Could not refresh Runlist status: ${error.message}`);
     } finally {
       this.statusRefreshInFlight = false;
+      if (this.statusRefreshPending) {
+        this.statusRefreshPending = false;
+        await this.refreshProjectStatuses();
+      }
+      finishRefresh();
+      if (this.statusRefreshPromise === refreshPromise) {
+        this.statusRefreshPromise = undefined;
+      }
     }
+  }
+
+  handleProjectStoreChange() {
+    this.statusRevision += 1;
+    this.renderProjectList();
+    void this.refreshProjectStatuses();
   }
 
   async handleMessage(message) {
@@ -744,8 +813,9 @@ class RunlistViewProvider {
 
     this.mode = 'edit';
     this.selectedProjectId = id;
-    this.draft = { ...project };
+    this.draft = projectFormValues(project);
     this.formBaseline = projectFormValues(project);
+    this.formProjectSnapshot = JSON.parse(JSON.stringify(project));
     this.formErrors = {};
     this.focusTarget = { type: 'field', id: project.reviewRequired ? 'start-command' : 'project-name' };
     this.returnFocus = { type: 'project-menu', id };
@@ -791,6 +861,7 @@ class RunlistViewProvider {
     this.mode = 'list';
     this.draft = {};
     this.formBaseline = {};
+    this.formProjectSnapshot = undefined;
     this.formErrors = {};
     this.selectedProjectId = undefined;
     this.approvedRepairProjectId = undefined;
@@ -948,13 +1019,17 @@ class RunlistViewProvider {
 
   persistStartFailure(project, details, summary) {
     try {
+      const savedProject = this.projects.find((candidate) => candidate.id === project.id);
+      const previousDiagnostic = readProjectDiagnostics(this.projectsFile, project.id);
       writeProjectDiagnostics(this.projectsFile, project.id, {
         output: this.projectOutputs.get(project.id),
         lifecycleState: this.getProjectStatus(project.id),
         exitCode: details.code,
         signal: details.signal,
         summary,
-        projectRevision: projectConfigurationRevision(project),
+        projectRevision: details.projectRevision
+          || projectConfigurationRevision(savedProject || project),
+        launchProfileId: project.activeLaunchProfileId || previousDiagnostic?.launchProfileId,
         failedAt: this.projectTimelineFailures.get(project.id)?.failedAt
       });
     } catch {
@@ -1175,6 +1250,32 @@ class RunlistViewProvider {
     vscode.window.showInformationMessage(`Copied ${service.name} URL.`);
   }
 
+  async openServiceUrl(id, port) {
+    const savedProject = this.projects.find((item) => item.id === id);
+    const project = projectStopStrategy(
+      savedProject,
+      this.processOwnership.snapshot().get(id)
+    );
+    const service = project?.services?.find((item) => item.port === port);
+    if (!project || !service) {
+      return;
+    }
+
+    const portStatus = await servicePortStatus([service]);
+    const [reachable] = await reachableServiceUrls([service], portStatus.openPorts, {
+      resolveUrl: (url) => this.externalServiceUrl(url)
+    });
+    if (!reachable) {
+      vscode.window.showInformationMessage(`${service.name} is not responding as a web service.`);
+      await this.refreshProjectStatuses();
+      return;
+    }
+    const opened = await vscode.env.openExternal(vscode.Uri.parse(reachable.url));
+    if (!opened) {
+      vscode.window.showErrorMessage(`Could not open ${service.name} at ${reachable.url}.`);
+    }
+  }
+
   async copyPhoneUrl(id, requestedUrl) {
     const savedProject = this.projects.find((item) => item.id === id);
     const project = projectStopStrategy(
@@ -1208,7 +1309,7 @@ class RunlistViewProvider {
     vscode.window.showInformationMessage('Copied phone URL.');
   }
 
-  toggleProjectPreview(id) {
+  toggleProjectPreview(id, focusAction = 'toggle-preview') {
     const savedProject = this.projects.find((item) => item.id === id);
     const project = projectStopStrategy(
       savedProject,
@@ -1223,7 +1324,7 @@ class RunlistViewProvider {
     );
     const hasTimeline = this.projectHasLiveTimeline(id, project, status);
     const hasHistory = readStartupHistory(this.projectsFile, id).length > 0;
-    if (!previewService && !hasTimeline && !hasHistory) {
+    if (!previewService && !hasTimeline && !hasHistory && !project?.services?.length) {
       return;
     }
 
@@ -1244,7 +1345,7 @@ class RunlistViewProvider {
       this.expandedPreviewServicePort,
       this.expandedPreviewProjectId ? previewService?.url : undefined
     );
-    this.focusTarget = { type: 'action', action: 'toggle-preview', id };
+    this.focusTarget = { type: 'action', action: focusAction, id };
     this.renderProjectList();
   }
 
@@ -1419,6 +1520,41 @@ class RunlistViewProvider {
     }
   }
 
+  selectLaunchProfile(id, profileId) {
+    const project = this.projects.find((item) => item.id === id);
+    if (!project) {
+      return false;
+    }
+    if (this.projectSetupLocked(id)) {
+      vscode.window.showWarningMessage(`Stop ${project.name} before changing its launch profile.`);
+      this.focusTarget = { type: 'action', action: 'toggle-profile-menu', id };
+      this.renderProjectList();
+      return false;
+    }
+    const ownershipConflict = this.processOwnership.reserve(id);
+    if (ownershipConflict) {
+      vscode.window.showWarningMessage(`Runlist cannot safely change ${project.name}'s launch profile while it may be running elsewhere.`);
+      this.focusTarget = { type: 'action', action: 'toggle-profile-menu', id };
+      this.renderProjectList();
+      return false;
+    }
+    try {
+      selectProjectLaunchProfile(this.projectsFile, id, profileId);
+      this.statusRevision += 1;
+      this.focusTarget = { type: 'action', action: 'toggle-profile-menu', id };
+      this.renderProjectList();
+      void this.refreshProjectStatuses();
+      return true;
+    } catch (error) {
+      vscode.window.showErrorMessage(`Could not change this launch profile: ${error.message}`);
+      this.focusTarget = { type: 'action', action: 'toggle-profile-menu', id };
+      this.renderProjectList();
+      return false;
+    } finally {
+      this.processOwnership.release(id);
+    }
+  }
+
   async pickFolder(draft = {}) {
     this.draft = { ...this.draft, ...draft };
     const selection = await vscode.window.showOpenDialog({
@@ -1454,7 +1590,10 @@ class RunlistViewProvider {
     this.draft = validation.values;
     if (validation.firstField) {
       this.formErrors = validation.errors;
-      this.focusTarget = { type: 'field', id: validation.firstField };
+      this.focusTarget = {
+        type: 'field',
+        id: validation.firstField === 'form' ? 'form-error-summary' : validation.firstField
+      };
       this.render();
       return;
     }
@@ -1462,9 +1601,7 @@ class RunlistViewProvider {
     let projectId = validation.values.id || this.selectedProjectId;
     const name = validation.values.name.trim();
     const folder = validation.values.folder.trim();
-    const startCommand = validation.values.startCommand.trim();
-    const stopCommand = validation.values.stopCommand.trim();
-    const services = projectFormServices(validation.values);
+    const setup = projectFormSetup(validation.values);
     const existingProject = this.projects.find((item) => item.id === projectId);
     const servicesChanged = Boolean(existingProject)
       && projectServicesChanged(validation.values, existingProject);
@@ -1493,10 +1630,11 @@ class RunlistViewProvider {
         id: projectId,
         name,
         folder,
-        startCommand,
-        stopCommand,
-        services
-      }, { reviewRequired: false });
+        ...setup
+      }, {
+        expectedProject: existingProject ? this.formProjectSnapshot : undefined,
+        reviewRequired: false
+      });
       projectId = saved.project.id;
       clearProjectDiagnostics(this.projectsFile, projectId);
     } catch (error) {
@@ -1517,6 +1655,7 @@ class RunlistViewProvider {
     this.searchQuery = '';
     this.draft = {};
     this.formBaseline = {};
+    this.formProjectSnapshot = undefined;
     this.formErrors = {};
     this.focusTarget = { type: 'project-menu', id: projectId };
     this.returnFocus = undefined;
@@ -1759,6 +1898,8 @@ class RunlistViewProvider {
       return false;
     }
 
+    const savedProjectRevision = projectConfigurationRevision(project);
+    project = resolveLaunchProfile(project);
     let portOverrides;
     let launchProject;
     try {
@@ -1893,7 +2034,10 @@ class RunlistViewProvider {
         this.projectStatuses.set(id, 'stopped');
         this.startReadinessDeadlines.delete(id);
         this.readinessWarnings.delete(id);
-        this.showStartFailure(project, error.message);
+        this.showStartFailure(project, {
+          detail: error.message,
+          projectRevision: savedProjectRevision
+        });
         this.renderProjectList();
       });
       child.once('exit', (code, signal) => {
@@ -1911,7 +2055,11 @@ class RunlistViewProvider {
           this.startReadinessDeadlines.delete(id);
           this.readinessWarnings.delete(id);
           if (startFailed) {
-            this.showStartFailure(project, { code, signal });
+            this.showStartFailure(project, {
+              code,
+              signal,
+              projectRevision: savedProjectRevision
+            });
           } else {
             this.projectAttemptMetadata.delete(id);
             this.projectTimelineFailures.delete(id);
@@ -1961,9 +2109,12 @@ class RunlistViewProvider {
       }
       this.startReadinessDeadlines.delete(id);
       this.readinessWarnings.delete(id);
-      this.showStartFailure(project, rollback.stopped
-        ? error.message
-        : `${error.message} Runlist also could not confirm cleanup: ${rollback.error.message}`);
+      this.showStartFailure(project, {
+        detail: rollback.stopped
+          ? error.message
+          : `${error.message} Runlist also could not confirm cleanup: ${rollback.error.message}`,
+        projectRevision: savedProjectRevision
+      });
       this.renderProjectList();
       return false;
     }
@@ -1978,12 +2129,19 @@ class RunlistViewProvider {
   }
 
   async resolveServicePort(id, savedPort) {
-    const savedProject = this.projects.find((candidate) => candidate.id === id);
+    const storedProject = this.projects.find((candidate) => candidate.id === id);
+    const savedProject = storedProject ? resolveLaunchProfile(storedProject) : undefined;
     const savedService = savedProject?.services?.find((service) => service.port === savedPort);
     if (!savedProject || !savedService || savedProject.reviewRequired) {
       return false;
     }
     if (!this.showLifecycleBlocked(savedProject)) {
+      return false;
+    }
+    const displayedStatus = this.getProjectStatus(id);
+    const displayedConflict = this.projectPortConflicts.get(id);
+    if (['port-in-use', 'port-in-use-unknown'].includes(displayedStatus)
+      && displayedConflict?.port !== savedPort) {
       return false;
     }
 
@@ -2046,7 +2204,7 @@ class RunlistViewProvider {
       return false;
     }
     if (choice.action === 'start') {
-      return this.startProject(id);
+      return this.startProject(id, { allowPortConflict: true });
     }
     if (choice.action === 'handoff') {
       return this.handoffProject(id);
@@ -2164,10 +2322,25 @@ class RunlistViewProvider {
     if (!started) {
       return false;
     }
-    const acceptedOverride = await this.lifecycle.waitUntilServiceReady(temporaryService);
+    const launchToken = this.processOwnership.snapshot().get(project.id)?.token;
+    if (!launchToken) {
+      return false;
+    }
+    const launchIsCurrent = () => (
+      this.processOwnership.snapshot().get(project.id)?.token === launchToken
+    );
+    const acceptedOverride = await this.lifecycle.waitUntilServiceReady(
+      temporaryService,
+      undefined,
+      launchIsCurrent
+    );
+    if (!launchIsCurrent()) {
+      return false;
+    }
     if (!acceptedOverride) {
       const stopped = await this.stopOwnedProjectProcess(project.id, temporaryProject, {
-        allowMissing: true
+        allowMissing: true,
+        expectedOwnershipToken: launchToken
       });
       vscode.window.showErrorMessage(
         `${project.name} did not open ${service.name} on :${temporaryService.port}. ${portVariable} may not be supported by its start command. ${stopped ? 'Runlist stopped the process tree it launched.' : 'Runlist could not confirm that its launched process stopped.'}`
@@ -2212,7 +2385,8 @@ class RunlistViewProvider {
 
   async forceCloseProjectPorts(id, intent, options = {}) {
     const projects = this.projects;
-    const savedProject = projects.find((candidate) => candidate.id === id);
+    const storedProject = projects.find((candidate) => candidate.id === id);
+    const savedProject = storedProject ? resolveLaunchProfile(storedProject) : undefined;
     if (!savedProject || savedProject.reviewRequired || !['start', 'stop'].includes(intent)) {
       return false;
     }
@@ -2490,7 +2664,11 @@ class RunlistViewProvider {
       this.projectTimelineFailures.delete(id);
       this.releaseStartReservation(id);
     } else {
-      const project = this.projects.find((candidate) => candidate.id === id);
+      const savedProject = this.projects.find((candidate) => candidate.id === id);
+      const project = projectStopStrategy(
+        savedProject,
+        this.processOwnership.snapshot().get(id)
+      );
       const hasServices = Boolean(project?.services?.length);
       const readinessTimedOut = hasServices
         && Date.now() >= (this.startReadinessDeadlines.get(id) || Infinity);
@@ -2607,6 +2785,7 @@ class RunlistViewProvider {
         env: environment,
         ...customStopSpawnOptions()
       });
+      const stopProcessIdentity = readProcessIdentity(stopProcess.pid);
       let finalized = false;
       let stdout = '';
       let stderr = '';
@@ -2632,7 +2811,16 @@ class RunlistViewProvider {
         }
         finalized = true;
         clearTimeout(stopTimeout);
-        void terminateProcessTree(stopProcess.pid)
+        void Promise.resolve(stopProcessIdentity)
+          .then((expectedIdentity) => {
+            if (!expectedIdentity) {
+              throw new Error('Runlist could not verify the custom stop process identity.');
+            }
+            return terminateProcessTree(stopProcess.pid, {
+              expectedIdentity,
+              readProcessIdentity
+            });
+          })
           .then(() => {
             resolve({
               succeeded: false,
@@ -2697,6 +2885,12 @@ class RunlistViewProvider {
     const nonce = crypto.randomBytes(16).toString('base64');
     this.webviewMessageToken = nonce;
     const projects = this.projects;
+    const tags = projectTagVocabulary(projects);
+    if (this.tagFilter && !tags.some((tag) => (
+      tag.toLocaleLowerCase() === this.tagFilter.toLocaleLowerCase()
+    ))) {
+      this.tagFilter = '';
+    }
     const outputProject = this.mode === 'output'
       ? projects.find((project) => project.id === this.selectedProjectId)
       : undefined;
@@ -2729,6 +2923,11 @@ class RunlistViewProvider {
       const status = this.getProjectStatus(project.id);
       const runtime = this.projectRuntime.get(project.id);
       const runtimeProject = projectStopStrategy(project, runtime);
+      const profiles = launchProfileOptions(project);
+      const activeLaunchProfileId = runtime?.launchProfileId
+        || selectedLaunchProfileId(project);
+      const activeLaunchProfile = profiles.find((profile) => profile.id === activeLaunchProfileId)
+        || profiles[0];
       const previewService = projectPreviewService(
         runtimeProject,
         status,
@@ -2736,7 +2935,7 @@ class RunlistViewProvider {
         this.projectPortConflicts.has(project.id)
       );
       const canPreview = Boolean(previewService);
-      const timelineVisible = this.projectHasLiveTimeline(project.id, project, status);
+      const timelineVisible = this.projectHasLiveTimeline(project.id, runtimeProject, status);
       const attempt = this.projectAttemptMetadata.get(project.id);
       const failure = this.projectTimelineFailures.get(project.id);
       const timelineAttention = ['not-ready', 'not-responding'].includes(status);
@@ -2778,6 +2977,7 @@ class RunlistViewProvider {
         : undefined;
       const startupHistory = readStartupHistory(this.projectsFile, project.id);
       const detailTabs = availableProjectDetailTabs({
+        servicesAvailable: runtimeProject.services.length > 0,
         outputAvailable: outputPeek !== undefined,
         previewAvailable: previewExpanded,
         historyAvailable: startupHistory.length > 0
@@ -2786,6 +2986,10 @@ class RunlistViewProvider {
       const lifecycleCapability = this.lifecycleCapabilityFor(project);
       return {
         ...runtimeProject,
+        launchProfiles: profiles.map((profile) => ({ id: profile.id, name: profile.name })),
+        activeLaunchProfileId,
+        activeLaunchProfileName: runtime?.launchProfileName || activeLaunchProfile.name,
+        launchProfileChangeDisabled: this.projectSetupLocked(project.id),
         stopCommand: typeof runtime?.stopCommand === 'string'
           ? runtime.stopCommand
           : project.stopCommand,
@@ -2866,6 +3070,8 @@ class RunlistViewProvider {
       messageToken: nonce,
       mode: this.mode,
       searchQuery: this.searchQuery,
+      tagFilter: this.tagFilter,
+      tags,
       draft: this.draft,
       canUseCurrentWorkspace: this.mode === 'add'
         && canUseCurrentWorkspace(vscode.workspace.workspaceFolders),
@@ -3063,7 +3269,7 @@ function validFocusTarget(target) {
     return undefined;
   }
   const clean = { type: target.type };
-  for (const key of ['id', 'action', 'agent', 'tab']) {
+  for (const key of ['id', 'action', 'agent', 'tab', 'port']) {
     if (typeof target[key] === 'string' && target[key].length <= 200) {
       clean[key] = target[key];
     }
@@ -3127,47 +3333,28 @@ function installMcpBridge(context) {
   const storageRoot = context.globalStorageUri.fsPath;
   const mcpRoot = path.join(storageRoot, 'mcp');
   const serverPath = path.join(mcpRoot, 'server.js');
-  fs.mkdirSync(mcpRoot, { recursive: true });
-  fs.copyFileSync(
-    vscode.Uri.joinPath(context.extensionUri, 'mcp', 'server.js').fsPath,
-    serverPath
-  );
-  fs.copyFileSync(
-    vscode.Uri.joinPath(context.extensionUri, 'project-store.js').fsPath,
-    path.join(storageRoot, 'project-store.js')
-  );
-  fs.copyFileSync(
-    vscode.Uri.joinPath(context.extensionUri, 'external-url.js').fsPath,
-    path.join(storageRoot, 'external-url.js')
-  );
-  fs.copyFileSync(
-    vscode.Uri.joinPath(context.extensionUri, 'project-process.js').fsPath,
-    path.join(storageRoot, 'project-process.js')
-  );
-  fs.copyFileSync(
-    vscode.Uri.joinPath(context.extensionUri, 'service-port-overrides.js').fsPath,
-    path.join(storageRoot, 'service-port-overrides.js')
-  );
-  fs.copyFileSync(
-    vscode.Uri.joinPath(context.extensionUri, 'process-metrics.js').fsPath,
-    path.join(storageRoot, 'process-metrics.js')
-  );
-  fs.copyFileSync(
-    vscode.Uri.joinPath(context.extensionUri, 'project-output.js').fsPath,
-    path.join(storageRoot, 'project-output.js')
-  );
-  fs.copyFileSync(
-    vscode.Uri.joinPath(context.extensionUri, 'project-diagnostics.js').fsPath,
-    path.join(storageRoot, 'project-diagnostics.js')
-  );
-  fs.copyFileSync(
-    vscode.Uri.joinPath(context.extensionUri, 'project-repair.js').fsPath,
-    path.join(storageRoot, 'project-repair.js')
-  );
-  fs.copyFileSync(
-    vscode.Uri.joinPath(context.extensionUri, 'package.json').fsPath,
-    path.join(storageRoot, 'package.json')
-  );
+  const bridgeFiles = [
+    'mcp/server.js',
+    'src/lifecycle/process-metrics.js',
+    'src/lifecycle/project-process.js',
+    'src/ports/service-port-overrides.js',
+    'src/projects/launch-profile.js',
+    'src/projects/project-output.js',
+    'src/projects/project-diagnostics.js',
+    'src/projects/project-repair.js',
+    'src/projects/project-store.js',
+    'src/projects/project-tags.js',
+    'src/services/external-url.js',
+    'package.json'
+  ];
+  for (const relativePath of bridgeFiles) {
+    const targetPath = path.join(storageRoot, ...relativePath.split('/'));
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.copyFileSync(
+      vscode.Uri.joinPath(context.extensionUri, ...relativePath.split('/')).fsPath,
+      targetPath
+    );
+  }
   return serverPath;
 }
 
@@ -3188,7 +3375,7 @@ function activate(context) {
   const provider = new RunlistViewProvider(context, projectsFile, serverPath);
   activeProvider = provider;
   context.subscriptions.push({ dispose: () => { void provider.dispose(); } });
-  const handleProjectStoreChange = () => provider.renderProjectList();
+  const handleProjectStoreChange = () => provider.handleProjectStoreChange();
   fs.watchFile(projectsFile, { interval: 500 }, handleProjectStoreChange);
 
   const mcpDefinition = new vscode.McpStdioServerDefinition(

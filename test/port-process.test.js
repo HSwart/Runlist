@@ -5,8 +5,9 @@ const {
   parseLsofListeners,
   parseSsListeners,
   parseWindowsNetstatListeners,
-  terminateListenerProcess
-} = require('../port-process');
+  terminateListenerProcess,
+  windowsProcessDetailsScript
+} = require('../src/ports/port-process');
 
 test('parses exact Windows netstat LISTENING rows without requiring elevated TCP inspection', () => {
   const output = [
@@ -79,6 +80,13 @@ test('resolves Windows listeners and adds identity through a targeted process qu
     { port: 4280, pid: 120, name: 'node', identity: '120:638900000000000000' },
     { port: 7071, pid: 240, name: 'func', identity: '240:638900000000000100' }
   ]);
+});
+
+test('isolates inaccessible Windows process identities per listener', () => {
+  const script = windowsProcessDetailsScript([120, 240]);
+  assert.match(script, /foreach\(\$ownerProcessId/);
+  assert.match(script, /try \{/);
+  assert.match(script, /catch \{ continue \}/);
 });
 
 test('falls back to Linux ss and independently identifies each listener process', async () => {

@@ -7,6 +7,7 @@ const {
   ProjectStoreError,
   readProjects,
   serializeProjectDocument,
+  withProjectStoreLock,
   writeProjects
 } = require('./project-store');
 
@@ -55,10 +56,16 @@ function parseImportDocument(contents) {
   if (document.projects.length > MAX_IMPORT_PROJECTS) {
     throw transferError('IMPORT_TOO_LARGE', 'A Runlist import can contain at most 1,000 projects.');
   }
+  Object.defineProperty(document.projects, 'schemaVersion', {
+    value: document.schemaVersion,
+    enumerable: false
+  });
   return document.projects;
 }
 
 function previewProjectImport(currentProjects, importedProjects, options = {}) {
+  const replaceOptionalMetadata = options.replaceOptionalMetadata
+    ?? importedProjects.schemaVersion >= 5;
   const isProjectActive = typeof options.isProjectActive === 'function'
     ? options.isProjectActive
     : () => false;
@@ -109,7 +116,7 @@ function previewProjectImport(currentProjects, importedProjects, options = {}) {
 
     const normalized = normalizeProjectInput(candidate.candidate, {
       allowStoredName: true,
-      existing,
+      existing: replaceOptionalMetadata ? undefined : existing,
       id: existing?.id || candidate.id,
       normalizedFolder: candidate.normalized.folder,
       reviewRequired: true
@@ -165,15 +172,17 @@ function applyProjectImport(filePath, preview, options = {}) {
   }
 
   try {
-    const currentProjects = readProjects(filePath);
-    if (projectListFingerprint(currentProjects) !== preview.fingerprint) {
-      throw transferError(
-        'STALE_IMPORT',
-        'Runlist projects changed after the import preview. Review the file again.'
-      );
-    }
-    writeProjects(filePath, preview.nextProjects);
-    return preview.nextProjects;
+    return withProjectStoreLock(filePath, () => {
+      const currentProjects = readProjects(filePath);
+      if (projectListFingerprint(currentProjects) !== preview.fingerprint) {
+        throw transferError(
+          'STALE_IMPORT',
+          'Runlist projects changed after the import preview. Review the file again.'
+        );
+      }
+      writeProjects(filePath, preview.nextProjects, { lockHeld: true });
+      return preview.nextProjects;
+    });
   } finally {
     if (typeof reservation === 'function') {
       reservation();
@@ -296,7 +305,8 @@ async function importProjects(options) {
   const contents = await options.workspace.fs.readFile(selection[0]);
   const importedProjects = parseImportDocument(contents);
   const preview = previewProjectImport(readProjects(options.projectsFile), importedProjects, {
-    isProjectActive: options.isProjectActive
+    isProjectActive: options.isProjectActive,
+    replaceOptionalMetadata: importedProjects.schemaVersion >= 5
   });
   const detail = formatProjectImportPreview(preview.entries);
   if (!preview.changeCount) {
@@ -388,6 +398,9 @@ function projectSetupFingerprint(project) {
     startCommand: project.startCommand,
     stopCommand: project.stopCommand || '',
     services: project.services || [],
+    launchProfiles: project.launchProfiles || [],
+    selectedLaunchProfileId: project.selectedLaunchProfileId || 'default',
+    tags: project.tags || [],
     pinned: project.pinned === true
   });
 }

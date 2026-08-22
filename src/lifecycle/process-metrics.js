@@ -1,4 +1,5 @@
 const { execFile } = require('child_process');
+const fs = require('fs');
 
 const MAX_PROCESS_COUNT = 64;
 const COMMAND_TIMEOUT_MS = 4000;
@@ -83,7 +84,7 @@ async function readRootProcess(pid, platform = process.platform, options = {}) {
     return readWindowsRootProcess(pid, options);
   }
 
-  const rows = await readPosixProcesses([pid], undefined, options);
+  const rows = await readPosixProcesses([pid], undefined, options, platform);
   return rows.find((row) => row.pid === pid);
 }
 
@@ -112,10 +113,10 @@ async function readOwnedProcessTree(pid, platform = process.platform, options = 
   if (!pids.length || pids.length > MAX_PROCESS_COUNT) {
     return [];
   }
-  return readPosixProcesses(pids, pid, options);
+  return readPosixProcesses(pids, pid, options, platform);
 }
 
-async function readPosixProcesses(pids, processGroupId, options = {}) {
+async function readPosixProcesses(pids, processGroupId, options = {}, platform = process.platform) {
   const runFile = options.runFile || execFileText;
   const output = await runFile('ps', [
     '-o', 'pid=',
@@ -126,10 +127,36 @@ async function readPosixProcesses(pids, processGroupId, options = {}) {
     '-o', 'rss=',
     '-p', pids.join(',')
   ], commandOptions(options));
-  return String(output).split(/\r?\n/)
+  const rows = String(output).split(/\r?\n/)
     .map(parsePosixProcess)
     .filter((row) => row
       && (processGroupId === undefined || row.processGroupId === processGroupId));
+  if (platform !== 'linux') {
+    return rows;
+  }
+
+  const readStartTicks = options.readLinuxStartTicks || readLinuxStartTicks;
+  const withKernelIdentity = await Promise.all(rows.map(async (row) => {
+    try {
+      const startTicks = await readStartTicks(row.pid);
+      return /^\d+$/.test(String(startTicks))
+        ? { ...row, identity: `${row.pid}:linux:${startTicks}` }
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }));
+  return withKernelIdentity.filter(Boolean);
+}
+
+async function readLinuxStartTicks(pid) {
+  const stat = await fs.promises.readFile(`/proc/${pid}/stat`, 'utf8');
+  const commandEnd = stat.lastIndexOf(')');
+  if (commandEnd < 0) {
+    return undefined;
+  }
+  // Fields after the command name start at field 3; starttime is field 22.
+  return stat.slice(commandEnd + 1).trim().split(/\s+/)[19];
 }
 
 function parsePosixProcess(line) {

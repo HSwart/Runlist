@@ -1,4 +1,4 @@
-const { safeServiceUrl } = require('./external-url');
+const { safeServiceUrl } = require('../services/external-url');
 
 function previewFrameSource(value) {
   const safeUrl = safeServiceUrl(value);
