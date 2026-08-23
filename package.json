@@ -43,7 +43,8 @@
     "onCommand:runlist.addProject",
     "onCommand:runlist.showAgentSetup",
     "onCommand:runlist.transferProjects",
-    "onCommand:runlist.manageGroups"
+    "onCommand:runlist.manageGroups",
+    "onCommand:runlist.copySupportDiagnostics"
   ],
   "main": "./extension.js",
   "extensionKind": [
@@ -70,8 +71,22 @@
         "command": "runlist.manageGroups",
         "title": "Manage Run Groups",
         "icon": "$(run-all)"
+      },
+      {
+        "command": "runlist.copySupportDiagnostics",
+        "title": "Copy Runlist Support Diagnostics"
       }
     ],
+    "configuration": {
+      "title": "Runlist",
+      "properties": {
+        "runlist.diagnostics.trace": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include bounded, redacted error details in the local Runlist output and copied support diagnostics."
+        }
+      }
+    },
     "mcpServerDefinitionProviders": [
       {
         "id": "runlist.projects",

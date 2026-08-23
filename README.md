@@ -141,6 +141,7 @@ Runlist keeps the everyday controls simple:
 | **Expand details** | Keeps startup progress and runtime information in Overview, bounded live lines in Output, the app in Preview, and past outcomes in History. The stable workspace prevents growing output or history from pushing the preview around. **View output** opens the complete retained output. |
 | **View output** | Summarizes a failed start above the unchanged raw log, highlights common log levels, opens web links, and lets you copy output from the latest run. If you scroll up, Runlist keeps your place and offers a **Latest** button when new output arrives. |
 | **Ask your agent** | Appears only for a retained failed start. It copies a request that lets a connected agent retrieve bounded, sanitized diagnostics for that one project through Runlist. |
+| **Copy Runlist Support Diagnostics** | From the Command Palette, copies a bounded local JSON report with correlated lifecycle events and anonymous project references. It excludes project names, folders, commands, environment values, ports, and process output. Enable **Runlist › Diagnostics: Trace** only when support needs redacted error details. |
 | **Import or export** | Uses a JSON file to move one or all saved setups. Runlist previews additions, updates, skipped entries, and invalid entries before import; changed commands require review before they can run. Exported files include saved command text, so store and share them carefully. |
 | **…** | Opens the app or project folder, opens a terminal in that folder, copies the saved project path, and provides recent output, edit, or remove actions. |
 
@@ -154,7 +155,7 @@ Run the isolated VS Code extension-host smoke suite with `npm run test:smoke`. T
 
 ## Your projects stay local
 
-Runlist stores its project list in your local VS Code data. Runlist itself does not upload project folders, commands, service ports, or URL overrides. Any coding agent you connect has its own data and privacy settings.
+Runlist stores its project list in your local VS Code data. Runlist itself does not upload project folders, commands, service ports, or URL overrides. Its bounded Output Channel diagnostics and copied support report also stay local unless you choose to share them. Any coding agent you connect has its own data and privacy settings.
 
 ## Security
 

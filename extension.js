@@ -132,6 +132,7 @@ const {
   selectedLaunchProfileId
 } = require('./src/projects/launch-profile');
 const { ProjectLifecycleCoordinator } = require('./src/lifecycle/project-lifecycle');
+const { RunlistDiagnostics } = require('./src/lifecycle/runlist-diagnostics');
 const { createRunlistWebviewRouter } = require('./src/webview/webview-message-router');
 const {
   approveProjectRepairProposal,
@@ -184,10 +185,11 @@ function attachCleanupErrors(error, cleanupErrors) {
 }
 
 class RunlistViewProvider {
-  constructor(context, projectsFile, serverPath) {
+  constructor(context, projectsFile, serverPath, diagnostics) {
     this.context = context;
     this.projectsFile = projectsFile;
     this.serverPath = serverPath;
+    this.diagnostics = diagnostics || new RunlistDiagnostics();
     this.lifecycleCapability = detectLifecycleCapability({
       remoteName: vscode.env.remoteName,
       platform: process.platform
@@ -353,6 +355,42 @@ class RunlistViewProvider {
       reserveUpdatedProjects: (ids) => this.reserveProjectUpdates(ids),
       onImported: () => this.renderProjectList()
     });
+  }
+
+  async copySupportDiagnostics() {
+    try {
+      const report = this.diagnostics.supportReport(this.supportDiagnosticsSnapshot());
+      await vscode.env.clipboard.writeText(report);
+      this.diagnostics.record('support.copied');
+      vscode.window.showInformationMessage('Copied redacted Runlist support diagnostics.');
+      return true;
+    } catch (error) {
+      this.diagnostics.record('support.copy-failed', { error });
+      vscode.window.showErrorMessage('Could not copy Runlist support diagnostics.');
+      return false;
+    }
+  }
+
+  supportDiagnosticsSnapshot() {
+    const projects = this.projects;
+    const ownership = this.processOwnership.snapshot();
+    const reservations = this.portReservations.snapshot();
+    return {
+      projectCount: projects.length,
+      ownershipCount: ownership.size,
+      reservationCount: reservations.size,
+      localProcessCount: this.processes.size,
+      projects: projects.map((project) => ({
+        id: project.id,
+        status: this.getProjectStatus(project.id),
+        serviceCount: project.services?.length || 0,
+        ownershipPresent: ownership.has(project.id),
+        reservationPresent: reservations.has(project.id),
+        localProcess: this.processes.has(project.id),
+        processState: ownership.get(project.id)?.state,
+        portState: reservations.get(project.id)
+      }))
+    };
   }
 
   async showRunGroupManager(selectedGroupId) {
@@ -2303,7 +2341,33 @@ class RunlistViewProvider {
   }
 
   async startProject(id, options = {}) {
-    return this.lifecycle.start(id, options);
+    return this.runLifecycleDiagnosticOperation(
+      'start',
+      id,
+      () => this.lifecycle.start(id, options)
+    );
+  }
+
+  runLifecycleDiagnosticOperation(kind, id, operation) {
+    return this.diagnostics.run(
+      kind,
+      id,
+      operation,
+      () => this.lifecycleDiagnosticSnapshot(id)
+    );
+  }
+
+  lifecycleDiagnosticSnapshot(id) {
+    const ownership = this.processOwnership.snapshot().get(id);
+    const portState = this.portReservations.snapshot().get(id);
+    return {
+      status: this.getProjectStatus(id),
+      ownershipPresent: Boolean(ownership),
+      reservationPresent: Boolean(portState),
+      localProcess: this.processes.has(id),
+      processState: ownership?.state,
+      portState
+    };
   }
 
   async startProjectProcess(id, options = {}) {
@@ -2602,6 +2666,12 @@ class RunlistViewProvider {
     if (this.processes.get(id) !== child) {
       return;
     }
+    this.diagnostics.record('process.exit', {
+      projectId: id,
+      exitCode: code,
+      signal,
+      ...this.lifecycleDiagnosticSnapshot(id)
+    });
     const stoppedIntentionally = this.stoppingProjectIds.has(id);
     const exitDetails = {
       code,
@@ -2681,7 +2751,11 @@ class RunlistViewProvider {
     if (!project || !this.showLifecycleBlocked(project)) {
       return false;
     }
-    return this.lifecycle.handoff(id);
+    return this.runLifecycleDiagnosticOperation(
+      'handoff',
+      id,
+      () => this.lifecycle.handoff(id)
+    );
   }
 
   async resolveServicePort(id, savedPort) {
@@ -2940,6 +3014,14 @@ class RunlistViewProvider {
   }
 
   async forceCloseProjectPorts(id, intent, options = {}) {
+    return this.runLifecycleDiagnosticOperation(
+      `port-${intent}`,
+      id,
+      () => this.forceCloseProjectPortsOperation(id, intent, options)
+    );
+  }
+
+  async forceCloseProjectPortsOperation(id, intent, options = {}) {
     const projects = this.projects;
     const storedProject = projects.find((candidate) => candidate.id === id);
     const savedProject = storedProject ? resolveLaunchProfile(storedProject) : undefined;
@@ -3099,7 +3181,11 @@ class RunlistViewProvider {
   }
 
   async stopProject(id, projectSnapshot, options = {}) {
-    return this.lifecycle.stop(id, projectSnapshot, options);
+    return this.runLifecycleDiagnosticOperation(
+      'stop',
+      id,
+      () => this.lifecycle.stop(id, projectSnapshot, options)
+    );
   }
 
   async stopProjectProcess(id, projectSnapshot, options = {}) {
@@ -3286,7 +3372,11 @@ class RunlistViewProvider {
   }
 
   async restartProject(id) {
-    return this.lifecycle.restart(id);
+    return this.runLifecycleDiagnosticOperation(
+      'restart',
+      id,
+      () => this.lifecycle.restart(id)
+    );
   }
 
   beginStopping(id, options = {}) {
@@ -4150,7 +4240,21 @@ function activate(context) {
   }
 
   const serverPath = installMcpBridge(context);
-  const provider = new RunlistViewProvider(context, projectsFile, serverPath);
+  const diagnosticOutput = vscode.window.createOutputChannel('Runlist');
+  const diagnostics = new RunlistDiagnostics({
+    outputChannel: diagnosticOutput,
+    traceEnabled: () => vscode.workspace
+      .getConfiguration('runlist')
+      .get('diagnostics.trace', false),
+    environment: {
+      runlistVersion: context.extension.packageJSON.version,
+      vscodeVersion: vscode.version,
+      platform: process.platform,
+      arch: process.arch,
+      remoteKind: vscode.env.remoteName || 'local'
+    }
+  });
+  const provider = new RunlistViewProvider(context, projectsFile, serverPath, diagnostics);
   activeProvider = provider;
   context.subscriptions.push({ dispose: () => { void provider.dispose(); } });
   const handleProjectStoreChange = () => provider.handleProjectStoreChange();
@@ -4169,11 +4273,16 @@ function activate(context) {
   mcpDefinition.cwd = context.globalStorageUri;
 
   context.subscriptions.push(
+    diagnosticOutput,
     vscode.window.registerWebviewViewProvider('runlist.projects', provider),
     vscode.commands.registerCommand('runlist.addProject', () => provider.showAddProject()),
     vscode.commands.registerCommand('runlist.showAgentSetup', () => provider.showAgentSetup()),
     vscode.commands.registerCommand('runlist.transferProjects', () => provider.showProjectTransfer()),
     vscode.commands.registerCommand('runlist.manageGroups', () => provider.showRunGroupManager()),
+    vscode.commands.registerCommand(
+      'runlist.copySupportDiagnostics',
+      () => provider.copySupportDiagnostics()
+    ),
     vscode.lm.registerMcpServerDefinitionProvider('runlist.projects', {
       provideMcpServerDefinitions: () => [mcpDefinition],
       resolveMcpServerDefinition: (server) => server
