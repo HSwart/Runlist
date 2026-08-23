@@ -306,7 +306,9 @@ test('retains failed-start diagnostics when exited-process cleanup remains uncer
   const { project, provider, projectsFile } = fixtureData;
   const projectRevision = projectConfigurationRevision(project);
   const child = {
-    pid: 303,
+    // A live PID makes Windows descendant cleanup deterministically uncertain
+    // when the required launch identity is unavailable.
+    pid: process.pid,
     exitCode: 7,
     signalCode: null,
     runlistIdentity: Promise.resolve(undefined)
