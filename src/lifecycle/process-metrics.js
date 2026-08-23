@@ -396,7 +396,7 @@ function windowsProcessScript(pid, includeTree) {
     `$includeTree=$${includeTree ? 'true' : 'false'}`,
     '$root=Get-CimInstance Win32_Process -Filter ("ProcessId = " + [int]$rootPid)',
     'if($null -ne $root){$queue.Enqueue([pscustomobject]@{id=$rootPid;parent=$null})}',
-    'elseif($includeTree){',
+    'if($null -eq $root -and $includeTree){',
     '  $rootChildren=@(Get-CimInstance Win32_Process -Filter ("ParentProcessId = " + [int]$rootPid))',
     '  foreach($child in $rootChildren){$queue.Enqueue([pscustomobject]@{id=[int]$child.ProcessId;parent=$rootPid})}',
     '}',

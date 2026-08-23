@@ -380,6 +380,8 @@ test('builds a bounded Windows descendant query without a system-wide process re
   assert.match(script, /ParentProcessId = /);
   assert.match(script, /rows\.Count -lt 64/);
   assert.doesNotMatch(script, /Get-CimInstance Win32_Process;/);
+  assert.doesNotMatch(script, /};elseif/);
+  assert.match(script, /if\(\$null -eq \$root -and \$includeTree\)/);
 
   assert.deepEqual(parseWindowsProcessOutput(JSON.stringify({
     pid: 55,
