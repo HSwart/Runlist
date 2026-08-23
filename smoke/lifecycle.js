@@ -346,7 +346,11 @@ async function run() {
     );
     const diagnostics = readProjectDiagnostics(api.projectsFile, failure.id);
     assert.match(diagnostics.failureSummary.message, /controlled smoke failure/i);
-    assert.equal(api.provider.getProjectStatus(failure.id), 'stopped');
+    assert.equal(api.provider.getProjectStatus(failure.id), 'stopped', JSON.stringify({
+      output: api.provider.projectOutputs.get(failure.id),
+      ownership: api.provider.processOwnership.currentOwnership(failure.id),
+      status: api.provider.getProjectStatus(failure.id)
+    }));
 
     const { removeProject } = require(path.join(extension.extensionPath, 'src', 'projects', 'project-store'));
     assert.equal(removeProject(api.projectsFile, manual.id), true, 'The stopped manual fixture was not removed.');

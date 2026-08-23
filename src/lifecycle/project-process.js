@@ -217,9 +217,30 @@ async function terminateTrackedProcess(processes, id, options = {}) {
 
 async function terminateExitedWindowsTree(rootPid, rootIdentity, options = {}) {
   const readTree = options.readOwnedProcessTree || readOwnedProcessTree;
-  const rows = await readTree(rootPid, 'win32', options);
-  if (rows.some((row) => row.pid === rootPid)) {
-    throw new Error('Runlist did not stop the process because its process identity changed.');
+  let rows = await readTree(rootPid, 'win32', options);
+  const visibleRoot = rows.find((row) => row.pid === rootPid);
+  if (visibleRoot) {
+    if (visibleRoot.identity !== rootIdentity) {
+      throw new Error('Runlist did not stop the process because its process identity changed.');
+    }
+    try {
+      await terminateProcessTree(rootPid, {
+        ...options,
+        platform: 'win32',
+        expectedIdentity: rootIdentity,
+        readProcessIdentity: options.readProcessIdentity || readProcessIdentity
+      });
+      return;
+    } catch (error) {
+      rows = await readTree(rootPid, 'win32', options);
+      const currentRoot = rows.find((row) => row.pid === rootPid);
+      if (currentRoot) {
+        if (currentRoot.identity !== rootIdentity) {
+          throw new Error('Runlist did not stop the process because its process identity changed.');
+        }
+        throw error;
+      }
+    }
   }
   const rootStartedAt = windowsIdentityStartedAt(rootIdentity);
   const directChildren = rows.filter((row) => {

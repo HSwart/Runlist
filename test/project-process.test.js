@@ -1390,6 +1390,110 @@ test('terminates identity-checked Windows descendants after their tracked root e
   assert.equal(processes.has('project'), false);
 });
 
+test('terminates an exact Windows root that remains visible after its exit event', async () => {
+  const child = {
+    pid: 624,
+    exitCode: 7,
+    signalCode: null,
+    runlistIdentity: Promise.resolve('624:100')
+  };
+  const processes = new Map([['project', child]]);
+  const calls = [];
+
+  assert.equal(await terminateTrackedProcess(processes, 'project', {
+    platform: 'win32',
+    readOwnedProcessTree: async () => [{
+      pid: 624,
+      parentPid: 1,
+      identity: '624:100'
+    }],
+    readProcessIdentity: async () => '624:100',
+    spawnProcess: (command, args) => {
+      calls.push([command, args]);
+      const taskkill = new EventEmitter();
+      taskkill.stderr = new EventEmitter();
+      taskkill.stderr.setEncoding = () => {};
+      process.nextTick(() => taskkill.emit('exit', 0));
+      return taskkill;
+    }
+  }), true);
+
+  assert.deepEqual(calls, [['taskkill.exe', ['/PID', '624', '/T', '/F']]]);
+  assert.equal(processes.has('project'), false);
+});
+
+test('reconciles an exited Windows root that disappears during exact revalidation', async () => {
+  const child = {
+    pid: 625,
+    exitCode: 7,
+    signalCode: null,
+    runlistIdentity: Promise.resolve('625:100')
+  };
+  const processes = new Map([['project', child]]);
+  let identityReads = 0;
+  let treeReads = 0;
+
+  assert.equal(await terminateTrackedProcess(processes, 'project', {
+    platform: 'win32',
+    readOwnedProcessTree: async () => (++treeReads === 1 ? [{
+      pid: 625,
+      parentPid: 1,
+      identity: '625:100'
+    }] : []),
+    readProcessIdentity: async () => (++identityReads === 1 ? '625:100' : undefined),
+    spawnProcess: () => {
+      throw new Error('taskkill must not run after the exact root disappears');
+    }
+  }), true);
+
+  assert.equal(identityReads, 2);
+  assert.equal(treeReads, 2);
+  assert.equal(processes.has('project'), false);
+});
+
+test('stops an exact Windows descendant when the exited root disappears during revalidation', async () => {
+  const child = {
+    pid: 626,
+    exitCode: 7,
+    signalCode: null,
+    runlistIdentity: Promise.resolve('626:100')
+  };
+  const processes = new Map([['project', child]]);
+  const calls = [];
+  let rootIdentityReads = 0;
+  let treeReads = 0;
+
+  assert.equal(await terminateTrackedProcess(processes, 'project', {
+    platform: 'win32',
+    readOwnedProcessTree: async () => (++treeReads === 1 ? [{
+      pid: 626,
+      parentPid: 1,
+      identity: '626:100'
+    }] : [{
+      pid: 700,
+      parentPid: 626,
+      identity: '700:110'
+    }]),
+    readProcessIdentity: async (pid) => {
+      if (pid === 626) {
+        return ++rootIdentityReads === 1 ? '626:100' : undefined;
+      }
+      return pid === 700 ? '700:110' : undefined;
+    },
+    spawnProcess: (command, args) => {
+      calls.push([command, args]);
+      const taskkill = new EventEmitter();
+      taskkill.stderr = new EventEmitter();
+      taskkill.stderr.setEncoding = () => {};
+      process.nextTick(() => taskkill.emit('exit', 0));
+      return taskkill;
+    }
+  }), true);
+
+  assert.deepEqual(calls, [['taskkill.exe', ['/PID', '700', '/T', '/F']]]);
+  assert.equal(processes.has('project'), false);
+});
+
 test('refuses exited-root cleanup when the Windows root PID was reused', async () => {
   const child = {
     pid: 616,
