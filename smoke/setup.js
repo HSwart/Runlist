@@ -31,6 +31,8 @@ async function run() {
   const delayedPort = await availableDistinctPort(usedPorts);
   const externalPort = await availableDistinctPort(usedPorts);
   const handoffPort = await availableDistinctPort(usedPorts);
+  const temporarySavedPort = await availableDistinctPort(usedPorts);
+  const temporaryLaunchPort = await availableDistinctPort(usedPorts);
   const readyChildPidPath = path.join(smokeRoot, 'ready-child.pid');
   const readyGrandchildPidPath = path.join(smokeRoot, 'ready-grandchild.pid');
   const customStopPidPath = path.join(smokeRoot, 'custom-stop.pid');
@@ -127,6 +129,27 @@ async function run() {
     folder: projectFolder(workspacePath, 'failure'),
     startCommand: command(nodePath, failurePath, path.join(smokeRoot, 'failure.pid'))
   });
+  await saveProject(api.provider, {
+    name: 'Temporary port smoke project',
+    folder: projectFolder(workspacePath, 'temporary-port'),
+    startCommand: command(
+      nodePath,
+      fixturePath,
+      smokeRoot,
+      'env:RUNLIST_SMOKE_TEMP_PORT',
+      '',
+      '',
+      '0',
+      path.join(smokeRoot, 'temporary-project.pid')
+    ),
+    services: [{
+      name: 'temporary web',
+      port: String(temporarySavedPort),
+      portVariable: 'RUNLIST_SMOKE_TEMP_PORT',
+      url: ''
+    }]
+  });
+  fs.writeFileSync(path.join(smokeRoot, 'temporary-launch-port'), String(temporaryLaunchPort));
 
   const { upsertProject } = require(path.join(extension.extensionPath, 'src', 'projects', 'project-store'));
   const untrustedFolder = projectFolder(workspacePath, 'untrusted');
@@ -149,7 +172,7 @@ async function run() {
     'Reviewing the complete setup did not approve it.'
   );
 
-  assert.equal(api.provider.projects.length, 9, 'The setup phase did not retain every saved project.');
+  assert.equal(api.provider.projects.length, 10, 'The setup phase did not retain every saved project.');
   const readyStarted = await api.provider.startProject(ready.id);
   assert.equal(readyStarted, true, `The setup host did not start the reload fixture: ${JSON.stringify({
     status: api.provider.getProjectStatus(ready.id),

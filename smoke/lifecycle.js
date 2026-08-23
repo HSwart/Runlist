@@ -27,12 +27,14 @@ async function run() {
   const handoffSource = api.provider.projects.find((project) => project.name === 'Handoff source smoke project');
   const handoffTarget = api.provider.projects.find((project) => project.name === 'Handoff target smoke project');
   const failure = api.provider.projects.find((project) => project.name === 'Failure smoke project');
+  const temporaryPort = api.provider.projects.find((project) => project.name === 'Temporary port smoke project');
   const manual = api.provider.projects.find((project) => project.name === 'Manual smoke project');
   assert.ok(
-    ready && customStop && delayed && externalConflict && handoffSource && handoffTarget && failure && manual,
+    ready && customStop && delayed && externalConflict && handoffSource && handoffTarget
+      && failure && temporaryPort && manual,
     'Saved projects did not reload in the second extension host.'
   );
-  assert.equal(api.provider.projects.length, 9, 'The second extension host loaded incomplete saved state.');
+  assert.equal(api.provider.projects.length, 10, 'The second extension host loaded incomplete saved state.');
 
   const fixturePidPath = path.join(smokeRoot, 'ready.pid');
   const childPidPath = path.join(smokeRoot, 'ready-child.pid');
@@ -70,9 +72,11 @@ async function run() {
   await waitFor(
     async () => {
       await api.provider.refreshProjectStatuses();
-      return api.provider.getProjectStatus(ready.id) === 'stopped';
+      return lifecycleIsStopped(api.provider, ready.id);
     },
-    'The reloaded extension host did not observe the previous process as stopped.'
+    () => `The reloaded extension host did not observe a fully stopped lifecycle: ${JSON.stringify(
+      lifecycleEvidence(api.provider, ready.id)
+    )}`
   );
   fs.rmSync(fixturePidPath, { force: true });
   fs.rmSync(childPidPath, { force: true });
@@ -85,6 +89,8 @@ async function run() {
   let delayedPid;
   let externalListener;
   let externalListenerProcessRecord;
+  let temporaryPortBlocker;
+  let temporaryPortBlockerRecord;
   let handoffTargetPid;
 
   try {
@@ -103,11 +109,18 @@ async function run() {
     await waitFor(
       async () => {
         await api.provider.refreshProjectStatuses();
-        return api.provider.getProjectStatus(ready.id) === 'running';
+        return lifecycleIsRunning(api.provider, ready.id);
       },
-      `Ready fixture never became ready; last status was ${api.provider.getProjectStatus(ready.id)}.`,
+      () => `Ready fixture never reached a coordinated running state: ${JSON.stringify(
+        lifecycleEvidence(api.provider, ready.id)
+      )}`,
       20000
     );
+
+    const initialOwnershipToken = api.provider.processOwnership.snapshot().get(ready.id)?.token;
+    const initialPortGeneration = api.provider.portReservations.captureShared(ready.id);
+    assert.equal(typeof initialOwnershipToken, 'string', 'Start did not create an ownership generation.');
+    assert.equal(initialPortGeneration.size, 1, 'Start did not create the configured port generation.');
 
     await waitFor(() => fs.existsSync(fixturePidPath), 'The ready fixture did not report its process id.');
     const fixturePid = Number(fs.readFileSync(fixturePidPath, 'utf8'));
@@ -137,7 +150,7 @@ async function run() {
     await waitFor(
       async () => {
         await api.provider.refreshProjectStatuses();
-        return api.provider.getProjectStatus(ready.id) === 'running'
+        return lifecycleIsRunning(api.provider, ready.id)
           && fs.existsSync(fixturePidPath)
           && fs.existsSync(childPidPath)
           && fs.existsSync(grandchildPidPath);
@@ -148,6 +161,20 @@ async function run() {
     const restartedPid = Number(fs.readFileSync(fixturePidPath, 'utf8'));
     const restartedChildPid = Number(fs.readFileSync(childPidPath, 'utf8'));
     const restartedGrandchildPid = Number(fs.readFileSync(grandchildPidPath, 'utf8'));
+    const restartedOwnershipToken = api.provider.processOwnership.snapshot().get(ready.id)?.token;
+    const restartedPortGeneration = api.provider.portReservations.captureShared(ready.id);
+    assert.equal(typeof restartedOwnershipToken, 'string', 'Restart did not create an ownership generation.');
+    assert.notEqual(
+      restartedOwnershipToken,
+      initialOwnershipToken,
+      'Restart retained the previous ownership generation.'
+    );
+    assert.equal(restartedPortGeneration.size, 1, 'Restart did not create a complete port generation.');
+    assert.notDeepEqual(
+      [...restartedPortGeneration],
+      [...initialPortGeneration],
+      'Restart retained the previous port reservation generation.'
+    );
     assert.notEqual(restartedPid, fixturePid, 'Restart reused the previous fixture process.');
     assert.notEqual(restartedChildPid, childPid, 'Restart reused the previous fixture child process.');
     assert.notEqual(restartedGrandchildPid, grandchildPid, 'Restart reused the previous fixture grandchild process.');
@@ -160,9 +187,15 @@ async function run() {
     api.provider.stoppingProjectIds.delete(ready.id);
     assert.equal(await api.provider.stopProject(ready.id), true, 'Runlist did not stop its restarted fixture.');
     await waitFor(
-      () => [restartedPid, restartedChildPid, restartedGrandchildPid]
-        .every((pid) => !processIsAlive(pid)),
-      'Stop left part of the owned fixture process tree running.'
+      async () => {
+        await api.provider.refreshProjectStatuses();
+        return [restartedPid, restartedChildPid, restartedGrandchildPid]
+          .every((pid) => !processIsAlive(pid))
+          && lifecycleIsStopped(api.provider, ready.id);
+      },
+      () => `Stop did not clear the complete owned lifecycle: ${JSON.stringify(
+        lifecycleEvidence(api.provider, ready.id)
+      )}`
     );
     assert.equal(processIsAlive(unrelated.pid), true, 'Lifecycle actions terminated an unrelated process.');
 
@@ -184,7 +217,15 @@ async function run() {
     assert.equal(fs.existsSync(delayedPidPath), true, 'The delayed fixture did not report its process id.');
     delayedPid = Number(fs.readFileSync(delayedPidPath, 'utf8'));
     assert.equal(await api.provider.stopProject(delayed.id), true, 'Runlist did not stop the delayed fixture.');
-    await waitFor(() => !processIsAlive(delayedPid), 'Stop left the delayed fixture running.');
+    await waitFor(
+      async () => {
+        await api.provider.refreshProjectStatuses();
+        return !processIsAlive(delayedPid) && lifecycleIsStopped(api.provider, delayed.id);
+      },
+      () => `Stop left delayed lifecycle evidence behind: ${JSON.stringify(
+        lifecycleEvidence(api.provider, delayed.id)
+      )}`
+    );
 
     const fixturePath = path.join(extension.extensionPath, 'smoke', 'fixtures', 'ready.js');
     const externalPidPath = path.join(smokeRoot, 'external-listener.pid');
@@ -225,6 +266,13 @@ async function run() {
     );
     assert.equal(processIsAlive(externalListener.pid), true, 'Runlist terminated the external port listener.');
     assert.equal(
+      lifecycleHasCoordination(api.provider, externalConflict.id),
+      false,
+      `Blocked external Start retained Runlist coordination: ${JSON.stringify(
+        lifecycleEvidence(api.provider, externalConflict.id)
+      )}`
+    );
+    assert.equal(
       fs.existsSync(path.join(smokeRoot, 'external-conflict-started.pid')),
       false,
       'The blocked external-conflict start command still executed.'
@@ -247,6 +295,109 @@ async function run() {
     externalListener = undefined;
     externalListenerProcessRecord = undefined;
     await api.provider.refreshProjectStatuses();
+
+    const temporarySavedPort = temporaryPort.services[0].port;
+    const temporaryLaunchPort = Number(fs.readFileSync(
+      path.join(smokeRoot, 'temporary-launch-port'),
+      'utf8'
+    ));
+    const temporaryBlockerPidPath = path.join(smokeRoot, 'temporary-blocker.pid');
+    temporaryPortBlocker = spawn(nodePath, [
+      fixturePath,
+      smokeRoot,
+      String(temporarySavedPort),
+      '',
+      '',
+      '0',
+      temporaryBlockerPidPath
+    ], {
+      stdio: 'ignore',
+      windowsHide: true
+    });
+    temporaryPortBlockerRecord = await registerSmokeProcess(smokeRoot, temporaryPortBlocker, {
+      kind: 'temporary-port-blocker',
+      name: 'Temporary port smoke blocker',
+      ports: [temporarySavedPort],
+      terminateTree: false
+    });
+    await waitFor(
+      () => fs.existsSync(temporaryBlockerPidPath),
+      'The temporary-port blocker did not become ready.'
+    );
+    await api.provider.refreshProjectStatuses();
+    assert.equal(
+      api.provider.getProjectStatus(temporaryPort.id),
+      'active',
+      'The saved temporary-port service did not detect its external blocker.'
+    );
+    assert.equal(await api.provider.startProject(temporaryPort.id, {
+      allowPortConflict: true,
+      portOverrides: [{
+        serviceName: temporaryPort.services[0].name,
+        savedPort: temporarySavedPort,
+        port: temporaryLaunchPort,
+        variable: temporaryPort.services[0].portVariable
+      }]
+    }), true, 'Runlist did not start the project on its selected temporary port.');
+    const temporaryProjectPidPath = path.join(smokeRoot, 'temporary-project.pid');
+    await waitFor(
+      async () => {
+        await api.provider.refreshProjectStatuses();
+        return lifecycleIsRunning(api.provider, temporaryPort.id)
+          && fs.existsSync(temporaryProjectPidPath);
+      },
+      () => `The temporary-port launch did not become ready: ${JSON.stringify(
+        lifecycleEvidence(api.provider, temporaryPort.id)
+      )}`,
+      10000
+    );
+    const temporaryProjectPid = Number(fs.readFileSync(temporaryProjectPidPath, 'utf8'));
+    const temporaryGeneration = api.provider.portReservations.captureShared(temporaryPort.id);
+    assert.deepEqual(
+      [...temporaryGeneration.keys()],
+      [temporaryLaunchPort],
+      'The temporary launch reserved a port other than its effective launch port.'
+    );
+    assert.equal(
+      api.provider.projects.find((project) => project.id === temporaryPort.id)?.services[0].port,
+      temporarySavedPort,
+      'The temporary launch edited the saved service port.'
+    );
+    assert.equal(
+      processIsAlive(temporaryPortBlocker.pid),
+      true,
+      'Starting on a temporary port terminated the saved-port blocker.'
+    );
+    assert.equal(
+      await api.provider.stopProject(temporaryPort.id),
+      true,
+      'Runlist did not stop the temporary-port launch.'
+    );
+    await waitFor(
+      async () => {
+        await api.provider.refreshProjectStatuses();
+        return !processIsAlive(temporaryProjectPid)
+          && !lifecycleHasCoordination(api.provider, temporaryPort.id)
+          && api.provider.getProjectStatus(temporaryPort.id) === 'active';
+      },
+      () => `Stop did not return control to the saved-port listener: ${JSON.stringify(
+        lifecycleEvidence(api.provider, temporaryPort.id)
+      )}`
+    );
+    assert.equal(
+      processIsAlive(temporaryPortBlocker.pid),
+      true,
+      'Stopping the temporary-port launch terminated the saved-port blocker.'
+    );
+    await cleanupSmokeProcess(
+      smokeRoot,
+      temporaryPortBlocker,
+      temporaryPortBlockerRecord,
+      'The temporary-port blocker did not exit.'
+    );
+    await markSmokeProcessExited(smokeRoot, temporaryPortBlockerRecord);
+    temporaryPortBlocker = undefined;
+    temporaryPortBlockerRecord = undefined;
 
     assert.equal(await api.provider.startProject(handoffSource.id), true, 'Runlist did not start the handoff source.');
     await waitFor(
@@ -275,8 +426,31 @@ async function run() {
     handoffTargetPid = Number(fs.readFileSync(path.join(smokeRoot, 'handoff-target.pid'), 'utf8'));
     assert.equal(processIsAlive(handoffSourcePid), false, 'Managed handoff left the source process running.');
     assert.equal(processIsAlive(handoffTargetPid), true, 'Managed handoff did not leave the target running.');
+    assert.equal(
+      lifecycleHasCoordination(api.provider, handoffSource.id),
+      false,
+      `Managed handoff retained source coordination: ${JSON.stringify(
+        lifecycleEvidence(api.provider, handoffSource.id)
+      )}`
+    );
+    assert.equal(
+      lifecycleIsRunning(api.provider, handoffTarget.id),
+      true,
+      `Managed handoff did not transfer complete coordination: ${JSON.stringify(
+        lifecycleEvidence(api.provider, handoffTarget.id)
+      )}`
+    );
     assert.equal(await api.provider.stopProject(handoffTarget.id), true, 'Runlist did not stop the handoff target.');
-    await waitFor(() => !processIsAlive(handoffTargetPid), 'Stop left the handoff target running.');
+    await waitFor(
+      async () => {
+        await api.provider.refreshProjectStatuses();
+        return !processIsAlive(handoffTargetPid)
+          && lifecycleIsStopped(api.provider, handoffTarget.id);
+      },
+      () => `Stop left handoff target lifecycle evidence behind: ${JSON.stringify(
+        lifecycleEvidence(api.provider, handoffTarget.id)
+      )}`
+    );
 
     orphanRecovery = spawn(nodePath, ['-e', 'setInterval(() => {}, 1000)'], {
       stdio: 'ignore',
@@ -336,6 +510,15 @@ async function run() {
     );
     await markSmokeProcessExited(smokeRoot, orphanRecoveryProcessRecord);
     orphanRecoveryProcessRecord = undefined;
+    await waitFor(
+      async () => {
+        await api.provider.refreshProjectStatuses();
+        return lifecycleIsStopped(api.provider, manual.id);
+      },
+      () => `Orphan recovery did not clear lifecycle coordination: ${JSON.stringify(
+        lifecycleEvidence(api.provider, manual.id)
+      )}`
+    );
 
     assert.equal(await api.provider.startProject(failure.id), true, 'Runlist did not launch the failure fixture.');
     const { readProjectDiagnostics } = require(path.join(extension.extensionPath, 'src', 'projects', 'project-diagnostics'));
@@ -351,6 +534,13 @@ async function run() {
       ownership: api.provider.processOwnership.currentOwnership(failure.id),
       status: api.provider.getProjectStatus(failure.id)
     }));
+    assert.equal(
+      lifecycleIsStopped(api.provider, failure.id),
+      true,
+      `Failed Start retained lifecycle coordination: ${JSON.stringify(
+        lifecycleEvidence(api.provider, failure.id)
+      )}`
+    );
 
     const { removeProject } = require(path.join(extension.extensionPath, 'src', 'projects', 'project-store'));
     assert.equal(removeProject(api.projectsFile, manual.id), true, 'The stopped manual fixture was not removed.');
@@ -390,6 +580,12 @@ async function run() {
     ), cleanupFailures);
     await settleCleanup(() => cleanupSpawnedSmokeProcess(
       smokeRoot,
+      temporaryPortBlocker,
+      temporaryPortBlockerRecord,
+      'The temporary-port blocker did not exit.'
+    ), cleanupFailures);
+    await settleCleanup(() => cleanupSpawnedSmokeProcess(
+      smokeRoot,
       unrelated,
       unrelatedProcessRecord,
       'The unrelated sentinel did not exit.'
@@ -405,12 +601,50 @@ async function run() {
     }
   }
 
-  process.stdout.write('Smoke reload, lifecycle, exact process-tree Stop, custom Stop, delayed readiness, external conflict, managed handoff, orphan recovery, retained failure, and removal passed.\n');
+  process.stdout.write('Smoke reload, lifecycle, exact process-tree Stop, custom Stop, delayed readiness, external conflict, temporary ports, managed handoff, orphan recovery, retained failure, and removal passed.\n');
 }
 
 function assertInside(filePath, root, message) {
   const relative = path.relative(path.resolve(root), path.resolve(filePath));
   assert.ok(relative && !relative.startsWith('..') && !path.isAbsolute(relative), message);
+}
+
+function lifecycleHasCoordination(provider, projectId) {
+  return provider.processOwnership.snapshot().has(projectId)
+    || provider.portReservations.snapshot().has(projectId)
+    || provider.processes.has(projectId)
+    || provider.startAttempts.has(projectId)
+    || provider.stoppingProjectIds.has(projectId);
+}
+
+function lifecycleIsRunning(provider, projectId) {
+  return provider.getProjectStatus(projectId) === 'running'
+    && provider.processOwnership.snapshot().has(projectId)
+    && provider.portReservations.snapshot().has(projectId)
+    && provider.processes.has(projectId);
+}
+
+function lifecycleIsStopped(provider, projectId) {
+  return provider.getProjectStatus(projectId) === 'stopped'
+    && !lifecycleHasCoordination(provider, projectId);
+}
+
+function lifecycleEvidence(provider, projectId) {
+  const ownership = provider.processOwnership.snapshot().get(projectId);
+  return {
+    status: provider.getProjectStatus(projectId),
+    ownership: ownership ? {
+      childPid: ownership.childPid,
+      ownerAvailable: ownership.ownerAvailable,
+      processActive: ownership.processActive,
+      state: ownership.state,
+      token: ownership.token
+    } : undefined,
+    portReservation: provider.portReservations.snapshot().get(projectId),
+    localProcess: provider.processes.has(projectId),
+    startAttempt: provider.startAttempts.has(projectId),
+    stopping: provider.stoppingProjectIds.has(projectId)
+  };
 }
 
 async function waitFor(predicate, message, timeoutMs = 10000) {
