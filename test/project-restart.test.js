@@ -820,6 +820,50 @@ test('blocks a custom Stop when the launching owner identity cannot be verified'
   assert.match(messages[0], /identity could not be verified/i);
 });
 
+test('allows a confirmed custom Stop when the launching owner is unavailable', async () => {
+  const messages = [];
+  let stopCalls = 0;
+  const Provider = loadRunlistProvider(() => {}, messages);
+  const provider = Object.create(Provider.prototype);
+  const project = {
+    id: 'project-1',
+    name: 'Project One',
+    folder: process.cwd(),
+    startCommand: 'npm start',
+    stopCommand: 'npm stop',
+    services: []
+  };
+  Object.defineProperty(provider, 'projects', { value: [project] });
+  provider.processes = new Map();
+  provider.startAttempts = new Map();
+  provider.stoppingProjectIds = new Set();
+  provider.showLifecycleBlocked = () => true;
+  provider.confirmCustomStopCommand = async () => true;
+  provider.runCustomStopCommand = async () => {
+    stopCalls += 1;
+    return { succeeded: true };
+  };
+  provider.portReservations = { captureShared: () => new Map() };
+  provider.waitForProjectStopCompletion = async () => true;
+  provider.lifecycle = { waitUntilServicesStopped: async () => true };
+  provider.settleCustomStop = () => [];
+  provider.processOwnership = {
+    snapshot: () => new Map([['project-1', {
+      token: 'ownership-token',
+      hostPid: 101,
+      ownerAvailable: false,
+      state: 'running',
+      processActive: true,
+      stopCommand: 'npm stop'
+    }]]),
+    owns: () => false
+  };
+
+  assert.equal(await provider.stopProjectProcess('project-1'), true);
+  assert.equal(stopCalls, 1);
+  assert.deepEqual(messages, []);
+});
+
 test('revalidates custom Stop ownership after confirmation before running the command', async () => {
   const messages = [];
   let spawnCalls = 0;

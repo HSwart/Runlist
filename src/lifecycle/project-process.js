@@ -35,6 +35,30 @@ function projectProcessSpawnOptions(platform = process.platform) {
     : { detached: true };
 }
 
+function spawnProjectCommand(command, options = {}) {
+  const {
+    execPath = process.execPath,
+    platform = process.platform,
+    spawnProcess = spawn,
+    supervisorPath = path.join(__dirname, 'process-supervisor.js'),
+    ...spawnOptions
+  } = options;
+  const processOptions = {
+    ...spawnOptions,
+    ...projectProcessSpawnOptions(platform)
+  };
+  if (platform === 'darwin') {
+    return spawnProcess(execPath, [supervisorPath, command], {
+      ...processOptions,
+      shell: false
+    });
+  }
+  return spawnProcess(command, {
+    ...processOptions,
+    shell: true
+  });
+}
+
 function customStopSpawnOptions(platform = process.platform) {
   return {
     ...projectProcessSpawnOptions(platform),
@@ -2059,6 +2083,7 @@ module.exports = {
   ProcessOwnershipStore,
   projectStopStrategy,
   projectProcessSpawnOptions,
+  spawnProjectCommand,
   readProcessIdentity,
   readProcessIdentitySync,
   recordStartedProcess,

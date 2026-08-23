@@ -72,12 +72,12 @@ const {
   detachedServiceIdentityDecision,
   ProcessOwnershipStore,
   projectStopStrategy,
-  projectProcessSpawnOptions,
   readProcessIdentity,
   recordStartedProcess,
   rollbackStartedProcess,
   shutdownTrackedProcesses,
   shouldRequestRemoteCustomStop,
+  spawnProjectCommand,
   startExitDetached,
   startExitFailed,
   terminateProcessTree,
@@ -2497,12 +2497,10 @@ class RunlistViewProvider {
         launchedAt,
         projectRevision: savedProjectRevision
       });
-      const child = spawn(launchProject.startCommand, {
+      const child = spawnProjectCommand(launchProject.startCommand, {
         cwd: launchProject.folder,
-        shell: true,
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: projectLaunchEnvironment(process.env, portOverrides),
-        ...projectProcessSpawnOptions()
+        env: projectLaunchEnvironment(process.env, portOverrides)
       });
 
       this.processes.set(id, child);
@@ -3154,6 +3152,7 @@ class RunlistViewProvider {
     if (stopProject.stopCommand) {
       if (sharedOwnership
         && !sharedOwnership.detached
+        && sharedOwnership.ownerAvailable !== false
         && typeof this.processOwnership.isCurrentOwner === 'function'
         && !this.processOwnership.isCurrentOwner(id, { fresh: true })) {
         vscode.window.showErrorMessage(
@@ -3166,7 +3165,9 @@ class RunlistViewProvider {
       if (!confirmed) {
         return false;
       }
-      if (sharedOwnership && !sharedOwnership.detached) {
+      if (sharedOwnership
+        && !sharedOwnership.detached
+        && sharedOwnership.ownerAvailable !== false) {
         const confirmedOwnership = typeof this.processOwnership.currentOwnership === 'function'
           ? this.processOwnership.currentOwnership(id)
           : undefined;

@@ -18,6 +18,7 @@ const {
   readProcessIdentitySync,
   shutdownTrackedProcesses,
   shouldRequestRemoteCustomStop,
+  spawnProjectCommand,
   startExitDetached,
   startExitFailed,
   terminateProcessTree,
@@ -757,6 +758,53 @@ test('launches POSIX commands in an owned process group and keeps Windows launch
   assert.deepEqual(projectProcessSpawnOptions('linux'), { detached: true });
   assert.deepEqual(projectProcessSpawnOptions('darwin'), { detached: true });
   assert.deepEqual(projectProcessSpawnOptions('win32'), { detached: false, windowsHide: true });
+});
+
+test('keeps the Darwin process-group root behind an exec-stable supervisor', () => {
+  const calls = [];
+  const child = {};
+  const result = spawnProjectCommand('exec node server.js', {
+    cwd: '/project',
+    env: { PORT: '4310' },
+    execPath: '/runtime/node',
+    platform: 'darwin',
+    spawnProcess: (...args) => {
+      calls.push(args);
+      return child;
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+    supervisorPath: '/extension/process-supervisor.js'
+  });
+
+  assert.equal(result, child);
+  assert.deepEqual(calls, [[
+    '/runtime/node',
+    ['/extension/process-supervisor.js', 'exec node server.js'],
+    {
+      cwd: '/project',
+      detached: true,
+      env: { PORT: '4310' },
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe']
+    }
+  ]]);
+});
+
+test('preserves existing shell launch behavior away from Darwin', () => {
+  const calls = [];
+  spawnProjectCommand('npm run dev', {
+    platform: 'linux',
+    spawnProcess: (...args) => {
+      calls.push(args);
+      return {};
+    },
+    stdio: 'pipe'
+  });
+
+  assert.deepEqual(calls, [[
+    'npm run dev',
+    { detached: true, shell: true, stdio: 'pipe' }
+  ]]);
 });
 
 test('runs explicit custom stop commands through the platform shell', () => {
