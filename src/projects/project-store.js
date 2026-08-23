@@ -147,11 +147,13 @@ function withProjectStoreLock(filePath, operation) {
         throw error;
       }
       const observed = storeLockObservation(lockPath);
-      if (observed && removeObservedStoreLock(
-        lockPath,
-        observed,
-        projectStoreLockRecordIsAbandoned
-      )) {
+      if (observed
+        && storeLockObservationIsAbandoned(observed)
+        && removeObservedStoreLock(
+          lockPath,
+          observed,
+          projectStoreLockRecordIsAbandoned
+        )) {
         continue;
       }
       Atomics.wait(STORE_LOCK_WAIT, 0, 0, STORE_LOCK_RETRY_MS);
@@ -183,6 +185,14 @@ function projectStoreLockIsAbandoned(lockPath) {
   try {
     const record = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
     return projectStoreLockRecordIsAbandoned(record);
+  } catch {
+    return false;
+  }
+}
+
+function storeLockObservationIsAbandoned(observed) {
+  try {
+    return projectStoreLockRecordIsAbandoned(JSON.parse(observed.contents));
   } catch {
     return false;
   }

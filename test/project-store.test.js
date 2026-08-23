@@ -202,6 +202,13 @@ test('does not publish an unverifiable fallback identity in a store lock', async
     const childProcess = require('node:child_process');
     childProcess.execFileSync = () => { throw new Error('identity unavailable'); };
     const fs = require('node:fs');
+    const originalReadFileSync = fs.readFileSync;
+    fs.readFileSync = function(filePath, ...args) {
+      if (String(filePath) === '/proc/' + process.pid + '/stat') {
+        throw new Error('identity unavailable');
+      }
+      return originalReadFileSync.call(this, filePath, ...args);
+    };
     const { withProjectStoreLock } = require(process.argv[1]);
     withProjectStoreLock(process.argv[2], () => {
       fs.copyFileSync(process.argv[2] + '.write-lock', process.argv[3]);
@@ -214,6 +221,80 @@ test('does not publish an unverifiable fallback identity in a store lock', async
   await waitForWorker(worker);
   const lock = JSON.parse(fs.readFileSync(capturedLock, 'utf8'));
   assert.equal(Object.hasOwn(lock, 'processIdentity'), false);
+});
+
+test('does not claim cleanup ownership for a live unverified store lock', async (t) => {
+  const { temporaryRoot, projectsFile } = projectStoreFixture(t);
+  const storeModule = path.join(__dirname, '..', 'src', 'projects', 'project-store.js');
+  const ownerReady = path.join(temporaryRoot, 'owner-ready');
+  const ownerFolder = path.join(temporaryRoot, 'owner-project');
+  const contenderFolder = path.join(temporaryRoot, 'contender-project');
+  fs.mkdirSync(ownerFolder);
+  fs.mkdirSync(contenderFolder);
+  const workerSource = `
+    const childProcess = require('node:child_process');
+    childProcess.execFileSync = () => { throw new Error('identity unavailable'); };
+    const fs = require('node:fs');
+    const originalReadFileSync = fs.readFileSync;
+    fs.readFileSync = function(filePath, ...args) {
+      if (String(filePath) === '/proc/' + process.pid + '/stat') {
+        throw new Error('identity unavailable');
+      }
+      return originalReadFileSync.call(this, filePath, ...args);
+    };
+    const { upsertProject, withProjectStoreLock } = require(process.argv[1]);
+    const wait = new Int32Array(new SharedArrayBuffer(4));
+    withProjectStoreLock(process.argv[2], () => {
+      fs.writeFileSync(process.argv[3], 'ready');
+      Atomics.wait(wait, 0, 0, 250);
+      upsertProject(process.argv[2], {
+        folder: process.argv[4],
+        startCommand: 'npm start',
+        services: []
+      }, { reviewRequired: false });
+    });
+  `;
+  const owner = spawn(process.execPath, [
+    '-e', workerSource, storeModule, projectsFile, ownerReady, ownerFolder
+  ], { stdio: ['ignore', 'ignore', 'pipe'] });
+  const ownerDone = waitForWorker(owner);
+  t.after(async () => {
+    if (owner.exitCode == null && owner.signalCode == null) {
+      owner.kill('SIGKILL');
+    }
+    await ownerDone.catch(() => undefined);
+  });
+  const deadline = Date.now() + 2000;
+  while (!fs.existsSync(ownerReady) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(fs.existsSync(ownerReady), true);
+
+  const originalOpenSync = fs.openSync;
+  fs.openSync = function(filePath, ...args) {
+    if (String(filePath) === `${projectsFile}.write-lock.cleanup`) {
+      const lock = JSON.parse(fs.readFileSync(`${projectsFile}.write-lock`, 'utf8'));
+      if (lock.pid === owner.pid) {
+        throw new Error('live lock cleanup must not be claimed');
+      }
+    }
+    return originalOpenSync.call(this, filePath, ...args);
+  };
+  try {
+    upsertProject(projectsFile, {
+      folder: contenderFolder,
+      startCommand: 'npm start',
+      services: []
+    }, { reviewRequired: false });
+  } finally {
+    fs.openSync = originalOpenSync;
+  }
+  await ownerDone;
+
+  assert.deepEqual(
+    readProjects(projectsFile).map((project) => path.basename(project.folder)).sort(),
+    ['contender-project', 'owner-project']
+  );
 });
 
 test('closes and removes a store lock when writing its metadata fails', (t) => {
