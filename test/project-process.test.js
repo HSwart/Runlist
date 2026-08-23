@@ -1446,7 +1446,7 @@ test('fails closed when an exited tracked child has no identity but its PID is l
   assert.equal(processes.get('project'), child);
 });
 
-test('keeps an exited Windows child when its launch identity is unavailable', async () => {
+test('reconciles an exited Windows child with no identity only after proving its tree is empty', async () => {
   const child = {
     pid: 617,
     exitCode: 0,
@@ -1456,14 +1456,60 @@ test('keeps an exited Windows child when its launch identity is unavailable', as
   const processes = new Map([['project', child]]);
   let terminationCalls = 0;
 
-  await assert.rejects(terminateTrackedProcess(processes, 'project', {
+  assert.equal(await terminateTrackedProcess(processes, 'project', {
     platform: 'win32',
     isProcessAlive: () => false,
+    readOwnedProcessTree: async () => [],
     spawnProcess: () => {
       terminationCalls += 1;
     }
-  }), /could not verify.*process identity/i);
+  }), true);
   assert.equal(terminationCalls, 0);
+  assert.equal(processes.has('project'), false);
+});
+
+test('keeps an exited Windows child with no identity when descendants remain', async () => {
+  const child = {
+    pid: 621,
+    exitCode: 7,
+    signalCode: null,
+    runlistIdentity: Promise.resolve(undefined)
+  };
+  const processes = new Map([['project', child]]);
+  let terminationCalls = 0;
+
+  await assert.rejects(terminateTrackedProcess(processes, 'project', {
+    platform: 'win32',
+    isProcessAlive: () => false,
+    readOwnedProcessTree: async () => [{
+      pid: 700,
+      parentPid: 621,
+      identity: '700:110'
+    }],
+    spawnProcess: () => {
+      terminationCalls += 1;
+    }
+  }), /could not verify.*process tree/i);
+  assert.equal(terminationCalls, 0);
+  assert.equal(processes.get('project'), child);
+});
+
+test('keeps an exited Windows child with no identity when tree inspection fails', async () => {
+  const child = {
+    pid: 622,
+    exitCode: 7,
+    signalCode: null,
+    runlistIdentity: Promise.resolve(undefined)
+  };
+  const processes = new Map([['project', child]]);
+
+  await assert.rejects(terminateTrackedProcess(processes, 'project', {
+    platform: 'win32',
+    isProcessAlive: () => false,
+    readOwnedProcessTree: async () => {
+      throw new Error('process query unavailable');
+    }
+  }), /process query unavailable/);
   assert.equal(processes.get('project'), child);
 });
 

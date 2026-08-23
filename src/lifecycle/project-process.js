@@ -140,10 +140,21 @@ async function terminateTrackedProcess(processes, id, options = {}) {
   const expectedIdentity = await promisedIdentity(child.runlistIdentity);
   const rootExited = child.exitCode != null || child.signalCode != null;
   const expectedIdentityIsValid = stableProcessIdentity(expectedIdentity);
-  if (identityRequired
-    && !expectedIdentityIsValid
-    && (!rootExited || platform === 'win32')) {
-    throw new Error('Runlist could not verify the launched process identity.');
+  if (identityRequired && !expectedIdentityIsValid) {
+    if (!rootExited || platform !== 'win32') {
+      throw new Error('Runlist could not verify the launched process identity.');
+    }
+    const liveness = await trackedProcessLiveness(child.pid, platform, options);
+    if (liveness !== false) {
+      throw new Error('Runlist could not verify the launched process identity.');
+    }
+    const readTree = options.readOwnedProcessTree || readOwnedProcessTree;
+    const remaining = await readTree(child.pid, 'win32', options);
+    if (!Array.isArray(remaining) || remaining.length > 0) {
+      throw new Error('Runlist could not verify the launched process tree after its root exited.');
+    }
+    processes.delete(id);
+    return true;
   }
   if (expectedIdentityIsValid) {
     let currentIdentity;
