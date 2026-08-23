@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
-const { EventEmitter } = require('node:events');
+const { EventEmitter, once } = require('node:events');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -578,7 +578,18 @@ test('records child identity and launch-time Stop details in both coordination s
     stopCommand: 'npm stop',
     services: [{ name: 'web', port: 4311, savedPort: 4310, temporaryPort: true }]
   };
-  const child = { pid: 303 };
+  const supervisorMessages = [];
+  const child = {
+    pid: 303,
+    connected: true,
+    send(message, callback) {
+      supervisorMessages.push(message);
+      callback?.();
+    },
+    disconnect() {
+      this.connected = false;
+    }
+  };
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
 
   ownership.reserve(project.id);
@@ -619,6 +630,8 @@ test('records child identity and launch-time Stop details in both coordination s
   const portLock = JSON.parse(fs.readFileSync(path.join(root, 'ports', 'port-4311.lock'), 'utf8'));
   assert.equal(portLock.childPid, 303);
   assert.equal(portLock.childIdentity, '303:original');
+  assert.deepEqual(supervisorMessages, [{ type: 'runlistIdentityCaptured' }]);
+  assert.equal(child.connected, false);
   assert.deepEqual(ownership.snapshot().get(project.id).portOverrides, [{
     serviceName: 'web',
     savedPort: 4310,
@@ -790,7 +803,128 @@ test('keeps the Darwin process-group root behind an exec-stable supervisor', () 
   ]]);
 });
 
-test('preserves existing shell launch behavior away from Darwin', () => {
+test('keeps the Windows process-tree root behind an identity-gated supervisor', () => {
+  const calls = [];
+  const child = {};
+  const result = spawnProjectCommand('node failure.js', {
+    cwd: 'C:\\project',
+    env: { PORT: '4310' },
+    execPath: 'C:\\runtime\\node.exe',
+    platform: 'win32',
+    spawnProcess: (...args) => {
+      calls.push(args);
+      return child;
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+    supervisorPath: 'C:\\extension\\process-supervisor.js'
+  });
+
+  assert.equal(result, child);
+  assert.deepEqual(calls, [[
+    'C:\\runtime\\node.exe',
+    ['C:\\extension\\process-supervisor.js', 'node failure.js'],
+    {
+      cwd: 'C:\\project',
+      detached: false,
+      env: { PORT: '4310' },
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      windowsHide: true
+    }
+  ]]);
+});
+
+test('holds a completed supervised command until process identity capture is released', async (t) => {
+  const supervisor = require('node:child_process').spawn(process.execPath, [
+    path.join(__dirname, '..', 'src', 'lifecycle', 'process-supervisor.js'),
+    `"${process.execPath}" -e "process.stdout.write('finished\\n');process.exit(7)"`
+  ], {
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc']
+  });
+  t.after(() => {
+    if (supervisor.exitCode == null && supervisor.signalCode == null) {
+      supervisor.kill('SIGKILL');
+    }
+  });
+
+  await once(supervisor.stdout, 'data');
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(supervisor.exitCode, null);
+
+  supervisor.send({ type: 'runlistIdentityCaptured' });
+  const [code, signal] = await once(supervisor, 'exit');
+  assert.equal(code, 7);
+  assert.equal(signal, null);
+});
+
+test('releases a completed supervisor when its identity owner disconnects', async (t) => {
+  const supervisor = require('node:child_process').spawn(process.execPath, [
+    path.join(__dirname, '..', 'src', 'lifecycle', 'process-supervisor.js'),
+    `"${process.execPath}" -e "process.stdout.write('finished\\n')"`
+  ], {
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc']
+  });
+  t.after(() => {
+    if (supervisor.exitCode == null && supervisor.signalCode == null) {
+      supervisor.kill('SIGKILL');
+    }
+  });
+
+  await once(supervisor.stdout, 'data');
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(supervisor.exitCode, null);
+
+  supervisor.disconnect();
+  const [code, signal] = await once(supervisor, 'exit');
+  assert.equal(code, 0);
+  assert.equal(signal, null);
+});
+
+test('keeps a fast Windows launch alive through the complete identity-recording handshake', async (t) => {
+  let resolveIdentity;
+  const identity = new Promise((resolve) => {
+    resolveIdentity = resolve;
+  });
+  const child = spawnProjectCommand(
+    `"${process.execPath}" -e "process.stdout.write('finished\\n');process.exit(7)"`,
+    {
+      platform: 'win32',
+      stdio: ['ignore', 'pipe', 'pipe']
+    }
+  );
+  t.after(() => {
+    if (child.exitCode == null && child.signalCode == null) {
+      child.kill('SIGKILL');
+    }
+  });
+  const ownership = {
+    trackProcessIdentity: () => identity,
+    setProcess: () => true
+  };
+  const reservations = {
+    capture: () => 'generation',
+    setProcess: () => 0
+  };
+  const project = {
+    id: 'fast-windows-launch',
+    folder: process.cwd(),
+    startCommand: 'fast failure',
+    services: []
+  };
+  const recordedIdentity = recordStartedProcess(ownership, reservations, project, child);
+
+  await once(child.stdout, 'data');
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(child.exitCode, null);
+
+  resolveIdentity(`${child.pid}:638912345678901234`);
+  assert.equal(await recordedIdentity, `${child.pid}:638912345678901234`);
+  const [code, signal] = await once(child, 'exit');
+  assert.equal(code, 7);
+  assert.equal(signal, null);
+});
+
+test('preserves existing shell launch behavior on Linux', () => {
   const calls = [];
   spawnProjectCommand('npm run dev', {
     platform: 'linux',

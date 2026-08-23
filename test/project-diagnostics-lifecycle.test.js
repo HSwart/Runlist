@@ -301,6 +301,46 @@ test('late output and exit from an old setup revision cannot recreate diagnostic
   );
 });
 
+test('retains failed-start diagnostics when exited-process cleanup remains uncertain', async (t) => {
+  const fixtureData = fixture(t);
+  const { project, provider, projectsFile } = fixtureData;
+  const projectRevision = projectConfigurationRevision(project);
+  const child = {
+    pid: 303,
+    exitCode: 7,
+    signalCode: null,
+    runlistIdentity: Promise.resolve(undefined)
+  };
+  provider.processOwnership.reserve(project.id);
+  provider.processOwnership.setProcess(project.id, child.pid, {
+    identityRequired: true,
+    state: 'running'
+  });
+  provider.processes.set(project.id, child);
+  provider.managedProjectIds.add(project.id);
+  provider.projectStatuses.set(project.id, 'running');
+  provider.projectOutputs.set(project.id, 'controlled failure output');
+  provider.projectAttemptMetadata.set(project.id, {
+    launchedAt: Date.now() - 10,
+    projectRevision
+  });
+
+  await provider.handleProjectProcessExit({
+    child,
+    code: 7,
+    hasServices: false,
+    id: project.id,
+    launchProject: project,
+    project,
+    savedProjectRevision: projectRevision,
+    signal: null
+  });
+
+  const diagnostics = readProjectDiagnostics(projectsFile, project.id);
+  assert.equal(provider.getProjectStatus(project.id), 'ownership-lost');
+  assert.match(diagnostics?.failureSummary?.message || '', /controlled failure output/i);
+});
+
 test('successful save preserves newer diagnostics, proposal, and runtime state', async (t) => {
   const fixtureData = fixture(t);
   const { project, provider, projectsFile } = fixtureData;

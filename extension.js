@@ -2626,6 +2626,13 @@ class RunlistViewProvider {
         this.startReadinessDeadlines.delete(id);
         this.readinessWarnings.delete(id);
         this.addProjectOutput(id, `Runlist: ${detail}\n`, savedProjectRevision);
+        if (startFailed) {
+          this.showStartFailure(project, {
+            code,
+            signal,
+            projectRevision: savedProjectRevision
+          });
+        }
         vscode.window.showErrorMessage(`Could not finish ${project.name}: ${detail}`);
         this.renderProjectList();
         void this.refreshProjectStatuses();

@@ -48,16 +48,29 @@ function spawnProjectCommand(command, options = {}) {
     ...spawnOptions,
     ...projectProcessSpawnOptions(platform)
   };
-  if (platform === 'darwin') {
+  if (platform === 'darwin' || platform === 'win32') {
     return spawnProcess(execPath, [supervisorPath, command], {
       ...processOptions,
-      shell: false
+      shell: false,
+      ...(platform === 'win32'
+        ? { stdio: supervisorStdio(processOptions.stdio) }
+        : {})
     });
   }
   return spawnProcess(command, {
     ...processOptions,
     shell: true
   });
+}
+
+function supervisorStdio(stdio) {
+  if (Array.isArray(stdio)) {
+    return stdio.includes('ipc') ? [...stdio] : [...stdio, 'ipc'];
+  }
+  if (stdio === 'ignore' || stdio === 'inherit' || stdio === 'pipe') {
+    return [stdio, stdio, stdio, 'ipc'];
+  }
+  return ['pipe', 'pipe', 'pipe', 'ipc'];
 }
 
 function customStopSpawnOptions(platform = process.platform) {
@@ -467,6 +480,7 @@ function projectStopStrategy(project, ownership) {
 function recordStartedProcess(processOwnership, portReservations, project, child, details = {}) {
   const identity = processOwnership.trackProcessIdentity(project.id, child.pid);
   child.runlistIdentity = identity;
+  void identity.finally(() => releaseSupervisorIdentityHold(child)).catch(() => undefined);
   const portGeneration = portReservations.capture(project.id);
   const recorded = processOwnership.setProcess(project.id, child.pid, {
     ...details,
@@ -495,6 +509,22 @@ function recordStartedProcess(processOwnership, portReservations, project, child
     }
   }).catch(() => undefined);
   return identity;
+}
+
+function releaseSupervisorIdentityHold(child) {
+  if (typeof child?.send !== 'function' || child.connected !== true) {
+    return;
+  }
+  try {
+    child.send({ type: 'runlistIdentityCaptured' });
+  } catch {
+    // Disconnecting still releases a supervisor whose IPC channel is usable enough to observe closure.
+  }
+  try {
+    child.disconnect();
+  } catch {
+    // The process may have exited while identity capture settled.
+  }
 }
 
 async function rollbackStartedProcess(processes, id, processOwnership, portReservations, options = {}) {
