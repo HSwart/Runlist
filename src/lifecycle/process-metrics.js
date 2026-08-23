@@ -1,9 +1,18 @@
 const { execFile } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 
 const MAX_PROCESS_COUNT = 64;
 const COMMAND_TIMEOUT_MS = 4000;
 const ROOT_PROCESS_COMMAND_TIMEOUT_MS = 10000;
+const DARWIN_MONTHS = new Map([
+  ['Jan', 1], ['Feb', 2], ['Mar', 3], ['Apr', 4], ['May', 5], ['Jun', 6],
+  ['Jul', 7], ['Aug', 8], ['Sep', 9], ['Oct', 10], ['Nov', 11], ['Dec', 12]
+]);
+const DARWIN_WEEKDAYS = new Map([
+  ['Sun', 0], ['Mon', 1], ['Tue', 2], ['Wed', 3],
+  ['Thu', 4], ['Fri', 5], ['Sat', 6]
+]);
 
 class OwnedProcessMetrics {
   constructor(options = {}) {
@@ -80,11 +89,17 @@ class OwnedProcessMetrics {
 }
 
 async function readRootProcess(pid, platform = process.platform, options = {}) {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return undefined;
+  }
   if (platform === 'win32') {
     return readWindowsRootProcess(pid, options);
   }
 
   const rows = await readPosixProcesses([pid], undefined, options, platform);
+  if (platform === 'darwin' && rows.length !== 1) {
+    return undefined;
+  }
   return rows.find((row) => row.pid === pid);
 }
 
@@ -99,7 +114,7 @@ async function readOwnedProcessTree(pid, platform = process.platform, options = 
   const runFile = options.runFile || execFileText;
   let output;
   try {
-    output = await runFile('pgrep', ['-g', String(pid)], commandOptions(options));
+    output = await runFile('pgrep', ['-g', String(pid)], commandOptions(options, platform));
   } catch (error) {
     if (error.code === 1) {
       return [];
@@ -118,19 +133,48 @@ async function readOwnedProcessTree(pid, platform = process.platform, options = 
 
 async function readPosixProcesses(pids, processGroupId, options = {}, platform = process.platform) {
   const runFile = options.runFile || execFileText;
-  const output = await runFile('ps', [
+  const args = [
+    ...(platform === 'darwin' ? ['-ww'] : []),
     '-o', 'pid=',
     '-o', 'ppid=',
     '-o', 'pgid=',
+    ...(platform === 'darwin' ? ['-o', 'sess=', '-o', 'uid='] : []),
     '-o', 'lstart=',
     '-o', 'time=',
-    '-o', 'rss=',
-    '-p', pids.join(',')
-  ], commandOptions(options));
-  const rows = String(output).split(/\r?\n/)
-    .map(parsePosixProcess)
-    .filter((row) => row
-      && (processGroupId === undefined || row.processGroupId === processGroupId));
+    '-o', 'rss='
+  ];
+  if (platform === 'darwin') {
+    args.push('-o', 'command=');
+  }
+  args.push('-p', pids.join(','));
+  const output = await runFile('ps', args, commandOptions(options, platform));
+  const physicalRows = String(output).split(/\r?\n/)
+    .filter((line) => line.trim().length > 0);
+  let rows;
+  if (platform === 'darwin') {
+    const requestedPids = new Set(pids);
+    rows = physicalRows.map((line) => parsePosixProcess(line, platform));
+    const returnedPids = new Set();
+    let invalid = requestedPids.size !== pids.length;
+    for (const row of rows) {
+      if (!row
+        || !requestedPids.has(row.pid)
+        || returnedPids.has(row.pid)
+        || (processGroupId !== undefined && row.processGroupId !== processGroupId)) {
+        invalid = true;
+        break;
+      }
+      returnedPids.add(row.pid);
+    }
+    if (invalid) {
+      return [];
+    }
+  } else {
+    rows = physicalRows
+      .map((line) => parsePosixProcess(line, platform))
+      .filter((row) => row
+        && (processGroupId === undefined || row.processGroupId === processGroupId));
+  }
   if (platform !== 'linux') {
     return rows;
   }
@@ -159,23 +203,133 @@ async function readLinuxStartTicks(pid) {
   return stat.slice(commandEnd + 1).trim().split(/\s+/)[19];
 }
 
-function parsePosixProcess(line) {
-  const match = String(line).match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.{24})\s+(\S+)\s+(\d+)\s*$/);
+function parseDarwinProcessIdentity(pid, output) {
+  const lines = String(output || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length !== 1) {
+    return undefined;
+  }
+  const match = lines[0].match(
+    /^((?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(\d+)\s+(\d+)\s+([0-9a-fA-F]+)\s+(.+)$/
+  );
+  return match ? darwinProcessIdentity(pid, match[1], {
+    uid: Number(match[2]),
+    processGroupId: Number(match[3]),
+    sessionId: match[4],
+    command: match[5]
+  }) : undefined;
+}
+
+function darwinProcessIdentity(pid, startedAtText, details = {}) {
+  const match = String(startedAtText || '').trim().match(
+    /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})\s+(\d{4})$/
+  );
+  if (!Number.isInteger(pid) || pid <= 0 || !match) {
+    return undefined;
+  }
+  const [, weekdayName, monthName, dayText, hourText, minuteText, secondText, yearText] = match;
+  const year = Number(yearText);
+  const month = DARWIN_MONTHS.get(monthName);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  const uid = Number(details.uid);
+  const processGroupId = Number(details.processGroupId);
+  const sessionId = String(details.sessionId || '').toLowerCase();
+  const command = String(details.command || '').trim();
+  const date = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  if (year < 1970
+    || year > 9999
+    || date.getUTCFullYear() !== year
+    || date.getUTCMonth() !== month - 1
+    || date.getUTCDate() !== day
+    || date.getUTCHours() !== hour
+    || date.getUTCMinutes() !== minute
+    || date.getUTCSeconds() !== second
+    || date.getUTCDay() !== DARWIN_WEEKDAYS.get(weekdayName)
+    || !Number.isInteger(uid)
+    || uid < 0
+    || !Number.isInteger(processGroupId)
+    || processGroupId <= 0
+    || !/^[0-9a-f]+$/.test(sessionId)
+    || !command
+    || /[\u0000-\u001f\u007f]/.test(command)) {
+    return undefined;
+  }
+  const startedAt = `${yearText}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+    + `T${hourText}:${minuteText}:${secondText}`;
+  const canonical = [
+    'runlist-darwin-process',
+    'v2',
+    String(pid),
+    startedAt,
+    String(uid),
+    String(processGroupId),
+    String(sessionId),
+    command
+  ].map(lengthDelimitedIdentityValue).join('');
+  const fingerprint = crypto.createHash('sha256').update(canonical).digest('hex');
+  return `${pid}:darwin:v2:${startedAt}:${fingerprint}`;
+}
+
+function lengthDelimitedIdentityValue(value) {
+  const text = String(value);
+  return `${Buffer.byteLength(text, 'utf8')}:${text}`;
+}
+
+function darwinProcessIdentityFormat(identity, pid) {
+  if (!Number.isInteger(pid) || pid <= 0 || typeof identity !== 'string') {
+    return 'invalid';
+  }
+  const prefix = `${pid}:`;
+  if (new RegExp(`^${pid}:darwin:v2:\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}:[a-f0-9]{64}$`).test(identity)) {
+    return 'v2';
+  }
+  if (new RegExp(`^${pid}:darwin:\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}:[a-f0-9]{64}$`).test(identity)
+    || new RegExp(`^${pid}:\\d+$`).test(identity)
+    || (identity.startsWith(prefix)
+      && /^(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4}$/.test(identity.slice(prefix.length)))) {
+    return 'legacy';
+  }
+  return 'invalid';
+}
+
+function parsePosixProcess(line, platform = process.platform) {
+  const match = String(line).match(platform === 'darwin'
+    ? /^\s*(\d+)\s+(\d+)\s+(\d+)\s+([0-9a-fA-F]+)\s+(\d+)\s+(.{24})\s+(\S+)\s+(\d+)\s+(.+?)\s*$/
+    : /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.{24})\s+(\S+)\s+(\d+)\s*$/);
   if (!match) {
     return undefined;
   }
-  const startedAt = Date.parse(match[4].trim());
-  const cpuSeconds = parseCpuTime(match[5]);
-  const memoryKilobytes = Number(match[6]);
+  const startedAtIndex = platform === 'darwin' ? 6 : 4;
+  const cpuIndex = platform === 'darwin' ? 7 : 5;
+  const memoryIndex = platform === 'darwin' ? 8 : 6;
+  const startedAt = Date.parse(match[startedAtIndex].trim());
+  const cpuSeconds = parseCpuTime(match[cpuIndex]);
+  const memoryKilobytes = Number(match[memoryIndex]);
   if (!Number.isFinite(startedAt) || !Number.isFinite(cpuSeconds) || !Number.isFinite(memoryKilobytes)) {
     return undefined;
   }
   const pid = Number(match[1]);
+  const identity = platform === 'darwin'
+    ? darwinProcessIdentity(pid, match[6], {
+      uid: Number(match[5]),
+      processGroupId: Number(match[3]),
+      sessionId: match[4],
+      command: match[9]
+    })
+    : `${pid}:${startedAt}`;
+  if (!identity) {
+    return undefined;
+  }
   return {
     pid,
     parentPid: Number(match[2]),
     processGroupId: Number(match[3]),
-    identity: `${pid}:${startedAt}`,
+    identity,
     cpuSeconds,
     memoryBytes: memoryKilobytes * 1024
   };
@@ -277,10 +431,15 @@ function validMetricRow(row) {
     && row.memoryBytes >= 0;
 }
 
-function commandOptions(options) {
+function commandOptions(options, platform = process.platform) {
   return {
-    env: { ...process.env, LC_ALL: 'C' },
+    env: {
+      ...process.env,
+      ...(platform === 'darwin' ? { LANG: 'C', TZ: 'UTC' } : {}),
+      LC_ALL: 'C'
+    },
     maxBuffer: options.maxBuffer || 256 * 1024,
+    ...(platform === 'darwin' ? { shell: false } : {}),
     timeout: options.timeoutMs || COMMAND_TIMEOUT_MS,
     windowsHide: true
   };
@@ -303,8 +462,11 @@ function unavailableMetrics(message) {
 }
 
 module.exports = {
+  darwinProcessIdentityFormat,
+  darwinProcessIdentity,
   OwnedProcessMetrics,
   parseCpuTime,
+  parseDarwinProcessIdentity,
   parsePosixProcess,
   parseWindowsProcessOutput,
   readRootProcess,

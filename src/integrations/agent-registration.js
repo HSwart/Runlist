@@ -281,19 +281,55 @@ async function refreshRegistration({
     return;
   }
 
-  await execute(command, candidateAddArguments);
+  let candidateAttempted = false;
+  let canonicalRemovalAttempted = false;
+  const recoverRefreshFailure = async (error) => {
+    const cleanupFailures = [];
+    const rollbackFailures = [];
+    if (candidateAttempted) {
+      try {
+        await execute(command, candidateRemoveArguments);
+      } catch (cleanupError) {
+        if (!isMissingServerError(cleanupError)) {
+          cleanupFailures.push({ operation: 'remove candidate registration', error: cleanupError });
+        }
+      }
+    }
+    if (registrationExists && canonicalRemovalAttempted) {
+      try {
+        await execute(command, addArguments);
+      } catch (rollbackError) {
+        rollbackFailures.push({ operation: 'restore canonical registration', error: rollbackError });
+      }
+    }
+    if (cleanupFailures.length) {
+      error.cleanupFailures = cleanupFailures;
+    }
+    if (rollbackFailures.length) {
+      error.rollbackFailures = rollbackFailures;
+    }
+    error.fallbackRegistration = candidateAddArguments;
+    throw error;
+  };
+
+  candidateAttempted = true;
+  try {
+    await execute(command, candidateAddArguments);
+  } catch (error) {
+    await recoverRefreshFailure(error);
+  }
+  canonicalRemovalAttempted = true;
   try {
     await execute(command, removeArguments);
   } catch (error) {
     if (!isMissingServerError(error)) {
-      throw error;
+      await recoverRefreshFailure(error);
     }
   }
   try {
     await execute(command, addArguments);
   } catch (error) {
-    error.fallbackRegistration = candidateAddArguments;
-    throw error;
+    await recoverRefreshFailure(error);
   }
 
   try {

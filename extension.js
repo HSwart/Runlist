@@ -16,14 +16,15 @@ const {
 } = require('./src/integrations/skill-installation');
 const {
   hasUnownedPortReservation,
+  managedServiceReadinessTimedOut,
   managedRuntimeProjectIds,
   projectServicesLocked,
   projectStatus,
+  reconcileDetachedProjectIds,
   reachableServiceUrls,
   runningAppProjectIds,
   serviceHttpStatus,
   serviceReadinessDetails,
-  serviceReadinessTimedOut,
   servicePortStatus,
   serviceTimelineStages,
   stoppableProjectIds
@@ -68,6 +69,7 @@ const {
 const {
   cleanupTrackedProcessForDeletion,
   customStopSpawnOptions,
+  detachedServiceIdentityDecision,
   ProcessOwnershipStore,
   projectStopStrategy,
   projectProcessSpawnOptions,
@@ -160,6 +162,7 @@ const {
 const STORAGE_KEY = 'runlist.projects';
 const START_READINESS_TIMEOUT_MS = 30000;
 const STATUS_POLL_INTERVAL_MS = 2000;
+const OWNER_HEARTBEAT_INTERVAL_MS = 2000;
 const RESOURCE_SAMPLE_INTERVAL_MS = 5000;
 const CUSTOM_STOP_TIMEOUT_MS = 15000;
 const CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS = 20000;
@@ -167,6 +170,18 @@ const REMOTE_STOP_TIMEOUT_MS = STATUS_POLL_INTERVAL_MS
   + CUSTOM_STOP_TIMEOUT_MS
   + CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS
   + 1000;
+
+function attachCleanupErrors(error, cleanupErrors) {
+  if (cleanupErrors.length === 0
+    || !error
+    || (typeof error !== 'object' && typeof error !== 'function')) {
+    return;
+  }
+  error.cleanupErrors = [
+    ...(Array.isArray(error.cleanupErrors) ? error.cleanupErrors : []),
+    ...cleanupErrors
+  ];
+}
 
 class RunlistViewProvider {
   constructor(context, projectsFile, serverPath) {
@@ -181,6 +196,11 @@ class RunlistViewProvider {
     this.mode = 'list';
     this.searchQuery = '';
     this.tagFilter = '';
+    this.filterRevision = 0;
+    this.filterRevisionSeen = false;
+    this.searchSelectionStart = 0;
+    this.searchSelectionEnd = 0;
+    this.searchFocused = false;
     this.draft = {};
     this.formBaseline = {};
     this.formProjectSnapshot = undefined;
@@ -189,6 +209,8 @@ class RunlistViewProvider {
     this.lastFocusTarget = undefined;
     this.returnFocus = undefined;
     this.selectedProjectId = undefined;
+    this.diagnosisProjectIncarnation = undefined;
+    this.routeNotice = undefined;
     this.approvedRepairProjectId = undefined;
     this.expandedPreviewProjectId = undefined;
     this.expandedPreviewServicePort = undefined;
@@ -200,7 +222,11 @@ class RunlistViewProvider {
     this.resourceSampleTimer = undefined;
     this.resourceSampleProjectId = undefined;
     this.resourceSampleGeneration = 0;
+    this.statusMonitoringDisposable = undefined;
     this.projectOutputs = new Map();
+    this.projectIncarnations = new Map();
+    this.projectIncarnationSequence = 0;
+    this.projectOutputPeekIncarnations = new Map();
     this.projectFailureSummaries = new Map();
     this.projectFailureDetails = new Map();
     this.outputUpdateScheduler = createOutputUpdateScheduler((id) => this.sendProjectOutput(id));
@@ -281,6 +307,8 @@ class RunlistViewProvider {
       return;
     }
     this.mode = 'add';
+    this.routeNotice = undefined;
+    this.diagnosisProjectIncarnation = undefined;
     this.draft = {};
     this.formBaseline = projectFormValues({});
     this.formProjectSnapshot = undefined;
@@ -297,6 +325,8 @@ class RunlistViewProvider {
       return;
     }
     this.mode = 'agents';
+    this.routeNotice = undefined;
+    this.diagnosisProjectIncarnation = undefined;
     this.draft = {};
     this.focusTarget = { type: 'action', action: 'close-screen' };
     this.returnFocus = this.defaultListFocusTarget();
@@ -487,7 +517,233 @@ class RunlistViewProvider {
   startStatusMonitoring() {
     this.refreshProjectStatuses();
     const timer = setInterval(() => this.refreshProjectStatuses(), STATUS_POLL_INTERVAL_MS);
-    return { dispose: () => clearInterval(timer) };
+    const heartbeatTimer = setInterval(() => this.processOwnership.touchOwned(), OWNER_HEARTBEAT_INTERVAL_MS);
+    const disposable = {
+      dispose: () => {
+        clearInterval(timer);
+        clearInterval(heartbeatTimer);
+      }
+    };
+    this.statusMonitoringDisposable = disposable;
+    return disposable;
+  }
+
+  reconcileDiagnosisRoute(projects) {
+    if (this.mode !== 'diagnosis') {
+      return false;
+    }
+    const projectId = this.selectedProjectId;
+    const project = projects.find((item) => item.id === projectId);
+    const diagnosis = project
+      ? readProjectDiagnostics(this.projectsFile, project.id)
+      : undefined;
+    const currentIncarnation = project
+      ? this.projectIncarnations.get(project.id)
+      : undefined;
+    if (!this.diagnosisProjectIncarnation && project && diagnosis && currentIncarnation) {
+      this.diagnosisProjectIncarnation = currentIncarnation;
+      return false;
+    }
+    if (project
+      && diagnosis
+      && currentIncarnation === this.diagnosisProjectIncarnation) {
+      return false;
+    }
+
+    const notice = !project
+      ? 'The project is no longer available, so its diagnosis was closed.'
+      : currentIncarnation !== this.diagnosisProjectIncarnation
+        ? 'The project was replaced, so the previous diagnosis was closed.'
+        : 'These diagnostics are no longer available, so the diagnosis was closed.';
+    this.mode = 'list';
+    this.draft = {};
+    this.formBaseline = {};
+    this.formProjectSnapshot = undefined;
+    this.formErrors = {};
+    this.selectedProjectId = undefined;
+    this.diagnosisProjectIncarnation = undefined;
+    this.approvedRepairProjectId = undefined;
+    this.returnFocus = undefined;
+    this.routeNotice = notice;
+    if (this.expandedPreviewProjectId) {
+      this.projectOutputPeekIncarnations.delete(this.expandedPreviewProjectId);
+    }
+    this.expandedPreviewProjectId = undefined;
+    this.expandedPreviewServicePort = undefined;
+    this.syncHttpResponsePulseTarget(undefined, undefined, undefined);
+    const focusTarget = projects.length
+      ? { type: 'field', id: 'project-search' }
+      : { type: 'action', action: 'show-add' };
+    this.focusTarget = focusTarget;
+    this.lastFocusTarget = focusTarget;
+    this.searchFocused = focusTarget.type === 'field' && focusTarget.id === 'project-search';
+    return true;
+  }
+
+  async captureDetachedServiceListeners(project, expectedToken) {
+    const ports = [...new Set((project?.services || [])
+      .map((service) => service.port)
+      .filter((port) => Number.isInteger(port)))];
+    if (!ports.length || typeof expectedToken !== 'string') {
+      return false;
+    }
+    try {
+      const listeners = await findListeningProcesses(ports);
+      return this.processOwnership.recordDetachedServiceListeners(
+        project.id,
+        expectedToken,
+        listeners
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  releaseDetachedPortGeneration(projectId, claim) {
+    const expected = claim?.portGeneration;
+    if (!(expected instanceof Map) || expected.size === 0) {
+      return false;
+    }
+    const ownsClaim = () => this.processOwnership.ownsDetachedServiceCleanupClaim(
+      projectId,
+      claim
+    );
+    if (typeof this.portReservations.withReservationTransaction === 'function'
+      && typeof this.portReservations.lockPath === 'function'
+      && typeof this.portReservations.releaseSharedUnlocked === 'function') {
+      return this.portReservations.withReservationTransaction(() => {
+        if (!ownsClaim()) {
+          return false;
+        }
+        for (const [port, token] of expected) {
+          let lock;
+          try {
+            lock = JSON.parse(fs.readFileSync(this.portReservations.lockPath(port), 'utf8'));
+          } catch {
+            return false;
+          }
+          if (lock?.projectId !== projectId || lock.token !== token) {
+            return false;
+          }
+        }
+        return this.portReservations.releaseSharedUnlocked(projectId, expected);
+      });
+    }
+
+    let current;
+    try {
+      current = this.portReservations.captureShared(projectId);
+    } catch {
+      return false;
+    }
+    if (!(current instanceof Map)
+      || current.size !== expected.size
+      || [...expected].some(([port, token]) => current.get(port) !== token)
+      || !ownsClaim()) {
+      return false;
+    }
+    return this.portReservations.releaseShared(projectId, expected);
+  }
+
+  async reconcileDetachedRuntimeMarkers(processRuntime) {
+    await Promise.all([...processRuntime]
+      .filter(([, ownership]) => ownership.detached === true
+        && ownership.state !== 'stopping'
+        && ownership.state !== 'reclaiming')
+      .map(async ([id, ownership]) => {
+        const services = Array.isArray(ownership.services)
+          ? ownership.services.map((service) => ({ ...service }))
+          : [];
+        const ports = [...new Set(services
+          .map((service) => service.port)
+          .filter((port) => Number.isInteger(port)))];
+        if (!ports.length) {
+          return;
+        }
+        let portStatus;
+        let listeners;
+        try {
+          [portStatus, listeners] = await Promise.all([
+            servicePortStatus(services),
+            findListeningProcesses(ports)
+          ]);
+        } catch {
+          this.processOwnership.claimDetachedServiceCleanup(
+            id,
+            ownership.token,
+            ownership.detachedServiceListeners,
+            'uncertain',
+            STATUS_POLL_INTERVAL_MS
+          );
+          return;
+        }
+        const decision = detachedServiceIdentityDecision(ownership, portStatus, listeners);
+        let portGeneration;
+        if (['missing', 'replaced'].includes(decision)) {
+          try {
+            portGeneration = this.portReservations.captureShared(id);
+          } catch {
+            return;
+          }
+          if (!(portGeneration instanceof Map)
+            || portGeneration.size !== ports.length
+            || ports.some((port) => typeof portGeneration.get(port) !== 'string')) {
+            return;
+          }
+        }
+        const claim = this.processOwnership.claimDetachedServiceCleanup(
+          id,
+          ownership.token,
+          ownership.detachedServiceListeners,
+          decision,
+          STATUS_POLL_INTERVAL_MS,
+          portGeneration
+        );
+        if (!claim) {
+          return;
+        }
+        let finalPortStatus;
+        let finalListeners;
+        try {
+          [finalPortStatus, finalListeners] = await Promise.all([
+            servicePortStatus(services),
+            findListeningProcesses(ports)
+          ]);
+        } catch {
+          this.processOwnership.rollbackDetachedServiceCleanup(id, claim);
+          return;
+        }
+        const finalDecision = detachedServiceIdentityDecision(
+          ownership,
+          finalPortStatus,
+          finalListeners
+        );
+        if (!['missing', 'replaced'].includes(finalDecision)) {
+          this.processOwnership.rollbackDetachedServiceCleanup(id, claim);
+          return;
+        }
+        let portsReleased = false;
+        try {
+          portsReleased = this.releaseDetachedPortGeneration(id, claim);
+        } catch {
+          // The exact ownership claim remains available for rollback below.
+        }
+        if (!portsReleased) {
+          this.processOwnership.rollbackDetachedServiceCleanup(id, claim);
+          return;
+        }
+        if (!this.processOwnership.finishDetachedServiceCleanup(id, claim)) {
+          this.processOwnership.rollbackDetachedServiceCleanup(id, claim);
+          return;
+        }
+        this.managedProjectIds.delete(id);
+        this.detachedProjectIds.delete(id);
+        this.startReadinessDeadlines.delete(id);
+        this.readinessWarnings.delete(id);
+        this.projectRuntime.delete(id);
+        this.projectAttemptMetadata.delete(id);
+        this.projectTimelineFailures.delete(id);
+      }));
   }
 
   async refreshProjectStatuses() {
@@ -506,7 +762,21 @@ class RunlistViewProvider {
         this.portReservations.reconcileProcessIdentities(),
         this.processOwnership.reconcileProcessIdentities()
       ]);
-      for (const id of this.processOwnership.consumeStopRequests()) {
+      const stopRequestIds = this.processOwnership.consumeStopRequests();
+      const stopRequestFailures = typeof this.processOwnership.consumeStopRequestFailures === 'function'
+        ? this.processOwnership.consumeStopRequestFailures()
+        : [];
+      for (const failure of stopRequestFailures) {
+        vscode.window.showErrorMessage(failure.message);
+      }
+      for (const id of stopRequestIds) {
+        if (typeof this.processOwnership.isCurrentOwner === 'function'
+          && !this.processOwnership.isCurrentOwner(id, { fresh: true })) {
+          vscode.window.showErrorMessage(
+            'Runlist could not safely run the requested Stop command because the launching process identity changed. The process was left running.'
+          );
+          continue;
+        }
         const project = this.projects.find((candidate) => candidate.id === id);
         void Promise.resolve(this.stopProject(id, project || { id, name: 'this project' }))
           .finally(() => this.processOwnership.completeStopRequest(id))
@@ -514,8 +784,18 @@ class RunlistViewProvider {
       }
       const now = Date.now();
       const projects = this.projects;
-      const portRuntime = this.portReservations.snapshot();
-      const processRuntime = this.processOwnership.snapshot();
+      let portRuntime = this.portReservations.snapshot();
+      let processRuntime = this.processOwnership.snapshot();
+      if ([...processRuntime.values()].some((ownership) => ownership.detached === true)) {
+        await this.reconcileDetachedRuntimeMarkers(processRuntime);
+        portRuntime = this.portReservations.snapshot();
+        processRuntime = this.processOwnership.snapshot();
+      }
+      this.detachedProjectIds = reconcileDetachedProjectIds(
+        this.detachedProjectIds,
+        processRuntime,
+        portRuntime
+      );
       const handoffOwnerIds = new Set([
         ...this.detachedProjectIds,
         ...[...processRuntime]
@@ -588,10 +868,20 @@ class RunlistViewProvider {
         const readinessDeadline = ownership?.readinessDeadline
           || this.startReadinessDeadlines.get(project.id);
         const allReady = portStatus.allOpen && httpStatus.allResponding;
-        const readinessTimedOut = hasServices
-          && managedProjectIds.has(project.id)
-          && (sharedState === 'running'
-            || serviceReadinessTimedOut(readinessDeadline, allReady, now));
+        if (allReady
+          && ownership
+          && ownership.detached !== true
+          && !Array.isArray(ownership.detachedServiceListeners)) {
+          await this.captureDetachedServiceListeners(project, ownership.token);
+        }
+        const readinessTimedOut = managedServiceReadinessTimedOut({
+          allReady,
+          hasServices,
+          managed: managedProjectIds.has(project.id),
+          now,
+          readinessDeadline,
+          sharedState
+        });
         const conflict = occupiedPortConflict({
           project,
           projects: effectiveProjects,
@@ -744,7 +1034,11 @@ class RunlistViewProvider {
 
   handleProjectStoreChange() {
     this.statusRevision += 1;
-    this.renderProjectList();
+    if (this.mode === 'diagnosis') {
+      this.render();
+    } else {
+      this.renderProjectList();
+    }
     void this.refreshProjectStatuses();
   }
 
@@ -818,6 +1112,8 @@ class RunlistViewProvider {
     }
 
     this.mode = 'edit';
+    this.routeNotice = undefined;
+    this.diagnosisProjectIncarnation = undefined;
     this.selectedProjectId = id;
     this.draft = projectFormValues(project);
     this.formBaseline = projectFormValues(project);
@@ -828,13 +1124,33 @@ class RunlistViewProvider {
     this.render();
   }
 
-  showProjectOutput(id) {
+  showProjectOutput(id, projectIncarnation) {
     const project = this.projects.find((item) => item.id === id);
+    if (typeof projectIncarnation === 'string') {
+      if (!project) {
+        this.view?.webview.postMessage({
+          type: 'projectOutputPeek',
+          messageToken: this.webviewMessageToken,
+          id,
+          projectIncarnation,
+          entries: [],
+          error: 'Project is no longer available.'
+        });
+        return;
+      }
+      if (this.projectIncarnations.get(id) === projectIncarnation) {
+        this.projectOutputPeekIncarnations.set(id, projectIncarnation);
+      }
+      this.sendProjectOutput(id, projectIncarnation);
+      return;
+    }
     if (!project) {
       return;
     }
 
     this.mode = 'output';
+    this.routeNotice = undefined;
+    this.diagnosisProjectIncarnation = undefined;
     this.selectedProjectId = id;
     this.focusTarget = { type: 'action', action: 'close-screen' };
     this.returnFocus = { type: 'project-menu', id };
@@ -847,7 +1163,15 @@ class RunlistViewProvider {
       return;
     }
 
+    let projectIncarnation = this.projectIncarnations.get(id);
+    if (!projectIncarnation) {
+      this.projectIncarnationSequence += 1;
+      projectIncarnation = `host-${this.projectIncarnationSequence}`;
+      this.projectIncarnations.set(id, projectIncarnation);
+    }
     this.mode = 'diagnosis';
+    this.routeNotice = undefined;
+    this.diagnosisProjectIncarnation = projectIncarnation;
     this.selectedProjectId = id;
     this.approvedRepairProjectId = undefined;
     this.focusTarget = { type: 'action', action: 'copy-diagnosis-request' };
@@ -865,11 +1189,13 @@ class RunlistViewProvider {
 
     const returnFocus = this.returnFocus;
     this.mode = 'list';
+    this.routeNotice = undefined;
     this.draft = {};
     this.formBaseline = {};
     this.formProjectSnapshot = undefined;
     this.formErrors = {};
     this.selectedProjectId = undefined;
+    this.diagnosisProjectIncarnation = undefined;
     this.approvedRepairProjectId = undefined;
     this.returnFocus = undefined;
     this.focusTarget = returnFocus;
@@ -892,7 +1218,10 @@ class RunlistViewProvider {
     return choice === 'Discard changes';
   }
 
-  addProjectOutput(id, chunk) {
+  addProjectOutput(id, chunk, projectRevision) {
+    if (projectRevision && !this.isCurrentProjectRevision(id, projectRevision)) {
+      return;
+    }
     const output = appendProjectOutput(this.projectOutputs.get(id), chunk);
     this.projectOutputs.set(id, output);
     const failureDetails = this.projectFailureDetails.get(id);
@@ -907,6 +1236,65 @@ class RunlistViewProvider {
     if ((this.mode === 'output' && this.selectedProjectId === id)
       || (this.mode === 'list' && this.expandedPreviewProjectId === id)) {
       this.outputUpdateScheduler.schedule(id);
+    }
+  }
+
+  isCurrentProjectRevision(id, projectRevision) {
+    if (typeof projectRevision !== 'string') {
+      return true;
+    }
+    const project = this.projects.find((candidate) => candidate.id === id);
+    return Boolean(project && projectConfigurationRevision(project) === projectRevision);
+  }
+
+  invalidateProjectFailureState(id, supersededRevision) {
+    const details = this.projectFailureDetails.get(id);
+    const timelineFailure = this.projectTimelineFailures.get(id);
+    const currentAttempt = this.projectAttemptMetadata.get(id);
+    const isSuperseded = (value) => {
+      if (!value || typeof supersededRevision !== 'string') {
+        return Boolean(value) && typeof supersededRevision !== 'string';
+      }
+      return !value.projectRevision || value.projectRevision === supersededRevision;
+    };
+    const clearInMemory = !details || isSuperseded(details);
+    const clearTimeline = !timelineFailure || isSuperseded(timelineFailure);
+    const clearAttempt = !currentAttempt
+      || !currentAttempt.projectRevision
+      || currentAttempt.projectRevision === supersededRevision;
+
+    if (clearInMemory) {
+      this.projectFailureDetails.delete(id);
+      this.projectFailureSummaries.delete(id);
+      this.projectOutputs.delete(id);
+    }
+    if (clearTimeline) {
+      this.projectTimelineFailures.delete(id);
+    }
+    if (clearAttempt) {
+      this.projectAttemptMetadata.delete(id);
+      this.startReadinessDeadlines.delete(id);
+      this.readinessWarnings.delete(id);
+    }
+    if (this.approvedRepairProjectId === id) {
+      this.approvedRepairProjectId = undefined;
+    }
+
+    if (typeof supersededRevision !== 'string') {
+      return;
+    }
+    const diagnostic = readProjectDiagnostics(this.projectsFile, id);
+    if (diagnostic
+      && (!diagnostic.projectRevision || diagnostic.projectRevision === supersededRevision)) {
+      clearProjectDiagnostics(this.projectsFile, id);
+    }
+    const proposal = readProjectRepairProposal(this.projectsFile, id);
+    if (proposal?.projectRevision === supersededRevision) {
+      try {
+        clearProjectRepairProposal(this.projectsFile, id);
+      } catch {
+        // An obsolete repair proposal is disposable and must not block the save.
+      }
     }
   }
 
@@ -1004,6 +1392,10 @@ class RunlistViewProvider {
 
   showStartFailure(project, details = {}) {
     const normalizedDetails = typeof details === 'string' ? { detail: details } : details;
+    if (normalizedDetails.projectRevision
+      && !this.isCurrentProjectRevision(project.id, normalizedDetails.projectRevision)) {
+      return false;
+    }
     const summary = startFailureSummary(this.projectOutputs.get(project.id), normalizedDetails);
     this.recordStartupOutcome(project.id, 'failed', Date.now(), summary.message);
     this.recordTimelineFailure(project.id, normalizedDetails);
@@ -1021,11 +1413,18 @@ class RunlistViewProvider {
         this.showProjectOutput(project.id);
       }
     });
+    return true;
   }
 
   persistStartFailure(project, details, summary) {
     try {
       const savedProject = this.projects.find((candidate) => candidate.id === project.id);
+      const projectRevision = details.projectRevision
+        || projectConfigurationRevision(savedProject || project);
+      if (details.projectRevision
+        && projectConfigurationRevision(savedProject || project) !== details.projectRevision) {
+        return false;
+      }
       const previousDiagnostic = readProjectDiagnostics(this.projectsFile, project.id);
       writeProjectDiagnostics(this.projectsFile, project.id, {
         output: this.projectOutputs.get(project.id),
@@ -1033,14 +1432,14 @@ class RunlistViewProvider {
         exitCode: details.code,
         signal: details.signal,
         summary,
-        projectRevision: details.projectRevision
-          || projectConfigurationRevision(savedProject || project),
+        projectRevision,
         launchProfileId: project.activeLaunchProfileId || previousDiagnostic?.launchProfileId,
         failedAt: this.projectTimelineFailures.get(project.id)?.failedAt
       });
     } catch {
       // Recent output remains available in this VS Code window if diagnostics cannot be retained.
     }
+    return true;
   }
 
   async copyDiagnosisRequest() {
@@ -1067,9 +1466,20 @@ class RunlistViewProvider {
     }
   }
 
-  async approveProjectRepair() {
+  async approveProjectRepair(proposalId) {
     const project = this.projects.find((item) => item.id === this.selectedProjectId);
-    if (!project || !readProjectRepairProposal(this.projectsFile, project.id)) {
+    const repairProposal = project
+      ? readProjectRepairProposal(this.projectsFile, project.id)
+      : undefined;
+    if (!project || !repairProposal) {
+      return false;
+    }
+    if (typeof proposalId !== 'string' || proposalId.length === 0
+      || proposalId !== repairProposal.proposalId) {
+      vscode.window.showErrorMessage(
+        `Could not approve the repair for ${project.name}: the proposal changed or has no review identity. Refresh the diagnosis and review the latest proposal.`
+      );
+      this.render();
       return false;
     }
     if (['active', 'not-ready', 'not-responding', 'ownership-lost', 'running', 'starting', 'stopping']
@@ -1083,7 +1493,8 @@ class RunlistViewProvider {
       return false;
     }
     try {
-      approveProjectRepairProposal(this.projectsFile, project.id);
+      approveProjectRepairProposal(this.projectsFile, project.id, proposalId);
+      this.invalidateProjectFailureState(project.id, repairProposal.projectRevision);
       this.approvedRepairProjectId = project.id;
       this.render();
       return true;
@@ -1130,18 +1541,39 @@ class RunlistViewProvider {
     return this.startProject(projectId);
   }
 
-  sendProjectOutput(id) {
+  sendProjectOutput(id, projectIncarnation) {
     const showingFullOutput = this.mode === 'output' && this.selectedProjectId === id;
     const showingPeek = this.mode === 'list' && this.expandedPreviewProjectId === id;
+    const peekIncarnation = typeof projectIncarnation === 'string'
+      ? projectIncarnation
+      : showingPeek
+        ? this.projectOutputPeekIncarnations.get(id)
+        : undefined;
+    const hasPeekIncarnation = typeof peekIncarnation === 'string';
+    if (hasPeekIncarnation && !showingPeek) {
+      this.view?.webview.postMessage({
+        type: 'projectOutputPeek',
+        messageToken: this.webviewMessageToken,
+        id,
+        projectIncarnation: peekIncarnation,
+        entries: [],
+        error: 'Output preview is no longer available.'
+      });
+      return;
+    }
     if (!showingFullOutput && !showingPeek) {
       return;
     }
     const rawOutput = this.projectOutputs.get(id) || '';
     if (showingPeek) {
+      if (!hasPeekIncarnation) {
+        return;
+      }
       this.view?.webview.postMessage({
         type: 'projectOutputPeek',
         messageToken: this.webviewMessageToken,
         id,
+        projectIncarnation: peekIncarnation,
         entries: projectOutputPeek(rawOutput)
       });
       return;
@@ -1609,6 +2041,9 @@ class RunlistViewProvider {
     const folder = validation.values.folder.trim();
     const setup = projectFormSetup(validation.values);
     const existingProject = this.projects.find((item) => item.id === projectId);
+    const supersededRevision = existingProject
+      ? projectConfigurationRevision(existingProject)
+      : undefined;
     const servicesChanged = Boolean(existingProject)
       && projectServicesChanged(validation.values, existingProject);
     const servicesLocked = existingProject && this.projectSetupLocked(projectId);
@@ -1642,7 +2077,7 @@ class RunlistViewProvider {
         expectedProject: this.formProjectSnapshot
       });
       projectId = saved.project.id;
-      clearProjectDiagnostics(this.projectsFile, projectId);
+      this.invalidateProjectFailureState(projectId, supersededRevision);
     } catch (error) {
       const formError = projectSaveError(error);
       this.formErrors = { [formError.field]: formError.message };
@@ -1723,6 +2158,7 @@ class RunlistViewProvider {
       return;
     }
     const latestSharedOwnership = latestProcessRuntime.get(id);
+    const portGeneration = this.portReservations.captureShared(id);
     const hadTrackedProcess = this.processes.has(id);
     const hadDetachedProcess = this.detachedProjectIds.has(id);
     try {
@@ -1765,7 +2201,7 @@ class RunlistViewProvider {
       this.managedProjectIds.delete(id);
       this.detachedProjectIds.delete(id);
       this.statusRevision += 1;
-      this.portReservations.releaseShared(id);
+      this.portReservations.releaseShared(id, portGeneration);
       this.releaseStartReservation(id);
       this.projectStatuses.delete(id);
       this.projectPortConflicts.delete(id);
@@ -1800,6 +2236,7 @@ class RunlistViewProvider {
         this.outputUpdateScheduler.cancel();
       }
       this.mode = 'list';
+      this.routeNotice = undefined;
       this.draft = {};
       this.formBaseline = {};
       this.formErrors = {};
@@ -1807,6 +2244,7 @@ class RunlistViewProvider {
         ? { type: 'project-menu', id: adjacentProject.id }
         : { type: 'action', action: 'show-add' };
       this.selectedProjectId = undefined;
+      this.diagnosisProjectIncarnation = undefined;
       this.render();
     } finally {
       this.processOwnership.release(id);
@@ -1923,7 +2361,36 @@ class RunlistViewProvider {
       candidate,
       processRuntime.get(candidate.id)
     ));
-    const reservationConflict = this.portReservations.reserve(launchProject);
+    let reservationConflict;
+    try {
+      reservationConflict = this.portReservations.reserve(launchProject);
+    } catch (error) {
+      const cleanupErrors = [];
+      try {
+        this.processOwnership.release(id);
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      }
+      try {
+        this.releaseStartReservation(id);
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      }
+      if (cleanupErrors.length > 0
+        && error
+        && (typeof error === 'object' || typeof error === 'function')) {
+        error.cleanupErrors = [
+          ...(Array.isArray(error.cleanupErrors) ? error.cleanupErrors : []),
+          ...cleanupErrors
+        ];
+      }
+      this.statusRevision += 1;
+      this.projectStatuses.set(id, 'stopped');
+      this.projectPortConflicts.delete(id);
+      vscode.window.showErrorMessage(`Could not start ${project.name}: ${error.message}`);
+      this.renderProjectList();
+      return false;
+    }
     if (reservationConflict) {
       this.processOwnership.release(id);
       const owner = projects.find((candidate) => candidate.id === reservationConflict.projectId);
@@ -2018,7 +2485,10 @@ class RunlistViewProvider {
       this.projectFailureSummaries.delete(id);
       this.projectFailureDetails.delete(id);
       const launchedAt = Date.now();
-      this.projectAttemptMetadata.set(id, { launchedAt });
+      this.projectAttemptMetadata.set(id, {
+        launchedAt,
+        projectRevision: savedProjectRevision
+      });
       const child = spawn(launchProject.startCommand, {
         cwd: launchProject.folder,
         shell: true,
@@ -2028,7 +2498,7 @@ class RunlistViewProvider {
       });
 
       this.processes.set(id, child);
-      listenToProjectOutput(child, (chunk) => this.addProjectOutput(id, chunk));
+      listenToProjectOutput(child, (chunk) => this.addProjectOutput(id, chunk, savedProjectRevision));
       child.once('error', (error) => {
         if (this.processes.get(id) !== child) {
           return;
@@ -2064,12 +2534,17 @@ class RunlistViewProvider {
           this.processes.delete(id);
           this.forgetProjectMetrics(id);
           this.projectRuntime.delete(id);
-          this.processOwnership.release(id);
-          this.releaseStartReservation(id);
           if (detached) {
+            const detachedToken = this.processOwnership.currentOwnership(id)?.token;
+            this.processOwnership.markDetached(id);
+            this.portReservations.markDetached(id);
+            this.startAttempts.delete(id);
             this.detachedProjectIds.add(id);
             this.projectStatuses.set(id, 'starting');
+            void this.captureDetachedServiceListeners(launchProject, detachedToken);
           } else {
+            this.processOwnership.release(id);
+            this.releaseStartReservation(id);
             this.managedProjectIds.delete(id);
             this.detachedProjectIds.delete(id);
             this.projectStatuses.set(id, 'stopped');
@@ -2420,6 +2895,9 @@ class RunlistViewProvider {
     }
 
     const processRuntime = this.processOwnership.snapshot();
+    const detachedOwnership = processRuntime.get(id)?.detached
+      ? processRuntime.get(id)
+      : undefined;
     const effectiveProjects = projects.map((candidate) => projectStopStrategy(
       candidate,
       processRuntime.get(candidate.id)
@@ -2478,6 +2956,8 @@ class RunlistViewProvider {
         terminateTree: true
       };
     }).filter(Boolean);
+
+    const portGeneration = this.portReservations.captureShared(id);
 
     this.forceClosingProjectIds.add(id);
     this.focusTarget = { type: 'project-control', id };
@@ -2546,7 +3026,7 @@ class RunlistViewProvider {
       if (intent === 'start') {
         return this.startProject(id, { allowPortConflict: true });
       }
-      this.finishStopping(id, true);
+      this.finishStopping(id, true, portGeneration, detachedOwnership);
       return true;
     } catch (error) {
       vscode.window.showErrorMessage(`Could not close ${project.name}'s ports: ${error.message}`);
@@ -2610,58 +3090,134 @@ class RunlistViewProvider {
       return this.stopOwnedProjectProcess(id, stopProject, options);
     }
 
+    if (sharedOwnership?.detached && sharedOwnership.state === 'stopping') {
+      vscode.window.showWarningMessage(
+        `${stopProject.name} is already being stopped or was stopped in another VS Code window. Runlist did not run the Stop command.`
+      );
+      return false;
+    }
+
     if (stopProject.stopCommand) {
+      if (sharedOwnership
+        && !sharedOwnership.detached
+        && typeof this.processOwnership.isCurrentOwner === 'function'
+        && !this.processOwnership.isCurrentOwner(id, { fresh: true })) {
+        vscode.window.showErrorMessage(
+          `Could not stop ${stopProject.name}: the launching process identity could not be verified. Runlist left the process running.`
+        );
+        return false;
+      }
       const confirmed = options.approvedLaunchStop === true
         || await this.confirmCustomStopCommand(stopProject);
       if (!confirmed) {
         return false;
       }
+      if (sharedOwnership && !sharedOwnership.detached) {
+        const confirmedOwnership = typeof this.processOwnership.currentOwnership === 'function'
+          ? this.processOwnership.currentOwnership(id)
+          : undefined;
+        const ownershipStillCurrent = confirmedOwnership?.token === sharedOwnership.token
+          && confirmedOwnership.hostPid === sharedOwnership.hostPid
+          && typeof this.processOwnership.isCurrentOwner === 'function'
+          && this.processOwnership.isCurrentOwner(id, { fresh: true });
+        if (!ownershipStillCurrent) {
+          vscode.window.showErrorMessage(
+            `Could not stop ${stopProject.name}: the launching process identity could not be verified after confirmation. Runlist left the process running.`
+          );
+          return false;
+        }
+      }
+      const detachedStopClaim = sharedOwnership?.detached
+        ? this.processOwnership.claimDetachedStop(id, sharedOwnership.token)
+        : undefined;
+      if (sharedOwnership?.detached && !detachedStopClaim) {
+        vscode.window.showWarningMessage(
+          `${stopProject.name} is already being stopped or was stopped in another VS Code window. Runlist did not run the Stop command.`
+        );
+        return false;
+      }
+      const portGeneration = this.portReservations.captureShared(id);
       const hadTrackedOwnership = this.processes.has(id) || Boolean(sharedOwnership?.processActive);
-      const customStopResult = await this.runCustomStopCommand(stopProject);
-      const hasConfiguredServices = Boolean(stopProject.services?.length);
-      let remainingOwnership = this.processOwnership.snapshot().get(id);
-      let stillOwned = this.processes.has(id) || Boolean(remainingOwnership?.processActive);
+      let customStopResult;
       let ownershipStopped;
       let servicesStopped;
-      if (customStopResult.succeeded) {
-        [ownershipStopped, servicesStopped] = await Promise.all([
-          stillOwned
-            ? this.waitForProjectStopCompletion(id, CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS)
-            : true,
-          this.lifecycle.waitUntilServicesStopped(stopProject, CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS)
-        ]);
-      } else {
-        servicesStopped = await this.lifecycle.waitUntilServicesStopped(stopProject, 0);
-        remainingOwnership = this.processOwnership.snapshot().get(id);
-        stillOwned = this.processes.has(id) || Boolean(remainingOwnership?.processActive);
-        ownershipStopped = !stillOwned;
-      }
+      try {
+        customStopResult = await this.runCustomStopCommand(stopProject, {
+          detachedStopClaim,
+          portGeneration
+        });
+        const hasConfiguredServices = Boolean(stopProject.services?.length);
+        let remainingOwnership = this.processOwnership.snapshot().get(id);
+        let stillOwned = this.processes.has(id) || Boolean(remainingOwnership?.processActive);
+        if (customStopResult.succeeded) {
+          [ownershipStopped, servicesStopped] = await Promise.all([
+            stillOwned
+              ? this.waitForProjectStopCompletion(id, CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS)
+              : true,
+            this.lifecycle.waitUntilServicesStopped(stopProject, CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS)
+          ]);
+        } else {
+          servicesStopped = await this.lifecycle.waitUntilServicesStopped(stopProject, 0);
+          remainingOwnership = this.processOwnership.snapshot().get(id);
+          stillOwned = this.processes.has(id) || Boolean(remainingOwnership?.processActive);
+          ownershipStopped = !stillOwned;
+        }
 
-      const postcondition = customStopPostcondition({
-        commandSucceeded: customStopResult.succeeded,
-        hasConfiguredServices,
-        hadTrackedOwnership,
-        ownershipStopped,
-        servicesStopped
-      });
-      if (postcondition === 'complete') {
-        this.finishStopping(id, true);
-        return true;
-      }
-      const remaining = [
-        !ownershipStopped ? 'the Runlist-launched process is still active' : '',
-        !servicesStopped ? 'one or more configured ports are still open' : ''
-      ].filter(Boolean).join(' and ');
-      const detail = postcondition === 'command-failed'
-        ? customStopResult.detail
-        : postcondition === 'unverifiable'
+        const postcondition = customStopPostcondition({
+          commandSucceeded: customStopResult.succeeded,
+          hasConfiguredServices,
+          hadTrackedOwnership,
+          ownershipStopped,
+          servicesStopped
+        });
+        if (postcondition === 'complete') {
+          const cleanupErrors = this.settleCustomStop(
+            id,
+            true,
+            portGeneration,
+            detachedStopClaim
+          );
+          if (cleanupErrors.length > 0) {
+            vscode.window.showErrorMessage(
+              `Could not stop ${stopProject.name}: ${cleanupErrors.map((error) => error.message).join('; ')}`
+            );
+            return false;
+          }
+          return true;
+        }
+        const remaining = [
+          !ownershipStopped ? 'the Runlist-launched process is still active' : '',
+          !servicesStopped ? 'one or more configured ports are still open' : ''
+        ].filter(Boolean).join(' and ');
+        const detail = postcondition === 'command-failed'
+          ? customStopResult.detail
+          : postcondition === 'unverifiable'
           ? 'the command finished, but this project has no tracked process or configured service ports to verify'
-          : `the command finished, but ${remaining}`;
-      vscode.window.showErrorMessage(
-        `Could not confirm that ${stopProject.name} stopped: ${detail}. Runlist did not run another command or stop any additional process.`
-      );
-      this.finishStopping(id, false);
-      return false;
+            : `the command finished, but ${remaining}`;
+        const cleanupErrors = this.settleCustomStop(
+          id,
+          false,
+          portGeneration,
+          detachedStopClaim
+        );
+        const cleanupDetail = cleanupErrors.length > 0
+          ? ` Cleanup also failed: ${cleanupErrors.map((error) => error.message).join('; ')}.`
+          : '';
+        vscode.window.showErrorMessage(
+          `Could not confirm that ${stopProject.name} stopped: ${detail}.${cleanupDetail} Runlist did not run another command or stop any additional process.`
+        );
+        return false;
+      } catch (error) {
+        const cleanupErrors = this.settleCustomStop(
+          id,
+          false,
+          portGeneration,
+          detachedStopClaim
+        );
+        attachCleanupErrors(error, cleanupErrors);
+        vscode.window.showErrorMessage(`Could not stop ${stopProject.name}: ${error.message}`);
+        return false;
+      }
     }
 
     return this.stopOwnedProjectProcess(id, stopProject, options);
@@ -2671,26 +3227,66 @@ class RunlistViewProvider {
     return this.lifecycle.restart(id);
   }
 
-  beginStopping(id) {
+  beginStopping(id, options = {}) {
     this.stoppingProjectIds.add(id);
-    this.processOwnership.setState(id, 'stopping');
-    this.portReservations.setState(id, 'stopping');
+    if (options.detachedStopClaim) {
+      this.portReservations.setStateShared(id, 'stopping', options.portGeneration);
+    } else {
+      this.processOwnership.setState(id, 'stopping');
+      this.portReservations.setState(id, 'stopping');
+    }
     this.statusRevision += 1;
     this.projectStatuses.set(id, 'stopping');
     this.renderProjectList();
   }
 
-  finishStopping(id, succeeded) {
+  finishStopping(id, succeeded, portGeneration, detachedStopClaim) {
     this.stoppingProjectIds.delete(id);
     this.statusRevision += 1;
+    let succeededCleanup = succeeded;
     if (succeeded) {
-      this.managedProjectIds.delete(id);
-      this.detachedProjectIds.delete(id);
-      this.processOwnership.release(id);
-      this.projectRuntime.delete(id);
-      this.projectAttemptMetadata.delete(id);
-      this.projectTimelineFailures.delete(id);
-      this.releaseStartReservation(id);
+      if (detachedStopClaim) {
+        const processReleased = this.processOwnership.releaseShared(
+          id,
+          detachedStopClaim.token
+        );
+        const portReleased = processReleased
+          && (!(portGeneration instanceof Map)
+            || portGeneration.size === 0
+            || this.portReservations.releaseShared(id, portGeneration));
+        succeededCleanup = processReleased && portReleased;
+      } else {
+        const ownership = this.processOwnership.snapshot().get(id);
+        this.processOwnership.release(id);
+        if (ownership?.token) {
+          this.processOwnership.releaseShared(id, ownership.token);
+        }
+      }
+      if (succeededCleanup) {
+        this.managedProjectIds.delete(id);
+        this.detachedProjectIds.delete(id);
+        this.projectRuntime.delete(id);
+        this.projectAttemptMetadata.delete(id);
+        this.projectTimelineFailures.delete(id);
+        this.releaseStartReservation(id);
+      }
+    } else if (detachedStopClaim) {
+      const detachedRetryState = detachedStopClaim.priorState || detachedStopClaim.state || 'detached';
+      const rolledBack = this.processOwnership.rollbackDetachedStop(
+        id,
+        detachedStopClaim.token,
+        detachedRetryState
+      );
+      if (rolledBack) {
+        if (portGeneration instanceof Map && portGeneration.size > 0) {
+          this.portReservations.setStateShared(
+            id,
+            detachedRetryState,
+            portGeneration
+          );
+        }
+        this.projectStatuses.set(id, detachedRetryState);
+      }
     } else {
       const savedProject = this.projects.find((candidate) => candidate.id === id);
       const project = projectStopStrategy(
@@ -2707,13 +3303,63 @@ class RunlistViewProvider {
       this.portReservations.setState(id, state);
       this.projectStatuses.set(id, state);
     }
-    if (succeeded) {
+    if (succeededCleanup) {
       this.startReadinessDeadlines.delete(id);
       this.readinessWarnings.delete(id);
       this.projectStatuses.set(id, 'stopped');
     }
     this.renderProjectList();
     setTimeout(() => this.refreshProjectStatuses(), 250);
+  }
+
+  settleCustomStop(id, succeeded, portGeneration, detachedStopClaim) {
+    const cleanupErrors = [];
+    try {
+      this.finishStopping(id, succeeded, portGeneration, detachedStopClaim);
+    } catch (error) {
+      cleanupErrors.push(error);
+      if (detachedStopClaim) {
+        const detachedRetryState = detachedStopClaim.priorState
+          || detachedStopClaim.state
+          || 'detached';
+        try {
+          this.processOwnership.rollbackDetachedStop(
+            id,
+            detachedStopClaim.token,
+            detachedRetryState
+          );
+        } catch (rollbackError) {
+          cleanupErrors.push(rollbackError);
+        }
+        try {
+          if (portGeneration instanceof Map && portGeneration.size > 0) {
+            this.portReservations.setStateShared(
+              id,
+              detachedRetryState,
+              portGeneration
+            );
+          }
+        } catch (portError) {
+          cleanupErrors.push(portError);
+        }
+        try {
+          this.projectStatuses.set(id, detachedRetryState);
+        } catch (statusError) {
+          cleanupErrors.push(statusError);
+        }
+      }
+      try {
+        this.stoppingProjectIds.delete(id);
+      } catch (stateError) {
+        cleanupErrors.push(stateError);
+      }
+      try {
+        this.renderProjectList();
+      } catch (renderError) {
+        cleanupErrors.push(renderError);
+      }
+    }
+    return cleanupErrors;
   }
 
   async stopOwnedProjectProcess(id, project, options = {}) {
@@ -2735,12 +3381,13 @@ class RunlistViewProvider {
       return true;
     }
     if (this.processes.has(id)) {
+      const portGeneration = this.portReservations.captureShared(id);
       this.beginStopping(id);
       try {
         await terminateTrackedProcess(this.processes, id, {
           allowMissing: options.allowMissing === true
         });
-        this.finishStopping(id, true);
+        this.finishStopping(id, true, portGeneration);
         return true;
       } catch (error) {
         vscode.window.showErrorMessage(`Could not stop ${project.name}: ${error.message}`);
@@ -2756,13 +3403,14 @@ class RunlistViewProvider {
       return true;
     }
     if (request.kind === 'local') {
+      const portGeneration = this.portReservations.captureShared(id);
       this.beginStopping(id);
       try {
         const stopped = await this.processOwnership.terminateOwnedProcess(id);
         if (!stopped) {
           throw new Error('Runlist could not verify the persisted process ownership details.');
         }
-        this.finishStopping(id, true);
+        this.finishStopping(id, true, portGeneration);
         return true;
       } catch (error) {
         vscode.window.showErrorMessage(`Could not stop ${project.name}: ${error.message}`);
@@ -2783,7 +3431,8 @@ class RunlistViewProvider {
       return false;
     }
     if (options.allowMissing) {
-      this.finishStopping(id, true);
+      const portGeneration = this.portReservations.captureShared(id);
+      this.finishStopping(id, true, portGeneration);
       return true;
     }
 
@@ -2793,7 +3442,7 @@ class RunlistViewProvider {
     return false;
   }
 
-  runCustomStopCommand(project) {
+  runCustomStopCommand(project, options = {}) {
     let environment;
     try {
       environment = projectLaunchEnvironment(
@@ -2806,13 +3455,18 @@ class RunlistViewProvider {
         detail: `its temporary port settings are invalid: ${error.message}`
       });
     }
-    this.beginStopping(project.id);
-    return new Promise((resolve) => {
-      const stopProcess = spawn(project.stopCommand, {
+    this.beginStopping(project.id, options);
+    let stopProcess;
+    try {
+      stopProcess = spawn(project.stopCommand, {
         cwd: project.folder,
         env: environment,
         ...customStopSpawnOptions()
       });
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return new Promise((resolve) => {
       const stopProcessIdentity = readProcessIdentity(stopProcess.pid);
       let finalized = false;
       let stdout = '';
@@ -2913,9 +3567,27 @@ class RunlistViewProvider {
     const nonce = crypto.randomBytes(16).toString('base64');
     this.webviewMessageToken = nonce;
     const projects = this.projects;
+    const currentProjectIds = new Set(projects.map((project) => project.id));
+    for (const projectId of this.projectIncarnations.keys()) {
+      if (!currentProjectIds.has(projectId)) {
+        this.projectIncarnations.delete(projectId);
+      }
+    }
+    for (const project of projects) {
+      if (!this.projectIncarnations.has(project.id)) {
+        this.projectIncarnationSequence += 1;
+        this.projectIncarnations.set(project.id, `host-${this.projectIncarnationSequence}`);
+      }
+    }
+    this.reconcileDiagnosisRoute(projects);
+    for (const projectId of this.projectOutputPeekIncarnations.keys()) {
+      if (!currentProjectIds.has(projectId)) {
+        this.projectOutputPeekIncarnations.delete(projectId);
+      }
+    }
     const tags = projectTagVocabulary(projects);
     if (this.tagFilter && !tags.some((tag) => (
-      tag.toLocaleLowerCase() === this.tagFilter.toLocaleLowerCase()
+      tag.trim().toLowerCase() === this.tagFilter.trim().toLowerCase()
     ))) {
       this.tagFilter = '';
     }
@@ -2932,7 +3604,9 @@ class RunlistViewProvider {
       ? readProjectRepairProposal(this.projectsFile, diagnosisProject.id)
       : undefined;
     const repairProposalStale = Boolean(repairProposal && (
-      repairProposal.projectRevision !== projectConfigurationRevision(diagnosisProject)
+      !repairProposal.proposalId
+      || typeof repairProposal.proposalId !== 'string'
+      || repairProposal.projectRevision !== projectConfigurationRevision(diagnosisProject)
       || repairProposal.projectRevision !== diagnosisRecord?.projectRevision
       || repairProposal.failedAt !== diagnosisRecord?.failedAt
     ));
@@ -3040,6 +3714,7 @@ class RunlistViewProvider {
         forceClosing: this.forceClosingProjectIds.has(project.id),
         handoffInProgress: this.handoffProjectIds.has(project.id),
         outputPeek,
+        projectIncarnation: this.projectIncarnations.get(project.id),
         timelineExpanded: timelineVisible && detailsExpanded,
         previewExpanded,
         previewPort: previewService?.port,
@@ -3097,8 +3772,14 @@ class RunlistViewProvider {
       agentConnections: this.agentConnections,
       messageToken: nonce,
       mode: this.mode,
+      filterRevision: this.filterRevision,
+      filterRevisionSeen: this.filterRevisionSeen,
       searchQuery: this.searchQuery,
       tagFilter: this.tagFilter,
+      searchSelectionStart: this.searchSelectionStart,
+      searchSelectionEnd: this.searchSelectionEnd,
+      searchFocused: this.searchFocused,
+      routeNotice: this.routeNotice,
       tags,
       draft: this.draft,
       canUseCurrentWorkspace: this.mode === 'add'
@@ -3129,6 +3810,7 @@ class RunlistViewProvider {
         projectId: diagnosisProject.id,
         repair: repairProposal ? {
           comparison: projectRepairComparison(diagnosisProject, repairProposal.proposedProject),
+          proposalId: repairProposal.proposalId,
           stale: repairProposalStale
         } : undefined
       } : undefined,
@@ -3172,6 +3854,8 @@ class RunlistViewProvider {
   }
 
   dispose() {
+    this.statusMonitoringDisposable?.dispose();
+    this.statusMonitoringDisposable = undefined;
     if (this.shutdownPromise) {
       return this.shutdownPromise;
     }

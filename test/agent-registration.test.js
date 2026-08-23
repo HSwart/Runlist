@@ -286,3 +286,64 @@ test('keeps an existing Codex registration when replacement preflight fails', as
     args[0] === 'mcp' && args[1] === 'remove' && args.at(-1) === 'runlist'
   )), false);
 });
+
+test('rolls back a failed Codex replacement and preserves the primary error', async () => {
+  const calls = [];
+  const replacementError = new Error('replacement failed');
+  let canonicalAdds = 0;
+  const run = async (command, args) => {
+    calls.push([command, args]);
+    if (args[0] === 'mcp' && args[1] === 'add' && args[2] === 'runlist') {
+      canonicalAdds += 1;
+      if (canonicalAdds === 1) {
+        throw replacementError;
+      }
+    }
+    return { stdout: '{}', stderr: '' };
+  };
+
+  await assert.rejects(registerWithCodex({
+    ...options,
+    candidateName: 'runlist-candidate'
+  }, run), (error) => {
+    assert.equal(error, replacementError);
+    return true;
+  });
+  assert.deepEqual(calls.slice(-2), [
+    ['codex', ['mcp', 'remove', 'runlist-candidate']],
+    ['codex', buildCodexAddArguments(options)]
+  ]);
+});
+
+test('attaches Codex rollback and cleanup failures to the primary error', async () => {
+  const calls = [];
+  const replacementError = new Error('replacement failed');
+  const cleanupError = new Error('candidate cleanup failed');
+  const rollbackError = new Error('canonical restore failed');
+  let canonicalAdds = 0;
+  const run = async (command, args) => {
+    calls.push([command, args]);
+    if (args[0] === 'mcp' && args[1] === 'add' && args[2] === 'runlist') {
+      canonicalAdds += 1;
+      throw canonicalAdds === 1 ? replacementError : rollbackError;
+    }
+    if (args[0] === 'mcp' && args[1] === 'remove' && args[2] === 'runlist-candidate') {
+      throw cleanupError;
+    }
+    return { stdout: '{}', stderr: '' };
+  };
+
+  await assert.rejects(registerWithCodex({
+    ...options,
+    candidateName: 'runlist-candidate'
+  }, run), (error) => {
+    assert.equal(error, replacementError);
+    assert.equal(error.cleanupFailures[0].error, cleanupError);
+    assert.equal(error.rollbackFailures[0].error, rollbackError);
+    return true;
+  });
+  assert.deepEqual(calls.slice(-2), [
+    ['codex', ['mcp', 'remove', 'runlist-candidate']],
+    ['codex', buildCodexAddArguments(options)]
+  ]);
+});

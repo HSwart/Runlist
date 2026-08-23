@@ -1,9 +1,559 @@
 const assert = require('node:assert/strict');
+const Module = require('node:module');
+const childProcess = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { restartProjectSafely } = require('../src/lifecycle/project-process');
+const {
+  ProcessOwnershipStore: RealProcessOwnershipStore,
+  restartProjectSafely
+} = require('../src/lifecycle/project-process');
 const { ProjectLifecycleCoordinator } = require('../src/lifecycle/project-lifecycle');
+
+function ProcessOwnershipStore(directory, options = {}) {
+  const pid = options.pid || process.pid;
+  return new RealProcessOwnershipStore(directory, {
+    ...options,
+    hostIdentity: options.hostIdentity || `test-host:${pid}`,
+    readHostProcessIdentity: options.readHostProcessIdentity
+      || ((hostPid) => `test-host:${hostPid}`)
+  });
+}
+
+function loadRunlistProvider(spawnImplementation, messages, moduleOverrides = {}) {
+  const extensionPath = path.join(__dirname, '..', 'extension.js');
+  const source = fs.readFileSync(extensionPath, 'utf8')
+    .replace('module.exports = { activate, deactivate };',
+      'module.exports = { activate, deactivate, RunlistViewProvider };');
+  const extensionModule = new Module(extensionPath, module);
+  extensionModule.filename = extensionPath;
+  extensionModule.paths = Module._nodeModulePaths(path.dirname(extensionPath));
+  const vscode = {
+    window: {
+      showErrorMessage(message) {
+        messages.push(message);
+        return Promise.resolve(undefined);
+      },
+      showWarningMessage: () => Promise.resolve(undefined)
+    },
+    env: { remoteName: undefined }
+  };
+  const originalLoad = Module._load;
+  const originalSpawn = childProcess.spawn;
+  Module._load = function load(request, parent, isMain) {
+    if (request === 'vscode') {
+      return vscode;
+    }
+    const loaded = originalLoad.call(this, request, parent, isMain);
+    return moduleOverrides[request]
+      ? { ...loaded, ...moduleOverrides[request] }
+      : loaded;
+  };
+  childProcess.spawn = spawnImplementation;
+  try {
+    extensionModule._compile(source, extensionPath);
+    return extensionModule.exports.RunlistViewProvider;
+  } finally {
+    childProcess.spawn = originalSpawn;
+    Module._load = originalLoad;
+  }
+}
+
+function createIntervalHarness() {
+  const timers = new Set();
+  const originalSetInterval = global.setInterval;
+  const originalClearInterval = global.clearInterval;
+  global.setInterval = (callback, delay) => {
+    const timer = { callback, delay, active: true };
+    timers.add(timer);
+    return timer;
+  };
+  global.clearInterval = (timer) => {
+    if (timer) {
+      timer.active = false;
+    }
+  };
+  return {
+    tick(delay, index) {
+      const matching = [...timers].filter((timer) => timer.active && timer.delay === delay);
+      const selected = index === undefined ? matching : [matching[index]];
+      for (const timer of selected) {
+        timer?.callback();
+      }
+    },
+    restore() {
+      global.setInterval = originalSetInterval;
+      global.clearInterval = originalClearInterval;
+    }
+  };
+}
+
+function createStatusMonitorProvider(Provider, owner, portReservations, services = [{ name: 'Web', port: 4320 }]) {
+  const provider = Object.create(Provider.prototype);
+  const project = {
+    id: 'project-1',
+    name: 'Project',
+    folder: process.cwd(),
+    startCommand: 'npm start',
+    stopCommand: 'npm stop',
+    services
+  };
+  Object.defineProperty(provider, 'projects', { value: [project] });
+  provider.lifecycleCapability = { supported: true };
+  provider.processes = new Map();
+  provider.processOwnership = owner;
+  provider.portReservations = portReservations;
+  provider.managedProjectIds = new Set(['project-1']);
+  provider.detachedProjectIds = new Set();
+  provider.startAttempts = new Map();
+  provider.remoteStopRequests = new Map();
+  provider.stoppingProjectIds = new Set();
+  provider.statusRefreshInFlight = false;
+  provider.statusRefreshPending = false;
+  provider.statusRefreshPromise = undefined;
+  provider.statusRevision = 0;
+  provider.projectStatuses = new Map();
+  provider.projectPortConflicts = new Map();
+  provider.projectOpenPorts = new Map();
+  provider.projectRespondingPorts = new Map();
+  provider.projectWebPorts = new Map();
+  provider.projectServiceUrls = new Map();
+  provider.projectRuntime = new Map();
+  provider.projectAttemptMetadata = new Map();
+  provider.projectTimelineFailures = new Map();
+  provider.startReadinessDeadlines = new Map();
+  provider.readinessWarnings = new Set();
+  provider.httpResponseHistory = { currentTarget: () => undefined };
+  provider.renderProjectList = () => {};
+  provider.notifyServiceNotReady = () => {};
+  provider.recordStartupOutcome = () => {};
+  provider.externalServiceUrl = (url) => url;
+  return provider;
+}
+
+function createDetachedPortReservations(projectId, port) {
+  const reservations = new Map([[projectId, 'detached']]);
+  const generation = new Map([[port, 'port-token']]);
+  return {
+    reconcileProcessIdentities: async () => {},
+    snapshot: () => new Map(reservations),
+    captureShared: (id) => id === projectId ? new Map(generation) : new Map(),
+    releaseShared(id, expected) {
+      if (id !== projectId || expected?.get(port) !== generation.get(port)) {
+        return false;
+      }
+      reservations.delete(projectId);
+      return true;
+    },
+    release: () => {},
+    setState: () => {},
+    conflicts: () => []
+  };
+}
+
+test('does not attribute a reused port to an old detached runtime', async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-detached-reuse-'));
+  const owner = new ProcessOwnershipStore(directory, {
+    pid: 101,
+    isProcessAlive: (pid) => [101, 202].includes(pid)
+  });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  owner.reserve('project-1');
+  owner.setProcess('project-1', 303, {
+    services: [{ name: 'Web', port: 4320 }]
+  });
+  const token = owner.snapshot().get('project-1').token;
+  owner.recordDetachedServiceListeners('project-1', token, [
+    { port: 4320, pid: 404, identity: '404:original' }
+  ]);
+  owner.markDetached('project-1');
+
+  const portReservations = createDetachedPortReservations('project-1', 4320);
+  const messages = [];
+  let listenerReads = 0;
+  let replacementStable = false;
+  const Provider = loadRunlistProvider(
+    () => ({ on() {}, once() {} }),
+    messages,
+    {
+      './src/lifecycle/project-status': {
+        servicePortStatus: async () => ({ allOpen: true, anyOpen: true, openPorts: [4320] }),
+        serviceHttpStatus: async () => ({
+          allResponding: true,
+          respondingPorts: [4320],
+          unresponsivePorts: [],
+          webPorts: []
+        }),
+        reachableServiceUrls: async () => []
+      },
+      './src/ports/port-process': {
+        findListeningProcesses: async () => {
+          listenerReads += 1;
+          return [!replacementStable && listenerReads === 2
+            ? { port: 4320, pid: 404, identity: '404:original' }
+            : { port: 4320, pid: 505, identity: '505:replacement' }];
+        }
+      }
+    }
+  );
+  const provider = createStatusMonitorProvider(Provider, owner, portReservations);
+  provider.detachedProjectIds.add('project-1');
+
+  await provider.refreshProjectStatuses();
+  assert.equal(owner.snapshot().has('project-1'), true, 'a listener that returns before cleanup must retain the marker');
+  assert.equal(portReservations.snapshot().has('project-1'), true);
+
+  replacementStable = true;
+  await provider.refreshProjectStatuses();
+
+  assert.deepEqual(messages, []);
+  assert.ok(listenerReads >= 4);
+  assert.equal(owner.snapshot().has('project-1'), false);
+  assert.equal(portReservations.snapshot().has('project-1'), false);
+  assert.equal(provider.detachedProjectIds.has('project-1'), false);
+  assert.equal(provider.getProjectStatus('project-1'), 'active');
+  assert.equal(provider.projectSetupLocked('project-1'), false);
+});
+
+test('allows only one detached reconciler and preserves a concurrent custom Stop claim', async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-detached-interleave-'));
+  const owner = new ProcessOwnershipStore(directory, {
+    pid: 101,
+    isProcessAlive: () => true
+  });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  owner.reserve('project-1');
+  owner.setProcess('project-1', 303, {
+    services: [{ name: 'Web', port: 4320 }]
+  });
+  const token = owner.snapshot().get('project-1').token;
+  const original = [{ port: 4320, pid: 404, identity: '404:original' }];
+  const replacement = [{ port: 4320, pid: 505, identity: '505:replacement' }];
+  owner.recordDetachedServiceListeners('project-1', token, original);
+  owner.markDetached('project-1');
+
+  let listenerReads = 0;
+  let resolveFinalRead;
+  let finalReadStarted;
+  const finalReadPromise = new Promise((resolve) => { finalReadStarted = resolve; });
+  const Provider = loadRunlistProvider(
+    () => ({ on() {}, once() {} }),
+    [],
+    {
+      './src/lifecycle/project-status': {
+        servicePortStatus: async () => ({ allOpen: true, anyOpen: true, openPorts: [4320] })
+      },
+      './src/ports/port-process': {
+        findListeningProcesses: async () => {
+          listenerReads += 1;
+          if (listenerReads <= 2) {
+            return replacement;
+          }
+          finalReadStarted();
+          return new Promise((resolve) => { resolveFinalRead = resolve; });
+        }
+      }
+    }
+  );
+  const portReservations = createDetachedPortReservations('project-1', 4320);
+  let releases = 0;
+  const releaseShared = portReservations.releaseShared.bind(portReservations);
+  portReservations.releaseShared = (...args) => {
+    releases += 1;
+    return releaseShared(...args);
+  };
+  const provider = createStatusMonitorProvider(Provider, owner, portReservations);
+  const runtime = owner.snapshot();
+
+  const reconciliations = Promise.all([
+    provider.reconcileDetachedRuntimeMarkers(runtime),
+    provider.reconcileDetachedRuntimeMarkers(runtime)
+  ]);
+  await finalReadPromise;
+  assert.equal(owner.claimDetachedStop('project-1', token), false);
+  resolveFinalRead(original);
+  await reconciliations;
+
+  assert.equal(releases, 0);
+  assert.equal(owner.snapshot().get('project-1').state, 'detached');
+  assert.equal(owner.claimDetachedStop('project-1', token).token, token);
+  await provider.reconcileDetachedRuntimeMarkers(owner.snapshot());
+  assert.equal(releases, 0);
+  assert.equal(owner.snapshot().get('project-1').state, 'stopping');
+});
+
+test('does not partially release detached ports when one captured generation changes', async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-detached-generation-'));
+  const lockDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-detached-locks-'));
+  const owner = new ProcessOwnershipStore(directory, {
+    pid: 101,
+    isProcessAlive: () => true
+  });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(lockDirectory, { recursive: true, force: true }));
+  const services = [
+    { name: 'Web', port: 4320 },
+    { name: 'API', port: 4321 }
+  ];
+  owner.reserve('project-1');
+  owner.setProcess('project-1', 303, { services });
+  const token = owner.snapshot().get('project-1').token;
+  const original = [
+    { port: 4320, pid: 404, identity: '404:original' },
+    { port: 4321, pid: 405, identity: '405:original' }
+  ];
+  const replacement = [
+    { port: 4320, pid: 504, identity: '504:replacement' },
+    { port: 4321, pid: 505, identity: '505:replacement' }
+  ];
+  owner.recordDetachedServiceListeners('project-1', token, original);
+  owner.markDetached('project-1');
+  const lockPath = (port) => path.join(lockDirectory, `port-${port}.lock`);
+  const writeLock = (port, lockToken) => fs.writeFileSync(lockPath(port), JSON.stringify({
+    projectId: 'project-1',
+    token: lockToken
+  }));
+  writeLock(4320, 'port-token-1');
+  writeLock(4321, 'port-token-2');
+  let releaseAttempts = 0;
+  const portReservations = {
+    captureShared: () => new Map(services.map(({ port }) => {
+      const lock = JSON.parse(fs.readFileSync(lockPath(port), 'utf8'));
+      return [port, lock.token];
+    })),
+    withReservationTransaction: (operation) => operation(),
+    lockPath,
+    releaseSharedUnlocked: () => {
+      releaseAttempts += 1;
+      return true;
+    }
+  };
+  let listenerReads = 0;
+  const Provider = loadRunlistProvider(
+    () => ({ on() {}, once() {} }),
+    [],
+    {
+      './src/lifecycle/project-status': {
+        servicePortStatus: async () => ({
+          allOpen: true,
+          anyOpen: true,
+          openPorts: [4320, 4321]
+        })
+      },
+      './src/ports/port-process': {
+        findListeningProcesses: async () => {
+          listenerReads += 1;
+          if (listenerReads === 2) {
+            writeLock(4321, 'replacement-port-token');
+          }
+          return replacement;
+        }
+      }
+    }
+  );
+  const provider = createStatusMonitorProvider(Provider, owner, portReservations, services);
+
+  await provider.reconcileDetachedRuntimeMarkers(owner.snapshot());
+
+  assert.equal(releaseAttempts, 0);
+  assert.equal(JSON.parse(fs.readFileSync(lockPath(4320), 'utf8')).token, 'port-token-1');
+  assert.equal(JSON.parse(fs.readFileSync(lockPath(4321), 'utf8')).token, 'replacement-port-token');
+  assert.equal(owner.snapshot().get('project-1').state, 'detached');
+});
+
+test('clears a cross-window detached marker only after verified service disappearance', async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-detached-missing-'));
+  let now = 1000;
+  const alive = new Set([101, 202]);
+  const owner = new ProcessOwnershipStore(directory, {
+    pid: 101,
+    now: () => now,
+    isProcessAlive: (pid) => alive.has(pid)
+  });
+  const observer = new ProcessOwnershipStore(directory, {
+    pid: 202,
+    now: () => now,
+    isProcessAlive: (pid) => alive.has(pid)
+  });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  owner.reserve('project-1');
+  owner.setProcess('project-1', 303, {
+    services: [{ name: 'Web', port: 4320 }]
+  });
+  const token = owner.snapshot().get('project-1').token;
+  const originalListener = { port: 4320, pid: 404, identity: '404:original' };
+  owner.recordDetachedServiceListeners('project-1', token, [originalListener]);
+  owner.markDetached('project-1');
+  const originalHeartbeat = JSON.parse(
+    fs.readFileSync(owner.ownershipPath('project-1'), 'utf8')
+  ).heartbeatAt;
+
+  let listeners = [originalListener];
+  const portReservations = createDetachedPortReservations('project-1', 4320);
+  const messages = [];
+  const Provider = loadRunlistProvider(
+    () => ({ on() {}, once() {} }),
+    messages,
+    {
+      './src/lifecycle/project-status': {
+        servicePortStatus: async () => ({ allOpen: false, anyOpen: false, openPorts: [] })
+      },
+      './src/ports/port-process': {
+        findListeningProcesses: async () => listeners
+      }
+    }
+  );
+  const provider = createStatusMonitorProvider(Provider, observer, portReservations);
+
+  await provider.refreshProjectStatuses();
+  assert.equal(observer.snapshot().has('project-1'), true, 'a transient TCP probe failure must retain the exact listener');
+  assert.equal(JSON.parse(
+    fs.readFileSync(owner.ownershipPath('project-1'), 'utf8')
+  ).heartbeatAt, originalHeartbeat, 'an observing window must not refresh the launch host heartbeat');
+  assert.equal(provider.getProjectStatus('project-1'), 'starting');
+  assert.equal(provider.projectSetupLocked('project-1'), true);
+
+  listeners = [];
+  now = 4000;
+  await provider.refreshProjectStatuses();
+  assert.equal(observer.snapshot().has('project-1'), true, 'one missing observation must remain protected');
+
+  now = 7000;
+  await provider.refreshProjectStatuses();
+  assert.deepEqual(messages, []);
+  assert.equal(observer.snapshot().has('project-1'), false);
+  assert.equal(portReservations.snapshot().has('project-1'), false);
+  assert.equal(provider.detachedProjectIds.has('project-1'), false);
+  assert.equal(provider.getProjectStatus('project-1'), 'stopped');
+  assert.equal(provider.projectSetupLocked('project-1'), false);
+});
+
+test('keeps a live owner through a pending status scan with the real monitoring timers', async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-status-monitor-'));
+  let now = 1000;
+  let resolvePortScan;
+  let portScanCalls = 0;
+  const alive = new Set([101, 202, 303]);
+  const owner = new ProcessOwnershipStore(directory, {
+    pid: 101,
+    now: () => now,
+    ownerHeartbeatTimeoutMs: 5000,
+    isProcessAlive: (pid) => alive.has(pid)
+  });
+  const observer = new ProcessOwnershipStore(directory, {
+    pid: 202,
+    now: () => now,
+    ownerHeartbeatTimeoutMs: 5000,
+    isProcessAlive: (pid) => alive.has(pid)
+  });
+  owner.reserve('project-1');
+  owner.setProcess('project-1', 303);
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  const servicePortStatus = () => {
+    portScanCalls += 1;
+    if (portScanCalls === 1) {
+      return new Promise((resolve) => {
+        resolvePortScan = resolve;
+      });
+    }
+    return Promise.resolve({ allOpen: false, anyOpen: false, openPorts: [] });
+  };
+  const Provider = loadRunlistProvider(
+    () => ({ on() {}, once() {} }),
+    [],
+    { './src/lifecycle/project-status': { servicePortStatus } }
+  );
+  const provider = createStatusMonitorProvider(Provider, owner, {
+    reconcileProcessIdentities: async () => {},
+    snapshot: () => new Map(),
+    release: () => {},
+    setState: () => {},
+    conflicts: () => []
+  });
+  let touchCalls = 0;
+  const touchOwned = owner.touchOwned.bind(owner);
+  owner.touchOwned = () => {
+    touchCalls += 1;
+    return touchOwned();
+  };
+  const intervals = createIntervalHarness();
+
+  try {
+    const monitoring = provider.startStatusMonitoring();
+    const initialRefresh = provider.statusRefreshPromise;
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(portScanCalls, 1);
+    assert.equal(provider.statusRefreshInFlight, true);
+
+    intervals.tick(2000, 0);
+    assert.equal(provider.statusRefreshPending, true);
+    assert.equal(portScanCalls, 1);
+
+    now = 9001;
+    intervals.tick(2000, 1);
+    assert.equal(touchCalls, 1);
+    assert.equal(JSON.parse(fs.readFileSync(owner.ownershipPath('project-1'), 'utf8')).heartbeatAt, now);
+
+    now = 12001;
+    assert.equal(observer.snapshot().get('project-1').ownerAvailable, true);
+    resolvePortScan({ allOpen: false, anyOpen: false, openPorts: [] });
+    await initialRefresh;
+    assert.equal(portScanCalls, 2);
+
+    alive.delete(101);
+    alive.delete(303);
+    now = 18002;
+    assert.equal(observer.reserve('project-1'), undefined);
+    const replacement = JSON.parse(fs.readFileSync(observer.ownershipPath('project-1'), 'utf8'));
+    intervals.tick(2000, 1);
+    assert.equal(owner.owns('project-1'), false);
+    assert.deepEqual(
+      JSON.parse(fs.readFileSync(observer.ownershipPath('project-1'), 'utf8')),
+      replacement
+    );
+
+    const touchesBeforeDispose = touchCalls;
+    provider.shutdownPromise = Promise.resolve();
+    await provider.dispose();
+    await provider.dispose();
+    intervals.tick(2000);
+    assert.equal(touchCalls, touchesBeforeDispose);
+    monitoring.dispose();
+  } finally {
+    intervals.restore();
+  }
+});
+
+test('keeps an abandoned host reclaimable without a heartbeat refresh', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-abandoned-host-'));
+  let now = 1000;
+  const alive = new Set([101, 202, 303]);
+  const owner = new ProcessOwnershipStore(directory, {
+    pid: 101,
+    now: () => now,
+    ownerHeartbeatTimeoutMs: 5000,
+    isProcessAlive: (pid) => alive.has(pid)
+  });
+  const observer = new ProcessOwnershipStore(directory, {
+    pid: 202,
+    now: () => now,
+    ownerHeartbeatTimeoutMs: 5000,
+    isProcessAlive: (pid) => alive.has(pid)
+  });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  owner.reserve('project-1');
+  owner.setProcess('project-1', 303);
+  alive.delete(101);
+  alive.delete(303);
+  now = 7001;
+
+  assert.equal(observer.snapshot().has('project-1'), false);
+  assert.equal(observer.reserve('project-1'), undefined);
+});
 
 test('exposes an accessible single-project Restart overflow action', () => {
   const script = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
@@ -231,6 +781,102 @@ test('does not escalate a custom stop into port or process cleanup', () => {
   assert.doesNotMatch(customStopSource, /forceCloseProjectPorts|stopOwnedProjectProcess/);
 });
 
+test('blocks a custom Stop when the launching owner identity cannot be verified', async () => {
+  const messages = [];
+  let spawnCalls = 0;
+  const Provider = loadRunlistProvider(() => {
+    spawnCalls += 1;
+    throw new Error('custom Stop must not run');
+  }, messages);
+  const provider = Object.create(Provider.prototype);
+  const project = {
+    id: 'project-1',
+    name: 'Project',
+    folder: process.cwd(),
+    stopCommand: 'npm stop',
+    services: []
+  };
+  Object.defineProperty(provider, 'projects', { value: [project] });
+  provider.processes = new Map();
+  provider.startAttempts = new Map();
+  provider.stoppingProjectIds = new Set();
+  provider.showLifecycleBlocked = () => true;
+  provider.processOwnership = {
+    snapshot: () => new Map([['project-1', {
+      token: 'ownership-token',
+      hostPid: 101,
+      state: 'running',
+      processActive: true,
+      stopCommand: 'npm stop'
+    }]]),
+    isCurrentOwner: () => false,
+    owns: () => false
+  };
+
+  assert.equal(await provider.stopProjectProcess('project-1'), false);
+  assert.equal(spawnCalls, 0);
+  assert.equal(messages.length, 1);
+  assert.match(messages[0], /identity could not be verified/i);
+});
+
+test('revalidates custom Stop ownership after confirmation before running the command', async () => {
+  const messages = [];
+  let spawnCalls = 0;
+  let currentToken = 'ownership-token';
+  let currentOwner = true;
+  const Provider = loadRunlistProvider(() => {}, messages);
+  const provider = Object.create(Provider.prototype);
+  const project = {
+    id: 'project-1',
+    name: 'Project One',
+    folder: process.cwd(),
+    startCommand: 'npm start',
+    stopCommand: 'npm stop',
+    services: []
+  };
+  Object.defineProperty(provider, 'projects', { value: [project] });
+  provider.processes = new Map();
+  provider.startAttempts = new Map();
+  provider.stoppingProjectIds = new Set();
+  provider.showLifecycleBlocked = () => true;
+  provider.confirmCustomStopCommand = async () => {
+    currentToken = 'replacement-token';
+    currentOwner = false;
+    return true;
+  };
+  provider.runCustomStopCommand = async () => {
+    spawnCalls += 1;
+    return { succeeded: true };
+  };
+  provider.portReservations = { captureShared: () => new Map() };
+  provider.waitForProjectStopCompletion = async () => true;
+  provider.lifecycle = { waitUntilServicesStopped: async () => true };
+  provider.settleCustomStop = () => [];
+  provider.processOwnership = {
+    snapshot: () => new Map([['project-1', {
+      token: currentToken,
+      hostPid: 101,
+      state: 'running',
+      processActive: true,
+      stopCommand: 'npm stop'
+    }]]),
+    currentOwnership: () => ({
+      token: currentToken,
+      hostPid: 101,
+      state: 'running',
+      processActive: true,
+      stopCommand: 'npm stop'
+    }),
+    isCurrentOwner: () => currentOwner,
+    owns: () => false
+  };
+
+  assert.equal(await provider.stopProjectProcess('project-1'), false);
+  assert.equal(spawnCalls, 0);
+  assert.equal(messages.length, 1);
+  assert.match(messages[0], /identity could not be verified|ownership changed/i);
+});
+
 test('verifies the custom stop shell identity before timeout cleanup', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   assert.match(source, /const stopProcessIdentity = readProcessIdentity\(stopProcess\.pid\)/);
@@ -258,7 +904,7 @@ test('routes remote custom stops through the launching VS Code window', () => {
   const stopProject = source.indexOf('async stopProject(id, projectSnapshot, options = {})');
   const sharedOwnership = source.indexOf('const sharedOwnership = this.processOwnership.snapshot().get(id)', stopProject);
   const requestRemoteStop = source.indexOf('return this.stopOwnedProjectProcess(id, stopProject, options);', sharedOwnership);
-  const runCustomStop = source.indexOf('const customStopResult = await this.runCustomStopCommand(stopProject)', sharedOwnership);
+  const runCustomStop = source.indexOf('customStopResult = await this.runCustomStopCommand(stopProject, {', sharedOwnership);
 
   assert.ok(consumeRequests >= 0);
   assert.ok(consumeRequests < dispatchToOwner);
@@ -272,11 +918,286 @@ test('recovers a locally owned process when its in-memory handle is missing', ()
   const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const localRequest = source.indexOf("if (request.kind === 'local')");
   const recoverOwnedProcess = source.indexOf('this.processOwnership.terminateOwnedProcess(id)', localRequest);
-  const finishRecoveredStop = source.indexOf('this.finishStopping(id, true)', recoverOwnedProcess);
+  const finishRecoveredStop = source.indexOf('this.finishStopping(id, true, portGeneration)', recoverOwnedProcess);
 
   assert.ok(localRequest >= 0);
   assert.ok(localRequest < recoverOwnedProcess);
   assert.ok(recoverOwnedProcess < finishRecoveredStop);
+});
+
+test('reports a lost detached Stop claim without executing the custom command', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const claim = source.indexOf('this.processOwnership.claimDetachedStop(id, sharedOwnership.token)');
+  const command = source.indexOf('customStopResult = await this.runCustomStopCommand(stopProject, {', claim);
+  const claimLost = source.slice(claim, command);
+
+  assert.ok(claim >= 0);
+  assert.ok(command > claim);
+  assert.match(claimLost, /showWarningMessage\([\s\S]*did not run the Stop command/);
+  assert.match(claimLost, /return false;/);
+});
+
+test('binds detached Stop success cleanup to the captured ownership and port generations', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const finish = source.indexOf('finishStopping(id, succeeded, portGeneration, detachedStopClaim)');
+  const detachedSuccess = source.indexOf('if (detachedStopClaim)', finish);
+  const processRelease = source.indexOf('detachedStopClaim.token', detachedSuccess);
+  const portRelease = source.indexOf('this.portReservations.releaseShared(id, portGeneration)', detachedSuccess);
+
+  assert.ok(finish >= 0);
+  assert.ok(detachedSuccess > finish);
+  assert.ok(processRelease > detachedSuccess);
+  assert.ok(portRelease > processRelease);
+  assert.doesNotMatch(source.slice(finish, processRelease), /const ownership = this\.processOwnership\.snapshot\(\)\.get\(id\)/);
+});
+
+test('rolls back detached Stop claims across command and completion probes', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const customStop = source.indexOf('if (stopProject.stopCommand)');
+  const command = source.indexOf('customStopResult = await this.runCustomStopCommand(stopProject, {', customStop);
+  const completion = source.indexOf('this.waitForProjectStopCompletion(id, CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS)', command);
+  const serviceProbe = source.indexOf('this.lifecycle.waitUntilServicesStopped(stopProject, CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS)', completion);
+  const catchBlock = source.indexOf('} catch (error) {', command);
+  const rollbackSettlement = source.indexOf('this.settleCustomStop(', catchBlock);
+
+  assert.ok(customStop >= 0);
+  assert.ok(command > customStop);
+  assert.ok(completion > command);
+  assert.ok(serviceProbe > completion);
+  assert.ok(catchBlock > serviceProbe);
+  assert.ok(rollbackSettlement > catchBlock);
+  assert.match(source.slice(command, rollbackSettlement), /settleCustomStop\(/);
+  assert.match(source, /rollbackDetachedStop\(\s*id,\s*detachedStopClaim\.token/);
+});
+
+test('reports a synchronous custom Stop failure once when settlement cleanup throws', async () => {
+  const messages = [];
+  const spawnError = new Error('synchronous spawn failure');
+  const finishError = new Error('finish cleanup failure');
+  const rollbackError = new Error('rollback cleanup failure');
+  let observedCleanupErrors;
+  Object.defineProperty(spawnError, 'message', {
+    configurable: true,
+    get() {
+      observedCleanupErrors = spawnError.cleanupErrors;
+      return 'synchronous spawn failure';
+    }
+  });
+  const Provider = loadRunlistProvider(() => {
+    throw spawnError;
+  }, messages);
+  const provider = Object.create(Provider.prototype);
+  let finishCalls = 0;
+  let rollbackCalls = 0;
+  Object.defineProperty(provider, 'projects', { value: [{
+    id: 'project-1',
+    name: 'Project',
+    folder: process.cwd(),
+    startCommand: 'npm start',
+    stopCommand: 'npm stop',
+    services: []
+  }] });
+  provider.processes = new Map();
+  provider.startAttempts = new Map();
+  provider.stoppingProjectIds = new Set();
+  provider.projectStatuses = new Map();
+  provider.showLifecycleBlocked = () => true;
+  provider.confirmCustomStopCommand = async () => true;
+  provider.beginStopping = () => {};
+  provider.renderProjectList = () => {};
+  provider.processOwnership = {
+    owns: () => false,
+    snapshot: () => new Map([['project-1', {
+      detached: true,
+      token: 'ownership-token',
+      state: 'detached',
+      processActive: true,
+      stopCommand: 'npm stop'
+    }]]),
+    claimDetachedStop: () => ({ token: 'ownership-token', priorState: 'detached' }),
+    rollbackDetachedStop: () => {
+      rollbackCalls += 1;
+      throw rollbackError;
+    }
+  };
+  provider.portReservations = {
+    captureShared: () => new Map([[4320, 'port-token']]),
+    setStateShared: () => {}
+  };
+  provider.finishStopping = () => {
+    finishCalls += 1;
+    throw finishError;
+  };
+
+  assert.equal(await provider.stopProjectProcess('project-1'), false);
+  assert.equal(finishCalls, 1);
+  assert.equal(rollbackCalls, 1);
+  assert.deepEqual(
+    observedCleanupErrors.map((error) => error.message),
+    ['finish cleanup failure', 'rollback cleanup failure']
+  );
+  assert.equal(messages.length, 1);
+  assert.match(messages[0], /synchronous spawn failure/);
+  assert.equal(provider.stoppingProjectIds.size, 0);
+  assert.equal(provider.projectStatuses.get('project-1'), 'detached');
+});
+
+test('reconciles an exact detached generation after success cleanup throws', async () => {
+  const messages = [];
+  const finishError = new Error('success cleanup failure');
+  const Provider = loadRunlistProvider(() => {
+    throw new Error('spawn should not run in this branch');
+  }, messages);
+  const provider = Object.create(Provider.prototype);
+  let finishCalls = 0;
+  let releaseCalls = 0;
+  let claimCalls = 0;
+  const ownership = {
+    token: 'ownership-token',
+    state: 'detached'
+  };
+  const port = {
+    token: 'replacement-port-token',
+    state: 'running'
+  };
+  const capturedPortGeneration = new Map([[4320, 'original-port-token']]);
+  Object.defineProperty(provider, 'projects', { value: [{
+    id: 'project-1',
+    name: 'Project',
+    folder: process.cwd(),
+    startCommand: 'npm start',
+    stopCommand: 'npm stop',
+    services: []
+  }] });
+  provider.processes = new Map();
+  provider.startAttempts = new Map();
+  provider.stoppingProjectIds = new Set();
+  provider.projectStatuses = new Map([['project-1', 'detached']]);
+  provider.showLifecycleBlocked = () => true;
+  provider.confirmCustomStopCommand = async () => true;
+  provider.beginStopping = () => {
+    ownership.state = 'stopping';
+    provider.stoppingProjectIds.add('project-1');
+  };
+  provider.runCustomStopCommand = async () => {
+    provider.beginStopping('project-1');
+    return { succeeded: true };
+  };
+  provider.waitForProjectStopCompletion = async () => true;
+  provider.renderProjectList = () => {};
+  provider.processOwnership = {
+    owns: () => false,
+    snapshot: () => new Map([['project-1', {
+      detached: true,
+      token: ownership.token,
+      state: ownership.state,
+      processActive: true,
+      stopCommand: 'npm stop'
+    }]]),
+    claimDetachedStop: () => {
+      claimCalls += 1;
+      return { token: 'ownership-token', priorState: 'detached' };
+    },
+    rollbackDetachedStop: (id, token, state) => {
+      if (ownership.token !== token) {
+        return false;
+      }
+      ownership.state = state;
+      return true;
+    },
+    releaseShared: () => {
+      releaseCalls += 1;
+      throw new Error('destructive release should not run');
+    }
+  };
+  provider.portReservations = {
+    captureShared: () => capturedPortGeneration,
+    setStateShared: (id, state, generation) => {
+      if (generation.get(4320) === port.token) {
+        port.state = state;
+      }
+    }
+  };
+  provider.lifecycle = {
+    waitUntilServicesStopped: async () => true
+  };
+  provider.finishStopping = () => {
+    finishCalls += 1;
+    ownership.state = 'stopping';
+    throw finishError;
+  };
+
+  assert.equal(await provider.stopProjectProcess('project-1'), false);
+  assert.equal(finishCalls, 1);
+  assert.equal(releaseCalls, 0);
+  assert.equal(claimCalls, 1);
+  assert.equal(ownership.state, 'detached');
+  assert.equal(port.token, 'replacement-port-token');
+  assert.equal(port.state, 'running');
+  assert.equal(messages.length, 1);
+  assert.match(messages[0], /success cleanup failure/);
+  assert.equal(provider.stoppingProjectIds.size, 0);
+  assert.equal(provider.processOwnership.claimDetachedStop('project-1', ownership.token).token, 'ownership-token');
+});
+
+test('captures force-close ownership before recovery and threads it to cleanup', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const forceClose = source.indexOf('async forceCloseProjectPorts(');
+  const recovery = source.indexOf('const result = await recoverProjectPorts', forceClose);
+  const ownershipCapture = source.indexOf('const detachedOwnership = processRuntime.get(id)?.detached', forceClose);
+  const finish = source.indexOf('this.finishStopping(id, true, portGeneration, detachedOwnership)', forceClose);
+
+  assert.ok(forceClose >= 0);
+  assert.ok(ownershipCapture > forceClose);
+  assert.ok(ownershipCapture < recovery);
+  assert.ok(finish > recovery);
+});
+
+test('rolls back ownership and start state when port reservation throws', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const reserve = source.indexOf('this.portReservations.reserve(launchProject)');
+  const reserveTry = source.lastIndexOf('try {', reserve);
+  const startAttempt = source.indexOf('this.startAttempts.set(id, attempt)', reserve);
+  const showError = source.indexOf('Could not start ${project.name}: ${error.message}', reserve);
+  const releaseOwnership = source.indexOf('this.processOwnership.release(id)', reserve);
+  const releaseStart = source.indexOf('this.releaseStartReservation(id)', reserve);
+
+  assert.ok(reserve >= 0);
+  assert.ok(reserveTry >= 0);
+  assert.ok(startAttempt > reserve);
+  assert.ok(showError > reserve);
+  assert.ok(releaseOwnership > reserve);
+  assert.ok(releaseStart > reserve);
+  assert.match(source.slice(reserveTry, startAttempt), /try[\s\S]*portReservations\.reserve\(launchProject\)[\s\S]*catch[\s\S]*processOwnership\.release\(id\)[\s\S]*releaseStartReservation\(id\)/);
+});
+
+test('keeps start rollback and the original reservation error primary when cleanup throws', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const reserve = source.indexOf('this.portReservations.reserve(launchProject)');
+  const startAttempt = source.indexOf('this.startAttempts.set(id, attempt)', reserve);
+  const rollback = source.slice(source.lastIndexOf('try {', reserve), startAttempt);
+
+  assert.match(rollback, /const cleanupErrors = \[\]/);
+  assert.match(rollback, /try[\s\S]*processOwnership\.release\(id\)[\s\S]*catch[\s\S]*cleanupErrors\.push/);
+  assert.match(rollback, /try[\s\S]*releaseStartReservation\(id\)[\s\S]*catch[\s\S]*cleanupErrors\.push/);
+  assert.match(rollback, /projectStatuses\.set\(id, 'stopped'\)[\s\S]*showErrorMessage\(`Could not start \$\{project\.name\}: \$\{error\.message\}`\)/);
+  assert.match(rollback, /error\.cleanupErrors/);
+});
+
+test('guards synchronous custom Stop launch failures after beginStopping', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const runCustomStop = source.indexOf('runCustomStopCommand(project, options = {})');
+  const beginStopping = source.indexOf('this.beginStopping(project.id, options)', runCustomStop);
+  const spawn = source.indexOf('spawn(project.stopCommand', beginStopping);
+  const promise = source.indexOf('return new Promise((resolve)', beginStopping);
+  const settlement = source.indexOf('settleCustomStop(');
+
+  assert.ok(runCustomStop >= 0);
+  assert.ok(beginStopping > runCustomStop);
+  assert.ok(spawn > beginStopping);
+  assert.ok(promise > spawn);
+  assert.match(source.slice(beginStopping, promise), /try[\s\S]*spawn\(project\.stopCommand[\s\S]*catch[\s\S]*return Promise\.reject\(error\)/);
+  assert.ok(settlement >= 0);
 });
 
 test('does not report an intentional custom-stop exit as a start failure', () => {
@@ -295,6 +1216,5 @@ test('allows remote custom stops enough time for owner polling', () => {
   assert.match(source, /const CUSTOM_STOP_TIMEOUT_MS = 15000;/);
   assert.match(source, /const CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS = 20000;/);
   assert.match(source, /const REMOTE_STOP_TIMEOUT_MS = STATUS_POLL_INTERVAL_MS[\s\S]*\+ CUSTOM_STOP_TIMEOUT_MS[\s\S]*\+ CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS[\s\S]*\+ 1000;/);
-  assert.match(source, /setInterval\(\(\) => this\.refreshProjectStatuses\(\), STATUS_POLL_INTERVAL_MS\)/);
   assert.match(source, /waitForProjectStopCompletion\(id, CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS\)/);
 });

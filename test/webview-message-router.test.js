@@ -73,6 +73,148 @@ test('maps validated webview commands to the provider boundary', async () => {
   ]);
 });
 
+test('forwards output peek incarnation requests without treating the token as authority', async () => {
+  const calls = [];
+  const route = createRunlistWebviewRouter({
+    showProjectOutput: async (id, projectIncarnation) => {
+      calls.push([id, projectIncarnation]);
+    }
+  });
+
+  assert.equal(await route({
+    type: 'showOutput',
+    id: 'project-1',
+    projectIncarnation: 'project-1:1'
+  }), true);
+  assert.equal(await route({
+    type: 'showOutput',
+    id: 'project-1',
+    projectIncarnation: ''
+  }), false);
+  assert.deepEqual(calls, [['project-1', 'project-1:1']]);
+});
+
+test('keeps newer filter updates when messages arrive out of order', async () => {
+  let renders = 0;
+  const host = {
+    filterRevision: 0,
+    searchQuery: '',
+    tagFilter: '',
+    renderProjectList() {
+      renders += 1;
+    }
+  };
+  const route = createRunlistWebviewRouter(host);
+
+  assert.equal(await route({
+    type: 'setSearchQuery',
+    query: 'new query',
+    tag: 'frontend',
+    filterRevision: 2,
+    selectionStart: 0,
+    selectionEnd: 0,
+    searchFocused: false
+  }), true);
+  assert.equal(await route({
+    type: 'setTagFilter',
+    tag: 'stale',
+    query: 'old query',
+    filterRevision: 1,
+    selectionStart: 0,
+    selectionEnd: 0,
+    searchFocused: false
+  }), true);
+
+  assert.equal(host.filterRevision, 2);
+  assert.equal(host.searchQuery, 'new query');
+  assert.equal(host.tagFilter, 'frontend');
+  assert.equal(renders, 1);
+
+  assert.equal(await route({
+    type: 'setSearchQuery',
+    query: '',
+    tag: '',
+    filterRevision: 3,
+    selectionStart: 0,
+    selectionEnd: 0,
+    searchFocused: false
+  }), true);
+  assert.equal(host.searchQuery, '');
+  assert.equal(host.tagFilter, '');
+  assert.equal(renders, 2);
+});
+
+test('makes equal filter revisions idempotent and rejects legacy or invalid updates after versioning', async () => {
+  let renders = 0;
+  const host = {
+    filterRevision: 0,
+    searchQuery: 'query',
+    tagFilter: 'frontend',
+    searchSelectionStart: 1,
+    searchSelectionEnd: 3,
+    searchFocused: true,
+    renderProjectList() {
+      renders += 1;
+    }
+  };
+  const route = createRunlistWebviewRouter(host);
+  const current = {
+    type: 'setSearchQuery',
+    query: 'query',
+    tag: 'FRONTEND',
+    filterRevision: 1,
+    selectionStart: 1,
+    selectionEnd: 3,
+    searchFocused: true
+  };
+
+  assert.equal(await route(current), true);
+  assert.equal(await route({ ...current, query: 'changed' }), true);
+  assert.equal(await route({ type: 'setTagFilter', tag: 'legacy' }), true);
+  assert.equal(await route({
+    ...current,
+    filterRevision: 2,
+    selectionStart: 4,
+    selectionEnd: 2
+  }), true);
+
+  assert.equal(host.filterRevision, 1);
+  assert.equal(host.searchQuery, 'query');
+  assert.equal(host.tagFilter, 'frontend');
+  assert.equal(host.searchSelectionStart, 1);
+  assert.equal(host.searchSelectionEnd, 3);
+  assert.equal(host.searchFocused, true);
+  assert.equal(renders, 1);
+});
+
+test('uses locale-independent tag identity for Turkish-sensitive values', async () => {
+  const originalLocaleLowerCase = String.prototype.toLocaleLowerCase;
+  String.prototype.toLocaleLowerCase = function toTurkishLocaleLowerCase() {
+    return this.toString().replaceAll('I', 'ı').replaceAll('İ', 'i').toLowerCase();
+  };
+  try {
+    const host = {
+      filterRevision: 0,
+      searchQuery: '',
+      tagFilter: '',
+      renderProjectList() {}
+    };
+    const route = createRunlistWebviewRouter(host);
+    await route({
+      type: 'setTagFilter',
+      query: '',
+      tag: 'I',
+      filterRevision: 1,
+      selectionStart: 0,
+      selectionEnd: 0,
+      searchFocused: false
+    });
+    assert.equal(host.tagFilter, 'i');
+  } finally {
+    String.prototype.toLocaleLowerCase = originalLocaleLowerCase;
+  }
+});
+
 test('rejects the wrong token, unknown types, and malformed payloads', () => {
   assert.equal(validateWebviewMessage({ type: 'outputCopied', messageToken: 'wrong' }, 'token'), undefined);
   assert.equal(validateWebviewMessage({ type: 'unknown', messageToken: 'token' }, 'token'), undefined);

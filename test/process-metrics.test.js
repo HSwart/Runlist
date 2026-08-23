@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
@@ -14,6 +15,23 @@ const { HttpResponseHistory, RuntimePulseHistory } = require('../src/lifecycle/r
 
 function row(pid, identity, cpuSeconds, memoryBytes) {
   return { pid, identity, cpuSeconds, memoryBytes };
+}
+
+function expectedDarwinIdentity(pid, startedAt, details) {
+  const canonical = [
+    'runlist-darwin-process',
+    'v2',
+    String(pid),
+    startedAt,
+    String(details.uid),
+    String(details.processGroupId),
+    String(details.sessionId).toLowerCase(),
+    details.command
+  ].map((value) => `${Buffer.byteLength(value, 'utf8')}:${value}`).join('');
+  return `${pid}:darwin:v2:${startedAt}:${crypto
+    .createHash('sha256')
+    .update(canonical)
+    .digest('hex')}`;
 }
 
 test('reads a Windows root process identity when CIM access is denied', async () => {
@@ -206,7 +224,7 @@ test('clears HTTP response samples when health is unavailable', () => {
   }
 });
 
-test('uses exact POSIX process-group queries and ignores rows outside that group', async () => {
+test('uses exact POSIX process-group queries for a fully valid requested batch', async () => {
   const calls = [];
   const rows = await readOwnedProcessTree(41, 'darwin', {
     runFile: async (command, args) => {
@@ -215,17 +233,119 @@ test('uses exact POSIX process-group queries and ignores rows outside that group
         return '41\n42\n';
       }
       return [
-        ' 41 1 41 Sun Aug 16 12:00:00 2026 00:01.00 1024',
-        ' 42 41 41 Sun Aug 16 12:00:01 2026 00:00.50 2048',
-        ' 99 1 99 Sun Aug 16 12:00:02 2026 00:30.00 9999'
+        ' 41 1 41 41 501 Sun Aug 16 12:00:00 2026 00:01.00 1024 /usr/local/bin/node server.js',
+        ' 42 41 41 41 501 Sun Aug 16 12:00:01 2026 00:00.50 2048 /bin/zsh -c worker'
       ].join('\n');
     }
   });
 
   assert.deepEqual(calls[0], ['pgrep', ['-g', '41']]);
   assert.deepEqual(calls[1][1].at(-1), '41,42');
+  assert.deepEqual(calls[1][1].slice(-4, -2), ['-o', 'command=']);
   assert.deepEqual(rows.map((item) => item.pid), [41, 42]);
   assert.equal(parseCpuTime('1-02:03:04.5'), 93784.5);
+});
+
+test('uses one stable versioned macOS identity across metrics captures', async () => {
+  let details = {
+    uid: 501,
+    processGroupId: 55,
+    sessionId: 55,
+    command: '/Applications/Node/bin/node server.js --port 3000'
+  };
+  const calls = [];
+  const read = () => readRootProcess(55, 'darwin', {
+    runFile: async (file, args, options) => {
+      calls.push({ file, args, options });
+      return ` 55 1 ${details.processGroupId} ${details.sessionId} ${details.uid} Sun Aug 16 12:00:00 2026 00:01.00 1024 ${details.command}`;
+    }
+  });
+  const expected = expectedDarwinIdentity(55, '2026-08-16T12:00:00', details);
+
+  assert.equal((await read()).identity, expected);
+  assert.equal((await read()).identity, expected);
+  details = { ...details, command: '/Applications/Node/bin/node server.js --port 4000' };
+  assert.notEqual((await read()).identity, expected);
+  assert.equal(calls.length, 3);
+  for (const call of calls) {
+    assert.equal(call.file, 'ps');
+    assert.deepEqual(call.args, [
+      '-ww', '-o', 'pid=', '-o', 'ppid=', '-o', 'pgid=', '-o', 'sess=',
+      '-o', 'uid=', '-o', 'lstart=', '-o', 'time=', '-o', 'rss=',
+      '-o', 'command=', '-p', '55'
+    ]);
+    assert.equal(call.options.shell, false);
+    assert.equal(call.options.env.LC_ALL, 'C');
+    assert.equal(call.options.env.LANG, 'C');
+    assert.equal(call.options.env.TZ, 'UTC');
+  }
+
+  for (const output of [
+    ' 55 1 55 55 501 Lun Aug 16 12:00:00 2026 00:01.00 1024 /usr/local/bin/node',
+    ' 55 1 55 55 nope Sun Aug 16 12:00:00 2026 00:01.00 1024 /usr/local/bin/node',
+    ' 55 1 55 55 501 Sun Aug 16 12:00:00 2026 00:01.00 1024',
+    ' 55 1 55 55 501 Sun Aug 16 12:00:00 2026 00:01.00 1024 /usr/local/bin/node\n 56 1 56 56 501 Sun Aug 16 12:00:00 2026 00:01.00 1024 /bin/zsh'
+  ]) {
+    assert.equal(await readRootProcess(55, 'darwin', {
+      runFile: async () => output
+    }), undefined);
+  }
+});
+
+test('accepts uid zero in a stable versioned macOS async identity', async () => {
+  const details = {
+    uid: 0,
+    processGroupId: 55,
+    sessionId: '2fd65f0',
+    command: '/usr/local/bin/node root.js'
+  };
+  const read = () => readRootProcess(55, 'darwin', {
+    runFile: async () => '55 1 55 2FD65F0 0 Sun Aug 16 12:00:00 2026 00:01.00 1024 /usr/local/bin/node root.js'
+  });
+
+  const first = await read();
+  const second = await read();
+  assert.equal(first.identity, expectedDarwinIdentity(55, '2026-08-16T12:00:00', details));
+  assert.equal(second.identity, first.identity);
+  assert.match(first.identity, /^55:darwin:v2:/);
+  assert.equal(await readRootProcess(55, 'darwin', {
+    runFile: async () => '55 1 55 2fd65f0 -1 Sun Aug 16 12:00:00 2026 00:01.00 1024 /usr/local/bin/node root.js'
+  }), undefined);
+});
+
+test('rejects an entire macOS capture when any physical row is invalid or ambiguous', async () => {
+  const valid = '55 1 55 303 501 Sun Aug 16 12:00:00 2026 00:01.00 1024 /usr/local/bin/node server.js';
+  const other = '56 1 56 303 501 Sun Aug 16 12:00:00 2026 00:01.00 1024 /bin/zsh';
+  for (const output of [
+    `${valid}\nforged-trailing-row`,
+    `${valid}\n${valid}`,
+    `${valid}\n${other}`,
+    `${valid}\n--forged-argument-row`
+  ]) {
+    assert.equal(await readRootProcess(55, 'darwin', {
+      runFile: async () => output
+    }), undefined);
+  }
+
+  const rows = await readOwnedProcessTree(41, 'darwin', {
+    runFile: async (command) => command === 'pgrep'
+      ? '41\n42\n'
+      : [
+        '41 1 41 303 501 Sun Aug 16 12:00:00 2026 00:01.00 1024 /usr/local/bin/node root.js',
+        'forged-trailing-row'
+      ].join('\n')
+  });
+  assert.deepEqual(rows, []);
+
+  const changedGroup = await readOwnedProcessTree(41, 'darwin', {
+    runFile: async (command) => command === 'pgrep'
+      ? '41\n42\n'
+      : [
+        '41 1 41 0 501 Sun Aug 16 12:00:00 2026 00:01.00 1024 /usr/local/bin/node root.js',
+        '42 41 99 0 501 Sun Aug 16 12:00:01 2026 00:00.50 2048 /bin/zsh -c worker'
+      ].join('\n')
+  });
+  assert.deepEqual(changedGroup, []);
 });
 
 test('uses Linux kernel start ticks for process identity', async () => {

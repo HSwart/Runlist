@@ -11,11 +11,13 @@ const {
   isPortOpen,
   isPrimaryServiceOpen,
   isPrimaryServiceResponding,
+  managedServiceReadinessTimedOut,
   managedRuntimeProjectIds,
   primaryServiceUrl,
   probeHttpService,
   projectServicesLocked,
   projectStatus,
+  reconcileDetachedProjectIds,
   reachableServiceUrls,
   runningAppProjectIds,
   serviceUrl,
@@ -28,6 +30,25 @@ const {
   servicePortHosts,
   stoppableProjectIds
 } = require('../src/lifecycle/project-status');
+
+test('treats health loss after detached readiness as timed out', () => {
+  assert.equal(managedServiceReadinessTimedOut({
+    allReady: false,
+    hasServices: true,
+    managed: true,
+    now: 4000,
+    readinessDeadline: undefined,
+    sharedState: 'running'
+  }), true);
+  assert.equal(managedServiceReadinessTimedOut({
+    allReady: false,
+    hasServices: true,
+    managed: true,
+    now: 4000,
+    readinessDeadline: 5000,
+    sharedState: 'starting'
+  }), false);
+});
 
 test('does not treat a port-only reservation as a managed process', () => {
   assert.deepEqual([...managedRuntimeProjectIds({
@@ -43,6 +64,19 @@ test('does not treat a port-only reservation as a managed process', () => {
     detachedProjectIds: ['detached'],
     portRuntime: new Map([['port-only', 'running']])
   })].sort(), ['detached', 'local', 'remote', 'starting']);
+});
+
+test('reconciles local detached ids only after shared process and port state disappear', () => {
+  const detached = new Set(['gone', 'still-process', 'still-port']);
+
+  assert.deepEqual(
+    [...reconcileDetachedProjectIds(
+      detached,
+      new Map([['still-process', { state: 'stopping' }]]),
+      new Map([['still-port', 'stopping']])
+    )].sort(),
+    ['still-port', 'still-process']
+  );
 });
 
 test('flags a port reservation without process ownership as unsafe for deletion', () => {
@@ -132,6 +166,73 @@ test('detects an IPv6-only loopback service without treating it as IPv4', async 
     anyOpen: true,
     openPorts: [port]
   });
+});
+
+test('keeps HTTP readiness working for an IPv6-only localhost service', async (t) => {
+  const server = http.createServer((request, response) => {
+    response.writeHead(200);
+    response.end('ready');
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen({ port: 0, host: '::1', ipv6Only: true }, resolve);
+    });
+  } catch (error) {
+    if (['EADDRNOTAVAIL', 'EAFNOSUPPORT', 'EPROTONOSUPPORT'].includes(error.code)) {
+      t.skip('IPv6 loopback is unavailable on this host.');
+      return;
+    }
+    throw error;
+  }
+  t.after(() => close(server));
+  const { port } = server.address();
+  const service = { name: 'ipv6-web', port, url: `http://localhost:${port}/health` };
+
+  assert.equal(serviceHealthCheck(service).alternateUrl, `http://[::1]:${port}/health`);
+  const portStatus = await servicePortStatus([service]);
+  assert.deepEqual(portStatus.openPorts, [port]);
+  const status = await serviceHttpStatus([service], portStatus.openPorts);
+  assert.deepEqual(status, {
+    allResponding: true,
+    respondingPorts: [port],
+    unresponsivePorts: [],
+    webPorts: [port]
+  });
+});
+
+test('does not add an IPv6 fallback for custom or explicit IPv4 hosts', () => {
+  assert.equal(serviceHealthCheck({
+    name: 'custom',
+    port: 4310,
+    url: 'http://127.0.0.2:4310/health'
+  }).alternateUrl, undefined);
+  assert.equal(serviceHealthCheck({
+    name: 'remote',
+    port: 4310,
+    url: 'https://example.test:4310/health'
+  }).alternateUrl, undefined);
+});
+
+test('uses the IPv6 localhost fallback when finding an explicit web URL', async () => {
+  const probes = [];
+  const [reachable] = await reachableServiceUrls([{
+    name: 'web',
+    port: 4310,
+    url: 'http://localhost:4310/dashboard'
+  }], [4310], {
+    resolveUrl: async (url) => url,
+    probe: async (url) => {
+      probes.push(url);
+      return url.includes('[::1]');
+    }
+  });
+
+  assert.deepEqual(probes, [
+    'http://localhost:4310/dashboard',
+    'http://[::1]:4310/dashboard'
+  ]);
+  assert.equal(reachable.url, 'http://[::1]:4310/dashboard');
 });
 
 test('probes the configured IPv4 loopback host for service readiness', () => {

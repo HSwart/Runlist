@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-const readline = require('readline');
 const fs = require('fs');
 const path = require('path');
 const {
@@ -17,6 +16,9 @@ const { findProjectByFolder, readProjects, upsertProject } = require('../src/pro
 const { version: SERVER_VERSION } = require('../package.json');
 
 const SERVER_NAME = 'runlist-mcp-server';
+// Keep local JSON-RPC requests bounded before parsing; this limit is measured in UTF-8 bytes.
+const MAX_JSON_RPC_REQUEST_BYTES = 64 * 1024;
+const OVERSIZED_REQUEST_MESSAGE = 'Request line exceeds maximum size.';
 const LATEST_PROTOCOL_VERSION = '2025-11-25';
 const SUPPORTED_PROTOCOL_VERSIONS = new Set([
   '2025-11-25',
@@ -282,10 +284,11 @@ const repairTool = {
     type: 'object',
     properties: {
       projectId: { type: 'string' },
+      proposalId: { type: 'string' },
       projectRevision: { type: 'string' },
       failedAt: { type: 'number' }
     },
-    required: ['projectId', 'projectRevision', 'failedAt'],
+    required: ['projectId', 'proposalId', 'projectRevision', 'failedAt'],
     additionalProperties: false
   },
   annotations: {
@@ -562,6 +565,7 @@ function callRepairTool(message) {
     const proposal = createProjectRepairProposal(PROJECTS_FILE, message.params?.arguments);
     const structuredContent = {
       projectId: proposal.projectId,
+      proposalId: proposal.proposalId,
       projectRevision: proposal.projectRevision,
       failedAt: proposal.failedAt
     };
@@ -578,14 +582,94 @@ function callRepairTool(message) {
   }
 }
 
-const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
-input.on('line', (line) => {
-  if (!line.trim()) {
-    return;
-  }
-  try {
-    handleRequest(JSON.parse(line));
-  } catch {
-    error(null, -32700, 'Invalid JSON.');
-  }
-});
+function createRequestLineParser({ onLine, onOversized }) {
+  const lineBuffer = Buffer.allocUnsafe(MAX_JSON_RPC_REQUEST_BYTES + 1);
+  let lineBytes = 0;
+  let oversized = false;
+  let pendingCR = false;
+
+  const resetLine = () => {
+    lineBytes = 0;
+    oversized = false;
+    pendingCR = false;
+  };
+
+  const appendByte = (byte) => {
+    if (lineBytes >= MAX_JSON_RPC_REQUEST_BYTES) {
+      oversized = true;
+      lineBytes = MAX_JSON_RPC_REQUEST_BYTES + 1;
+      return;
+    }
+    lineBuffer[lineBytes] = byte;
+    lineBytes += 1;
+  };
+
+  const finishLine = () => {
+    if (oversized) {
+      onOversized();
+    } else if (lineBytes) {
+      onLine(lineBuffer.subarray(0, lineBytes).toString('utf8'));
+    }
+    resetLine();
+  };
+
+  const push = (chunk) => {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, 'utf8');
+    for (const byte of bytes) {
+      if (byte === 0x0A) {
+        pendingCR = false;
+        finishLine();
+        continue;
+      }
+      if (pendingCR) {
+        pendingCR = false;
+        finishLine();
+      }
+      if (byte === 0x0D) {
+        pendingCR = true;
+      } else if (!oversized) {
+        appendByte(byte);
+      }
+    }
+  };
+
+  const end = () => {
+    if (pendingCR) {
+      pendingCR = false;
+      finishLine();
+      return;
+    }
+    if (lineBytes || oversized) {
+      finishLine();
+    }
+  };
+
+  return { end, push };
+}
+
+function startServer(input = process.stdin) {
+  const parser = createRequestLineParser({
+    onLine(line) {
+      if (!line.trim()) {
+        return;
+      }
+      try {
+        handleRequest(JSON.parse(line));
+      } catch {
+        error(null, -32700, 'Invalid JSON.');
+      }
+    },
+    onOversized() {
+      error(null, -32700, OVERSIZED_REQUEST_MESSAGE);
+    }
+  });
+  input.on('data', (chunk) => parser.push(chunk));
+  input.on('end', () => parser.end());
+  return input;
+}
+
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = { createRequestLineParser, MAX_JSON_RPC_REQUEST_BYTES, startServer };

@@ -53,6 +53,23 @@ test('does not ship stale product branding', () => {
   }
 });
 
+test('documents temporary candidate validation and tracked publication artifact', () => {
+  const releaseGuide = fs.readFileSync(path.join(root, 'docs', 'marketplace-release.md'), 'utf8');
+
+  assert.match(releaseGuide, /temporary candidate from (?:the )?current source/i);
+  assert.match(releaseGuide, /compares the candidate's .* with the tracked artifact/i);
+  assert.match(releaseGuide, /publishes the tracked `releases\/runlist\.vsix` artifact/i);
+  assert.doesNotMatch(releaseGuide, /does not repackage the source/i);
+});
+
+test('requires extension-host smoke with the supported CI session commands', () => {
+  const releaseGuide = fs.readFileSync(path.join(root, 'docs', 'marketplace-release.md'), 'utf8');
+
+  assert.match(releaseGuide, /On Windows and macOS, run `npm run test:smoke` in a supported native desktop session\./i);
+  assert.match(releaseGuide, /On Linux, run `xvfb-run -a npm run test:smoke` with an Xvfb display\./i);
+  assert.match(releaseGuide, /passes only when the command exits successfully and reports `Runlist extension-host smoke suite passed\.`/i);
+});
+
 test('passes strict Marketplace publication validation', () => {
   const result = validateMarketplace(root);
 

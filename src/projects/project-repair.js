@@ -49,6 +49,13 @@ function projectConfigurationRevision(project) {
 
 function createProjectRepairProposal(projectsFile, input) {
   validateProposalEnvelope(input);
+  return withProjectStoreLock(projectsFile, () => createProjectRepairProposalLocked(
+    projectsFile,
+    input
+  ));
+}
+
+function createProjectRepairProposalLocked(projectsFile, input) {
   const projects = readProjects(projectsFile);
   const project = projects.find((candidate) => candidate.id === input.projectId);
   if (!project) {
@@ -80,6 +87,7 @@ function createProjectRepairProposal(projectsFile, input) {
 
   const record = {
     schemaVersion: PROJECT_REPAIR_SCHEMA_VERSION,
+    proposalId: crypto.randomUUID(),
     projectId: project.id,
     projectRevision: input.projectRevision,
     failedAt: input.failedAt,
@@ -90,17 +98,45 @@ function createProjectRepairProposal(projectsFile, input) {
   return record;
 }
 
-function approveProjectRepairProposal(projectsFile, projectId) {
+function approveProjectRepairProposal(projectsFile, projectId, proposalId) {
   return withProjectStoreLock(projectsFile, () => approveProjectRepairProposalLocked(
     projectsFile,
-    projectId
+    projectId,
+    proposalId
   ));
 }
 
-function approveProjectRepairProposalLocked(projectsFile, projectId) {
+function approveProjectRepairProposalLocked(
+  projectsFile,
+  projectId,
+  proposalId,
+  { afterProposalRead } = {}
+) {
   const proposal = readProjectRepairProposal(projectsFile, projectId);
   if (!proposal) {
     throw repairError('PROPOSAL_NOT_FOUND', 'This repair proposal is no longer available.');
+  }
+  // Legacy records remain visible for diagnosis, but cannot be approved without a review identity.
+  if (!proposal.proposalId) {
+    throw repairError(
+      'LEGACY_PROPOSAL',
+      'This repair proposal predates review identity. Refresh the diagnosis to create a new proposal before approving it.'
+    );
+  }
+  if (typeof proposalId !== 'string' || proposalId.length === 0 || proposalId.length > 256) {
+    throw repairError(
+      'PROPOSAL_ID_REQUIRED',
+      'Select the current repair proposal in Runlist before approving it.'
+    );
+  }
+  if (proposal.proposalId !== proposalId) {
+    throw repairError(
+      'STALE_PROPOSAL',
+      'This repair proposal was replaced after review. Refresh the diagnosis and review the latest proposal before approving it.'
+    );
+  }
+  if (typeof afterProposalRead === 'function') {
+    afterProposalRead(proposal);
   }
   const projects = readProjects(projectsFile);
   const project = projects.find((candidate) => candidate.id === projectId);
@@ -147,6 +183,10 @@ function clearProjectRepairProposal(projectsFile, projectId) {
   }
 }
 
+function serviceNameKey(name) {
+  return String(name).trim().toLowerCase();
+}
+
 function projectRepairComparison(current, proposed) {
   const comparison = [
     compareValue('Name', current.name, proposed.name),
@@ -187,9 +227,9 @@ function projectRepairComparison(current, proposed) {
 
 function appendServiceComparison(comparison, prefix, currentValue, proposedValue) {
   const currentServices = new Map((currentValue || [])
-    .map((service) => [service.name.toLocaleLowerCase(), service]));
+    .map((service) => [serviceNameKey(service.name), service]));
   const proposedServices = new Map((proposedValue || [])
-    .map((service) => [service.name.toLocaleLowerCase(), service]));
+    .map((service) => [serviceNameKey(service.name), service]));
   const serviceNames = new Set([...currentServices.keys(), ...proposedServices.keys()]);
   for (const name of serviceNames) {
     const currentService = currentServices.get(name);
@@ -295,9 +335,12 @@ function projectProposalInput(project, proposal, launchProfileId) {
 }
 
 function preserveOmittedServiceMetadata(currentServices = [], proposedServices = []) {
-  const currentByName = new Map(currentServices.map((service) => [service.name, service]));
+  const currentByName = new Map(currentServices.map((service) => [
+    serviceNameKey(service.name),
+    service
+  ]));
   return proposedServices.map((service) => {
-    const current = currentByName.get(service.name);
+    const current = currentByName.get(serviceNameKey(service.name));
     if (!current) {
       return service;
     }
@@ -315,8 +358,12 @@ function preserveOmittedServiceMetadata(currentServices = [], proposedServices =
             : {})
         }
       : service.healthCheck;
+    const preserveUrl = !Object.hasOwn(service, 'url')
+      && current.url
+      && service.name !== current.name;
     return {
       ...service,
+      ...(preserveUrl ? { url: current.url } : {}),
       ...(!Object.hasOwn(service, 'portVariable') && current.portVariable
         ? { portVariable: current.portVariable }
         : {}),
@@ -407,6 +454,9 @@ function validProposalRecord(record, projectId) {
   return Boolean(record
     && record.schemaVersion === PROJECT_REPAIR_SCHEMA_VERSION
     && record.projectId === String(projectId)
+    && (record.proposalId === undefined
+      || (typeof record.proposalId === 'string'
+        && /^[0-9a-f-]{36}$/.test(record.proposalId)))
     && typeof record.projectRevision === 'string'
     && /^[a-f0-9]{64}$/.test(record.projectRevision)
     && Number.isFinite(record.failedAt)
@@ -427,5 +477,8 @@ module.exports = {
   ProjectRepairError,
   projectConfigurationRevision,
   projectRepairComparison,
-  readProjectRepairProposal
+  readProjectRepairProposal,
+  serviceNameKey,
+  // Test-only seam: callers must use the public approval API in production.
+  __test: { approveProjectRepairProposalLocked }
 };

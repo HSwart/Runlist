@@ -3,6 +3,29 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 
+function declarationsFor(source, selector) {
+  const declarations = {};
+  for (const match of source.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const selectors = match[1].split(',').map((entry) => entry.trim());
+    if (!selectors.includes(selector)) {
+      continue;
+    }
+    for (const declaration of match[2].split(';')) {
+      const separator = declaration.indexOf(':');
+      if (separator < 0) {
+        continue;
+      }
+      declarations[declaration.slice(0, separator).trim()] = declaration.slice(separator + 1).trim();
+    }
+  }
+  return declarations;
+}
+
+function pixels(value) {
+  assert.match(value, /^(?:0|\d+px)$/);
+  return Number.parseInt(value, 10);
+}
+
 test('renders one accessible running-app navigator only for overflowing running projects', () => {
   const root = path.join(__dirname, '..');
   const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
@@ -43,6 +66,45 @@ test('opens a thumbnail through explicit and double-click actions without changi
   assert.match(webview, /app\.addEventListener\('dblclick',[\s\S]*\.running-app-thumbnail-target\[data-id\][\s\S]*type: 'openProject'/);
   assert.match(webview, /thumbnailTarget\.dataset\.canOpen = String\(Boolean\(current\.project\.previewUrl\)\)/);
   assert.match(webview, /target\?\.dataset\.canOpen === 'true'/);
+});
+
+test('gives running-app controls coarse-pointer touch targets without changing the compact base layout', () => {
+  const styles = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.css'), 'utf8');
+  const coarseStart = styles.indexOf('@media (pointer: coarse)');
+  const baseRules = styles.slice(0, coarseStart);
+  const coarseRules = styles.slice(coarseStart).match(/@media \(pointer: coarse\) \{([\s\S]*?)\n\}/)?.[1];
+  const narrowRules = styles.match(/@media \(max-width: 300px\) \{([\s\S]*?)\n\}/)?.[1];
+  assert.ok(coarseRules, 'coarse-pointer rules should be present');
+  assert.ok(narrowRules, 'narrow-sidebar rules should be present');
+
+  const thumbnail = declarationsFor(baseRules, '.running-app-thumbnail');
+  const currentBase = declarationsFor(baseRules, '.running-app-current');
+  const navigationBase = declarationsFor(baseRules, '.running-app-navigation button');
+  const openBase = declarationsFor(baseRules, '.running-app-open');
+  const currentCoarse = declarationsFor(coarseRules, '.running-app-current');
+  const navigationCoarse = declarationsFor(coarseRules, '.running-app-navigation button');
+  const openCoarse = declarationsFor(coarseRules, '.running-app-open');
+
+  assert.equal(pixels(currentBase.height), 24);
+  assert.equal(Math.max(pixels(currentBase.height), pixels(currentCoarse['min-height'])), 44);
+  assert.deepEqual([pixels(navigationBase.width), pixels(navigationBase.height)], [24, 24]);
+  assert.deepEqual([
+    pixels(navigationCoarse.width),
+    Math.max(pixels(navigationBase.height), pixels(navigationCoarse['min-height']))
+  ], [44, 44]);
+  assert.deepEqual([pixels(openBase.width), pixels(openBase.height)], [24, 24]);
+  assert.deepEqual([
+    pixels(openCoarse.width),
+    Math.max(pixels(openBase.height), pixels(openCoarse['min-height']))
+  ], [44, 44]);
+
+  const thumbnailInnerSize = pixels(thumbnail.height) - (2 * Number.parseInt(thumbnail.border, 10));
+  assert.equal(thumbnailInnerSize, 44);
+  assert.equal(pixels(openCoarse.top) + pixels(openCoarse['min-height']), thumbnailInnerSize);
+  assert.equal(pixels(openCoarse.right) + pixels(openCoarse.width), thumbnailInnerSize);
+
+  assert.doesNotMatch(narrowRules, /\.running-app-/);
+  assert.match(styles, /\.running-app-bar \{[\s\S]*grid-template-columns: auto minmax\(0, 1fr\) auto auto/);
 });
 
 test('reveals and focuses a selected running project without changing its runtime', () => {

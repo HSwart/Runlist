@@ -21,6 +21,7 @@ const STORE_LOCK_MAX_ATTEMPTS = 400;
 const STORE_LOCK_RETRY_MS = 5;
 const STORE_LOCK_WAIT = new Int32Array(new SharedArrayBuffer(4));
 const HELD_STORE_LOCKS = new Set();
+const UNSAFE_COMMAND_CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
 const CURRENT_PROCESS_IDENTITY = synchronousProcessIdentity(process.pid)
   || `${process.pid}:runtime:${Math.round(Date.now() - (process.uptime() * 1000))}`;
 
@@ -73,13 +74,15 @@ function loadProjects(filePath, options = {}) {
     }
     return recoverProjects(filePath, contents, error);
   }
-  if (document.legacy || document.migrated) {
+  const groups = pruneRunGroups(document.groups, document.projects);
+  const hadEmptyGroups = groups.length !== (document.groups || []).length;
+  if (document.legacy || document.migrated || hadEmptyGroups) {
     if (!options.lockHeld) {
       return withProjectStoreLock(filePath, () => loadProjects(filePath, { lockHeld: true }));
     }
     writeFileAtomically(`${filePath}.bak`, contents);
     writeFileAtomically(filePath, serializeProjectDocument(document.projects, {
-      ...(document.groups?.length ? { groups: document.groups } : {})
+      ...(groups.length ? { groups } : {})
     }));
   }
   return document.projects;
@@ -551,9 +554,9 @@ function validateStoredProjects(value, options = {}) {
     }
     projectIds.add(project.id);
     projectFolders.add(comparableFolder);
-    validateStoredText(project.startCommand, `project ${index + 1} start command`, 4096);
+    validateStoredCommand(project.startCommand, `project ${index + 1} start command`, 4096);
     if (project.stopCommand !== undefined) {
-      validateStoredText(project.stopCommand, `project ${index + 1} stop command`, 4096);
+      validateStoredCommand(project.stopCommand, `project ${index + 1} stop command`, 4096);
     }
     const services = project.services === undefined && legacy
       ? []
@@ -626,9 +629,9 @@ function validateStoredLaunchProfiles(value, projectIndex, options = {}) {
     }
     validateStoredText(profile.id, `launch profile ${profileIndex + 1} id`, 256);
     validateStoredText(profile.name, `launch profile ${profileIndex + 1} name`, 100);
-    validateStoredText(profile.startCommand, `launch profile ${profileIndex + 1} start command`, 4096);
+    validateStoredCommand(profile.startCommand, `launch profile ${profileIndex + 1} start command`, 4096);
     if (profile.stopCommand !== undefined) {
-      validateStoredText(profile.stopCommand, `launch profile ${profileIndex + 1} stop command`, 4096);
+      validateStoredCommand(profile.stopCommand, `launch profile ${profileIndex + 1} stop command`, 4096);
     }
     const normalizedName = profile.name.toLocaleLowerCase();
     if (ids.has(profile.id) || names.has(normalizedName)) {
@@ -646,6 +649,16 @@ function validateStoredLaunchProfiles(value, projectIndex, options = {}) {
 function validateStoredText(value, label, maximumLength) {
   if (typeof value !== 'string' || !value.trim() || value.length > maximumLength) {
     throw projectStoreError('INVALID_STORAGE', `Runlist ${label} is not valid.`);
+  }
+}
+
+function validateStoredCommand(value, label, maximumLength) {
+  validateStoredText(value, label, maximumLength);
+  if (UNSAFE_COMMAND_CONTROL_CHARACTERS.test(value)) {
+    throw projectStoreError(
+      'INVALID_STORAGE',
+      `Runlist ${label} contains unsupported control characters.`
+    );
   }
 }
 
@@ -952,10 +965,12 @@ function writeRunGroups(filePath, projects, groups, options = {}) {
 
 function pruneRunGroups(groups = [], projects) {
   const projectIds = new Set(projects.map((project) => project.id));
-  return groups.map((group) => ({
-    ...group,
-    projectIds: group.projectIds.filter((projectId) => projectIds.has(projectId))
-  }));
+  return groups
+    .map((group) => ({
+      ...group,
+      projectIds: group.projectIds.filter((projectId) => projectIds.has(projectId))
+    }))
+    .filter((group) => group.projectIds.length > 0);
 }
 
 function normalizeRunGroupName(value) {
@@ -1170,6 +1185,9 @@ function normalizeCommand(value, fieldName) {
   if (value.length > 4096) {
     throw new Error(`${fieldName} is too long.`);
   }
+  if (UNSAFE_COMMAND_CONTROL_CHARACTERS.test(value)) {
+    throw new Error(`${fieldName} contains unsupported control characters.`);
+  }
   return value.trim();
 }
 
@@ -1185,6 +1203,9 @@ function normalizeOptionalCommand(value, fieldName) {
   }
   if (value.length > 4096) {
     throw new Error(`${fieldName} is too long.`);
+  }
+  if (UNSAFE_COMMAND_CONTROL_CHARACTERS.test(value)) {
+    throw new Error(`${fieldName} contains unsupported control characters.`);
   }
   return value.trim();
 }

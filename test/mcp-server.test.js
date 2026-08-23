@@ -13,6 +13,184 @@ const {
   readProjectRepairProposal
 } = require('../src/projects/project-repair');
 const { readProjects, upsertProject } = require('../src/projects/project-store');
+const {
+  createRequestLineParser,
+  MAX_JSON_RPC_REQUEST_BYTES
+} = require('../mcp/server');
+
+function paddedPingRequest(targetBytes, paddingCharacter = 'x', id = 1) {
+  const build = (padding) => JSON.stringify({
+    jsonrpc: '2.0',
+    id,
+    method: 'ping',
+    params: { padding }
+  });
+  let padding = '';
+  while (Buffer.byteLength(build(`${padding}${paddingCharacter}`), 'utf8') <= targetBytes) {
+    padding += paddingCharacter;
+  }
+  while (Buffer.byteLength(build(padding), 'utf8') < targetBytes) {
+    padding += 'x';
+  }
+  assert.equal(Buffer.byteLength(build(padding), 'utf8'), targetBytes);
+  return build(padding);
+}
+
+function startRawMcpServer(t) {
+  const server = spawn(process.execPath, [path.join(__dirname, '..', 'mcp', 'server.js')], {
+    env: { ...process.env, RUNLIST_PROJECTS_FILE: '' },
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+  const messages = [];
+  const waiters = [];
+  const output = readline.createInterface({ input: server.stdout });
+  output.on('line', (line) => {
+    messages.push(JSON.parse(line));
+    while (waiters.length && messages.length >= waiters[0].count) {
+      const waiter = waiters.shift();
+      clearTimeout(waiter.timeout);
+      waiter.resolve(messages.splice(0, waiter.count));
+    }
+  });
+  t.after(() => {
+    output.close();
+    server.stdin.end();
+    server.kill();
+  });
+  return {
+    server,
+    waitForMessages(count = 1) {
+      return new Promise((resolve, reject) => {
+        if (messages.length >= count) {
+          resolve(messages.splice(0, count));
+          return;
+        }
+        const timeout = setTimeout(() => {
+          const index = waiters.findIndex((waiter) => waiter.resolve === resolve);
+          if (index >= 0) {
+            waiters.splice(index, 1);
+          }
+          reject(new Error(`Timed out waiting for ${count} MCP responses.`));
+        }, 3000);
+        waiters.push({ count, reject, resolve, timeout });
+      });
+    }
+  };
+}
+
+test('accepts MCP requests at and below the UTF-8 byte limit', async (t) => {
+  const { server, waitForMessages } = startRawMcpServer(t);
+  for (const [targetBytes, paddingCharacter, id] of [
+    [MAX_JSON_RPC_REQUEST_BYTES - 1, 'x', 1],
+    [MAX_JSON_RPC_REQUEST_BYTES, 'x', 2],
+    [MAX_JSON_RPC_REQUEST_BYTES, 'é', 3]
+  ]) {
+    server.stdin.write(`${paddedPingRequest(targetBytes, paddingCharacter, id)}\n`);
+    const [message] = await waitForMessages();
+    assert.equal(message.id, id);
+    assert.deepEqual(message.result, {});
+  }
+});
+
+test('rejects an oversized MCP request and processes a later valid line', async (t) => {
+  const { server, waitForMessages } = startRawMcpServer(t);
+  const oversized = paddedPingRequest(MAX_JSON_RPC_REQUEST_BYTES + 1, 'x', 10);
+  server.stdin.write(`${oversized}\n${JSON.stringify({ jsonrpc: '2.0', id: 11, method: 'ping' })}\n`);
+
+  const messages = await waitForMessages(2);
+  assert.deepEqual(messages[0], {
+    jsonrpc: '2.0',
+    id: null,
+    error: { code: -32700, message: 'Request line exceeds maximum size.' }
+  });
+  assert.equal(messages[1].id, 11);
+  assert.deepEqual(messages[1].result, {});
+});
+
+test('measures multibyte MCP request lines in UTF-8 bytes', async (t) => {
+  const { server, waitForMessages } = startRawMcpServer(t);
+  const oversized = paddedPingRequest(MAX_JSON_RPC_REQUEST_BYTES + 1, 'é', 20);
+  server.stdin.write(`${oversized}\n`);
+
+  const [message] = await waitForMessages();
+  assert.deepEqual(message, {
+    jsonrpc: '2.0',
+    id: null,
+    error: { code: -32700, message: 'Request line exceeds maximum size.' }
+  });
+});
+
+test('frames an exact-limit request when CRLF is split across chunks', () => {
+  const messages = [];
+  const parser = createRequestLineParser({
+    onLine(line) {
+      messages.push(JSON.parse(line));
+    },
+    onOversized() {
+      throw new Error('unexpected oversized request');
+    }
+  });
+  const line = paddedPingRequest(MAX_JSON_RPC_REQUEST_BYTES, 'x', 30);
+
+  parser.push(Buffer.from(`${line}\r`));
+  parser.push(Buffer.from('\n'));
+
+  assert.equal(messages[0].id, 30);
+});
+
+test('does not count a trailing CR delimiter at EOF against the limit', () => {
+  const messages = [];
+  const parser = createRequestLineParser({
+    onLine(line) {
+      messages.push(JSON.parse(line));
+    },
+    onOversized() {
+      throw new Error('unexpected oversized request');
+    }
+  });
+  const line = paddedPingRequest(MAX_JSON_RPC_REQUEST_BYTES, 'x', 31);
+
+  parser.push(Buffer.from(`${line}\r`));
+  parser.end();
+
+  assert.equal(messages[0].id, 31);
+});
+
+test('frames a multibyte request split inside a codepoint', () => {
+  const messages = [];
+  const parser = createRequestLineParser({
+    onLine(line) {
+      messages.push(JSON.parse(line));
+    },
+    onOversized() {
+      throw new Error('unexpected oversized request');
+    }
+  });
+  const line = Buffer.from(`${paddedPingRequest(MAX_JSON_RPC_REQUEST_BYTES, 'é', 32)}\n`);
+  const splitAt = line.indexOf(Buffer.from('é')) + 1;
+
+  parser.push(line.subarray(0, splitAt));
+  parser.push(line.subarray(splitAt));
+
+  assert.equal(messages[0].id, 32);
+});
+
+test('frames a valid final request at EOF without a newline', () => {
+  const messages = [];
+  const parser = createRequestLineParser({
+    onLine(line) {
+      messages.push(JSON.parse(line));
+    },
+    onOversized() {
+      throw new Error('unexpected oversized request');
+    }
+  });
+
+  parser.push(Buffer.from(paddedPingRequest(MAX_JSON_RPC_REQUEST_BYTES - 1, 'x', 33)));
+  parser.end();
+
+  assert.equal(messages[0].id, 33);
+});
 
 test('serves the setup tool over MCP stdio', async (t) => {
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-mcp-'));
@@ -267,6 +445,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.equal(proposed.result.isError, false);
   assert.equal(proposed.result.structuredContent.projectId, storedProjects[0].id);
   assert.equal(proposed.result.structuredContent.projectRevision, diagnosticRevision);
+  assert.match(proposed.result.structuredContent.proposalId, /^[0-9a-f-]{36}$/);
   assert.match(proposed.result.content[0].text, /review.*Runlist/i);
   assert.equal(fs.readFileSync(projectsFile, 'utf8'), beforeProposal);
   assert.equal(

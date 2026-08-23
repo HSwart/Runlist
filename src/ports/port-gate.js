@@ -1,7 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { readRootProcess } = require('../lifecycle/process-metrics');
+const { darwinProcessIdentityFormat, readRootProcess } = require('../lifecycle/process-metrics');
+const { readProcessIdentitySync } = require('../lifecycle/project-process');
 const { writeFileAtomically } = require('../projects/project-store');
 
 const OWNER_HEARTBEAT_TIMEOUT_MS = 10000;
@@ -14,6 +15,18 @@ function servicePorts(project) {
   return [...new Set((project?.services || [])
     .map((service) => service.port)
     .filter((port) => Number.isInteger(port)))];
+}
+
+function attachCleanupErrors(error, cleanupErrors) {
+  if (cleanupErrors.length === 0
+    || !error
+    || (typeof error !== 'object' && typeof error !== 'function')) {
+    return;
+  }
+  error.cleanupErrors = [
+    ...(Array.isArray(error.cleanupErrors) ? error.cleanupErrors : []),
+    ...cleanupErrors
+  ];
 }
 
 function projectsUsingPort(projects, port, excludeProjectId) {
@@ -47,10 +60,26 @@ class PortReservationStore {
     this.platform = options.platform || process.platform;
     this.isProcessAlive = options.isProcessAlive || processIsAlive;
     this.readProcessIdentity = options.readProcessIdentity || readProcessIdentity;
+    this.readHostProcessIdentity = options.readHostProcessIdentity
+      || options.readProcessIdentitySync
+      || ((pid, platform) => readProcessIdentitySync(pid, platform, options));
     this.now = options.now || Date.now;
     this.ownerHeartbeatTimeoutMs = options.ownerHeartbeatTimeoutMs ?? OWNER_HEARTBEAT_TIMEOUT_MS;
     this.invalidRecordGraceMs = options.invalidRecordGraceMs ?? INVALID_RECORD_GRACE_MS;
     this.locks = new Map();
+    let capturedHostIdentity;
+    if (stableProcessIdentity(options.hostIdentity)) {
+      capturedHostIdentity = options.hostIdentity;
+    } else {
+      try {
+        capturedHostIdentity = this.readHostProcessIdentity(this.pid, this.platform);
+      } catch {
+        capturedHostIdentity = undefined;
+      }
+    }
+    this.hostIdentity = stableProcessIdentity(capturedHostIdentity)
+      ? capturedHostIdentity
+      : undefined;
     fs.mkdirSync(directory, { recursive: true });
     this.withReservationTransaction(() => this.removeStaleLocks());
   }
@@ -61,17 +90,33 @@ class PortReservationStore {
 
   reserveUnlocked(project) {
     const acquired = [];
-    for (const port of servicePorts(project).sort((left, right) => left - right)) {
-      const conflict = this.acquire(port, project.id);
-      if (conflict) {
-        for (const acquiredPort of acquired) {
-          this.releasePort(acquiredPort);
-        }
-        return conflict;
-      }
-      acquired.push(port);
+    if (servicePorts(project).length > 0 && !stableProcessIdentity(this.hostIdentity)) {
+      throw new Error('Runlist could not verify the port reservation host identity.');
     }
-    return undefined;
+    try {
+      for (const port of servicePorts(project).sort((left, right) => left - right)) {
+        const conflict = this.acquire(port, project.id);
+        if (conflict) {
+          for (const acquiredPort of acquired) {
+            this.releasePort(acquiredPort);
+          }
+          return conflict;
+        }
+        acquired.push(port);
+      }
+      return undefined;
+    } catch (error) {
+      const cleanupErrors = [];
+      for (const acquiredPort of acquired) {
+        try {
+          this.releasePort(acquiredPort);
+        } catch (cleanupError) {
+          cleanupErrors.push(cleanupError);
+        }
+      }
+      attachCleanupErrors(error, cleanupErrors);
+      throw error;
+    }
   }
 
   conflicts(project) {
@@ -80,6 +125,7 @@ class PortReservationStore {
 
   conflictsUnlocked(project) {
     const conflicts = [];
+    const identityCache = new Map();
     for (const port of servicePorts(project).sort((left, right) => left - right)) {
       const lockPath = this.lockPath(port);
       const lock = readLock(lockPath);
@@ -87,8 +133,16 @@ class PortReservationStore {
         removeInvalidLock(lockPath, this.invalidRecordGraceMs, this.now());
         continue;
       }
-      if (!lock.projectId || !lock.pid || !this.lockOwnerIsAlive(lock)) {
-        updateLock(lockPath, (current) => current?.token === lock.token);
+      if (!lock.projectId
+        || !lock.pid
+        || (!lock.detached && this.lockOwnerState(lock, identityCache) === 'absent')) {
+        updateLock(
+          lockPath,
+          (current) => current?.token === lock.token
+            && (!current.projectId
+              || !current.pid
+              || (!current.detached && this.lockOwnerState(current) === 'absent'))
+        );
         continue;
       }
       if (lock.projectId !== project.id) {
@@ -110,43 +164,134 @@ class PortReservationStore {
     }
   }
 
-  releaseShared(projectId) {
-    return this.withReservationTransaction(() => this.releaseSharedUnlocked(projectId));
+  releaseShared(projectId, expectedGeneration) {
+    return this.withReservationTransaction(() => this.releaseSharedUnlocked(projectId, expectedGeneration));
   }
 
-  releaseSharedUnlocked(projectId) {
+  releaseSharedUnlocked(projectId, expectedGeneration) {
+    if (!(expectedGeneration instanceof Map) || expectedGeneration.size === 0) {
+      return false;
+    }
+    let released = false;
     for (const filename of this.lockFiles()) {
       const lockPath = path.join(this.directory, filename);
       const lock = readLock(lockPath);
-      if (lock?.projectId === projectId) {
-        updateLock(lockPath, (current) => current?.token === lock.token);
+      const port = Number(filename.match(/\d+/)?.[0]);
+      const expectedToken = expectedGeneration.get(port);
+      if (lock?.projectId === projectId
+        && typeof expectedToken === 'string'
+        && lock.token === expectedToken) {
+        released = updateLock(lockPath, (current) => current?.token === lock.token) || released;
       }
     }
     for (const [port, lock] of this.locks) {
-      if (lock.projectId === projectId) {
+      const expectedToken = expectedGeneration.get(port);
+      if (lock.projectId === projectId
+        && typeof expectedToken === 'string'
+        && lock.token === expectedToken) {
         this.locks.delete(port);
       }
     }
+    return released;
+  }
+
+  markDetached(projectId) {
+    return this.withReservationTransaction(() => {
+      let marked = false;
+      for (const filename of this.lockFiles()) {
+        const lockPath = path.join(this.directory, filename);
+        const lock = readLock(lockPath);
+        if (lock?.projectId !== projectId) {
+          continue;
+        }
+        if (updateLock(
+          lockPath,
+          (current) => current?.token === lock.token && current.projectId === projectId,
+          (current) => {
+            const { childIdentity, childPid, ...launch } = current;
+            return {
+              ...launch,
+              detached: true,
+              state: 'detached',
+              heartbeatAt: this.now()
+            };
+          }
+        )) {
+          marked = true;
+        }
+      }
+      return marked;
+    });
   }
 
   setState(projectId, state) {
+    let updated = false;
     for (const filename of this.lockFiles()) {
       const lockPath = path.join(this.directory, filename);
       const lock = readLock(lockPath);
-      if (lock?.projectId === projectId) {
-        updateLock(
+      const port = Number(filename.match(/\d+/)?.[0]);
+      const local = this.locks.get(port);
+      if (lock?.projectId === projectId
+        && local?.projectId === projectId
+        && local.token === lock.token
+        && lock.pid === this.pid
+        && lock.hostIdentity === this.hostIdentity
+        && this.hostIdentityDecision(lock) === 'match') {
+        updated = updateLock(
           lockPath,
-          (current) => current?.token === lock.token && current.projectId === projectId,
+          (current) => current?.token === local.token
+            && current.projectId === projectId
+            && current.pid === this.pid
+            && current.hostIdentity === this.hostIdentity
+            && this.hostIdentityDecision(current) === 'match',
           (current) => ({ ...current, heartbeatAt: this.now(), state })
-        );
+        ) || updated;
       }
     }
+    return updated;
+  }
+
+  setStateShared(projectId, state, expectedGeneration) {
+    if (!(expectedGeneration instanceof Map) || expectedGeneration.size === 0) {
+      return false;
+    }
+    let updated = false;
+    for (const filename of this.lockFiles()) {
+      const lockPath = path.join(this.directory, filename);
+      const lock = readLock(lockPath);
+      const port = Number(filename.match(/\d+/)?.[0]);
+      const expectedToken = expectedGeneration.get(port);
+      if (lock?.projectId === projectId
+        && typeof expectedToken === 'string'
+        && lock.token === expectedToken) {
+        updated = updateLock(
+          lockPath,
+          (current) => current?.projectId === projectId && current.token === expectedToken,
+          (current) => ({ ...current, heartbeatAt: this.now(), state })
+        ) || updated;
+      }
+    }
+    return updated;
   }
 
   capture(projectId) {
     return new Map([...this.locks]
       .filter(([, lock]) => lock.projectId === projectId)
       .map(([port, lock]) => [port, lock.token]));
+  }
+
+  captureShared(projectId) {
+    return this.withReservationTransaction(() => new Map(
+      this.lockFiles()
+        .map((filename) => {
+          const lock = readLock(path.join(this.directory, filename));
+          const port = Number(filename.match(/\d+/)?.[0]);
+          return lock?.projectId === projectId && typeof lock.token === 'string'
+            ? [port, lock.token]
+            : undefined;
+        })
+        .filter(Boolean)
+    ));
   }
 
   setProcess(projectId, childPid, childIdentity, expectedGeneration) {
@@ -158,7 +303,10 @@ class PortReservationStore {
       const expectedToken = expectedGeneration instanceof Map
         ? expectedGeneration.get(port)
         : this.locks.get(port)?.token;
-      if (lock?.projectId === projectId && expectedToken && lock.token === expectedToken) {
+      if (lock?.projectId === projectId
+        && !lock.detached
+        && expectedToken
+        && lock.token === expectedToken) {
         if (updateLock(
           lockPath,
           (current) => current?.token === expectedToken && current.projectId === projectId,
@@ -177,13 +325,14 @@ class PortReservationStore {
   }
 
   async reconcileProcessIdentities() {
+    const identityCache = new Map();
     const candidates = this.lockFiles().map((filename) => {
       const lockPath = path.join(this.directory, filename);
       return { lockPath, lock: readLock(lockPath) };
     }).filter(({ lock }) => lock
       && typeof lock.childIdentity === 'string'
       && Number.isInteger(lock.childPid)
-      && !this.hostOwnerIsAvailable(lock)
+      && this.hostOwnerState(lock, identityCache) === 'absent'
       && this.isProcessAlive(lock.childPid));
     const identities = new Map();
     let removed = 0;
@@ -194,20 +343,25 @@ class PortReservationStore {
           .catch(() => undefined);
         identities.set(lock.childPid, identity);
       }
-      if (!identity || identity === lock.childIdentity) {
+      if (!processIdentityMismatch(
+        lock.childIdentity,
+        identity,
+        this.platform,
+        lock.childPid
+      )) {
         continue;
       }
       const current = readLock(lockPath);
       if (current?.token === lock.token
         && current.childPid === lock.childPid
         && current.childIdentity === lock.childIdentity
-        && !this.hostOwnerIsAvailable(current)) {
+        && this.hostOwnerState(current) === 'absent') {
         if (updateLock(
           lockPath,
           (latest) => latest?.token === lock.token
             && latest.childPid === lock.childPid
             && latest.childIdentity === lock.childIdentity
-            && !this.hostOwnerIsAvailable(latest)
+            && this.hostOwnerState(latest) === 'absent'
         )) {
           removed += 1;
         }
@@ -222,6 +376,7 @@ class PortReservationStore {
 
   snapshotUnlocked() {
     const projects = new Map();
+    const identityCache = new Map();
     for (const filename of this.lockFiles()) {
       const lockPath = path.join(this.directory, filename);
       let lock = readLock(lockPath);
@@ -231,10 +386,15 @@ class PortReservationStore {
       }
       const local = this.locks.get(Number(filename.match(/\d+/)?.[0]));
       if (local?.token === lock.token
+        && lock.pid === this.pid
+        && this.hostIdentityDecision(lock) === 'match'
         && this.now() - (lock.heartbeatAt || 0) >= 1000) {
         updateLock(
           lockPath,
-          (current) => current?.token === lock.token,
+          (current) => current?.token === lock.token
+            && current.pid === this.pid
+            && current.hostIdentity === this.hostIdentity
+            && this.hostIdentityDecision(current) === 'match',
           (current) => ({ ...current, heartbeatAt: this.now() })
         );
         lock = readLock(lockPath);
@@ -242,8 +402,16 @@ class PortReservationStore {
       if (!lock) {
         continue;
       }
-      if (!lock.projectId || !lock.pid || !this.lockOwnerIsAlive(lock)) {
-        updateLock(lockPath, (current) => current?.token === lock.token);
+      if (!lock.projectId
+        || !lock.pid
+        || (!lock.detached && this.lockOwnerState(lock, identityCache) === 'absent')) {
+        updateLock(
+          lockPath,
+          (current) => current?.token === lock.token
+            && (!current.projectId
+              || !current.pid
+              || (!current.detached && this.lockOwnerState(current) === 'absent'))
+        );
         continue;
       }
       projects.set(lock.projectId, lock.state || 'running');
@@ -264,23 +432,57 @@ class PortReservationStore {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const token = crypto.randomUUID();
       let descriptor;
+      let created = false;
       try {
         descriptor = fs.openSync(lockPath, 'wx');
+        created = true;
         fs.writeFileSync(descriptor, JSON.stringify({
           pid: this.pid,
+          hostIdentity: this.hostIdentity,
+          platform: this.platform,
           projectId,
           state: 'starting',
           heartbeatAt: this.now(),
           token
         }));
-        fs.closeSync(descriptor);
+        try {
+          fs.closeSync(descriptor);
+        } finally {
+          descriptor = undefined;
+        }
         this.locks.set(port, { projectId, token });
         return undefined;
       } catch (error) {
+        const cleanupErrors = [];
         if (descriptor !== undefined) {
-          fs.closeSync(descriptor);
-          tryUnlink(lockPath);
+          try {
+            fs.closeSync(descriptor);
+          } catch (cleanupError) {
+            cleanupErrors.push(cleanupError);
+          } finally {
+            descriptor = undefined;
+          }
         }
+        if (created) {
+          const current = readLock(lockPath);
+          if (current?.token === token) {
+            try {
+              updateLock(lockPath, (latest) => latest?.token === token);
+            } catch (cleanupError) {
+              cleanupErrors.push(cleanupError);
+            }
+          } else if (!current) {
+            try {
+              tryUnlink(lockPath);
+            } catch (cleanupError) {
+              cleanupErrors.push(cleanupError);
+            }
+          }
+        }
+        if (this.locks.get(port)?.token === token) {
+          this.locks.delete(port);
+        }
+        attachCleanupErrors(error, cleanupErrors);
         if (error.code !== 'EEXIST') {
           throw error;
         }
@@ -288,11 +490,14 @@ class PortReservationStore {
         if (!owner && removeInvalidLock(lockPath, this.invalidRecordGraceMs, this.now())) {
           continue;
         }
-        if (owner && (!owner.projectId || !owner.pid || !this.lockOwnerIsAlive(owner))) {
+        if (owner && !owner.detached
+          && (!owner.projectId || !owner.pid || this.lockOwnerState(owner) === 'absent')) {
           const removed = updateLock(
             lockPath,
-            (current) => current?.token === owner.token
-              && (!current.projectId || !current.pid || !this.lockOwnerIsAlive(current))
+              (current) => current?.token === owner.token
+              && (!current.projectId
+                || !current.pid
+                || (!current.detached && this.lockOwnerState(current) === 'absent'))
           );
           if (removed) {
             continue;
@@ -310,13 +515,23 @@ class PortReservationStore {
       return;
     }
     const current = readLock(this.lockPath(port));
-    if (current?.token === owned.token) {
-      updateLock(this.lockPath(port), (latest) => latest?.token === owned.token);
+    if (current?.token === owned.token
+      && current.pid === this.pid
+      && current.hostIdentity === this.hostIdentity
+      && this.hostIdentityDecision(current) === 'match') {
+      updateLock(
+        this.lockPath(port),
+        (latest) => latest?.token === owned.token
+          && latest.pid === this.pid
+          && latest.hostIdentity === this.hostIdentity
+          && this.hostIdentityDecision(latest) === 'match'
+      );
     }
     this.locks.delete(port);
   }
 
   removeStaleLocks() {
+    const identityCache = new Map();
     for (const filename of this.lockFiles()) {
       const lockPath = path.join(this.directory, filename);
       const lock = readLock(lockPath);
@@ -324,22 +539,104 @@ class PortReservationStore {
         removeInvalidLock(lockPath, this.invalidRecordGraceMs, this.now());
         continue;
       }
-      if (lock.pid && this.lockOwnerIsAlive(lock)) {
+      if (lock.detached
+        || (lock.pid && this.lockOwnerState(lock, identityCache) !== 'absent')) {
         continue;
       }
-      updateLock(lockPath, (current) => current?.token === lock.token);
+      updateLock(
+        lockPath,
+        (current) => current?.token === lock.token
+          && !current.detached
+          && this.lockOwnerState(current) === 'absent'
+      );
     }
   }
 
-  lockOwnerIsAlive(lock) {
-    return Boolean(this.hostOwnerIsAvailable(lock)
-      || (lock.childPid && this.isProcessAlive(lock.childPid)));
+  lockOwnerState(lock, identityCache) {
+    const hostState = this.hostOwnerState(lock, identityCache);
+    if (hostState === 'available') {
+      return 'available';
+    }
+    const childLiveness = Number.isInteger(lock?.childPid) && lock.childPid > 0
+      ? this.processLiveness(lock.childPid)
+      : false;
+    if (childLiveness === true) {
+      return 'available';
+    }
+    if (hostState === 'uncertain' || childLiveness === undefined) {
+      return 'uncertain';
+    }
+    return 'absent';
   }
 
-  hostOwnerIsAvailable(lock) {
+  hostOwnerState(lock, identityCache) {
+    const identityDecision = this.hostIdentityDecision(lock, identityCache);
+    if (identityDecision === 'unavailable') {
+      return 'uncertain';
+    }
     const heartbeatCurrent = !Number.isFinite(lock.heartbeatAt)
       || this.now() - lock.heartbeatAt <= this.ownerHeartbeatTimeoutMs;
-    return Boolean(lock.pid && heartbeatCurrent && this.isProcessAlive(lock.pid));
+    return identityDecision === 'match' && heartbeatCurrent
+      ? 'available'
+      : 'absent';
+  }
+
+  hostIdentityDecision(lock, identityCache) {
+    if (!stableProcessIdentity(lock?.hostIdentity)) {
+      return this.processLiveness(lock?.pid) === false ? 'absent' : 'unavailable';
+    }
+    let currentIdentity;
+    if (lock.pid === this.pid) {
+      currentIdentity = this.hostIdentity;
+    } else {
+      const cacheKey = `${lock.pid}:${lock.platform || this.platform}:${lock.hostIdentity}`;
+      if (identityCache?.has(cacheKey)) {
+        return identityCache.get(cacheKey);
+      }
+      try {
+        currentIdentity = this.readHostProcessIdentity(
+          lock.pid,
+          lock.platform || this.platform
+        );
+      } catch {
+        currentIdentity = undefined;
+      }
+      const decision = this.processIdentityDecision(lock, currentIdentity);
+      identityCache?.set(cacheKey, decision);
+      return decision;
+    }
+    return this.processIdentityDecision(lock, currentIdentity);
+  }
+
+  processIdentityDecision(lock, currentIdentity) {
+    if (!stableProcessIdentity(currentIdentity)) {
+      return this.processLiveness(lock.pid) === false ? 'absent' : 'unavailable';
+    }
+    const decision = processIdentityDecision(
+      lock.hostIdentity,
+      currentIdentity,
+      lock.platform || this.platform,
+      lock.pid
+    );
+    if (decision === 'mismatch') {
+      return 'mismatch';
+    }
+    const liveness = this.processLiveness(lock.pid);
+    return decision === 'match' && liveness === true
+      ? 'match'
+      : liveness === false ? 'absent' : 'unavailable';
+  }
+
+  processLiveness(pid) {
+    if (!Number.isInteger(pid) || pid <= 0) {
+      return undefined;
+    }
+    try {
+      const alive = this.isProcessAlive(pid);
+      return typeof alive === 'boolean' ? alive : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   lockFiles() {
@@ -512,6 +809,28 @@ function processIsAlive(pid) {
   } catch (error) {
     return error.code === 'EPERM';
   }
+}
+
+function stableProcessIdentity(identity) {
+  return typeof identity === 'string'
+    && identity.length > 0
+    && identity.trim() === identity;
+}
+
+function processIdentityDecision(expectedIdentity, currentIdentity, platform, pid) {
+  if (!stableProcessIdentity(expectedIdentity) || !stableProcessIdentity(currentIdentity)) {
+    return 'unavailable';
+  }
+  if (platform === 'darwin'
+    && (darwinProcessIdentityFormat(expectedIdentity, pid) !== 'v2'
+      || darwinProcessIdentityFormat(currentIdentity, pid) !== 'v2')) {
+    return 'unavailable';
+  }
+  return expectedIdentity === currentIdentity ? 'match' : 'mismatch';
+}
+
+function processIdentityMismatch(expectedIdentity, currentIdentity, platform, pid) {
+  return processIdentityDecision(expectedIdentity, currentIdentity, platform, pid) === 'mismatch';
 }
 
 async function readProcessIdentity(pid, platform) {

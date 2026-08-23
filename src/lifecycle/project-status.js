@@ -76,11 +76,45 @@ function httpServiceUrl(service) {
   return override ? safeServiceUrl(override) : undefined;
 }
 
+function ipv6LoopbackAlternate(url) {
+  const safeUrl = safeServiceUrl(url);
+  if (!safeUrl) {
+    return undefined;
+  }
+  try {
+    const parsed = new URL(safeUrl);
+    if (parsed.hostname.toLocaleLowerCase('en-US') !== 'localhost') {
+      return undefined;
+    }
+    parsed.hostname = '[::1]';
+    return safeServiceUrl(parsed.toString());
+  } catch {
+    return undefined;
+  }
+}
+
+function healthCheckUrlCandidates(check) {
+  return [...new Set([
+    check?.url,
+    check?.alternateUrl,
+    ...(Array.isArray(check?.alternateUrls) ? check.alternateUrls : [])
+  ].filter(Boolean))];
+}
+
 function serviceHealthCheck(service) {
   const configured = service?.healthCheck;
   if (!configured) {
-    return httpServiceUrl(service)
-      ? { mode: 'http', url: httpServiceUrl(service), method: 'HEAD', timeout: HTTP_PROBE_TIMEOUT_MS, retries: 0 }
+    const url = httpServiceUrl(service);
+    const alternateUrl = ipv6LoopbackAlternate(url);
+    return url
+      ? {
+          mode: 'http',
+          url,
+          ...(alternateUrl ? { alternateUrl } : {}),
+          method: 'HEAD',
+          timeout: HTTP_PROBE_TIMEOUT_MS,
+          retries: 0
+        }
       : { mode: 'port' };
   }
   if (configured.mode === 'port') {
@@ -104,15 +138,22 @@ function serviceHealthCheck(service) {
   } else {
     url = safeServiceUrl(target);
   }
+  const alternateUrls = [
+    ipv6LoopbackAlternate(url),
+    target.startsWith('/') && !httpServiceUrl(service)
+      ? safeServiceUrl(new URL(
+        target,
+        `http://[::1]:${service.port}`
+      ).toString())
+      : undefined
+  ].filter(Boolean).filter((candidate, index, candidates) => candidates.indexOf(candidate) === index && candidate !== url);
   return {
     mode: 'http',
     url,
-    ...(target.startsWith('/') && !httpServiceUrl(service)
+    ...(alternateUrls.length > 0
       ? {
-          alternateUrl: safeServiceUrl(new URL(
-            target,
-            `http://[::1]:${service.port}`
-          ).toString())
+          alternateUrl: alternateUrls[0],
+          ...(alternateUrls.length > 1 ? { alternateUrls: alternateUrls.slice(1) } : {})
         }
       : {}),
     method: configured.method || 'HEAD',
@@ -208,7 +249,7 @@ async function serviceHttpStatus(services, openPorts, options = {}) {
       const attemptTimeout = Number.isFinite(service.healthCheck?.timeoutMs)
         ? service.healthCheck.timeoutMs
         : timeout;
-      for (const candidateUrl of [check.url, check.alternateUrl].filter(Boolean)) {
+      for (const candidateUrl of healthCheckUrlCandidates(check)) {
         const resolvedUrl = await valueWithin(
           () => resolveUrl(candidateUrl, service),
           attemptTimeout
@@ -307,8 +348,13 @@ async function reachableServiceUrls(services, openPorts, options = {}) {
 
 function serviceUrlCandidates(service) {
   const url = serviceUrl(service);
-  if (!url || httpServiceUrl(service)) {
+  if (!url) {
     return url ? [url] : [];
+  }
+  const explicitUrl = httpServiceUrl(service);
+  const alternateUrl = ipv6LoopbackAlternate(explicitUrl);
+  if (explicitUrl) {
+    return [url, alternateUrl].filter(Boolean);
   }
   return [url, `http://[::1]:${service.port}`];
 }
@@ -329,6 +375,21 @@ async function valueWithin(factory, timeout) {
 
 function serviceReadinessTimedOut(deadline, allReady, now = Date.now()) {
   return Number.isFinite(deadline) && now >= deadline && !allReady;
+}
+
+function managedServiceReadinessTimedOut({
+  allReady = false,
+  hasServices = false,
+  managed = false,
+  now = Date.now(),
+  readinessDeadline,
+  sharedState
+} = {}) {
+  if (!hasServices || !managed || allReady) {
+    return false;
+  }
+  return ['running', 'not-responding'].includes(sharedState)
+    || serviceReadinessTimedOut(readinessDeadline, allReady, now);
 }
 
 function serviceReadinessDetails(services, openPorts, respondingPorts, webPorts) {
@@ -519,6 +580,16 @@ function managedRuntimeProjectIds({
   ]);
 }
 
+function reconcileDetachedProjectIds(detachedProjectIds = [], processRuntime = new Map(), portRuntime = new Map()) {
+  const reconciled = new Set(detachedProjectIds);
+  for (const id of reconciled) {
+    if (!processRuntime.has(id) && !portRuntime.has(id)) {
+      reconciled.delete(id);
+    }
+  }
+  return reconciled;
+}
+
 function hasUnownedPortReservation(projectId, {
   localProcessIds = [],
   portRuntime = new Map(),
@@ -553,11 +624,13 @@ module.exports = {
   probeHttpService,
   projectServicesLocked,
   projectStatus,
+  reconcileDetachedProjectIds,
   reachableServiceUrls,
   runningAppProjectIds,
   serviceUrl,
   serviceHttpStatus,
   serviceReadinessDetails,
+  managedServiceReadinessTimedOut,
   serviceTimelineStages,
   serviceReadinessTimedOut,
   servicePortStatus,

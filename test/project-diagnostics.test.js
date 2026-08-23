@@ -33,6 +33,28 @@ test('sanitizes terminal controls and redacts credential-like diagnostic text', 
   assert.match(clean, /user:\[redacted\]@example\.test/);
 });
 
+test('redacts structured credential aliases without removing ordinary context', () => {
+  const clean = redactSensitiveText([
+    '{"context":{"access_token":"access-secret"},"items":[{"api_token":"api-secret"}]}',
+    '{"aws_secret_access_key":"aws-secret","refreshToken":"refresh-secret"}',
+    'access_token: colon-secret',
+    'api_token=equals-secret',
+    'message=keep-this-context'
+  ].join('\n'));
+
+  assert.doesNotMatch(
+    clean,
+    /access-secret|api-secret|aws-secret|refresh-secret|colon-secret|equals-secret/
+  );
+  assert.match(clean, /keep-this-context/);
+  assert.match(clean, /"access_token":\s*"?\[redacted\]/);
+  assert.match(clean, /"api_token":\s*"?\[redacted\]/);
+  assert.match(clean, /"aws_secret_access_key":\s*"?\[redacted\]/);
+  assert.match(clean, /"refreshToken":\s*"?\[redacted\]/);
+  assert.match(clean, /access_token:\s*\[redacted\]/);
+  assert.match(clean, /api_token=\[redacted\]/);
+});
+
 test('bounds diagnostics without splitting UTF-16 surrogate pairs', () => {
   const bounded = boundedDiagnosticOutput(`old${'x'.repeat(MAX_DIAGNOSTIC_OUTPUT_CHARS)}😀tail`);
 

@@ -9,18 +9,68 @@ const phoneHandoffState = { ...(persistedWebviewState.phoneHandoffs || {}) };
 const startupFailureState = { ...(persistedWebviewState.startupFailures || {}) };
 const expandedServiceState = { ...(persistedWebviewState.expandedServices || {}) };
 let expandedRunGroupId = String(persistedWebviewState.expandedRunGroupId || '');
-let searchQuery = String(state.searchQuery || '');
-let selectedTagFilter = String(state.tagFilter || '');
+const stateFilterRevision = Number.isSafeInteger(state.filterRevision)
+  ? state.filterRevision
+  : 0;
+const persistedFilterRevision = Number.isSafeInteger(persistedWebviewState.filterRevision)
+  ? persistedWebviewState.filterRevision
+  : 0;
+const persistedFilterIsNewer = persistedFilterRevision > stateFilterRevision;
+let filterRevision = Math.max(stateFilterRevision, persistedFilterRevision);
+let filterRevisionSeen = persistedFilterIsNewer
+  ? persistedWebviewState.filterRevisionSeen === true || persistedFilterRevision > 0
+  : state.filterRevisionSeen === true || stateFilterRevision > 0;
+const initialSearchQuery = persistedFilterIsNewer
+  ? persistedWebviewState.searchQuery
+  : state.searchQuery;
+const initialTagFilter = persistedFilterIsNewer
+  ? persistedWebviewState.tagFilter
+  : state.tagFilter;
+let searchQuery = String(initialSearchQuery || '');
+let selectedTagFilter = String(initialTagFilter || '');
+const initialSelectionStart = persistedFilterIsNewer
+  ? persistedWebviewState.searchSelectionStart
+  : state.searchSelectionStart;
+const initialSelectionEnd = persistedFilterIsNewer
+  ? persistedWebviewState.searchSelectionEnd
+  : state.searchSelectionEnd;
+let searchSelectionStart = Number.isInteger(initialSelectionStart) ? initialSelectionStart : 0;
+let searchSelectionEnd = Number.isInteger(initialSelectionEnd) ? initialSelectionEnd : 0;
+let searchFocused = (persistedFilterIsNewer
+  ? persistedWebviewState.searchFocused
+  : state.searchFocused) === true;
+if (searchSelectionStart < 0
+  || searchSelectionEnd < searchSelectionStart
+  || searchSelectionEnd > searchQuery.length) {
+  searchSelectionStart = 0;
+  searchSelectionEnd = 0;
+  searchFocused = false;
+}
+let firstListRender = true;
 let tagsExpanded = Boolean(persistedWebviewState.tagsExpanded);
 let outputFollowLatest = true;
 let announcedProjectStatuses = new Map();
+let announcedPreviewFailures = new Map();
 let previewLoadGeneration = 0;
 let previewLoadTimer;
+let activePreviewLoad;
 let runningAppNavigatorFrame;
 const pendingOutputPeeks = new Map();
+const projectIncarnations = new Map(
+  (state.projects || [])
+    .filter((project) => typeof project.projectIncarnation === 'string'
+      && project.projectIncarnation.length > 0
+      && project.projectIncarnation.length <= 512)
+    .map((project) => [String(project.id), project.projectIncarnation])
+);
+let projectIncarnationSequence = 0;
 
 function normalizeSearchQuery(value) {
   return String(value || '').trim().toLocaleLowerCase();
+}
+
+function normalizeTagIdentity(value) {
+  return String(value || '').trim().toLowerCase();
 }
 
 function formatCpuPercent(value) {
@@ -235,6 +285,12 @@ function readinessServiceList(services) {
     .join(', ');
 }
 
+function readinessServiceListText(services) {
+  return (services || [])
+    .map((service) => `${String(service.name)} :${String(service.port)}`)
+    .join(', ');
+}
+
 function serviceLocalAddress(service) {
   const fullUrl = service.url || `http://localhost:${service.port}`;
   try {
@@ -270,6 +326,25 @@ function readinessDetailsHtml(project, status) {
     rows.push(`<span><strong>Waiting for web response:</strong> ${readinessServiceList(details.notResponding)}</span>`);
   }
   return rows.length ? `<div class="project-readiness-detail">${rows.join('')}</div>` : '';
+}
+
+function readinessDetailsText(project, status) {
+  if (!['not-ready', 'not-responding'].includes(status)) {
+    return '';
+  }
+
+  const details = project.serviceReadiness || {};
+  const rows = [];
+  if (details.ready?.length) {
+    rows.push(`Ready: ${readinessServiceListText(details.ready)}`);
+  }
+  if (details.waiting?.length) {
+    rows.push(`Still checking: ${readinessServiceListText(details.waiting)}`);
+  }
+  if (details.notResponding?.length) {
+    rows.push(`Waiting for web response: ${readinessServiceListText(details.notResponding)}`);
+  }
+  return rows.join('. ');
 }
 
 function formatElapsed(milliseconds) {
@@ -415,12 +490,117 @@ function saveWebviewState() {
     startupFailures: startupFailureState,
     expandedServices: expandedServiceState,
     expandedRunGroupId,
-    tagsExpanded
+    tagsExpanded,
+    filterRevisionSeen,
+    filterRevision,
+    searchQuery,
+    tagFilter: selectedTagFilter,
+    searchSelectionStart,
+    searchSelectionEnd,
+    searchFocused
+  });
+}
+
+function publishFilterState(type, sourceElement) {
+  const input = sourceElement?.id === 'project-search'
+    ? sourceElement
+    : document.getElementById('project-search');
+  const ownsSearchFocus = Boolean(input
+    && input.id === 'project-search'
+    && document.activeElement === input);
+  const queryLength = searchQuery.length;
+  const requestedStart = ownsSearchFocus && Number.isInteger(input.selectionStart)
+    ? input.selectionStart
+    : 0;
+  const requestedEnd = ownsSearchFocus && Number.isInteger(input.selectionEnd)
+    ? input.selectionEnd
+    : 0;
+  searchSelectionStart = Math.max(0, Math.min(queryLength, requestedStart));
+  searchSelectionEnd = Math.max(searchSelectionStart, Math.min(queryLength, requestedEnd));
+  searchFocused = ownsSearchFocus;
+  filterRevision += 1;
+  filterRevisionSeen = true;
+  state.filterRevision = filterRevision;
+  state.filterRevisionSeen = filterRevisionSeen;
+  state.searchQuery = searchQuery;
+  state.tagFilter = selectedTagFilter;
+  state.searchSelectionStart = searchSelectionStart;
+  state.searchSelectionEnd = searchSelectionEnd;
+  state.searchFocused = searchFocused;
+  saveWebviewState();
+  vscode.postMessage({
+    type,
+    query: searchQuery,
+    tag: selectedTagFilter,
+    filterRevision,
+    selectionStart: searchSelectionStart,
+    selectionEnd: searchSelectionEnd,
+    searchFocused
   });
 }
 
 function saveDetailTabState() {
   saveWebviewState();
+}
+
+function reconcilePerItemWebviewState(projects) {
+  const validProjectIds = new Set();
+  const validServicePorts = new Map();
+  const hostProjectIncarnations = new Map();
+  for (const project of projects || []) {
+    const projectId = String(project.id);
+    validProjectIds.add(projectId);
+    validServicePorts.set(projectId, new Set((project.services || []).map((service) => String(service.port))));
+    if (typeof project.projectIncarnation === 'string'
+      && project.projectIncarnation.length > 0
+      && project.projectIncarnation.length <= 512) {
+      hostProjectIncarnations.set(projectId, project.projectIncarnation);
+    }
+  }
+
+  for (const projectId of projectIncarnations.keys()) {
+    if (!validProjectIds.has(String(projectId))) {
+      projectIncarnations.delete(projectId);
+    }
+  }
+  for (const projectId of validProjectIds) {
+    if (hostProjectIncarnations.has(projectId)) {
+      projectIncarnations.set(projectId, hostProjectIncarnations.get(projectId));
+    } else if (!projectIncarnations.has(projectId)) {
+      // Production renders seed this from the host-owned lifecycle map; this fallback
+      // keeps legacy or isolated fixture state usable without persisting a token.
+      projectIncarnationSequence += 1;
+      projectIncarnations.set(projectId, `${projectId}:${projectIncarnationSequence}`);
+    }
+  }
+  for (const projectId of announcedPreviewFailures.keys()) {
+    if (!validProjectIds.has(String(projectId))) {
+      announcedPreviewFailures.delete(projectId);
+    }
+  }
+
+  let persistentStateChanged = false;
+  for (const stateMap of [detailTabState, phoneHandoffState, startupFailureState]) {
+    for (const key of Object.keys(stateMap)) {
+      if (!validProjectIds.has(String(key))) {
+        delete stateMap[key];
+        persistentStateChanged = true;
+      }
+    }
+  }
+  for (const key of Object.keys(expandedServiceState)) {
+    const servicePorts = validServicePorts.get(String(key));
+    if (!servicePorts || !servicePorts.has(String(expandedServiceState[key]))) {
+      delete expandedServiceState[key];
+      persistentStateChanged = true;
+    }
+  }
+  for (const key of pendingOutputPeeks.keys()) {
+    if (!validProjectIds.has(String(key))) {
+      pendingOutputPeeks.delete(key);
+    }
+  }
+  return persistentStateChanged;
 }
 
 function selectedProjectDetailTab(project) {
@@ -570,7 +750,7 @@ function projectDetailTabsHtml(project, projectName) {
         </div>
       </header>
       <div class="preview-frame-wrap">
-        <iframe class="preview-frame" data-preview-frame data-src="${escapeHtml(project.previewUrl)}" title="${projectName} app preview" sandbox="allow-forms allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
+        <iframe class="preview-frame" data-preview-frame data-src="${escapeHtml(project.previewUrl)}" data-preview-incarnation="${escapeHtml(String(projectIncarnations.get(String(project.id)) || ''))}" title="${projectName} app preview" sandbox="allow-forms allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
         <div class="preview-loading" data-preview-loading role="status">Loading preview…</div>
         <div class="preview-fallback" data-preview-fallback hidden>
           <strong>Preview unavailable</strong>
@@ -676,7 +856,7 @@ function tagFilterHtml() {
     return '';
   }
   const activeTag = tags.find((tag) => (
-    tag.toLocaleLowerCase() === selectedTagFilter.toLocaleLowerCase()
+    normalizeTagIdentity(tag) === normalizeTagIdentity(selectedTagFilter)
   ));
   return `
     <section class="project-tag-filter" aria-label="Project tag filter">
@@ -693,8 +873,73 @@ function tagFilterHtml() {
     </section>`;
 }
 
+function projectStatusLabels(project) {
+  const conflict = project.portConflict;
+  const conflictOwnerName = conflict?.ownerName || 'Another app';
+  const blockedServiceCount = (project.services || [])
+    .filter((service) => project.openPorts?.includes(service.port)).length;
+  const blockedServiceLabel = `${blockedServiceCount || 1} ${blockedServiceCount === 1 ? 'service' : 'services'} blocked`;
+  return {
+    running: 'Running',
+    starting: 'Starting…',
+    'not-ready': 'Taking longer…',
+    'not-responding': 'Web service not responding',
+    'ownership-lost': 'Running — control unavailable',
+    stopping: 'Stopping…',
+    active: project.httpUnresponsive ? 'Detected, web service not responding' : 'Detected running',
+    'port-in-use': conflict?.ownerName ? `${blockedServiceLabel} by ${conflictOwnerName}` : blockedServiceLabel,
+    'port-in-use-unknown': blockedServiceLabel,
+    'review-required': 'Review setup',
+    unsupported: 'Local lifecycle only',
+    stopped: 'Stopped'
+  };
+}
+
+function projectDisplayedStatus(project) {
+  const projectStatus = project.status || 'stopped';
+  const displayStatus = project.reviewRequired ? 'review-required' : projectStatus;
+  const statusLabels = projectStatusLabels(project);
+  const conflictOwnerName = project.portConflict?.ownerName || 'Another app';
+  return project.forceClosing
+    ? 'Closing processes…'
+    : project.handoffInProgress
+      ? `Switching from ${conflictOwnerName}…`
+      : statusLabels[displayStatus];
+}
+
+function projectStatusAnnouncement(project) {
+  const projectStatus = project.status || 'stopped';
+  const displayedStatus = projectDisplayedStatus(project) || 'Stopped';
+  const details = readinessDetailsText(project, projectStatus);
+  return `${project.name}: ${displayedStatus}${details ? ` ${details}` : ''}`;
+}
+
+function invalidateProjectPreviewLoad() {
+  previewLoadGeneration += 1;
+  clearTimeout(previewLoadTimer);
+  previewLoadTimer = undefined;
+  if (!activePreviewLoad) {
+    return;
+  }
+  activePreviewLoad.frame.removeEventListener?.('load', activePreviewLoad.onLoad);
+  activePreviewLoad.frame.removeEventListener?.('error', activePreviewLoad.onError);
+  activePreviewLoad = undefined;
+}
+
 function renderList() {
-  let webviewStateChanged = false;
+  invalidateProjectPreviewLoad();
+  const focusedElement = document.activeElement;
+  const preserveSearchFocus = focusedElement?.id === 'project-search';
+  const restoreInitialSearchFocus = firstListRender && searchFocused && !preserveSearchFocus;
+  const capturedSelectionStart = preserveSearchFocus
+    && Number.isInteger(focusedElement.selectionStart)
+    ? focusedElement.selectionStart
+    : undefined;
+  const capturedSelectionEnd = preserveSearchFocus
+    && Number.isInteger(focusedElement.selectionEnd)
+    ? focusedElement.selectionEnd
+    : undefined;
+  let webviewStateChanged = reconcilePerItemWebviewState(state.projects);
   for (const project of state.projects) {
     if (!project.detailsExpanded && detailTabState[project.id]) {
       delete detailTabState[project.id];
@@ -715,6 +960,14 @@ function renderList() {
   if (webviewStateChanged) {
     saveWebviewState();
   }
+  const availableTags = Array.isArray(state.tags) ? state.tags : [];
+  if (selectedTagFilter && !availableTags.some((tag) => (
+    normalizeTagIdentity(tag) === normalizeTagIdentity(selectedTagFilter)
+  ))) {
+    selectedTagFilter = '';
+    state.tagFilter = '';
+    saveWebviewState();
+  }
   if (state.projects.length === 0) {
     app.innerHTML = `
       ${runGroupsHtml()}
@@ -724,6 +977,7 @@ function renderList() {
         <p>Save a project folder and its commands once, then start it from here.</p>
         <button class="primary-button" data-action="show-add">Add project</button>
       </section>`;
+    firstListRender = false;
     return;
   }
 
@@ -736,6 +990,11 @@ function renderList() {
       <span id="summary-status" class="summary-status">${statusSummaryHtml(state.projects)}</span>
     </header>
     <span id="project-lifecycle-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span>
+    ${state.routeNotice ? `
+      <section id="route-notice" class="diagnosis-notice" role="status" aria-live="polite" aria-atomic="true">
+        <strong>Diagnosis closed</strong>
+        <p>${escapeHtml(state.routeNotice)}</p>
+      </section>` : ''}
     ${runGroupsHtml()}
     ${state.stopAllCount > 1 ? `
       <div class="bulk-actions">
@@ -781,25 +1040,9 @@ function renderList() {
           ? 'not-responding'
           : displayStatus;
         const conflict = project.portConflict;
-        const conflictOwnerName = escapeHtml(conflict?.ownerName || 'Another app');
+        const conflictOwnerName = conflict?.ownerName || 'Another app';
+        const escapedConflictOwnerName = escapeHtml(conflictOwnerName);
         const conflictProjectNames = (conflict?.projectNames || []).map(escapeHtml).join(', ');
-        const blockedServiceCount = (project.services || [])
-          .filter((service) => project.openPorts?.includes(service.port)).length;
-        const blockedServiceLabel = `${blockedServiceCount || 1} ${blockedServiceCount === 1 ? 'service' : 'services'} blocked`;
-        const statusLabels = {
-          running: 'Running',
-          starting: 'Starting…',
-          'not-ready': 'Taking longer…',
-          'not-responding': 'Web service not responding',
-          'ownership-lost': 'Running — control unavailable',
-          stopping: 'Stopping…',
-          active: project.httpUnresponsive ? 'Detected, web service not responding' : 'Detected running',
-          'port-in-use': conflict?.ownerName ? `${blockedServiceLabel} by ${conflictOwnerName}` : blockedServiceLabel,
-          'port-in-use-unknown': blockedServiceLabel,
-          'review-required': 'Review setup',
-          unsupported: 'Local lifecycle only',
-          stopped: 'Stopped'
-        };
         const conflicted = ['port-in-use', 'port-in-use-unknown'].includes(projectStatus);
         const primaryAction = projectPrimaryAction(project);
         const actionTitle = escapeHtml(primaryAction.label);
@@ -853,13 +1096,9 @@ function renderList() {
           : projectStatus === 'port-in-use-unknown'
             ? `Port :${conflict?.port || 'unknown'} is shared with ${conflictProjectNames}. Runlist cannot identify the running owner.`
             : projectStatus === 'port-in-use'
-              ? `${conflictOwnerName} is using port :${conflict?.port || 'unknown'}.`
+              ? `${escapedConflictOwnerName} is using port :${conflict?.port || 'unknown'}.`
               : '';
-        const displayedStatus = project.forceClosing
-          ? 'Closing processes…'
-          : project.handoffInProgress
-            ? `Switching from ${conflictOwnerName}…`
-            : statusLabels[displayStatus];
+        const displayedStatus = projectDisplayedStatus(project);
         return `
           <article id="project-row-${projectId}" class="project-row" data-project-id="${projectId}" aria-labelledby="project-${projectId}" tabindex="-1">
             <div class="project-topline">
@@ -870,7 +1109,7 @@ function renderList() {
                     <span class="auto-scroll"><span class="auto-scroll-content">${projectName}</span></span>
                   </h2>
                 </div>
-                <div class="project-status status-${statusClass}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : ''}<span class="auto-scroll"><span class="auto-scroll-content">${displayedStatus}</span></span></div>
+                <div class="project-status status-${statusClass}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : ''}<span class="auto-scroll"><span class="auto-scroll-content">${escapeHtml(displayedStatus)}</span></span></div>
                 ${!reviewRequired ? readinessDetailsHtml(project, projectStatus) : ''}
               </div>
               <div class="project-actions">
@@ -947,21 +1186,48 @@ function renderList() {
 
   applyProjectFilter(searchQuery);
   announceProjectStatusChanges(state.projects);
-  document.getElementById('project-search')?.addEventListener('input', handleSearchInput);
+  const searchInput = document.getElementById('project-search');
+  searchInput?.addEventListener('input', handleSearchInput);
+  if ((preserveSearchFocus || restoreInitialSearchFocus) && searchInput) {
+    searchInput.focus();
+    const selectionStart = preserveSearchFocus && capturedSelectionStart !== undefined
+      ? capturedSelectionStart
+      : searchSelectionStart;
+    const selectionEnd = preserveSearchFocus && capturedSelectionEnd !== undefined
+      ? capturedSelectionEnd
+      : searchSelectionEnd;
+    searchInput.setSelectionRange?.(selectionStart, selectionEnd);
+  }
+  firstListRender = false;
   scheduleAutoScrollUpdate();
   scheduleRunningAppNavigatorUpdate();
   initializeProjectPreview();
   initializeTimelineClock();
+  requestProjectOutputPeeks();
+}
+
+function requestProjectOutputPeeks() {
+  for (const project of state.projects || []) {
+    if (project.outputPeek === undefined) {
+      continue;
+    }
+    const id = String(project.id);
+    const projectIncarnation = projectIncarnations.get(id);
+    if (!projectIncarnation) {
+      continue;
+    }
+    vscode.postMessage({
+      type: 'showOutput',
+      id,
+      projectIncarnation
+    });
+  }
 }
 
 function announceProjectStatusChanges(projects) {
   const next = new Map((projects || []).map((project) => [
     String(project.id),
-    `${project.name}: ${project.forceClosing
-      ? 'Closing processes'
-      : project.handoffInProgress
-        ? 'Switching projects'
-        : statusLabels[project.status || 'stopped'] || 'Stopped'}`
+    projectStatusAnnouncement(project)
   ]));
   if (announcedProjectStatuses.size) {
     const changes = [...next]
@@ -978,14 +1244,14 @@ function announceProjectStatusChanges(projects) {
 function applyProjectFilter(query) {
   searchQuery = query;
   const normalizedQuery = normalizeSearchQuery(query);
-  const normalizedTag = selectedTagFilter.toLocaleLowerCase();
+  const normalizedTag = normalizeTagIdentity(selectedTagFilter);
   const matchingProjects = state.projects.filter((project) => {
     const searchableText = String(
       project.searchText || [project.name, project.folder].filter(Boolean).join('\n')
     ).toLocaleLowerCase();
     const matchesQuery = !normalizedQuery || searchableText.includes(normalizedQuery);
     const matchesTag = !normalizedTag || (project.tags || []).some((tag) => (
-      String(tag).toLocaleLowerCase() === normalizedTag
+      normalizeTagIdentity(tag) === normalizedTag
     ));
     return matchesQuery && matchesTag;
   });
@@ -1034,10 +1300,9 @@ function revealRunningApp(id) {
     if (search) {
       search.value = '';
     }
-    vscode.postMessage({ type: 'setSearchQuery', query: '' });
+    searchQuery = '';
     selectedTagFilter = '';
-    state.tagFilter = '';
-    vscode.postMessage({ type: 'setTagFilter', tag: '' });
+    publishFilterState('setSearchQuery');
     applyProjectFilter('');
   }
 
@@ -1516,7 +1781,7 @@ function renderProjectDiagnosis() {
     <section class="repair-proposal" aria-labelledby="repair-proposal-heading">
       <h3 id="repair-proposal-heading" class="diagnosis-heading">Repair proposal</h3>
       ${diagnosis.repair.stale ? `
-        <p class="repair-stale" role="alert">This proposal is stale because the saved setup or retained failed start changed. It cannot be approved.</p>` : ''}
+        <p class="repair-stale" role="alert">This proposal is stale or was saved by an older Runlist version. Refresh the diagnosis and review the latest proposal before approving it.</p>` : ''}
       <div class="repair-comparison" role="table" aria-label="Current and proposed project setup">
         <div class="repair-comparison-heading" role="row">
           <strong role="columnheader">Field</strong>
@@ -1528,11 +1793,13 @@ function renderProjectDiagnosis() {
             <strong role="rowheader">${escapeHtml(item.field)}</strong>
             <span role="cell">${escapeHtml(item.current)}</span>
             <span role="cell">${escapeHtml(item.proposed)}</span>
-            <small class="repair-change ${escapeHtml(item.change)}">${escapeHtml(item.change)}</small>
+            <div role="cell" class="repair-change-cell" aria-label="${escapeHtml(`${item.field}: ${item.change}`)}">
+              <small class="repair-change ${escapeHtml(item.change)}" aria-hidden="true">${escapeHtml(item.change)}</small>
+            </div>
           </div>`).join('')}
       </div>
       <div class="repair-actions">
-        <button class="primary-button" data-action="approve-repair" ${diagnosis.repair.stale ? 'disabled' : ''}>Approve complete proposal</button>
+        <button class="primary-button" data-action="approve-repair" data-proposal-id="${escapeHtml(diagnosis.repair.proposalId)}" ${diagnosis.repair.stale ? 'disabled' : ''}>Approve complete proposal</button>
         <button class="secondary-button" data-action="reject-repair">Reject proposal</button>
       </div>
     </section>` : '';
@@ -1888,13 +2155,13 @@ app.addEventListener('click', (event) => {
     },
     'select-tag-filter': () => {
       const tag = String(button.dataset.tag || '');
-      selectedTagFilter = tag && tag.toLocaleLowerCase() === selectedTagFilter.toLocaleLowerCase()
+      selectedTagFilter = tag && normalizeTagIdentity(tag) === normalizeTagIdentity(selectedTagFilter)
         ? ''
         : tag;
       state.tagFilter = selectedTagFilter;
       tagsExpanded = false;
       saveWebviewState();
-      vscode.postMessage({ type: 'setTagFilter', tag: selectedTagFilter });
+      publishFilterState('setTagFilter');
       renderList();
       requestAnimationFrame(() => document.querySelector('[data-action="toggle-tag-filter"]')?.focus());
     },
@@ -2009,7 +2276,10 @@ app.addEventListener('click', (event) => {
     'ask-agent': () => vscode.postMessage({ type: 'showDiagnosis', id: button.dataset.id }),
     'copy-diagnosis-request': () => vscode.postMessage({ type: 'copyDiagnosisRequest' }),
     'refresh-repair': () => vscode.postMessage({ type: 'refreshProjectRepair' }),
-    'approve-repair': () => vscode.postMessage({ type: 'approveProjectRepair' }),
+    'approve-repair': () => vscode.postMessage({
+      type: 'approveProjectRepair',
+      proposalId: button.dataset.proposalId
+    }),
     'reject-repair': () => vscode.postMessage({ type: 'rejectProjectRepair' }),
     'retry-repair': () => vscode.postMessage({ type: 'retryProjectRepair' }),
     'open-output-url': () => {
@@ -2064,43 +2334,107 @@ function loadProjectPreview(frame) {
   const loading = wrapper?.querySelector('[data-preview-loading]');
   const fallback = wrapper?.querySelector('[data-preview-fallback]');
   const source = frame.dataset.src;
-  if (!wrapper || !source) {
+  const row = frame.closest('.project-row');
+  const projectId = String(row?.dataset?.projectId || '');
+  const projectIncarnation = frame.dataset.previewIncarnation;
+  if (!wrapper || !source || !projectId
+    || typeof projectIncarnation !== 'string'
+    || projectIncarnation.length === 0
+    || projectIncarnations.get(projectId) !== projectIncarnation) {
     return;
   }
   if (frame.dataset.loadedSource === source) {
     return;
   }
+  invalidateProjectPreviewLoad();
   frame.dataset.loadedSource = source;
 
   wrapper.classList.remove('loaded');
   loading.hidden = false;
   fallback.hidden = true;
   const generation = ++previewLoadGeneration;
-  clearTimeout(previewLoadTimer);
-  previewLoadTimer = setTimeout(() => {
-    if (generation !== previewLoadGeneration) {
+  let previewLoadOutcome = 'pending';
+  const isCurrentLoad = () => generation === previewLoadGeneration
+    && activePreviewLoad?.generation === generation
+    && projectIncarnations.get(projectId) === projectIncarnation
+    && frame.dataset.previewIncarnation === projectIncarnation
+    && frame.isConnected === true
+    && document.querySelector(
+      `.project-row[data-project-id="${CSS.escape(projectId)}"] .project-detail-panel:not([hidden]) [data-preview-frame]`
+    ) === frame;
+  const announceFailure = () => {
+    if (!isCurrentLoad() || previewLoadOutcome === 'success') {
       return;
     }
+    previewLoadOutcome = 'failure';
+    const key = `${projectIncarnation}:${generation}`;
+    if (announcedPreviewFailures.get(projectId) === key) {
+      return;
+    }
+    const project = (state.projects || []).find((item) => String(item.id) === projectId);
+    if (!project) {
+      return;
+    }
+    const status = document.getElementById('project-lifecycle-status');
+    if (status) {
+      status.textContent = `${String(project.name || 'Project')}: Preview unavailable. Open it in a browser to view it.`;
+    }
+    announcedPreviewFailures.set(projectId, key);
+  };
+  const onTimeout = () => {
+    if (!isCurrentLoad()) {
+      return;
+    }
+    previewLoadTimer = undefined;
+    activePreviewLoad.timer = undefined;
     loading.hidden = true;
     fallback.hidden = false;
-  }, 8000);
-  frame.addEventListener('load', () => {
-    if (generation !== previewLoadGeneration) {
+    announceFailure();
+  };
+  const onLoad = () => {
+    if (!isCurrentLoad() || previewLoadOutcome === 'success') {
       return;
     }
+    previewLoadOutcome = 'success';
     clearTimeout(previewLoadTimer);
+    previewLoadTimer = undefined;
+    frame.removeEventListener?.('load', onLoad);
+    frame.removeEventListener?.('error', onError);
+    activePreviewLoad = undefined;
+    const project = (state.projects || []).find((item) => String(item.id) === projectId);
+    const status = document.getElementById('project-lifecycle-status');
+    const failureAnnouncement = project
+      ? `${String(project.name || 'Project')}: Preview unavailable. Open it in a browser to view it.`
+      : '';
+    if (status && status.textContent === failureAnnouncement) {
+      status.textContent = '';
+    }
+    announcedPreviewFailures.delete(projectId);
     wrapper.classList.add('loaded');
     loading.hidden = true;
     fallback.hidden = true;
-  }, { once: true });
-  frame.addEventListener('error', () => {
-    if (generation !== previewLoadGeneration) {
+  };
+  const onError = () => {
+    if (!isCurrentLoad() || previewLoadOutcome === 'success') {
       return;
     }
     clearTimeout(previewLoadTimer);
+    previewLoadTimer = undefined;
+    activePreviewLoad.timer = undefined;
     loading.hidden = true;
     fallback.hidden = false;
-  }, { once: true });
+    announceFailure();
+  };
+  previewLoadTimer = setTimeout(onTimeout, 8000);
+  activePreviewLoad = {
+    frame,
+    generation,
+    onLoad,
+    onError,
+    timer: previewLoadTimer
+  };
+  frame.addEventListener('load', onLoad, { once: true });
+  frame.addEventListener('error', onError, { once: true });
   frame.src = source;
 }
 
@@ -2184,7 +2518,11 @@ const hostMessageHandlers = {
       );
     }
   },
-  projectOutputPeek: (message) => updateProjectOutputPeek(message.id, message.entries),
+  projectOutputPeek: (message) => updateProjectOutputPeek(
+    message.id,
+    message.entries,
+    message.projectIncarnation
+  ),
   diagnosisRequestCopied: () => {
     const status = document.getElementById('diagnosis-copy-status');
     if (status) {
@@ -2261,15 +2599,21 @@ function outputPeekInteractionActive(slot) {
   }
 }
 
-function updateProjectOutputPeek(id, entries) {
+function updateProjectOutputPeek(id, entries, projectIncarnation) {
   const key = String(id || '');
+  if (projectIncarnations.get(key) !== projectIncarnation) {
+    return;
+  }
   const slot = document.querySelector(`[data-output-peek-slot][data-project-id="${CSS.escape(key)}"]`);
   if (!slot) {
     pendingOutputPeeks.delete(key);
     return;
   }
   if (outputPeekInteractionActive(slot)) {
-    pendingOutputPeeks.set(key, entries || []);
+    pendingOutputPeeks.set(key, {
+      entries: entries || [],
+      projectIncarnation
+    });
     return;
   }
   pendingOutputPeeks.delete(key);
@@ -2277,8 +2621,15 @@ function updateProjectOutputPeek(id, entries) {
 }
 
 function flushPendingOutputPeeks() {
-  for (const [id, entries] of [...pendingOutputPeeks]) {
-    updateProjectOutputPeek(id, entries);
+  for (const [id, pending] of [...pendingOutputPeeks]) {
+    const currentIncarnation = projectIncarnations.get(id);
+    if (!pending
+      || typeof pending.projectIncarnation !== 'string'
+      || pending.projectIncarnation !== currentIncarnation) {
+      pendingOutputPeeks.delete(id);
+      continue;
+    }
+    updateProjectOutputPeek(id, pending.entries, pending.projectIncarnation);
   }
 }
 
@@ -2395,8 +2746,9 @@ app.addEventListener('focusin', (event) => {
 });
 
 function handleSearchInput(event) {
-  const query = event.currentTarget.value;
-  vscode.postMessage({ type: 'setSearchQuery', query });
+  const query = String(event.currentTarget.value || '');
+  searchQuery = query;
+  publishFilterState('setSearchQuery', event.currentTarget);
   closeMenus();
   applyProjectFilter(query);
 }
@@ -2507,6 +2859,12 @@ function toggleMenu(button) {
 function applyInitialFocus() {
   const target = state.focusTarget;
   if (!target) {
+    return;
+  }
+  if (target.type === 'field'
+    && target.id === 'project-search'
+    && state.filterRevisionSeen === true
+    && state.searchFocused !== true) {
     return;
   }
   let element;

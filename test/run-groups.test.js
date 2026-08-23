@@ -110,6 +110,37 @@ test('removing a project prunes only its memberships', (t) => {
   ]);
 });
 
+test('removing the last project removes the run group after reload', (t) => {
+  const { first, projectsFile } = fixture(t);
+  const group = upsertRunGroup(projectsFile, {
+    name: 'Only app',
+    projectIds: [first.id]
+  }).group;
+
+  assert.equal(removeProject(projectsFile, first.id), true);
+  assert.deepEqual(readRunGroups(projectsFile), []);
+  assert.equal(Object.hasOwn(JSON.parse(fs.readFileSync(projectsFile, 'utf8')), 'groups'), false);
+  assert.equal(group.projectIds.length, 1);
+});
+
+test('cleans up legacy persisted empty groups on reload', (t) => {
+  const { first, projectsFile } = fixture(t);
+  const document = {
+    schemaVersion: 5,
+    projects: [first],
+    groups: [{
+      id: 'legacy-empty',
+      name: 'Legacy empty',
+      projectIds: [],
+      startMode: 'parallel'
+    }]
+  };
+  fs.writeFileSync(projectsFile, `${JSON.stringify(document, null, 2)}\n`);
+
+  assert.deepEqual(readRunGroups(projectsFile), []);
+  assert.equal(Object.hasOwn(JSON.parse(fs.readFileSync(projectsFile, 'utf8')), 'groups'), false);
+});
+
 test('persists and preserves a parallel run-group start mode', (t) => {
   const { first, projectsFile, second } = fixture(t);
   const created = upsertRunGroup(projectsFile, {
@@ -327,8 +358,19 @@ test('stops only Runlist-owned members in reverse order', async () => {
 test('coordinates the same group across independent VS Code hosts', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-group-lock-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const firstCoordinator = new RunGroupCoordinator(root, { pid: 1101, isProcessAlive: () => true });
-  const secondCoordinator = new RunGroupCoordinator(root, { pid: 2202, isProcessAlive: () => true });
+  const readHostProcessIdentity = (pid) => `test-host:${pid}`;
+  const firstCoordinator = new RunGroupCoordinator(root, {
+    pid: 1101,
+    hostIdentity: 'test-host:1101',
+    readHostProcessIdentity,
+    isProcessAlive: () => true
+  });
+  const secondCoordinator = new RunGroupCoordinator(root, {
+    pid: 2202,
+    hostIdentity: 'test-host:2202',
+    readHostProcessIdentity,
+    isProcessAlive: () => true
+  });
   let finishReadiness;
   const readiness = new Promise((resolve) => {
     finishReadiness = resolve;
@@ -359,10 +401,19 @@ test('keeps a cross-window group lease alive while readiness is still pending', 
     heartbeatIntervalMs: 5,
     ownerHeartbeatTimeoutMs: 20,
     isProcessAlive: () => true,
+    readHostProcessIdentity: (pid) => `test-host:${pid}`,
     now: () => now
   };
-  const firstCoordinator = new RunGroupCoordinator(root, { ...sharedOptions, pid: 1101 });
-  const secondCoordinator = new RunGroupCoordinator(root, { ...sharedOptions, pid: 2202 });
+  const firstCoordinator = new RunGroupCoordinator(root, {
+    ...sharedOptions,
+    pid: 1101,
+    hostIdentity: 'test-host:1101'
+  });
+  const secondCoordinator = new RunGroupCoordinator(root, {
+    ...sharedOptions,
+    pid: 2202,
+    hostIdentity: 'test-host:2202'
+  });
   t.after(() => {
     firstCoordinator.dispose();
     secondCoordinator.dispose();

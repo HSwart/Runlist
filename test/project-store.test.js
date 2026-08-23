@@ -283,6 +283,37 @@ test('normalizes schema-validated imports while preserving historical names', (t
   assert.equal(project.reviewRequired, true);
 });
 
+test('rejects unsafe control characters in saved start and stop commands', (t) => {
+  const { projectFolder, projectsFile } = projectStoreFixture(t);
+  const base = {
+    folder: projectFolder,
+    startCommand: 'npm run dev',
+    stopCommand: 'npm run stop',
+    services: []
+  };
+
+  assert.throws(
+    () => normalizeProjectInput({ ...base, startCommand: 'npm run\u0001dev' }),
+    /startCommand.*control character/i
+  );
+  assert.throws(
+    () => normalizeProjectInput({ ...base, stopCommand: 'npm stop\u0000' }),
+    /stopCommand.*control character/i
+  );
+  assert.throws(
+    () => upsertProject(projectsFile, { ...base, startCommand: 'npm run\u0007dev' }),
+    /startCommand.*control character/i
+  );
+  assert.equal(
+    normalizeProjectInput({
+      ...base,
+      startCommand: 'npm\trun dev\n',
+      stopCommand: 'npm run stop\r\n'
+    }).startCommand,
+    'npm\trun dev'
+  );
+});
+
 test('migrates version-one projects and persists alternate launch profiles', (t) => {
   const { projectsFile, projectFolder } = projectStoreFixture(t);
   const original = {

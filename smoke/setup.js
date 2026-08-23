@@ -4,6 +4,7 @@ const net = require('net');
 const path = require('path');
 const vscode = require('vscode');
 const { readRootProcess } = require('../src/lifecycle/process-metrics');
+const { markSmokeProcessExited, registerSmokeProcess } = require('./run');
 
 async function run() {
   const smokeRoot = requiredEnvironment('RUNLIST_SMOKE_ROOT');
@@ -173,14 +174,35 @@ async function run() {
     true,
     'The reload fixture did not report its process id.'
   );
+  const readyPid = Number(fs.readFileSync(path.join(smokeRoot, 'ready.pid'), 'utf8'));
+  const readyProcess = await registerSmokeProcess(smokeRoot, readyPid, {
+    kind: 'setup-ready-root',
+    ports: [port],
+    terminateTree: true
+  });
   await waitFor(
     () => fs.existsSync(path.join(smokeRoot, 'ready-child.pid'))
       && fs.existsSync(path.join(smokeRoot, 'ready-grandchild.pid')),
     'The reload fixture did not report its descendant process ids.'
   );
+  const readyChildProcess = await registerSmokeProcess(
+    smokeRoot,
+    Number(fs.readFileSync(readyChildPidPath, 'utf8')),
+    { kind: 'setup-ready-child', terminateTree: false }
+  );
+  const readyGrandchildProcess = await registerSmokeProcess(
+    smokeRoot,
+    Number(fs.readFileSync(readyGrandchildPidPath, 'utf8')),
+    { kind: 'setup-ready-grandchild', terminateTree: false }
+  );
   await waitFor(
     () => fs.existsSync(customStopPidPath),
     'The custom Stop fixture did not report its process id.'
+  );
+  const customStopProcess = await registerSmokeProcess(
+    smokeRoot,
+    Number(fs.readFileSync(customStopPidPath, 'utf8')),
+    { kind: 'setup-custom-stop', terminateTree: true }
   );
   try {
     await waitFor(
@@ -201,21 +223,12 @@ async function run() {
     }));
     assert.fail(`The setup host did not persist exact process identities: ${JSON.stringify({ ownership, probes })}`);
   }
-  const fixturePids = [
-    path.join(smokeRoot, 'ready.pid'),
-    readyChildPidPath,
-    readyGrandchildPidPath,
-    customStopPidPath
-  ].map((pidPath) => Number(fs.readFileSync(pidPath, 'utf8')));
-  const fixtureProcesses = await Promise.all(fixturePids.map(async (pid) => {
-    const identity = (await readRootProcess(pid, process.platform))?.identity;
-    assert.ok(identity, `The setup host could not capture fixture process identity for PID ${pid}.`);
-    return { pid, identity };
-  }));
-  fs.writeFileSync(
-    path.join(smokeRoot, 'fixture-identities.json'),
-    JSON.stringify(fixtureProcesses)
-  );
+  const fixtureProcesses = [
+    readyProcess,
+    readyChildProcess,
+    readyGrandchildProcess,
+    customStopProcess
+  ];
   const shutdownResults = await api.provider.dispose();
   await waitForExactProcessesStopped(
     fixtureProcesses,
@@ -225,6 +238,7 @@ async function run() {
         : result)
     })}`
   );
+  await Promise.all(fixtureProcesses.map((processRecord) => markSmokeProcessExited(smokeRoot, processRecord)));
   process.stdout.write('Smoke setup, isolated storage, view opening, untrusted review, and awaited reload shutdown passed.\n');
 }
 

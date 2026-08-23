@@ -2387,8 +2387,12 @@ select[aria-invalid='true'] {
   white-space: pre-wrap;
 }
 
-.repair-change {
+.repair-change-cell {
   grid-column: 1 / -1;
+}
+
+.repair-change {
+  display: inline-block;
   width: fit-content;
   padding: 1px 4px;
   color: var(--vscode-descriptionForeground);
@@ -2676,6 +2680,21 @@ select[aria-invalid='true'] {
   .more-button,
   .icon-button {
     width: 44px;
+  }
+
+  .running-app-current {
+    min-height: 44px;
+  }
+
+  .running-app-navigation button,
+  .running-app-open {
+    width: 44px;
+    min-height: 44px;
+  }
+
+  .running-app-open {
+    top: 0;
+    right: 0;
   }
 }
 

@@ -5,6 +5,11 @@ const path = require('path');
 const { spawn } = require('child_process');
 const vscode = require('vscode');
 const { readRootProcess } = require('../src/lifecycle/process-metrics');
+const {
+  cleanupSmokeProcess,
+  markSmokeProcessExited,
+  registerSmokeProcess
+} = require('./run');
 
 async function run() {
   const smokeRoot = requiredEnvironment('RUNLIST_SMOKE_ROOT');
@@ -73,17 +78,27 @@ async function run() {
   fs.rmSync(childPidPath, { force: true });
   fs.rmSync(grandchildPidPath, { force: true });
 
-  const unrelated = spawn(nodePath, ['-e', 'setInterval(() => {}, 1000)'], {
-    stdio: 'ignore',
-    windowsHide: true
-  });
-  fs.writeFileSync(path.join(smokeRoot, 'unrelated.pid'), String(unrelated.pid));
+  let unrelated;
+  let unrelatedProcessRecord;
   let orphanRecovery;
+  let orphanRecoveryProcessRecord;
   let delayedPid;
   let externalListener;
+  let externalListenerProcessRecord;
   let handoffTargetPid;
 
   try {
+    unrelated = spawn(nodePath, ['-e', 'setInterval(() => {}, 1000)'], {
+      stdio: 'ignore',
+      windowsHide: true
+    });
+    unrelatedProcessRecord = await registerSmokeProcess(smokeRoot, unrelated, {
+      kind: 'lifecycle-sentinel',
+      name: 'Unrelated smoke sentinel',
+      terminateTree: false
+    });
+    fs.writeFileSync(path.join(smokeRoot, 'unrelated.pid'), String(unrelated.pid));
+
     assert.equal(await api.provider.startProject(ready.id), true, 'Runlist did not start the ready fixture.');
     await waitFor(
       async () => {
@@ -185,6 +200,12 @@ async function run() {
       stdio: 'ignore',
       windowsHide: true
     });
+    externalListenerProcessRecord = await registerSmokeProcess(smokeRoot, externalListener, {
+      kind: 'external-listener',
+      name: 'External conflict listener',
+      ports: [Number(externalConflict.services[0].port)],
+      terminateTree: false
+    });
     await waitFor(() => fs.existsSync(externalPidPath), 'The external port listener did not become ready.');
     await api.provider.refreshProjectStatuses();
     assert.equal(
@@ -208,9 +229,23 @@ async function run() {
       false,
       'The blocked external-conflict start command still executed.'
     );
-    externalListener.kill();
-    await waitFor(() => !processIsAlive(externalListener.pid), 'The external listener did not exit.');
+    await cleanupSmokeProcess(
+      smokeRoot,
+      externalListener,
+      externalListenerProcessRecord,
+      'The external listener did not exit.'
+    );
+    await waitFor(
+      () => !processIsAlive(externalListener.pid),
+      'The external listener did not exit.'
+    );
+    await waitFor(
+      async () => !(await exactProcessIsAlive(externalListenerProcessRecord)),
+      'The external listener identity did not exit.'
+    );
+    await markSmokeProcessExited(smokeRoot, externalListenerProcessRecord);
     externalListener = undefined;
+    externalListenerProcessRecord = undefined;
     await api.provider.refreshProjectStatuses();
 
     assert.equal(await api.provider.startProject(handoffSource.id), true, 'Runlist did not start the handoff source.');
@@ -246,6 +281,11 @@ async function run() {
     orphanRecovery = spawn(nodePath, ['-e', 'setInterval(() => {}, 1000)'], {
       stdio: 'ignore',
       windowsHide: true
+    });
+    orphanRecoveryProcessRecord = await registerSmokeProcess(smokeRoot, orphanRecovery, {
+      kind: 'orphan-recovery-helper',
+      name: 'Orphan recovery smoke helper',
+      terminateTree: false
     });
     await waitFor(
       () => processIsAlive(orphanRecovery.pid),
@@ -290,6 +330,12 @@ async function run() {
       () => !processIsAlive(orphanRecovery.pid),
       'The explicit custom stop command left the orphan recovery fixture running.'
     );
+    await waitFor(
+      async () => !(await exactProcessIsAlive(orphanRecoveryProcessRecord)),
+      'The orphan recovery helper identity did not exit.'
+    );
+    await markSmokeProcessExited(smokeRoot, orphanRecoveryProcessRecord);
+    orphanRecoveryProcessRecord = undefined;
 
     assert.equal(await api.provider.startProject(failure.id), true, 'Runlist did not launch the failure fixture.');
     const { readProjectDiagnostics } = require(path.join(extension.extensionPath, 'src', 'projects', 'project-diagnostics'));
@@ -307,33 +353,51 @@ async function run() {
     api.provider.renderProjectList();
     assert.equal(api.provider.projects.some((project) => project.id === manual.id), false);
   } finally {
-    if (['running', 'starting', 'not-ready', 'not-responding', 'stopping']
-      .includes(api.provider.getProjectStatus(ready.id))) {
-      await api.provider.stopProject(ready.id);
-    }
-    if (['running', 'starting', 'not-ready', 'not-responding', 'stopping']
-      .includes(api.provider.getProjectStatus(delayed.id))) {
-      await api.provider.stopProject(delayed.id);
-    }
-    if (['running', 'starting', 'not-ready', 'not-responding', 'stopping']
-      .includes(api.provider.getProjectStatus(handoffSource.id))) {
-      await api.provider.stopProject(handoffSource.id);
-    }
-    if (['running', 'starting', 'not-ready', 'not-responding', 'stopping']
-      .includes(api.provider.getProjectStatus(handoffTarget.id))) {
-      await api.provider.stopProject(handoffTarget.id);
-    }
-    if (externalListener && processIsAlive(externalListener.pid)) {
-      externalListener.kill();
-      await waitFor(() => !processIsAlive(externalListener.pid), 'The external listener did not exit.', 5000);
-    }
-    if (processIsAlive(unrelated.pid)) {
-      unrelated.kill();
-      await waitFor(() => !processIsAlive(unrelated.pid), 'The unrelated sentinel did not exit.', 5000);
-    }
-    if (orphanRecovery && processIsAlive(orphanRecovery.pid)) {
-      orphanRecovery.kill();
-      await waitFor(() => !processIsAlive(orphanRecovery.pid), 'The orphan recovery fixture did not exit.', 5000);
+    const cleanupFailures = [];
+    await settleCleanup(async () => {
+      if (['running', 'starting', 'not-ready', 'not-responding', 'stopping']
+        .includes(api.provider.getProjectStatus(ready.id))) {
+        await api.provider.stopProject(ready.id);
+      }
+    });
+    await settleCleanup(async () => {
+      if (['running', 'starting', 'not-ready', 'not-responding', 'stopping']
+        .includes(api.provider.getProjectStatus(delayed.id))) {
+        await api.provider.stopProject(delayed.id);
+      }
+    });
+    await settleCleanup(async () => {
+      if (['running', 'starting', 'not-ready', 'not-responding', 'stopping']
+        .includes(api.provider.getProjectStatus(handoffSource.id))) {
+        await api.provider.stopProject(handoffSource.id);
+      }
+    });
+    await settleCleanup(async () => {
+      if (['running', 'starting', 'not-ready', 'not-responding', 'stopping']
+        .includes(api.provider.getProjectStatus(handoffTarget.id))) {
+        await api.provider.stopProject(handoffTarget.id);
+      }
+    });
+    await settleCleanup(() => cleanupSpawnedSmokeProcess(
+      smokeRoot,
+      externalListener,
+      externalListenerProcessRecord,
+      'The external listener did not exit.'
+    ), cleanupFailures);
+    await settleCleanup(() => cleanupSpawnedSmokeProcess(
+      smokeRoot,
+      unrelated,
+      unrelatedProcessRecord,
+      'The unrelated sentinel did not exit.'
+    ), cleanupFailures);
+    await settleCleanup(() => cleanupSpawnedSmokeProcess(
+      smokeRoot,
+      orphanRecovery,
+      orphanRecoveryProcessRecord,
+      'The orphan recovery fixture did not exit.'
+    ), cleanupFailures);
+    if (cleanupFailures.length) {
+      throw new Error(`Smoke helper cleanup failed: ${cleanupFailures.map((error) => error.message).join('; ')}`);
     }
   }
 
@@ -354,6 +418,23 @@ async function waitFor(predicate, message, timeoutMs = 10000) {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   assert.fail(typeof message === 'function' ? message() : message);
+}
+
+async function cleanupSpawnedSmokeProcess(smokeRoot, child, processRecord, message) {
+  if (!child && !processRecord) {
+    return;
+  }
+  await cleanupSmokeProcess(smokeRoot, child, processRecord, message);
+}
+
+async function settleCleanup(operation, failures) {
+  try {
+    await operation();
+  } catch (error) {
+    if (failures) {
+      failures.push(error);
+    }
+  }
 }
 
 function processIsAlive(pid) {

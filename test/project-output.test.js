@@ -337,12 +337,16 @@ test('renders an accessible bounded live peek without replacing active selection
   const webview = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
   const styles = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.css'), 'utf8');
 
-  assert.match(extension, /type: 'projectOutputPeek'[\s\S]*entries: projectOutputPeek\(rawOutput\)/);
+  assert.match(extension, /type: 'projectOutputPeek'[\s\S]*projectIncarnation[\s\S]*entries: projectOutputPeek\(rawOutput\)/);
+  assert.match(extension, /this\.projectIncarnations = new Map\(\)/);
+  assert.match(extension, /projectIncarnation: this\.projectIncarnations\.get\(project\.id\)/);
   assert.match(webview, /class="project-output-peek" tabindex="0" aria-label="Latest output for/);
+  assert.match(webview, /type: 'showOutput'[\s\S]*projectIncarnation/);
   assert.match(webview, /data-action="output"[\s\S]*View output/);
   assert.match(webview, /slot\.contains\(document\.activeElement\)/);
   assert.match(webview, /selection\.getRangeAt\(0\)\.intersectsNode\(slot\)/);
-  assert.match(webview, /pendingOutputPeeks\.set\(key, entries \|\| \[\]\)/);
+  assert.match(webview, /pendingOutputPeeks\.set\(key, \{[\s\S]*entries: entries \|\| \[\],[\s\S]*projectIncarnation[\s\S]*\}\)/);
+  assert.match(webview, /flushPendingOutputPeeks[\s\S]*projectIncarnations\.get\(id\)[\s\S]*pending\.projectIncarnation/);
   assert.doesNotMatch(webview, /project-output-peek[^\n]*aria-live/);
   assert.match(styles, /\.project-output-peek \{[\s\S]*--vscode-textCodeBlock-background/);
   assert.match(styles, /\.output-peek-line\.warning[\s\S]*--vscode-editorWarning-foreground/);

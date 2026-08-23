@@ -34,7 +34,7 @@ function redactSensitiveText(value) {
     )
     .replace(/\b([A-Z_][A-Z0-9_]*\s*=\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/g, '$1[redacted]')
     .replace(
-      /\b((?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|authorization|cookie|session|database[_-]?url|connection[_-]?string)\s*(?:=|:)\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
+      /(?<![A-Za-z0-9_])((?:["']?)(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|access[_-]?token|api[_-]?token|private[_-]?key|client[_-]?secret|authorization|cookie|session|database[_-]?url|connection[_-]?string|aws[_-]?secret[_-]?access[_-]?key|refresh[_-]?token)(?:["']?)\s*(?:=|:)\s*)(?!\[redacted\])(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)/gi,
       '$1[redacted]'
     );
 }
