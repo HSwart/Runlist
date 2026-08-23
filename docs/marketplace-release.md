@@ -13,7 +13,7 @@ For each Marketplace release:
 3. Run `npm run package` and install that exact VSIX in a clean VS Code profile before publishing it.
 4. Confirm the package contains the README, changelog, icon, license, security policy, and third-party notices, and does not contain development instructions, tests, nested release artifacts, or credentials.
 
-The extension-host smoke gate must pass before package and installation checks. On Windows and macOS, run `npm run test:smoke` in a supported native desktop session. On Linux, run `xvfb-run -a npm run test:smoke` with an Xvfb display. This matches the CI workflow. The gate passes only when the command exits successfully and reports `Runlist extension-host smoke suite passed.`
+The extension-host smoke gate must pass before package and installation checks. On Windows and macOS, run `npm run test:smoke` in a supported native desktop session. On Linux, run `xvfb-run -a npm run test:smoke` with an Xvfb display. This matches the CI workflow. CI completes all three platform results when one fails, and bounds each platform job to 20 minutes. The gate passes only when the command exits successfully and reports `Runlist extension-host smoke suite passed.`
 
 The strict `npm run validate:marketplace:publish` command must pass before publication. `npm run package` runs the same strict validation before creating the VSIX.
 

@@ -542,6 +542,17 @@ async function run() {
       )}`
     );
 
+    assert.equal(
+      await vscode.commands.executeCommand('runlist.copySupportDiagnostics'),
+      true,
+      'The registered support diagnostics command did not complete.'
+    );
+    const supportReport = await vscode.env.clipboard.readText();
+    assertSupportDiagnostics(supportReport, {
+      project: manual,
+      failureText: diagnostics.failureSummary.message
+    });
+
     const { removeProject } = require(path.join(extension.extensionPath, 'src', 'projects', 'project-store'));
     assert.equal(removeProject(api.projectsFile, manual.id), true, 'The stopped manual fixture was not removed.');
     api.provider.renderProjectList();
@@ -601,7 +612,7 @@ async function run() {
     }
   }
 
-  process.stdout.write('Smoke reload, lifecycle, exact process-tree Stop, custom Stop, delayed readiness, external conflict, temporary ports, managed handoff, orphan recovery, retained failure, and removal passed.\n');
+  process.stdout.write('Smoke reload, lifecycle, exact process-tree Stop, custom Stop, delayed readiness, external conflict, temporary ports, managed handoff, orphan recovery, retained failure, support diagnostics, and removal passed.\n');
 }
 
 function assertInside(filePath, root, message) {
@@ -645,6 +656,48 @@ function lifecycleEvidence(provider, projectId) {
     startAttempt: provider.startAttempts.has(projectId),
     stopping: provider.stoppingProjectIds.has(projectId)
   };
+}
+
+function assertSupportDiagnostics(report, sensitive) {
+  const parsed = JSON.parse(report);
+  assert.match(parsed.privacy, /exclude project names, folders, commands, environment values, ports, and process output/i);
+  assert.ok(parsed.projects.length > 0, 'Support diagnostics omitted the project state snapshot.');
+  assert.ok(parsed.recentEvents.length > 0, 'Support diagnostics omitted lifecycle events.');
+  assert.equal(
+    parsed.recentEvents.some((event) => event.event === 'restart.complete'),
+    true,
+    'Support diagnostics did not retain the completed Restart operation.'
+  );
+  const restart = parsed.recentEvents.find((event) => event.event === 'restart.begin');
+  assert.ok(restart?.operationId, 'Restart diagnostics did not expose a correlation identifier.');
+  const correlatedEvents = parsed.recentEvents
+    .filter((event) => event.operationId === restart.operationId)
+    .map((event) => event.event);
+  for (const event of [
+    'restart.begin',
+    'stop.begin',
+    'stop.complete',
+    'start.begin',
+    'start.complete',
+    'restart.complete'
+  ]) {
+    assert.ok(correlatedEvents.includes(event), `Restart diagnostics omitted ${event}.`);
+  }
+  assert.equal(
+    parsed.recentEvents.some((event) => Object.hasOwn(event, 'detail')),
+    false,
+    'Default support diagnostics unexpectedly included trace details.'
+  );
+  const serialized = JSON.stringify(parsed);
+  for (const secret of [
+    sensitive.project.id,
+    sensitive.project.name,
+    sensitive.project.folder,
+    sensitive.project.startCommand,
+    sensitive.failureText
+  ]) {
+    assert.equal(serialized.includes(secret), false, `Support diagnostics leaked ${secret}.`);
+  }
 }
 
 async function waitFor(predicate, message, timeoutMs = 10000) {
