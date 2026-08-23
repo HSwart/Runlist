@@ -5,7 +5,10 @@ const path = require('path');
 const { spawn } = require('child_process');
 const vscode = require('vscode');
 const { readRootProcess } = require('../src/lifecycle/process-metrics');
-const { ProcessOwnershipStore } = require('../src/lifecycle/project-process');
+const {
+  ProcessOwnershipStore,
+  readProcessIdentitySync
+} = require('../src/lifecycle/project-process');
 const {
   cleanupSmokeProcess,
   markSmokeProcessExited,
@@ -181,9 +184,11 @@ async function independentOwnerScenario(context) {
   const reusedRecord = await registerSmokeProcess(smokeRoot, reusedTarget, {
     kind: 'pid-replacement-target', terminateTree: false
   });
+  const foreignHostIdentity = readProcessIdentitySync(foreignHost.pid, process.platform);
+  assert.ok(foreignHostIdentity, 'The independent owner host did not expose its host identity.');
   const foreignOwnership = new ProcessOwnershipStore(api.provider.processOwnership.directory, {
     pid: foreignHost.pid,
-    hostIdentity: hostRecord.identity
+    hostIdentity: foreignHostIdentity
   });
   assert.equal(foreignOwnership.reserve(crashProject.id), undefined);
   assert.equal(foreignOwnership.reserve(reusedProject.id), undefined);
@@ -201,6 +206,11 @@ async function independentOwnerScenario(context) {
   });
 
   await api.provider.refreshProjectStatuses();
+  assert.equal(
+    api.provider.processOwnership.snapshot().get(crashProject.id)?.ownerAvailable,
+    true,
+    'The independent owner was not visible as live before competing Start.'
+  );
   assert.equal(await api.provider.startProject(crashProject.id), false, 'A second host replaced a live owner.');
   assert.equal(await exactProcessIsAlive(crashRecord), true, 'Competing Start terminated the owned target.');
   assert.equal(api.provider.processOwnership.snapshot().has(crashProject.id), true, 'Competing Start removed foreign ownership.');
