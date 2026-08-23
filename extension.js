@@ -2146,6 +2146,12 @@ class RunlistViewProvider {
     if (!latestProject) {
       return;
     }
+    if (JSON.stringify(latestProject) !== JSON.stringify(project)) {
+      vscode.window.showWarningMessage(
+        `${project.name} changed in another VS Code window after you confirmed deletion. Nothing was stopped or deleted.`
+      );
+      return;
+    }
     const latestProcessRuntime = this.processOwnership.snapshot();
     if (hasUnownedPortReservation(id, {
       localProcessIds: this.processes.keys(),
@@ -2195,7 +2201,7 @@ class RunlistViewProvider {
     }
 
     try {
-      removeProject(this.projectsFile, id);
+      removeProject(this.projectsFile, id, { expectedProject: project });
       const remainingProjects = projects.filter((item) => item.id !== id);
       const adjacentProject = remainingProjects[projectIndex] || remainingProjects[projectIndex - 1];
       this.managedProjectIds.delete(id);
@@ -2246,6 +2252,8 @@ class RunlistViewProvider {
       this.selectedProjectId = undefined;
       this.diagnosisProjectIncarnation = undefined;
       this.render();
+    } catch (error) {
+      vscode.window.showErrorMessage(`Could not delete ${project.name}: ${error.message}`);
     } finally {
       this.processOwnership.release(id);
     }
@@ -2520,50 +2528,16 @@ class RunlistViewProvider {
         this.renderProjectList();
       });
       child.once('exit', (code, signal) => {
-        if (this.processes.get(id) === child) {
-          const stoppedIntentionally = this.stoppingProjectIds.has(id);
-          const exitDetails = {
-            code,
-            hasCustomStop: Boolean(launchProject.stopCommand),
-            hasServices,
-            stoppedIntentionally
-          };
-          const detached = startExitDetached(exitDetails);
-          const startFailed = startExitFailed(exitDetails);
-          this.statusRevision += 1;
-          this.processes.delete(id);
-          this.forgetProjectMetrics(id);
-          this.projectRuntime.delete(id);
-          if (detached) {
-            const detachedToken = this.processOwnership.currentOwnership(id)?.token;
-            this.processOwnership.markDetached(id);
-            this.portReservations.markDetached(id);
-            this.startAttempts.delete(id);
-            this.detachedProjectIds.add(id);
-            this.projectStatuses.set(id, 'starting');
-            void this.captureDetachedServiceListeners(launchProject, detachedToken);
-          } else {
-            this.processOwnership.release(id);
-            this.releaseStartReservation(id);
-            this.managedProjectIds.delete(id);
-            this.detachedProjectIds.delete(id);
-            this.projectStatuses.set(id, 'stopped');
-            this.startReadinessDeadlines.delete(id);
-            this.readinessWarnings.delete(id);
-          }
-          if (startFailed) {
-            this.showStartFailure(project, {
-              code,
-              signal,
-              projectRevision: savedProjectRevision
-            });
-          } else if (!detached) {
-            this.projectAttemptMetadata.delete(id);
-            this.projectTimelineFailures.delete(id);
-          }
-          this.renderProjectList();
-          this.refreshProjectStatuses();
-        }
+        void this.handleProjectProcessExit({
+          child,
+          code,
+          hasServices,
+          id,
+          launchProject,
+          project,
+          savedProjectRevision,
+          signal
+        });
       });
       if (!hasServices) {
         this.projectAttemptMetadata.get(id).readyAt = launchedAt;
@@ -2615,6 +2589,86 @@ class RunlistViewProvider {
       this.renderProjectList();
       return false;
     }
+  }
+
+  async handleProjectProcessExit({
+    child,
+    code,
+    hasServices,
+    id,
+    launchProject,
+    project,
+    savedProjectRevision,
+    signal
+  }) {
+    if (this.processes.get(id) !== child) {
+      return;
+    }
+    const stoppedIntentionally = this.stoppingProjectIds.has(id);
+    const exitDetails = {
+      code,
+      hasCustomStop: Boolean(launchProject.stopCommand),
+      hasServices,
+      stoppedIntentionally
+    };
+    const detached = startExitDetached(exitDetails);
+    const startFailed = startExitFailed(exitDetails);
+
+    if (!detached && !stoppedIntentionally) {
+      try {
+        await terminateTrackedProcess(this.processes, id);
+      } catch (error) {
+        const detail = `Runlist could not confirm cleanup after the launch process exited: ${error.message}`;
+        this.statusRevision += 1;
+        this.forgetProjectMetrics(id);
+        this.processOwnership.setState(id, 'ownership-lost');
+        this.portReservations.setState(id, 'ownership-lost');
+        this.projectRuntime = this.processOwnership.snapshot();
+        this.projectStatuses.set(id, 'ownership-lost');
+        this.startReadinessDeadlines.delete(id);
+        this.readinessWarnings.delete(id);
+        this.addProjectOutput(id, `Runlist: ${detail}\n`, savedProjectRevision);
+        vscode.window.showErrorMessage(`Could not finish ${project.name}: ${detail}`);
+        this.renderProjectList();
+        void this.refreshProjectStatuses();
+        return;
+      }
+    } else {
+      this.processes.delete(id);
+    }
+
+    this.statusRevision += 1;
+    this.forgetProjectMetrics(id);
+    this.projectRuntime.delete(id);
+    if (detached) {
+      const detachedToken = this.processOwnership.currentOwnership(id)?.token;
+      this.processOwnership.markDetached(id);
+      this.portReservations.markDetached(id);
+      this.startAttempts.delete(id);
+      this.detachedProjectIds.add(id);
+      this.projectStatuses.set(id, 'starting');
+      void this.captureDetachedServiceListeners(launchProject, detachedToken);
+    } else {
+      this.processOwnership.release(id);
+      this.releaseStartReservation(id);
+      this.managedProjectIds.delete(id);
+      this.detachedProjectIds.delete(id);
+      this.projectStatuses.set(id, 'stopped');
+      this.startReadinessDeadlines.delete(id);
+      this.readinessWarnings.delete(id);
+    }
+    if (startFailed) {
+      this.showStartFailure(project, {
+        code,
+        signal,
+        projectRevision: savedProjectRevision
+      });
+    } else if (!detached) {
+      this.projectAttemptMetadata.delete(id);
+      this.projectTimelineFailures.delete(id);
+    }
+    this.renderProjectList();
+    void this.refreshProjectStatuses();
   }
 
   async handoffProject(id) {

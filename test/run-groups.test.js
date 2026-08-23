@@ -108,6 +108,22 @@ test('removing a project prunes only its memberships', (t) => {
     { name: 'Both', projectIds: [second.id] },
     { name: 'Second only', projectIds: [second.id] }
   ]);
+
+  assert.equal(removeProject(projectsFile, second.id), true);
+  assert.deepEqual(readRunGroups(projectsFile), []);
+});
+
+test('drops legacy empty groups instead of treating a no-op start as valid', (t) => {
+  const { first, projectsFile } = fixture(t);
+  const created = upsertRunGroup(projectsFile, {
+    name: 'Temporary',
+    projectIds: [first.id]
+  }).group;
+  const document = JSON.parse(fs.readFileSync(projectsFile, 'utf8'));
+  document.groups.find((group) => group.id === created.id).projectIds = [];
+  fs.writeFileSync(projectsFile, JSON.stringify(document));
+
+  assert.deepEqual(readRunGroups(projectsFile), []);
 });
 
 test('removing the last project removes the run group after reload', (t) => {

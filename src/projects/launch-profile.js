@@ -1,6 +1,7 @@
 const DEFAULT_LAUNCH_PROFILE_ID = 'default';
 const DEFAULT_LAUNCH_PROFILE_NAME = 'Default';
 const MAX_LAUNCH_PROFILES = 12;
+const MAX_ALTERNATE_LAUNCH_PROFILES = MAX_LAUNCH_PROFILES - 1;
 
 function launchProfileOptions(project = {}) {
   return [
@@ -55,6 +56,7 @@ module.exports = {
   DEFAULT_LAUNCH_PROFILE_ID,
   DEFAULT_LAUNCH_PROFILE_NAME,
   launchProfileOptions,
+  MAX_ALTERNATE_LAUNCH_PROFILES,
   MAX_LAUNCH_PROFILES,
   resolveLaunchProfile,
   selectedLaunchProfile,

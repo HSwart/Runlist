@@ -6,6 +6,7 @@ const { normalizeProjectTags } = require('./project-tags');
 const {
   DEFAULT_LAUNCH_PROFILE_ID,
   DEFAULT_LAUNCH_PROFILE_NAME,
+  MAX_ALTERNATE_LAUNCH_PROFILES,
   MAX_LAUNCH_PROFILES
 } = require('./launch-profile');
 
@@ -182,8 +183,8 @@ function validateProjectForm(input) {
   if (!values.folder.trim()) {
     errors.folder = 'Choose a project folder.';
   }
-  if (values.launchProfiles.length >= MAX_LAUNCH_PROFILES) {
-    errors.form = `Configure no more than ${MAX_LAUNCH_PROFILES} launch profiles.`;
+  if (values.launchProfiles.length > MAX_ALTERNATE_LAUNCH_PROFILES) {
+    errors.form = `Configure no more than ${MAX_ALTERNATE_LAUNCH_PROFILES} alternate launch profiles (${MAX_LAUNCH_PROFILES} including Default).`;
   }
 
   const profiles = [

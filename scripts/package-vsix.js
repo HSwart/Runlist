@@ -464,6 +464,7 @@ async function createReviewedCandidate(root, candidatePath, createCandidate = cr
     assertStagedManifestSafe(stagingDirectory);
     await createCandidate({
       cwd: stagingDirectory,
+      dependencies: false,
       packageManager: PackageManager.None,
       packagePath: candidatePath
     });

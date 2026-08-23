@@ -24,12 +24,13 @@ const {
   terminateTrackedProcess
 } = require('../src/lifecycle/project-process');
 const { reconcileDetachedProjectIds } = require('../src/lifecycle/project-status');
-const { PortReservationStore } = require('../src/ports/port-gate');
+const { PortReservationStore: RealPortReservationStore } = require('../src/ports/port-gate');
 
 function createOwnershipStore(directory, options = {}) {
   const pid = options.pid || process.pid;
   return new RealProcessOwnershipStore(directory, {
     ...options,
+    platform: options.platform || 'linux',
     hostIdentity: options.hostIdentity || `test-host:${pid}`,
     readHostProcessIdentity: options.readHostProcessIdentity
       || ((hostPid) => `test-host:${hostPid}`)
@@ -37,6 +38,17 @@ function createOwnershipStore(directory, options = {}) {
 }
 
 const ProcessOwnershipStore = createOwnershipStore;
+
+function PortReservationStore(directory, options = {}) {
+  const pid = options.pid || process.pid;
+  return new RealPortReservationStore(directory, {
+    ...options,
+    platform: options.platform || 'linux',
+    hostIdentity: options.hostIdentity || `test-host:${pid}`,
+    readHostProcessIdentity: options.readHostProcessIdentity
+      || ((hostPid) => `test-host:${hostPid}`)
+  });
+}
 
 function expectedDarwinIdentity(pid, startedAt, details) {
   const values = [
@@ -72,7 +84,7 @@ function testProcessIdentity(pid, platform) {
 test('uses the retrying atomic writer for lifecycle ownership state', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'lifecycle', 'project-process.js'), 'utf8');
 
-  assert.match(source, /const \{ writeFileAtomically \} = require\('\.\.\/projects\/project-store'\)/);
+  assert.match(source, /writeFileAtomically[\s\S]*require\('\.\.\/projects\/project-store'\)/);
   assert.match(source, /function writeJsonAtomically[\s\S]*writeFileAtomically\(filePath, JSON\.stringify\(value\)\)/);
 });
 
@@ -555,7 +567,6 @@ test('records child identity and launch-time Stop details in both coordination s
     isProcessAlive: () => true,
     readProcessIdentity: async () => '303:original'
   });
-  const { PortReservationStore } = require('../src/ports/port-gate');
   const reservations = new PortReservationStore(path.join(root, 'ports'), {
     pid: 101,
     isProcessAlive: () => true
@@ -664,13 +675,28 @@ test('recovers an old corrupt ownership record but preserves a fresh partial wri
   assert.deepEqual(probe.reserve('project-1'), { kind: 'uncertain' });
 });
 
+test('recovers a shared ownership update marker after its host PID is reused', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-reused-update-owner-'));
+  const ownership = new ProcessOwnershipStore(directory, { platform: 'linux' });
+  const ownershipPath = ownership.ownershipPath('project-1');
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  assert.equal(ownership.reserve('project-1'), undefined);
+  fs.writeFileSync(`${ownershipPath}.update`, JSON.stringify({
+    pid: process.pid,
+    processIdentity: `${process.pid}:previous-process`
+  }));
+
+  assert.equal(ownership.release('project-1'), true);
+  assert.equal(fs.existsSync(ownershipPath), false);
+  assert.equal(fs.existsSync(`${ownershipPath}.update`), false);
+});
+
 test('keeps ownership and port reservations until reload shutdown confirms the process stopped', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-process-shutdown-'));
   const ownership = new ProcessOwnershipStore(path.join(root, 'ownership'), {
     pid: 101,
     isProcessAlive: () => true
   });
-  const { PortReservationStore } = require('../src/ports/port-gate');
   const reservations = new PortReservationStore(path.join(root, 'ports'), {
     pid: 101,
     isProcessAlive: () => true
@@ -705,7 +731,6 @@ test('preserves ownership and port reservations when reload shutdown cannot stop
     pid: 101,
     isProcessAlive: () => true
   });
-  const { PortReservationStore } = require('../src/ports/port-gate');
   const reservations = new PortReservationStore(path.join(root, 'ports'), {
     pid: 101,
     isProcessAlive: () => true
@@ -1084,18 +1109,18 @@ test('keeps a live process handle when tree termination fails', async () => {
   assert.equal(processes.get('project'), child);
 });
 
-test('accepts a termination race when the tracked process has already exited', async () => {
+test('does not hide a process-group permission failure after the tracked root exits', async () => {
   const child = { pid: 607, exitCode: null, signalCode: null };
   const processes = new Map([['project', child]]);
 
-  assert.equal(await terminateTrackedProcess(processes, 'project', {
+  await assert.rejects(terminateTrackedProcess(processes, 'project', {
     platform: 'darwin',
     kill: () => {
       child.exitCode = 0;
       throw Object.assign(new Error('not permitted'), { code: 'EPERM' });
     }
-  }), true);
-  assert.equal(processes.has('project'), false);
+  }), /not permitted/);
+  assert.equal(processes.get('project'), child);
 });
 
 test('does not hide unrelated tree termination failures after process exit', async () => {
@@ -1108,30 +1133,106 @@ test('does not hide unrelated tree termination failures after process exit', asy
       throw Object.assign(new Error('unexpected failure'), { code: 'EINVAL' });
     }
   }), /unexpected failure/);
-  assert.equal(processes.has('project'), false);
+  assert.equal(processes.get('project'), child);
 });
 
-test('treats a missing exited process as stopped when the platform terminator loses the race', async () => {
+test('keeps ownership when Windows cannot confirm cleanup after the root exits', async () => {
   const child = {
     pid: 609,
     exitCode: 0,
     signalCode: null,
-    runlistIdentity: Promise.resolve('609:original')
+    runlistIdentity: Promise.resolve('609:100')
   };
   const processes = new Map([['project', child]]);
 
-  assert.equal(await terminateTrackedProcess(processes, 'project', {
+  await assert.rejects(terminateTrackedProcess(processes, 'project', {
     platform: 'win32',
     isProcessAlive: () => false,
     readProcessIdentity: async () => undefined,
-    spawnProcess: () => {
+    readOwnedProcessTree: async () => { throw new Error('process query unavailable'); }
+  }), /process query unavailable/);
+  assert.equal(processes.get('project'), child);
+});
+
+test('terminates identity-checked Windows descendants after their tracked root exits', async () => {
+  const child = {
+    pid: 615,
+    exitCode: 0,
+    signalCode: null,
+    runlistIdentity: Promise.resolve('615:100')
+  };
+  const processes = new Map([['project', child]]);
+  const calls = [];
+
+  assert.equal(await terminateTrackedProcess(processes, 'project', {
+    platform: 'win32',
+    readOwnedProcessTree: async () => [
+      { pid: 700, parentPid: 615, identity: '700:110' },
+      { pid: 701, parentPid: 700, identity: '701:120' },
+      { pid: 702, parentPid: 615, identity: '702:90' }
+    ],
+    readProcessIdentity: async (pid) => (pid === 700 ? '700:110' : undefined),
+    spawnProcess: (command, args) => {
+      calls.push([command, args]);
       const taskkill = new EventEmitter();
       taskkill.stderr = new EventEmitter();
       taskkill.stderr.setEncoding = () => {};
-      process.nextTick(() => taskkill.emit('exit', 128));
+      process.nextTick(() => taskkill.emit('exit', 0));
       return taskkill;
     }
   }), true);
+
+  assert.deepEqual(calls, [['taskkill.exe', ['/PID', '700', '/T', '/F']]]);
+  assert.equal(processes.has('project'), false);
+});
+
+test('refuses exited-root cleanup when the Windows root PID was reused', async () => {
+  const child = {
+    pid: 616,
+    exitCode: 0,
+    signalCode: null,
+    runlistIdentity: Promise.resolve('616:100')
+  };
+  const processes = new Map([['project', child]]);
+
+  await assert.rejects(terminateTrackedProcess(processes, 'project', {
+    platform: 'win32',
+    readProcessIdentity: async () => undefined,
+    readOwnedProcessTree: async () => [{
+      pid: 616,
+      parentPid: 1,
+      identity: '616:200'
+    }]
+  }), /process identity changed/);
+  assert.equal(processes.get('project'), child);
+});
+
+test('terminates surviving POSIX descendants after their tracked root exits', async () => {
+  const child = {
+    pid: 614,
+    exitCode: 0,
+    signalCode: null,
+    runlistIdentity: Promise.resolve('614:original')
+  };
+  const processes = new Map([['project', child]]);
+  const signals = [];
+  let groupAlive = true;
+
+  assert.equal(await terminateTrackedProcess(processes, 'project', {
+    platform: 'linux',
+    readProcessIdentity: async () => undefined,
+    kill: (pid, signal) => {
+      if (signal === 0) {
+        if (groupAlive) {
+          return;
+        }
+        throw Object.assign(new Error('not found'), { code: 'ESRCH' });
+      }
+      signals.push([pid, signal]);
+      groupAlive = false;
+    }
+  }), true);
+  assert.deepEqual(signals, [[-614, 'SIGTERM']]);
   assert.equal(processes.has('project'), false);
 });
 
@@ -1297,7 +1398,7 @@ test('fails closed when an exited tracked child has no identity but its PID is l
   assert.equal(processes.get('project'), child);
 });
 
-test('cleans an exited tracked child without signaling when its PID is absent', async () => {
+test('keeps an exited Windows child when its launch identity is unavailable', async () => {
   const child = {
     pid: 617,
     exitCode: 0,
@@ -1307,15 +1408,15 @@ test('cleans an exited tracked child without signaling when its PID is absent', 
   const processes = new Map([['project', child]]);
   let terminationCalls = 0;
 
-  assert.equal(await terminateTrackedProcess(processes, 'project', {
+  await assert.rejects(terminateTrackedProcess(processes, 'project', {
     platform: 'win32',
     isProcessAlive: () => false,
     spawnProcess: () => {
       terminationCalls += 1;
     }
-  }), true);
+  }), /could not verify.*process identity/i);
   assert.equal(terminationCalls, 0);
-  assert.equal(processes.has('project'), false);
+  assert.equal(processes.get('project'), child);
 });
 
 test('fails closed for rejected, empty, and whitespace tracked identities', async () => {
@@ -1529,6 +1630,7 @@ test('rejects a reused host PID and withholds refresh or termination when identi
   const readHostProcessIdentity = (pid) => identities.get(pid);
   const owner = new RealProcessOwnershipStore(directory, {
     pid: 101,
+    platform: 'linux',
     hostIdentity: '101:original',
     now: () => now,
     isProcessAlive: (pid) => alive.has(pid),
@@ -1536,6 +1638,7 @@ test('rejects a reused host PID and withholds refresh or termination when identi
   });
   const observer = new RealProcessOwnershipStore(directory, {
     pid: 202,
+    platform: 'linux',
     hostIdentity: '202:observer',
     now: () => now,
     isProcessAlive: (pid) => alive.has(pid),
@@ -1573,12 +1676,14 @@ test('treats missing or unavailable host identity as uncertain while preserving 
   const readHostProcessIdentity = () => hostIdentity;
   const owner = new RealProcessOwnershipStore(directory, {
     pid: 101,
+    platform: 'linux',
     hostIdentity: '101:original',
     isProcessAlive: (pid) => alive.has(pid),
     readHostProcessIdentity
   });
   const observer = new RealProcessOwnershipStore(directory, {
     pid: 202,
+    platform: 'linux',
     hostIdentity: '202:observer',
     isProcessAlive: (pid) => alive.has(pid),
     readHostProcessIdentity
@@ -1620,12 +1725,14 @@ test('does not consume a custom Stop request after the owner identity changes', 
   let currentOwnerIdentity = '101:original';
   const owner = new RealProcessOwnershipStore(directory, {
     pid: 101,
+    platform: 'linux',
     hostIdentity: '101:original',
     isProcessAlive: (pid) => alive.has(pid),
     readHostProcessIdentity: (pid) => pid === 101 ? currentOwnerIdentity : '202:observer'
   });
   const requester = new RealProcessOwnershipStore(directory, {
     pid: 202,
+    platform: 'linux',
     hostIdentity: '202:observer',
     isProcessAlive: (pid) => alive.has(pid),
     readHostProcessIdentity: (pid) => pid === 101 ? currentOwnerIdentity : '202:observer'
@@ -1677,6 +1784,7 @@ test('does not create ownership when host identity capture throws', (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-host-identity-throw-'));
   const owner = new RealProcessOwnershipStore(directory, {
     pid: 101,
+    platform: 'linux',
     readHostProcessIdentity: () => { throw new Error('reader unavailable'); }
   });
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
@@ -1692,6 +1800,7 @@ test('does not release ownership after the local host identity changes', (t) => 
   let identity = '101:original';
   const owner = new RealProcessOwnershipStore(directory, {
     pid: 101,
+    platform: 'linux',
     hostIdentity: '101:original',
     isProcessAlive: (pid) => alive.has(pid),
     readHostProcessIdentity: () => identity
@@ -1721,12 +1830,14 @@ test('caches foreign host identity decisions but always refreshes before ownersh
   };
   const owner = new RealProcessOwnershipStore(directory, {
     pid: 101,
+    platform: 'linux',
     hostIdentity: '101:original',
     isProcessAlive: (pid) => alive.has(pid),
     readHostProcessIdentity
   });
   const observer = new RealProcessOwnershipStore(directory, {
     pid: 202,
+    platform: 'linux',
     hostIdentity: '202:observer',
     isProcessAlive: (pid) => alive.has(pid),
     readHostProcessIdentity,
@@ -1749,6 +1860,7 @@ test('reclaims only after a fresh tri-state identity decision proves it is safe'
   const alive = new Set([101, 202, 303]);
   const owner = new RealProcessOwnershipStore(directory, {
     pid: 101,
+    platform: 'linux',
     hostIdentity: '101:original',
     now: () => now,
     ownerHeartbeatTimeoutMs: 5000,
@@ -1756,6 +1868,7 @@ test('reclaims only after a fresh tri-state identity decision proves it is safe'
   });
   const observer = new RealProcessOwnershipStore(directory, {
     pid: 202,
+    platform: 'linux',
     hostIdentity: '202:observer',
     now: () => now,
     ownerHeartbeatTimeoutMs: 5000,
@@ -1804,6 +1917,7 @@ test('reclaims unreadable ownership only when host and child absence are definit
   const uncertain = new Set();
   const observer = new RealProcessOwnershipStore(directory, {
     pid: 202,
+    platform: 'linux',
     hostIdentity: '202:observer',
     isProcessAlive: (pid) => {
       if (uncertain.has(pid)) {

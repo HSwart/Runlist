@@ -15,6 +15,7 @@ function ProcessOwnershipStore(directory, options = {}) {
   const pid = options.pid || process.pid;
   return new RealProcessOwnershipStore(directory, {
     ...options,
+    platform: options.platform || 'linux',
     hostIdentity: options.hostIdentity || `test-host:${pid}`,
     readHostProcessIdentity: options.readHostProcessIdentity
       || ((hostPid) => `test-host:${hostPid}`)
@@ -724,7 +725,7 @@ test('holds process ownership while deleting a saved project', () => {
   const verifyPortOwnership = source.indexOf('hasUnownedPortReservation(id', refreshOwnership);
   const latestOwnership = source.indexOf('const latestSharedOwnership = latestProcessRuntime.get(id)', verifyPortOwnership);
   const reserveDeletion = source.indexOf('const deletionConflict = this.processOwnership.reserve(id)', refreshOwnership);
-  const removeSavedProject = source.indexOf('removeProject(this.projectsFile, id)', reserveDeletion);
+  const removeSavedProject = source.indexOf('removeProject(this.projectsFile, id, { expectedProject: project })', reserveDeletion);
   const releaseDeletion = source.indexOf('this.processOwnership.release(id)', removeSavedProject);
 
   assert.ok(refreshOwnership >= 0);

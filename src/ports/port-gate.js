@@ -10,6 +10,8 @@ const INVALID_RECORD_GRACE_MS = 2000;
 const LOCK_UPDATE_MAX_ATTEMPTS = 200;
 const LOCK_UPDATE_RETRY_MS = 5;
 const LOCK_UPDATE_WAIT = new Int32Array(new SharedArrayBuffer(4));
+const CURRENT_PROCESS_IDENTITY = readProcessIdentitySync(process.pid, process.platform)
+  || `${process.pid}:runtime:${Math.round(Date.now() - (process.uptime() * 1000))}`;
 
 function servicePorts(project) {
   return [...new Set((project?.services || [])
@@ -655,7 +657,12 @@ class PortReservationStore {
       try {
         token = crypto.randomUUID();
         descriptor = fs.openSync(transactionPath, 'wx', 0o600);
-        fs.writeFileSync(descriptor, JSON.stringify({ pid: process.pid, token }));
+        fs.writeFileSync(descriptor, JSON.stringify({
+          pid: process.pid,
+          ...(CURRENT_PROCESS_IDENTITY ? { processIdentity: CURRENT_PROCESS_IDENTITY } : {}),
+          createdAt: this.now(),
+          token
+        }));
         fs.closeSync(descriptor);
         descriptor = undefined;
         break;
@@ -668,10 +675,21 @@ class PortReservationStore {
           throw error;
         }
         const existing = readLock(transactionPath);
-        if (existing && !processIsAlive(existing.pid)) {
+        if (existing && transientLockIsAbandoned(
+          transactionPath,
+          existing,
+          this.invalidRecordGraceMs,
+          this.now()
+        )) {
           updateLock(
             transactionPath,
-            (current) => current?.token === existing.token && !processIsAlive(current.pid)
+            (current) => current?.token === existing.token
+              && transientLockIsAbandoned(
+                transactionPath,
+                current,
+                this.invalidRecordGraceMs,
+                this.now()
+              )
           );
           continue;
         }
@@ -722,7 +740,11 @@ function updateLock(lockPath, matches, update) {
   for (let attempt = 0; attempt < LOCK_UPDATE_MAX_ATTEMPTS; attempt += 1) {
     try {
       const descriptor = fs.openSync(updatePath, 'wx');
-      fs.writeFileSync(descriptor, JSON.stringify({ pid: process.pid }));
+      fs.writeFileSync(descriptor, JSON.stringify({
+        pid: process.pid,
+        ...(CURRENT_PROCESS_IDENTITY ? { processIdentity: CURRENT_PROCESS_IDENTITY } : {}),
+        createdAt: Date.now()
+      }));
       fs.closeSync(descriptor);
       acquired = true;
       break;
@@ -786,8 +808,21 @@ function fileFingerprint(filePath) {
 
 function updateMarkerIsAbandoned(filePath, graceMs, now) {
   const marker = readLock(filePath);
-  if (Number.isInteger(marker?.pid) && marker.pid > 0) {
-    return !processIsAlive(marker.pid);
+  return transientLockIsAbandoned(filePath, marker, graceMs, now);
+}
+
+function transientLockIsAbandoned(filePath, marker, graceMs, now) {
+  if (!Number.isInteger(marker?.pid) || marker.pid <= 0) {
+    return invalidRecordIsStale(filePath, graceMs, now);
+  }
+  if (!processIsAlive(marker.pid)) {
+    return true;
+  }
+  const currentIdentity = marker.pid === process.pid
+    ? CURRENT_PROCESS_IDENTITY
+    : readProcessIdentitySync(marker.pid, process.platform);
+  if (typeof marker.processIdentity === 'string' && currentIdentity) {
+    return currentIdentity !== marker.processIdentity;
   }
   return invalidRecordIsStale(filePath, graceMs, now);
 }

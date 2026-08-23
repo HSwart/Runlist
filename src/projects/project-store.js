@@ -9,7 +9,7 @@ const { normalizeProjectTags } = require('./project-tags');
 const {
   DEFAULT_LAUNCH_PROFILE_ID,
   DEFAULT_LAUNCH_PROFILE_NAME,
-  MAX_LAUNCH_PROFILES
+  MAX_ALTERNATE_LAUNCH_PROFILES
 } = require('./launch-profile');
 
 const PROJECT_STORE_SCHEMA_VERSION = 5;
@@ -615,7 +615,7 @@ function validateStoredLaunchProfiles(value, projectIndex, options = {}) {
   if (value === undefined) {
     return [];
   }
-  if (!Array.isArray(value) || value.length >= MAX_LAUNCH_PROFILES) {
+  if (!Array.isArray(value) || value.length > MAX_ALTERNATE_LAUNCH_PROFILES) {
     throw projectStoreError('INVALID_STORAGE', `Runlist project ${projectIndex + 1} launch profiles are not valid.`);
   }
   const ids = new Set([DEFAULT_LAUNCH_PROFILE_ID]);
@@ -798,8 +798,8 @@ function normalizeProjectInput(input, options = {}) {
 }
 
 function normalizeLaunchProfiles(value) {
-  if (!Array.isArray(value) || value.length >= MAX_LAUNCH_PROFILES) {
-    throw new Error(`launchProfiles must contain no more than ${MAX_LAUNCH_PROFILES - 1} alternate profiles.`);
+  if (!Array.isArray(value) || value.length > MAX_ALTERNATE_LAUNCH_PROFILES) {
+    throw new Error(`launchProfiles must contain no more than ${MAX_ALTERNATE_LAUNCH_PROFILES} alternate profiles.`);
   }
   const ids = new Set([DEFAULT_LAUNCH_PROFILE_ID]);
   const names = new Set([DEFAULT_LAUNCH_PROFILE_NAME.toLocaleLowerCase()]);
@@ -1067,12 +1067,20 @@ function findProjectByFolder(filePath, folder) {
   ));
 }
 
-function removeProject(filePath, id) {
-  return withProjectStoreLock(filePath, () => removeProjectLocked(filePath, id));
+function removeProject(filePath, id, options = {}) {
+  return withProjectStoreLock(filePath, () => removeProjectLocked(filePath, id, options));
 }
 
-function removeProjectLocked(filePath, id) {
+function removeProjectLocked(filePath, id, options = {}) {
   const projects = readProjects(filePath);
+  const existing = projects.find((project) => project.id === id);
+  if (options.expectedProject
+    && JSON.stringify(existing) !== JSON.stringify(options.expectedProject)) {
+    throw projectStoreError(
+      'STALE_PROJECT',
+      'This project changed in another VS Code window. Reopen it before removing it.'
+    );
+  }
   const nextProjects = projects.filter((project) => project.id !== id);
   if (nextProjects.length === projects.length) {
     return false;

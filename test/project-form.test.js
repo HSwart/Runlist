@@ -32,6 +32,28 @@ test('round-trips alternate launch profiles through the project form model', () 
   assert.equal(setup.selectedLaunchProfileId, 'tests');
 });
 
+test('allows eleven alternates for twelve total profiles and reports the same limit', () => {
+  const profile = (index) => ({
+    id: `profile-${index}`,
+    name: `Profile ${index}`,
+    startCommand: `npm run profile-${index}`,
+    services: []
+  });
+  const input = {
+    folder: '/tmp/project',
+    startCommand: 'npm start',
+    services: [],
+    launchProfiles: Array.from({ length: 11 }, (_, index) => profile(index))
+  };
+
+  assert.equal(validateProjectForm(input).errors.form, undefined);
+  assert.equal(
+    validateProjectForm({ ...input, launchProfiles: [...input.launchProfiles, profile(11)] })
+      .errors.form,
+    'Configure no more than 11 alternate launch profiles (12 including Default).'
+  );
+});
+
 test('reveals and validates an invalid profile even when another profile is being edited', () => {
   const validation = validateProjectForm({
     folder: '/tmp/project',

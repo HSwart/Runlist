@@ -731,6 +731,28 @@ test('creates, updates, and removes projects in the shared store', (t) => {
   assert.deepEqual(readProjects(projectsFile), []);
 });
 
+test('does not remove a project that changed after deletion was confirmed', (t) => {
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-stale-delete-'));
+  const projectFolder = path.join(temporaryRoot, 'sample-app');
+  const projectsFile = path.join(temporaryRoot, 'projects.json');
+  fs.mkdirSync(projectFolder);
+  t.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
+  const original = upsertProject(projectsFile, {
+    folder: projectFolder,
+    startCommand: 'npm start'
+  }).project;
+  const changed = upsertProject(projectsFile, {
+    ...original,
+    startCommand: 'npm run changed'
+  }, { reviewRequired: false }).project;
+
+  assert.throws(
+    () => removeProject(projectsFile, original.id, { expectedProject: original }),
+    (error) => error.code === 'STALE_PROJECT'
+  );
+  assert.deepEqual(readProjects(projectsFile), [changed]);
+});
+
 test('rejects duplicate service ports', (t) => {
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-store-'));
   const projectFolder = path.join(temporaryRoot, 'sample-app');

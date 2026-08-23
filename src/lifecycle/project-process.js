@@ -6,6 +6,7 @@ const { execFile, execFileSync, spawn } = require('child_process');
 const {
   darwinProcessIdentityFormat,
   parseDarwinProcessIdentity,
+  readOwnedProcessTree,
   readRootProcess
 } = require('./process-metrics');
 const { writeFileAtomically } = require('../projects/project-store');
@@ -25,6 +26,8 @@ const DARWIN_IDENTITY_PS_ARGS = [
   '-o', 'sess=',
   '-o', 'command='
 ];
+const CURRENT_PROCESS_IDENTITY = readProcessIdentitySync(process.pid, process.platform)
+  || `${process.pid}:runtime:${Math.round(Date.now() - (process.uptime() * 1000))}`;
 
 function projectProcessSpawnOptions(platform = process.platform) {
   return platform === 'win32'
@@ -111,13 +114,11 @@ async function terminateTrackedProcess(processes, id, options = {}) {
   const readIdentity = options.readProcessIdentity || readProcessIdentity;
   const identityRequired = Object.prototype.hasOwnProperty.call(child, 'runlistIdentity');
   const expectedIdentity = await promisedIdentity(child.runlistIdentity);
-  const hasExited = child.exitCode != null || child.signalCode != null;
+  const rootExited = child.exitCode != null || child.signalCode != null;
   const expectedIdentityIsValid = stableProcessIdentity(expectedIdentity);
-  if (identityRequired && !expectedIdentityIsValid) {
-    if (hasExited && await trackedProcessLiveness(child.pid, platform, options) === false) {
-      processes.delete(id);
-      return true;
-    }
+  if (identityRequired
+    && !expectedIdentityIsValid
+    && (!rootExited || platform === 'win32')) {
     throw new Error('Runlist could not verify the launched process identity.');
   }
   if (expectedIdentityIsValid) {
@@ -130,9 +131,9 @@ async function terminateTrackedProcess(processes, id, options = {}) {
     if (stableProcessIdentity(currentIdentity) && currentIdentity !== expectedIdentity) {
       throw new Error('Runlist did not stop the process because its process identity changed.');
     }
-    if (!stableProcessIdentity(currentIdentity)) {
+    if (!stableProcessIdentity(currentIdentity) && !rootExited) {
       const liveness = await trackedProcessLiveness(child.pid, platform, options);
-      if (liveness === false && (hasExited || options.allowMissing)) {
+      if (liveness === false && options.allowMissing) {
         processes.delete(id);
         return true;
       }
@@ -142,33 +143,54 @@ async function terminateTrackedProcess(processes, id, options = {}) {
 
   processes.delete(id);
   try {
-    await terminateProcessTree(child.pid, {
-      ...options,
-      ...(expectedIdentityIsValid ? {
-        expectedIdentity,
+    if (rootExited && platform === 'win32') {
+      await terminateExitedWindowsTree(child.pid, expectedIdentity, {
+        ...options,
         readProcessIdentity: readIdentity
-      } : {})
-    });
-  } catch (error) {
-    const exitedAfterAttempt = child.exitCode != null || child.signalCode != null;
-    if (exitedAfterAttempt) {
-      if (expectedIdentityIsValid) {
-        const liveness = await trackedProcessLiveness(child.pid, platform, options);
-        if (liveness === false) {
-          return true;
-        }
-        processes.set(id, child);
-        throw error;
-      }
-      if (error.code === 'EPERM') {
-        return true;
-      }
+      });
     } else {
-      processes.set(id, child);
+      await terminateProcessTree(child.pid, {
+        ...options,
+        platform,
+        ...(expectedIdentityIsValid && !rootExited ? {
+          expectedIdentity,
+          readProcessIdentity: readIdentity
+        } : {})
+      });
     }
+  } catch (error) {
+    processes.set(id, child);
     throw error;
   }
   return true;
+}
+
+async function terminateExitedWindowsTree(rootPid, rootIdentity, options = {}) {
+  const readTree = options.readOwnedProcessTree || readOwnedProcessTree;
+  const rows = await readTree(rootPid, 'win32', options);
+  if (rows.some((row) => row.pid === rootPid)) {
+    throw new Error('Runlist did not stop the process because its process identity changed.');
+  }
+  const rootStartedAt = windowsIdentityStartedAt(rootIdentity);
+  const directChildren = rows.filter((row) => {
+    const childStartedAt = windowsIdentityStartedAt(row.identity);
+    return row.parentPid === rootPid
+      && (rootStartedAt === undefined
+        || (childStartedAt !== undefined && childStartedAt >= rootStartedAt));
+  });
+  for (const descendant of directChildren) {
+    await terminateProcessTree(descendant.pid, {
+      ...options,
+      platform: 'win32',
+      expectedIdentity: descendant.identity,
+      readProcessIdentity: options.readProcessIdentity || readProcessIdentity
+    });
+  }
+}
+
+function windowsIdentityStartedAt(identity) {
+  const value = String(identity || '').split(':').at(-1);
+  return /^\d+$/.test(value) ? BigInt(value) : undefined;
 }
 
 function shutdownTrackedProcesses(processes, processOwnership, portReservations, options = {}) {
@@ -1782,7 +1804,11 @@ function updateJsonRecord(filePath, matches, update) {
   for (let attempt = 0; attempt < OWNERSHIP_UPDATE_MAX_ATTEMPTS; attempt += 1) {
     try {
       const descriptor = fs.openSync(updatePath, 'wx', 0o600);
-      fs.writeFileSync(descriptor, JSON.stringify({ pid: process.pid }));
+      fs.writeFileSync(descriptor, JSON.stringify({
+        pid: process.pid,
+        ...(CURRENT_PROCESS_IDENTITY ? { processIdentity: CURRENT_PROCESS_IDENTITY } : {}),
+        createdAt: Date.now()
+      }));
       fs.closeSync(descriptor);
       acquired = true;
       break;
@@ -1853,8 +1879,17 @@ function sameStopRequest(left, right) {
 
 function updateMarkerIsAbandoned(filePath, graceMs, now) {
   const marker = readJson(filePath);
-  if (Number.isInteger(marker?.pid) && marker.pid > 0) {
-    return !processIsAlive(marker.pid);
+  if (!Number.isInteger(marker?.pid) || marker.pid <= 0) {
+    return invalidRecordIsStale(filePath, graceMs, now);
+  }
+  if (!processIsAlive(marker.pid)) {
+    return true;
+  }
+  const currentIdentity = marker.pid === process.pid
+    ? CURRENT_PROCESS_IDENTITY
+    : readProcessIdentitySync(marker.pid, process.platform);
+  if (typeof marker.processIdentity === 'string' && currentIdentity) {
+    return currentIdentity !== marker.processIdentity;
   }
   return invalidRecordIsStale(filePath, graceMs, now);
 }

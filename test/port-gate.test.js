@@ -17,7 +17,7 @@ const { readRootProcess } = require('../src/lifecycle/process-metrics');
 test('uses the retrying atomic writer for lifecycle port reservations', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'ports', 'port-gate.js'), 'utf8');
 
-  assert.match(source, /const \{ writeFileAtomically \} = require\('\.\.\/projects\/project-store'\)/);
+  assert.match(source, /writeFileAtomically[\s\S]*require\('\.\.\/projects\/project-store'\)/);
   assert.match(source, /function writeJsonAtomically[\s\S]*writeFileAtomically\(filePath, JSON\.stringify\(value\)\)/);
 });
 
@@ -57,9 +57,10 @@ function testHostIdentity(pid, platform = process.platform) {
 
 function PortReservationStore(directory, options = {}) {
   const pid = options.pid || process.pid;
-  const platform = options.platform || process.platform;
+  const platform = options.platform || 'linux';
   return new RealPortReservationStore(directory, {
     ...options,
+    platform,
     hostIdentity: options.hostIdentity || testHostIdentity(pid, platform),
     readHostProcessIdentity: options.readHostProcessIdentity
       || ((hostPid, hostPlatform) => testHostIdentity(hostPid, hostPlatform))
@@ -401,6 +402,29 @@ test('serializes complete overlapping multi-port reservations across hosts', (t)
   assert.equal(fs.existsSync(path.join(directory, 'port-4312.lock')), false);
 });
 
+test('recovers transaction and update locks after their host PID is reused', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-port-reused-lock-owner-'));
+  const transactionPath = path.join(directory, '.reservation-transaction.lock');
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  fs.writeFileSync(transactionPath, JSON.stringify({
+    pid: process.pid,
+    processIdentity: `${process.pid}:previous-process`,
+    token: 'stale-transaction'
+  }));
+  fs.writeFileSync(`${transactionPath}.update`, JSON.stringify({
+    pid: process.pid,
+    processIdentity: `${process.pid}:previous-process`
+  }));
+
+  const reservations = new PortReservationStore(directory, {
+    invalidRecordGraceMs: 60_000
+  });
+
+  assert.equal(reservations.reserve(projects[0]), undefined);
+  assert.equal(fs.existsSync(transactionPath), false);
+  assert.equal(fs.existsSync(`${transactionPath}.update`), false);
+});
+
 test('retries a reservation after its confirmed owner has exited', (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-port-dead-owner-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
@@ -439,7 +463,7 @@ test('persists the stable extension-host identity in each port lock', (t) => {
   const lock = JSON.parse(fs.readFileSync(path.join(directory, 'port-3000.lock'), 'utf8'));
   assert.equal(lock.pid, 101);
   assert.equal(lock.hostIdentity, '101:original-host');
-  assert.equal(lock.platform, process.platform);
+  assert.equal(lock.platform, 'linux');
 });
 
 test('reclaims a fresh port lock when its host PID was reused', (t) => {

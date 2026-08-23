@@ -27,7 +27,10 @@ test('routes the package command through the reviewed staging boundary', () => {
 });
 
 function temporaryFixtureRoot(t) {
-  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-package-fixture-'));
+  const fixtureRoot = fs.mkdtempSync(path.join(
+    fs.realpathSync.native(os.tmpdir()),
+    'runlist-package-fixture-'
+  ));
   for (const file of [...REVIEWED_PACKAGE_FILES, ...REVIEWED_PACKAGING_CONTROL_FILES]) {
     const sourcePath = path.join(root, ...file.split('/'));
     const targetPath = path.join(fixtureRoot, ...file.split('/'));
@@ -201,7 +204,12 @@ test('rejects an unexpected archive entry before replacing output', async (t) =>
       testOnly: true,
       createCandidate: async ({ cwd, packagePath }) => {
         fs.writeFileSync(path.join(cwd, 'unreviewed-root-input.txt'), 'sentinel');
-        await createVSIX({ cwd, packageManager: PackageManager.None, packagePath });
+        await createVSIX({
+          cwd,
+          dependencies: false,
+          packageManager: PackageManager.None,
+          packagePath
+        });
       }
     }),
     /unexpected entries: extension\/unreviewed-root-input\.txt/
