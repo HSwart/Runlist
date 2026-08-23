@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const readline = require('node:readline');
+const net = require('node:net');
 const { spawn } = require('node:child_process');
 const test = require('node:test');
 const { MAX_DIAGNOSTIC_OUTPUT_CHARS, writeProjectDiagnostics } = require('../src/projects/project-diagnostics');
@@ -17,6 +18,17 @@ const {
   createRequestLineParser,
   MAX_JSON_RPC_REQUEST_BYTES
 } = require('../mcp/server');
+
+function availablePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address();
+      server.close((error) => error ? reject(error) : resolve(port));
+    });
+  });
+}
 
 function paddedPingRequest(targetBytes, paddingCharacter = 'x', id = 1) {
   const build = (padding) => JSON.stringify({
@@ -198,6 +210,8 @@ test('serves the setup tool over MCP stdio', async (t) => {
   const projectsFile = path.join(temporaryRoot, 'projects.json');
   const installedRoot = path.join(temporaryRoot, 'installed-bridge');
   const installedMcpRoot = path.join(installedRoot, 'mcp');
+  const webPort = await availablePort();
+  const apiPort = await availablePort();
   fs.mkdirSync(projectFolder);
   fs.mkdirSync(installedMcpRoot, { recursive: true });
   const bridgeFiles = [
@@ -317,8 +331,8 @@ test('serves the setup tool over MCP stdio', async (t) => {
       folder: projectFolder,
       startCommand: 'npm run dev',
       services: [
-        { name: 'web', port: 3000, url: 'https://app.local/dashboard' },
-        { name: 'api', port: 4000 }
+        { name: 'web', port: webPort, url: 'https://app.local/dashboard' },
+        { name: 'api', port: apiPort }
       ]
     }
   });
@@ -329,8 +343,8 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.equal(Object.hasOwn(called.result.structuredContent.project, 'stopCommand'), false);
   assert.match(called.result.content[0].text, /must review and approve/i);
   assert.deepEqual(called.result.structuredContent.project.services, [
-    { name: 'web', port: 3000, url: 'https://app.local/dashboard' },
-    { name: 'api', port: 4000 }
+    { name: 'web', port: webPort, url: 'https://app.local/dashboard' },
+    { name: 'api', port: apiPort }
   ]);
   let storedProjects = readProjects(projectsFile);
   assert.equal(storedProjects.length, 1);
@@ -352,10 +366,14 @@ test('serves the setup tool over MCP stdio', async (t) => {
     arguments: {
       folder: projectFolder,
       startCommand: 'npm run dev',
-      services: [{ name: 'web', port: 3000 }]
+      services: [{ name: 'web', port: webPort }]
     }
   });
-  assert.equal(setupUpdated.result.isError, false);
+  assert.equal(
+    setupUpdated.result.isError,
+    false,
+    JSON.stringify(setupUpdated.result)
+  );
   assert.equal(setupUpdated.result.structuredContent.action, 'updated');
   assert.equal(Object.hasOwn(setupUpdated.result.structuredContent.project, 'tags'), false);
   assert.equal(Object.hasOwn(setupUpdated.result.structuredContent.project, 'pinned'), false);

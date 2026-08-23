@@ -1050,7 +1050,10 @@ test('revalidates custom Stop ownership after confirmation before running the co
 
 test('verifies the custom stop shell identity before timeout cleanup', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
-  assert.match(source, /const stopProcessIdentity = readProcessIdentity\(stopProcess\.pid\)/);
+  assert.match(
+    source,
+    /const stopProcessIdentity = Promise\.resolve\(readProcessIdentity\(stopProcess\.pid\)\)[\s\S]*releaseSupervisorIdentityHold\(stopProcess\)/
+  );
   assert.match(source, /terminateProcessTree\(stopProcess\.pid, \{[\s\S]*expectedIdentity,[\s\S]*readProcessIdentity/);
 });
 
@@ -1154,9 +1157,15 @@ test('reports a synchronous custom Stop failure once when settlement cleanup thr
       return 'synchronous spawn failure';
     }
   });
-  const Provider = loadRunlistProvider(() => {
-    throw spawnError;
-  }, messages);
+  const Provider = loadRunlistProvider(
+    () => { throw spawnError; },
+    messages,
+    {
+      './src/lifecycle/project-process': {
+        spawnProjectCommand: () => { throw spawnError; }
+      }
+    }
+  );
   const provider = Object.create(Provider.prototype);
   let finishCalls = 0;
   let rollbackCalls = 0;
@@ -1359,7 +1368,7 @@ test('guards synchronous custom Stop launch failures after beginStopping', () =>
   const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const runCustomStop = source.indexOf('runCustomStopCommand(project, options = {})');
   const beginStopping = source.indexOf('this.beginStopping(project.id, options)', runCustomStop);
-  const spawn = source.indexOf('spawn(project.stopCommand', beginStopping);
+  const spawn = source.indexOf('spawnProjectCommand(project.stopCommand', beginStopping);
   const promise = source.indexOf('return new Promise((resolve)', beginStopping);
   const settlement = source.indexOf('settleCustomStop(');
 
@@ -1367,7 +1376,7 @@ test('guards synchronous custom Stop launch failures after beginStopping', () =>
   assert.ok(beginStopping > runCustomStop);
   assert.ok(spawn > beginStopping);
   assert.ok(promise > spawn);
-  assert.match(source.slice(beginStopping, promise), /try[\s\S]*spawn\(project\.stopCommand[\s\S]*catch[\s\S]*return Promise\.reject\(error\)/);
+  assert.match(source.slice(beginStopping, promise), /try[\s\S]*spawnProjectCommand\(project\.stopCommand[\s\S]*catch[\s\S]*return Promise\.reject\(error\)/);
   assert.ok(settlement >= 0);
 });
 

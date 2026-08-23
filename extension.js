@@ -2,7 +2,6 @@ const vscode = require('vscode');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
 const { safeHttpUrl } = require('./src/services/external-url');
 const {
   claudeBundledCliPaths,
@@ -74,6 +73,7 @@ const {
   projectStopStrategy,
   readProcessIdentity,
   recordStartedProcess,
+  releaseSupervisorIdentityHold,
   rollbackStartedProcess,
   shutdownTrackedProcesses,
   shouldRequestRemoteCustomStop,
@@ -3638,7 +3638,7 @@ class RunlistViewProvider {
     this.beginStopping(project.id, options);
     let stopProcess;
     try {
-      stopProcess = spawn(project.stopCommand, {
+      stopProcess = spawnProjectCommand(project.stopCommand, {
         cwd: project.folder,
         env: environment,
         ...customStopSpawnOptions()
@@ -3647,7 +3647,11 @@ class RunlistViewProvider {
       return Promise.reject(error);
     }
     return new Promise((resolve) => {
-      const stopProcessIdentity = readProcessIdentity(stopProcess.pid);
+      const stopProcessIdentity = Promise.resolve(readProcessIdentity(stopProcess.pid))
+        .catch(() => undefined);
+      void stopProcessIdentity
+        .finally(() => releaseSupervisorIdentityHold(stopProcess))
+        .catch(() => undefined);
       let finalized = false;
       let stdout = '';
       let stderr = '';

@@ -374,6 +374,20 @@ test('fails closed when Linux kernel process identity is unavailable', async () 
   assert.equal(actual, undefined);
 });
 
+test('treats a POSIX root disappearing during inspection as absent', async () => {
+  const missing = Object.assign(new Error('process disappeared'), { code: 1 });
+
+  assert.equal(await readRootProcess(55, 'darwin', {
+    runFile: async () => { throw missing; }
+  }), undefined);
+  await assert.rejects(
+    readRootProcess(55, 'darwin', {
+      runFile: async () => { throw Object.assign(new Error('ps failed'), { code: 2 }); }
+    }),
+    /ps failed/
+  );
+});
+
 test('builds a bounded Windows descendant query without a system-wide process request', () => {
   const script = windowsProcessScript(55, true);
   assert.match(script, /ProcessId = /);

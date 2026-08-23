@@ -2175,6 +2175,7 @@ module.exports = {
   readProcessIdentity,
   readProcessIdentitySync,
   recordStartedProcess,
+  releaseSupervisorIdentityHold,
   restartProjectSafely,
   rollbackStartedProcess,
   shutdownTrackedProcesses,

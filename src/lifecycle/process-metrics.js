@@ -96,7 +96,15 @@ async function readRootProcess(pid, platform = process.platform, options = {}) {
     return readWindowsRootProcess(pid, options);
   }
 
-  const rows = await readPosixProcesses([pid], undefined, options, platform);
+  let rows;
+  try {
+    rows = await readPosixProcesses([pid], undefined, options, platform);
+  } catch (error) {
+    if (error.code === 1) {
+      return undefined;
+    }
+    throw error;
+  }
   if (platform === 'darwin' && rows.length !== 1) {
     return undefined;
   }
