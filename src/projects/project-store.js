@@ -22,8 +22,7 @@ const STORE_LOCK_RETRY_MS = 5;
 const STORE_LOCK_WAIT = new Int32Array(new SharedArrayBuffer(4));
 const HELD_STORE_LOCKS = new Set();
 const UNSAFE_COMMAND_CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
-const CURRENT_PROCESS_IDENTITY = synchronousProcessIdentity(process.pid)
-  || `${process.pid}:runtime:${Math.round(Date.now() - (process.uptime() * 1000))}`;
+const CURRENT_PROCESS_IDENTITY = synchronousProcessIdentity(process.pid);
 
 class ProjectStoreError extends Error {
   constructor(code, message, options) {
@@ -189,19 +188,20 @@ function projectStoreLockIsAbandoned(lockPath) {
   }
 }
 
-function projectStoreLockRecordIsAbandoned(record) {
+function projectStoreLockRecordIsAbandoned(record, options = {}) {
   if (!Number.isInteger(record?.pid) || record.pid <= 0) {
     return false;
   }
+  const kill = options.kill || process.kill;
   try {
-    process.kill(record.pid, 0);
+    kill(record.pid, 0);
   } catch (error) {
     return error.code === 'ESRCH';
   }
   if (typeof record.processIdentity === 'string') {
     const currentIdentity = record.pid === process.pid
       ? CURRENT_PROCESS_IDENTITY
-      : synchronousProcessIdentity(record.pid);
+      : (options.readProcessIdentity || synchronousProcessIdentity)(record.pid);
     return Boolean(currentIdentity && currentIdentity !== record.processIdentity);
   }
   return false;
@@ -1351,6 +1351,7 @@ module.exports = {
   parseProjectDocument,
   pinnedProjectsFirst,
   ProjectStoreError,
+  projectStoreLockRecordIsAbandoned,
   readProjects,
   readRunGroups,
   removeProject,

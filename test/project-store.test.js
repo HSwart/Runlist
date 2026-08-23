@@ -8,6 +8,7 @@ const {
   initializeProjectStore,
   normalizeProjectInput,
   parseProjectDocument,
+  projectStoreLockRecordIsAbandoned,
   readProjects,
   removeProject,
   saveProjectSnapshot,
@@ -172,21 +173,47 @@ test('manual Add cannot overwrite an existing project with the same folder', (t)
   assert.equal(readProjects(projectsFile)[0].startCommand, 'npm start');
 });
 
-test('recovers a store lock after its PID is reused by another process identity', (t) => {
-  const { projectFolder, projectsFile } = projectStoreFixture(t);
-  const saved = upsertProject(projectsFile, {
-    folder: projectFolder,
-    startCommand: 'npm start',
-    services: []
-  }, { reviewRequired: false }).project;
-  fs.writeFileSync(`${projectsFile}.write-lock`, JSON.stringify({
-    pid: process.pid,
-    processIdentity: 'reused-process-identity',
+test('identifies a store lock after its PID is reused by another process identity', () => {
+  assert.equal(projectStoreLockRecordIsAbandoned({
+    pid: 2147483646,
+    processIdentity: '2147483646:original',
     token: 'stale-lock'
-  }));
+  }, {
+    kill: () => {},
+    readProcessIdentity: () => '2147483646:replacement'
+  }), true);
+});
 
-  assert.equal(toggleProjectPinned(projectsFile, saved.id).pinned, true);
-  assert.equal(fs.existsSync(`${projectsFile}.write-lock`), false);
+test('keeps a live store lock when its owner identity was unavailable', () => {
+  assert.equal(projectStoreLockRecordIsAbandoned({
+    pid: 2147483646,
+    token: 'live-unverified-lock'
+  }, {
+    kill: () => {},
+    readProcessIdentity: () => '2147483646:replacement'
+  }), false);
+});
+
+test('does not publish an unverifiable fallback identity in a store lock', async (t) => {
+  const { temporaryRoot, projectsFile } = projectStoreFixture(t);
+  const storeModule = path.join(__dirname, '..', 'src', 'projects', 'project-store.js');
+  const capturedLock = path.join(temporaryRoot, 'captured-lock.json');
+  const workerSource = `
+    const childProcess = require('node:child_process');
+    childProcess.execFileSync = () => { throw new Error('identity unavailable'); };
+    const fs = require('node:fs');
+    const { withProjectStoreLock } = require(process.argv[1]);
+    withProjectStoreLock(process.argv[2], () => {
+      fs.copyFileSync(process.argv[2] + '.write-lock', process.argv[3]);
+    });
+  `;
+  const worker = spawn(process.execPath, [
+    '-e', workerSource, storeModule, projectsFile, capturedLock
+  ], { stdio: ['ignore', 'ignore', 'pipe'] });
+
+  await waitForWorker(worker);
+  const lock = JSON.parse(fs.readFileSync(capturedLock, 'utf8'));
+  assert.equal(Object.hasOwn(lock, 'processIdentity'), false);
 });
 
 test('closes and removes a store lock when writing its metadata fails', (t) => {
