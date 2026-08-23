@@ -652,7 +652,10 @@ async function processGroupIsAlive(pid, kill, options) {
     if (error.code === 'EPERM') {
       const readGroup = options.readProcessGroup || readPosixProcessGroup;
       try {
-        return (await readGroup(pid, options)).length > 0;
+        return (await readGroup(pid, {
+          ...options,
+          requireProcessGroupRoot: false
+        })).length > 0;
       } catch {
         // Preserve the original permission failure when the fallback cannot prove the group is empty.
       }
@@ -679,7 +682,11 @@ function readPosixProcessGroup(processGroupId, options = {}) {
         return;
       }
       try {
-        resolve(parsePosixProcessGroupRows(stdout, processGroupId));
+        resolve(parsePosixProcessGroupRows(
+          stdout,
+          processGroupId,
+          options.requireProcessGroupRoot !== false
+        ));
       } catch (parseError) {
         reject(parseError);
       }
@@ -687,7 +694,7 @@ function readPosixProcessGroup(processGroupId, options = {}) {
   });
 }
 
-function parsePosixProcessGroupRows(output, processGroupId) {
+function parsePosixProcessGroupRows(output, processGroupId, requireRoot = true) {
   if (!Number.isInteger(processGroupId) || processGroupId <= 0) {
     throw new Error('Runlist no longer has a valid process group identifier.');
   }
@@ -714,7 +721,7 @@ function parsePosixProcessGroupRows(output, processGroupId) {
       members.push(pid);
     }
   }
-  if (!members.includes(processGroupId)) {
+  if (requireRoot && !members.includes(processGroupId)) {
     throw new Error('Runlist could not verify the launched process group root.');
   }
   return members;

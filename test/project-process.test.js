@@ -1133,6 +1133,28 @@ test('confirms an empty POSIX process group when signal-zero is denied after ter
   assert.deepEqual(signals, [[-506, 'SIGTERM']]);
 });
 
+test('waits for a descendant-only POSIX group when signal-zero is denied after root exit', async () => {
+  const signals = [];
+  let livenessChecks = 0;
+  await terminateProcessTree(506, {
+    platform: 'darwin',
+    pollIntervalMs: 0,
+    execFile: (command, args, options, callback) => callback(null, '700 506\n'),
+    kill: (pid, signal) => {
+      if (signal === 0) {
+        livenessChecks += 1;
+        throw Object.assign(new Error(livenessChecks === 1 ? 'not permitted' : 'not found'), {
+          code: livenessChecks === 1 ? 'EPERM' : 'ESRCH'
+        });
+      }
+      signals.push([pid, signal]);
+    }
+  });
+
+  assert.deepEqual(signals, [[-506, 'SIGTERM']]);
+  assert.equal(livenessChecks, 3);
+});
+
 test('keeps a POSIX process group blocked when the EPERM fallback cannot verify it', async () => {
   await assert.rejects(terminateProcessTree(507, {
     platform: 'darwin',
