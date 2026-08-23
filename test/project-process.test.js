@@ -1472,17 +1472,39 @@ test('reconciles an exited Windows child with no identity only after proving its
   assert.equal(processes.has('project'), false);
 });
 
+test('does not let a pending Windows identity probe delay empty-tree reconciliation', async () => {
+  const child = {
+    pid: 623,
+    exitCode: 7,
+    signalCode: null,
+    runlistIdentity: new Promise(() => {})
+  };
+  const processes = new Map([['project', child]]);
+  const result = await Promise.race([
+    terminateTrackedProcess(processes, 'project', {
+      exitedIdentityWaitMs: 5,
+      platform: 'win32',
+      readOwnedProcessTree: async () => []
+    }),
+    new Promise((resolve) => setTimeout(() => resolve('timed-out'), 100))
+  ]);
+
+  assert.equal(result, true);
+  assert.equal(processes.has('project'), false);
+});
+
 test('keeps an exited Windows child with no identity when descendants remain', async () => {
   const child = {
     pid: 621,
     exitCode: 7,
     signalCode: null,
-    runlistIdentity: Promise.resolve(undefined)
+    runlistIdentity: new Promise(() => {})
   };
   const processes = new Map([['project', child]]);
   let terminationCalls = 0;
 
   await assert.rejects(terminateTrackedProcess(processes, 'project', {
+    exitedIdentityWaitMs: 5,
     platform: 'win32',
     isProcessAlive: () => false,
     readOwnedProcessTree: async () => [{

@@ -14,6 +14,7 @@ const { projectWithPortOverrides } = require('../ports/service-port-overrides');
 
 const OWNER_HEARTBEAT_TIMEOUT_MS = 10000;
 const HOST_IDENTITY_CACHE_TTL_MS = 250;
+const EXITED_WINDOWS_IDENTITY_WAIT_MS = 250;
 const INVALID_RECORD_GRACE_MS = 2000;
 const OWNERSHIP_UPDATE_MAX_ATTEMPTS = 200;
 const OWNERSHIP_UPDATE_RETRY_MS = 5;
@@ -137,8 +138,13 @@ async function terminateTrackedProcess(processes, id, options = {}) {
   const platform = options.platform || process.platform;
   const readIdentity = options.readProcessIdentity || readProcessIdentity;
   const identityRequired = Object.prototype.hasOwnProperty.call(child, 'runlistIdentity');
-  const expectedIdentity = await promisedIdentity(child.runlistIdentity);
   const rootExited = child.exitCode != null || child.signalCode != null;
+  const expectedIdentity = rootExited && platform === 'win32'
+    ? await promisedIdentityWithin(
+      child.runlistIdentity,
+      options.exitedIdentityWaitMs ?? EXITED_WINDOWS_IDENTITY_WAIT_MS
+    )
+    : await promisedIdentity(child.runlistIdentity);
   const expectedIdentityIsValid = stableProcessIdentity(expectedIdentity);
   if (identityRequired && !expectedIdentityIsValid) {
     if (!rootExited || platform !== 'win32') {
@@ -2062,6 +2068,23 @@ async function promisedIdentity(value) {
   } catch {
     return undefined;
   }
+}
+
+function promisedIdentityWithin(value, timeoutMs) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer;
+    const finish = (identity) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      resolve(identity);
+    };
+    timer = setTimeout(() => finish(undefined), Math.max(0, timeoutMs));
+    Promise.resolve(value).then(finish, () => finish(undefined));
+  });
 }
 
 function lastUsefulLine(value) {
