@@ -113,6 +113,9 @@ function createStatusMonitorProvider(Provider, owner, portReservations, services
   provider.statusRefreshInFlight = false;
   provider.statusRefreshPending = false;
   provider.statusRefreshPromise = undefined;
+  provider.statusRefreshFailureNotified = false;
+  provider.disposed = false;
+  provider.diagnostics = { record: () => {} };
   provider.statusRevision = 0;
   provider.projectStatuses = new Map();
   provider.projectPortConflicts = new Map();
@@ -526,6 +529,129 @@ test('keeps a live owner through a pending status scan with the real monitoring 
   } finally {
     intervals.restore();
   }
+});
+
+test('reports one background refresh error per failure episode and records recovery', async () => {
+  const messages = [];
+  const diagnosticEvents = [];
+  let shouldFail = true;
+  const Provider = loadRunlistProvider(
+    () => ({ on() {}, once() {} }),
+    messages,
+    {
+      './src/lifecycle/project-status': {
+        servicePortStatus: async () => {
+          if (shouldFail) {
+            throw Object.assign(new Error('probe unavailable'), { code: 'EPROBE' });
+          }
+          return { allOpen: false, anyOpen: false, openPorts: [] };
+        }
+      }
+    }
+  );
+  const owner = {
+    reconcileProcessIdentities: async () => {},
+    consumeStopRequests: () => [],
+    consumeStopRequestFailures: () => [],
+    snapshot: () => new Map(),
+    release: () => {},
+    setState: () => {}
+  };
+  const provider = createStatusMonitorProvider(Provider, owner, {
+    reconcileProcessIdentities: async () => {},
+    snapshot: () => new Map(),
+    release: () => {},
+    setState: () => {},
+    conflicts: () => []
+  });
+  provider.diagnostics = {
+    record: (event, details) => diagnosticEvents.push([event, details?.error?.code])
+  };
+
+  await provider.refreshProjectStatuses();
+  await provider.refreshProjectStatuses();
+  assert.deepEqual(messages, ['Could not refresh Runlist status: probe unavailable']);
+  assert.deepEqual(diagnosticEvents, [['status.refresh-failed', 'EPROBE']]);
+
+  shouldFail = false;
+  await provider.refreshProjectStatuses();
+  assert.deepEqual(diagnosticEvents, [
+    ['status.refresh-failed', 'EPROBE'],
+    ['status.refresh-recovered', undefined]
+  ]);
+
+  shouldFail = true;
+  await provider.refreshProjectStatuses();
+  assert.equal(messages.length, 2);
+  assert.deepEqual(diagnosticEvents.at(-1), ['status.refresh-failed', 'EPROBE']);
+});
+
+test('waits for an in-flight status refresh before shutdown cleanup', async () => {
+  let releaseProbe;
+  let probeStarted;
+  const probeStartedPromise = new Promise((resolve) => { probeStarted = resolve; });
+  const shutdownCalls = [];
+  const Provider = loadRunlistProvider(
+    () => ({ on() {}, once() {} }),
+    [],
+    {
+      './src/lifecycle/project-status': {
+        servicePortStatus: async () => {
+          probeStarted();
+          return new Promise((resolve) => { releaseProbe = resolve; });
+        }
+      },
+      './src/lifecycle/project-process': {
+        shutdownTrackedProcesses: async () => {
+          shutdownCalls.push('cleanup');
+          return [];
+        }
+      }
+    }
+  );
+  const owner = {
+    reconcileProcessIdentities: async () => {},
+    consumeStopRequests: () => [],
+    consumeStopRequestFailures: () => [],
+    snapshot: () => new Map(),
+    release: () => {},
+    setState: () => {}
+  };
+  const provider = createStatusMonitorProvider(Provider, owner, {
+    reconcileProcessIdentities: async () => {},
+    snapshot: () => new Map(),
+    release: () => {},
+    setState: () => {},
+    conflicts: () => []
+  });
+  provider.lifecycle = {
+    beginShutdown: () => shutdownCalls.push('begin'),
+    waitForIdle: async () => shutdownCalls.push('idle'),
+    stop: async () => true
+  };
+  provider.stopResourceSampling = () => shutdownCalls.push('sampling');
+  provider.runGroupCoordinator = { dispose: () => shutdownCalls.push('groups') };
+  provider.statusMonitoringDisposable = { dispose: () => shutdownCalls.push('timers') };
+
+  void provider.refreshProjectStatuses();
+  await probeStartedPromise;
+  const shutdown = provider.dispose();
+  await Promise.resolve();
+  assert.deepEqual(shutdownCalls, ['timers', 'begin', 'sampling']);
+
+  releaseProbe({ allOpen: false, anyOpen: false, openPorts: [] });
+  await shutdown;
+  assert.deepEqual(shutdownCalls, [
+    'timers',
+    'begin',
+    'sampling',
+    'idle',
+    'idle',
+    'groups',
+    'cleanup'
+  ]);
+  assert.equal(provider.statusRefreshInFlight, false);
+  assert.equal(provider.disposed, true);
 });
 
 test('keeps an abandoned host reclaimable without a heartbeat refresh', (t) => {

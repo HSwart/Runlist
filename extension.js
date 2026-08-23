@@ -264,6 +264,8 @@ class RunlistViewProvider {
     this.statusRefreshInFlight = false;
     this.statusRefreshPending = false;
     this.statusRefreshPromise = undefined;
+    this.statusRefreshFailureNotified = false;
+    this.disposed = false;
     this.statusRevision = 0;
     this.lifecycle = new ProjectLifecycleCoordinator(this, {
       isServiceReady: async (service) => {
@@ -785,6 +787,9 @@ class RunlistViewProvider {
   }
 
   async refreshProjectStatuses() {
+    if (this.disposed) {
+      return;
+    }
     if (this.statusRefreshInFlight) {
       this.statusRefreshPending = true;
       return this.statusRefreshPromise;
@@ -964,6 +969,13 @@ class RunlistViewProvider {
         ];
       }));
 
+      if (this.disposed) {
+        return;
+      }
+      if (this.statusRefreshFailureNotified) {
+        this.statusRefreshFailureNotified = false;
+        this.diagnostics.record('status.refresh-recovered');
+      }
       if (revision !== this.statusRevision) {
         return;
       }
@@ -1056,12 +1068,18 @@ class RunlistViewProvider {
         this.renderProjectList();
       }
     } catch (error) {
-      vscode.window.showErrorMessage(`Could not refresh Runlist status: ${error.message}`);
+      if (!this.disposed && !this.statusRefreshFailureNotified) {
+        this.statusRefreshFailureNotified = true;
+        this.diagnostics.record('status.refresh-failed', { error });
+        vscode.window.showErrorMessage(`Could not refresh Runlist status: ${error.message}`);
+      }
     } finally {
       this.statusRefreshInFlight = false;
-      if (this.statusRefreshPending) {
+      if (this.statusRefreshPending && !this.disposed) {
         this.statusRefreshPending = false;
         await this.refreshProjectStatuses();
+      } else {
+        this.statusRefreshPending = false;
       }
       finishRefresh();
       if (this.statusRefreshPromise === refreshPromise) {
@@ -1071,6 +1089,9 @@ class RunlistViewProvider {
   }
 
   handleProjectStoreChange() {
+    if (this.disposed) {
+      return;
+    }
     this.statusRevision += 1;
     if (this.mode === 'diagnosis') {
       this.render();
@@ -4008,13 +4029,17 @@ class RunlistViewProvider {
   dispose() {
     this.statusMonitoringDisposable?.dispose();
     this.statusMonitoringDisposable = undefined;
+    this.disposed = true;
+    this.statusRefreshPending = false;
     if (this.shutdownPromise) {
       return this.shutdownPromise;
     }
     this.lifecycle.beginShutdown();
     this.stopResourceSampling();
+    const pendingStatusRefresh = this.statusRefreshPromise;
 
     this.shutdownPromise = (async () => {
+      await pendingStatusRefresh;
       for (const id of [...this.startAttempts.keys()]) {
         if (!this.processes.has(id)) {
           this.processOwnership.release(id);
