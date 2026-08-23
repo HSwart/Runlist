@@ -144,10 +144,6 @@ async function terminateTrackedProcess(processes, id, options = {}) {
     if (!rootExited || platform !== 'win32') {
       throw new Error('Runlist could not verify the launched process identity.');
     }
-    const liveness = await trackedProcessLiveness(child.pid, platform, options);
-    if (liveness !== false) {
-      throw new Error('Runlist could not verify the launched process identity.');
-    }
     const readTree = options.readOwnedProcessTree || readOwnedProcessTree;
     const remaining = await readTree(child.pid, 'win32', options);
     if (!Array.isArray(remaining) || remaining.length > 0) {

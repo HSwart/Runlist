@@ -1431,7 +1431,11 @@ test('fails closed when an exited tracked child has no identity but its PID is l
 
   await assert.rejects(terminateTrackedProcess(processes, 'project', {
     platform: 'win32',
-    isProcessAlive: () => true,
+    readOwnedProcessTree: async () => [{
+      pid: 616,
+      parentPid: 1,
+      identity: '616:replacement'
+    }],
     spawnProcess: () => {
       terminationCalls += 1;
       const taskkill = new EventEmitter();
@@ -1440,7 +1444,7 @@ test('fails closed when an exited tracked child has no identity but its PID is l
       process.nextTick(() => taskkill.emit('exit', 0));
       return taskkill;
     }
-  }), /could not verify.*process identity/i);
+  }), /could not verify.*process tree/i);
 
   assert.equal(terminationCalls, 0);
   assert.equal(processes.get('project'), child);
@@ -1513,7 +1517,7 @@ test('keeps an exited Windows child with no identity when tree inspection fails'
   assert.equal(processes.get('project'), child);
 });
 
-test('fails closed for rejected, empty, and whitespace tracked identities', async () => {
+test('fails closed for rejected, empty, and whitespace identities when a Windows tree remains', async () => {
   const identityValues = [
     Promise.reject(new Error('identity probe failed')),
     Promise.resolve(''),
@@ -1532,12 +1536,16 @@ test('fails closed for rejected, empty, and whitespace tracked identities', asyn
 
     await assert.rejects(terminateTrackedProcess(processes, 'project', {
       platform: 'win32',
-      isProcessAlive: () => true,
+      readOwnedProcessTree: async () => [{
+        pid: child.pid,
+        parentPid: 1,
+        identity: `${child.pid}:replacement`
+      }],
       readProcessIdentity: async () => '   ',
       spawnProcess: () => {
         terminationCalls += 1;
       }
-    }), /could not verify.*process identity/i);
+    }), /could not verify.*process tree/i);
     assert.equal(terminationCalls, 0);
     assert.equal(processes.get('project'), child);
   }
