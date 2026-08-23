@@ -241,7 +241,13 @@ class RunlistViewProvider {
       path.join(path.dirname(projectsFile), 'process-ownership')
     );
     this.runGroupCoordinator = new RunGroupCoordinator(
-      path.join(path.dirname(projectsFile), 'run-group-invocations')
+      path.join(path.dirname(projectsFile), 'run-group-invocations'),
+      {
+        onLeaseLost: ({ error, reason }) => this.diagnostics.record('group.lease-lost', {
+          error,
+          reasonCode: reason
+        })
+      }
     );
     this.runGroupStates = new Map();
     this.startAttempts = new Map();
@@ -511,9 +517,10 @@ class RunlistViewProvider {
       stopped: { busy: false, message: 'Owned group processes stopped.' },
       failed: {
         busy: false,
-        message: project
-          ? `Blocked by ${project.name}.`
-          : 'The group could not complete safely.'
+        message: progress.reason
+          || (project
+            ? `Blocked by ${project.name}.`
+            : 'The group could not complete safely.')
       }
     };
     this.runGroupStates.set(group.id, states[progress.status] || {

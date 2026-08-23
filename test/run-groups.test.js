@@ -210,6 +210,47 @@ test('starts members sequentially and waits for readiness before advancing', asy
   assert.deepEqual(events, ['start:first', 'ready:first', 'start:second', 'ready:second']);
 });
 
+test('rolls back a sequential start when its cross-window lease is lost', async () => {
+  const calls = [];
+  let leaseHeld = true;
+  const result = await startRunGroup({
+    id: 'daily',
+    name: 'Daily',
+    projectIds: ['first', 'second']
+  }, {
+    coordinator: {
+      acquire: () => true,
+      hasLease: () => leaseHeld,
+      release: () => calls.push('release')
+    },
+    projects: [{ id: 'first', name: 'First' }, { id: 'second', name: 'Second' }],
+    getStatus: () => 'stopped',
+    startProject: async (id) => {
+      calls.push(`start:${id}`);
+      leaseHeld = false;
+      return true;
+    },
+    waitUntilReady: async (id) => {
+      calls.push(`ready:${id}`);
+      return true;
+    },
+    stopProject: async (id) => {
+      calls.push(`stop:${id}`);
+      return true;
+    },
+    waitUntilStopped: async (id) => {
+      calls.push(`stopped:${id}`);
+      return true;
+    }
+  });
+
+  assert.equal(result.status, 'failed');
+  assert.equal(result.failedProjectId, 'first');
+  assert.equal(result.failureReason, 'Runlist lost cross-window coordination for this group.');
+  assert.deepEqual(result.startedProjectIds, ['first']);
+  assert.deepEqual(calls, ['start:first', 'stop:first', 'stopped:first', 'release']);
+});
+
 test('rolls back only newly started members in reverse after a blocked start', async () => {
   const calls = [];
   const statuses = new Map([
@@ -322,6 +363,47 @@ test('starts eligible parallel members together and rolls back started members i
   ]);
 });
 
+test('does not launch remaining parallel members after losing the group lease', async () => {
+  const calls = [];
+  let leaseHeld = true;
+  const result = await startRunGroup({
+    id: 'parallel',
+    name: 'Parallel',
+    projectIds: ['first', 'second'],
+    startMode: 'parallel'
+  }, {
+    coordinator: {
+      acquire: () => true,
+      hasLease: () => leaseHeld,
+      release: () => calls.push('release')
+    },
+    projects: [{ id: 'first', name: 'First' }, { id: 'second', name: 'Second' }],
+    getStatus: () => 'stopped',
+    startProject: async (id) => {
+      calls.push(`start:${id}`);
+      leaseHeld = false;
+      return true;
+    },
+    waitUntilReady: async (id) => {
+      calls.push(`ready:${id}`);
+      return true;
+    },
+    stopProject: async (id) => {
+      calls.push(`stop:${id}`);
+      return true;
+    },
+    waitUntilStopped: async (id) => {
+      calls.push(`stopped:${id}`);
+      return true;
+    }
+  });
+
+  assert.equal(result.status, 'failed');
+  assert.deepEqual(result.startedProjectIds, ['first']);
+  assert.deepEqual(result.failedProjectIds, ['first', 'second']);
+  assert.deepEqual(calls, ['start:first', 'stop:first', 'stopped:first', 'release']);
+});
+
 test('parallel preflight starts nothing when any member is unsafe', async () => {
   const starts = [];
   const result = await startRunGroup({
@@ -369,6 +451,37 @@ test('stops only Runlist-owned members in reverse order', async () => {
   assert.equal(result.status, 'stopped');
   assert.deepEqual(result.stoppedProjectIds, ['third', 'first']);
   assert.deepEqual(calls, ['stop:third', 'stopped:third', 'stop:first', 'stopped:first', 'release']);
+});
+
+test('stops no further group members after losing the cross-window lease', async () => {
+  const calls = [];
+  let leaseHeld = true;
+  const result = await stopRunGroup({
+    id: 'daily',
+    name: 'Daily',
+    projectIds: ['first', 'second']
+  }, {
+    coordinator: {
+      acquire: () => true,
+      hasLease: () => leaseHeld,
+      release: () => calls.push('release')
+    },
+    isOwned: () => true,
+    stopProject: async (id) => {
+      calls.push(`stop:${id}`);
+      leaseHeld = false;
+      return true;
+    },
+    waitUntilStopped: async (id) => {
+      calls.push(`stopped:${id}`);
+      return true;
+    }
+  });
+
+  assert.equal(result.status, 'failed');
+  assert.equal(result.failureReason, 'Runlist lost cross-window coordination for this group.');
+  assert.deepEqual(result.stoppedProjectIds, ['second']);
+  assert.deepEqual(calls, ['stop:second', 'stopped:second', 'release']);
 });
 
 test('coordinates the same group across independent VS Code hosts', async (t) => {
@@ -441,6 +554,42 @@ test('keeps a cross-window group lease alive while readiness is still pending', 
   await new Promise((resolve) => setTimeout(resolve, 15));
 
   assert.equal(secondCoordinator.acquire('shared'), false);
+});
+
+test('marks a rejected or failed group heartbeat as a lost lease without throwing', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-group-lost-lease-'));
+  const losses = [];
+  const coordinator = new RunGroupCoordinator(root, {
+    heartbeatIntervalMs: 60000,
+    isProcessAlive: () => true,
+    onLeaseLost: (loss) => losses.push(loss),
+    pid: 1101,
+    hostIdentity: 'test-host:1101',
+    readHostProcessIdentity: (pid) => `test-host:${pid}`
+  });
+  t.after(() => {
+    coordinator.dispose();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  assert.equal(coordinator.acquire('replaced'), true);
+  const setState = coordinator.ownership.setState.bind(coordinator.ownership);
+  coordinator.ownership.setState = () => false;
+  assert.equal(coordinator.renew('replaced'), false);
+  assert.equal(coordinator.hasLease('replaced'), false);
+  assert.equal(losses[0].reason, 'ownership-changed');
+  coordinator.ownership.setState = setState;
+  coordinator.release('replaced');
+
+  assert.equal(coordinator.acquire('failed'), true);
+  coordinator.ownership.setState = () => {
+    throw Object.assign(new Error('storage unavailable'), { code: 'EIO' });
+  };
+  assert.doesNotThrow(() => coordinator.renew('failed'));
+  assert.equal(coordinator.hasLease('failed'), false);
+  assert.equal(losses[1].reason, 'heartbeat-failed');
+  assert.equal(losses[1].error.code, 'EIO');
+  coordinator.ownership.setState = setState;
 });
 
 test('creates a group in the exact order selected through native controls', async () => {

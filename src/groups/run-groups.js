@@ -4,29 +4,76 @@ class RunGroupCoordinator {
   constructor(directory, options = {}) {
     this.ownership = new ProcessOwnershipStore(directory, options);
     this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 2000;
+    this.onLeaseLost = options.onLeaseLost || (() => undefined);
     this.held = new Map();
+    this.lost = new Set();
   }
 
   acquire(groupId) {
     const acquired = !this.ownership.reserve(groupId);
     if (acquired) {
-      const timer = setInterval(() => {
-        this.ownership.setState(groupId, 'running');
-      }, this.heartbeatIntervalMs);
+      this.lost.delete(groupId);
+      const timer = setInterval(() => this.renew(groupId), this.heartbeatIntervalMs);
       timer.unref?.();
       this.held.set(groupId, timer);
     }
     return acquired;
   }
 
+  renew(groupId) {
+    if (!this.held.has(groupId) || this.lost.has(groupId)) {
+      return false;
+    }
+    try {
+      const renewed = this.ownership.setState(groupId, 'running');
+      if (!renewed) {
+        this.markLeaseLost(groupId, 'ownership-changed');
+      }
+      return renewed;
+    } catch (error) {
+      this.markLeaseLost(groupId, 'heartbeat-failed', error);
+      return false;
+    }
+  }
+
+  hasLease(groupId) {
+    return this.held.has(groupId) && !this.lost.has(groupId);
+  }
+
+  markLeaseLost(groupId, reason, error) {
+    if (this.lost.has(groupId)) {
+      return;
+    }
+    clearInterval(this.held.get(groupId));
+    this.held.delete(groupId);
+    this.lost.add(groupId);
+    try {
+      this.onLeaseLost({ error, groupId, reason });
+    } catch {
+      // Reporting must not turn a lost coordination lease into an uncaught timer error.
+    }
+  }
+
   release(groupId) {
     clearInterval(this.held.get(groupId));
     this.held.delete(groupId);
-    return this.ownership.release(groupId);
+    try {
+      const released = this.ownership.release(groupId);
+      this.lost.delete(groupId);
+      return released;
+    } catch (error) {
+      this.lost.add(groupId);
+      try {
+        this.onLeaseLost({ error, groupId, reason: 'release-failed' });
+      } catch {
+        // Reporting must not override the group operation result.
+      }
+      return false;
+    }
   }
 
   dispose() {
-    for (const groupId of [...this.held.keys()]) {
+    for (const groupId of new Set([...this.held.keys(), ...this.lost])) {
       this.release(groupId);
     }
   }
@@ -48,6 +95,11 @@ async function startRunGroup(group, options) {
     for (let index = 0; index < group.projectIds.length; index += 1) {
       const projectId = group.projectIds[index];
       const project = projects.get(projectId);
+      if (!groupLeaseIsHeld(options.coordinator, group.id)) {
+        failedProjectId = projectId;
+        failureReason = groupLeaseLostReason();
+        break;
+      }
       if (!project) {
         failedProjectId = projectId;
         failureReason = 'The saved project is no longer available.';
@@ -87,7 +139,18 @@ async function startRunGroup(group, options) {
         break;
       }
       startedProjectIds.push(projectId);
-      if (!await options.waitUntilReady(projectId)) {
+      if (!groupLeaseIsHeld(options.coordinator, group.id)) {
+        failedProjectId = projectId;
+        failureReason = groupLeaseLostReason();
+        break;
+      }
+      const ready = await options.waitUntilReady(projectId);
+      if (!groupLeaseIsHeld(options.coordinator, group.id)) {
+        failedProjectId = projectId;
+        failureReason = groupLeaseLostReason();
+        break;
+      }
+      if (!ready) {
         failedProjectId = projectId;
         failureReason = 'The project did not reach its ready state.';
         break;
@@ -168,12 +231,22 @@ async function startRunGroupInParallel(group, options, projects, startedProjectI
   let readyCount = 0;
   const results = await Promise.all(eligible.map(async ({ project, projectId, index }) => {
     try {
+      if (!groupLeaseIsHeld(options.coordinator, group.id)) {
+        return { projectId, reason: groupLeaseLostReason() };
+      }
       const started = await options.startProject(projectId);
       if (!started) {
         return { projectId, reason: 'Runlist blocked or could not start this project.' };
       }
       startedProjectIds.push(projectId);
-      if (!await options.waitUntilReady(projectId)) {
+      if (!groupLeaseIsHeld(options.coordinator, group.id)) {
+        return { projectId, reason: groupLeaseLostReason() };
+      }
+      const ready = await options.waitUntilReady(projectId);
+      if (!groupLeaseIsHeld(options.coordinator, group.id)) {
+        return { projectId, reason: groupLeaseLostReason() };
+      }
+      if (!ready) {
         return { projectId, reason: 'The project did not reach its ready state.' };
       }
       readyCount += 1;
@@ -260,8 +333,13 @@ async function stopRunGroup(group, options) {
 
   const stoppedProjectIds = [];
   const failedProjectIds = [];
+  let coordinationLost = false;
   try {
     for (const projectId of [...group.projectIds].reverse()) {
+      if (!groupLeaseIsHeld(options.coordinator, group.id)) {
+        coordinationLost = true;
+        break;
+      }
       if (!options.isOwned(projectId)) {
         continue;
       }
@@ -274,16 +352,38 @@ async function stopRunGroup(group, options) {
         } else {
           failedProjectIds.push(projectId);
         }
+        if (!groupLeaseIsHeld(options.coordinator, group.id)) {
+          coordinationLost = true;
+          break;
+        }
       } catch {
         failedProjectIds.push(projectId);
       }
     }
-    const status = failedProjectIds.length ? 'failed' : 'stopped';
-    notify(options, { status, stoppedProjectIds, failedProjectIds });
-    return { status, stoppedProjectIds, failedProjectIds };
+    const status = failedProjectIds.length || coordinationLost ? 'failed' : 'stopped';
+    notify(options, {
+      status,
+      stoppedProjectIds,
+      failedProjectIds,
+      ...(coordinationLost ? { reason: groupLeaseLostReason() } : {})
+    });
+    return {
+      status,
+      stoppedProjectIds,
+      failedProjectIds,
+      ...(coordinationLost ? { failureReason: groupLeaseLostReason() } : {})
+    };
   } finally {
     options.coordinator.release(group.id);
   }
+}
+
+function groupLeaseIsHeld(coordinator, groupId) {
+  return typeof coordinator.hasLease !== 'function' || coordinator.hasLease(groupId);
+}
+
+function groupLeaseLostReason() {
+  return 'Runlist lost cross-window coordination for this group.';
 }
 
 async function runGroupManagementWorkflow(options) {

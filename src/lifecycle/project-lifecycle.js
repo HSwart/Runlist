@@ -137,7 +137,9 @@ class ProjectLifecycleCoordinator {
       this.host.renderProjectList();
     } else if (result.status === 'failed') {
       this.showErrorMessage(
-        `Runlist could not confirm that every owned process in ${group.name} stopped.`
+        result.failureReason
+          ? `Could not finish stopping ${group.name}: ${result.failureReason}`
+          : `Runlist could not confirm that every owned process in ${group.name} stopped.`
       );
     }
     return result.status === 'stopped';
