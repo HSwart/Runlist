@@ -206,14 +206,25 @@ async function independentOwnerScenario(context) {
   });
 
   await api.provider.refreshProjectStatuses();
+  const ownershipBeforeStart = api.provider.processOwnership.snapshot().get(crashProject.id);
+  assert.ok(ownershipBeforeStart, 'The independent owner disappeared before competing Start.');
   assert.equal(
-    api.provider.processOwnership.snapshot().get(crashProject.id)?.ownerAvailable,
+    ownershipBeforeStart.processActive,
     true,
-    'The independent owner was not visible as live before competing Start.'
+    'The independent owner target was not visible as active before competing Start.'
+  );
+  assert.equal(
+    api.provider.getProjectStatus(crashProject.id),
+    ownershipBeforeStart.ownerAvailable ? 'running' : 'ownership-lost',
+    'The displayed status did not match the available ownership evidence.'
   );
   assert.equal(await api.provider.startProject(crashProject.id), false, 'A second host replaced a live owner.');
   assert.equal(await exactProcessIsAlive(crashRecord), true, 'Competing Start terminated the owned target.');
-  assert.equal(api.provider.processOwnership.snapshot().has(crashProject.id), true, 'Competing Start removed foreign ownership.');
+  assert.equal(
+    api.provider.processOwnership.snapshot().get(crashProject.id)?.token,
+    ownershipBeforeStart.token,
+    'Competing Start replaced or removed foreign ownership.'
+  );
 
   await terminateSmokeProcess(hostRecord);
   await markSmokeProcessExited(smokeRoot, hostRecord);
