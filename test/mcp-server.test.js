@@ -216,6 +216,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
   fs.mkdirSync(installedMcpRoot, { recursive: true });
   const bridgeFiles = [
     'mcp/server.js',
+    'src/lifecycle/atomic-json-record.js',
     'src/lifecycle/process-identity.js',
     'src/lifecycle/process-metrics.js',
     'src/lifecycle/project-process.js',

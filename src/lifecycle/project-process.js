@@ -13,6 +13,12 @@ const {
   readProcessIdentitySync,
   stableProcessIdentity
 } = require('./process-identity');
+const {
+  createAtomicJsonRecordUpdater,
+  processIsAlive,
+  readJsonRecord: readJson,
+  tryUnlink
+} = require('./atomic-json-record');
 const { writeFileAtomically } = require('../projects/project-store');
 const { projectWithPortOverrides } = require('../ports/service-port-overrides');
 
@@ -20,10 +26,15 @@ const OWNER_HEARTBEAT_TIMEOUT_MS = 10000;
 const HOST_IDENTITY_CACHE_TTL_MS = 250;
 const EXITED_WINDOWS_IDENTITY_WAIT_MS = 250;
 const INVALID_RECORD_GRACE_MS = 2000;
-const OWNERSHIP_UPDATE_MAX_ATTEMPTS = 200;
-const OWNERSHIP_UPDATE_RETRY_MS = 5;
-const OWNERSHIP_UPDATE_WAIT = new Int32Array(new SharedArrayBuffer(4));
 const CURRENT_PROCESS_IDENTITY = currentProcessIdentity({ allowRuntimeFallback: true });
+const OWNERSHIP_RECORDS = createAtomicJsonRecordUpdater({
+  errorMessage: 'Runlist could not safely update shared process ownership.',
+  invalidRecordGraceMs: INVALID_RECORD_GRACE_MS,
+  processIdentity: CURRENT_PROCESS_IDENTITY,
+  writeFileAtomically
+});
+const removeInvalidJsonRecord = OWNERSHIP_RECORDS.removeInvalid;
+const updateJsonRecord = OWNERSHIP_RECORDS.update;
 
 function projectProcessSpawnOptions(platform = process.platform) {
   return platform === 'win32'
@@ -1949,145 +1960,11 @@ function projectKey(projectId) {
   return crypto.createHash('sha256').update(String(projectId)).digest('hex');
 }
 
-function writeJsonAtomically(filePath, value) {
-  writeFileAtomically(filePath, JSON.stringify(value));
-}
-
-function updateJsonRecord(filePath, matches, update) {
-  const updatePath = `${filePath}.update`;
-  let acquired = false;
-  for (let attempt = 0; attempt < OWNERSHIP_UPDATE_MAX_ATTEMPTS; attempt += 1) {
-    try {
-      const descriptor = fs.openSync(updatePath, 'wx', 0o600);
-      fs.writeFileSync(descriptor, JSON.stringify({
-        pid: process.pid,
-        ...(CURRENT_PROCESS_IDENTITY ? { processIdentity: CURRENT_PROCESS_IDENTITY } : {}),
-        createdAt: Date.now()
-      }));
-      fs.closeSync(descriptor);
-      acquired = true;
-      break;
-    } catch (error) {
-      if (error.code !== 'EEXIST') {
-        throw error;
-      }
-      if (updateMarkerIsAbandoned(updatePath, INVALID_RECORD_GRACE_MS, Date.now())) {
-        tryUnlink(updatePath);
-        continue;
-      }
-      Atomics.wait(OWNERSHIP_UPDATE_WAIT, 0, 0, OWNERSHIP_UPDATE_RETRY_MS);
-    }
-  }
-  if (!acquired) {
-    throw new Error('Runlist could not safely update shared process ownership.');
-  }
-  try {
-    const current = readJson(filePath);
-    const fingerprint = fileFingerprint(filePath);
-    if (!matches(current, fingerprint)) {
-      return false;
-    }
-    if (typeof update === 'function') {
-      writeJsonAtomically(filePath, update(current));
-    } else {
-      tryUnlink(filePath);
-    }
-    return true;
-  } finally {
-    tryUnlink(updatePath);
-  }
-}
-
-function removeInvalidJsonRecord(filePath, graceMs, now) {
-  if (!invalidRecordIsStale(filePath, graceMs, now)) {
-    return false;
-  }
-  const observedFingerprint = fileFingerprint(filePath);
-  if (!observedFingerprint) {
-    return false;
-  }
-  return updateJsonRecord(
-    filePath,
-    (current, fingerprint) => !current && fingerprint === observedFingerprint
-  );
-}
-
-function fileFingerprint(filePath) {
-  try {
-    const contents = fs.readFileSync(filePath);
-    const stat = fs.statSync(filePath);
-    return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${crypto
-      .createHash('sha256')
-      .update(contents)
-      .digest('hex')}`;
-  } catch {
-    return undefined;
-  }
-}
-
 function sameStopRequest(left, right) {
   return Boolean(left && right
     && left.token === right.token
     && left.requesterPid === right.requesterPid
     && left.requestedAt === right.requestedAt);
-}
-
-function updateMarkerIsAbandoned(filePath, graceMs, now) {
-  const marker = readJson(filePath);
-  if (!Number.isInteger(marker?.pid) || marker.pid <= 0) {
-    return invalidRecordIsStale(filePath, graceMs, now);
-  }
-  if (!processIsAlive(marker.pid)) {
-    return true;
-  }
-  const currentIdentity = marker.pid === process.pid
-    ? CURRENT_PROCESS_IDENTITY
-    : readProcessIdentitySync(marker.pid, process.platform);
-  if (typeof marker.processIdentity === 'string') {
-    return processIdentityDecision(
-      marker.processIdentity,
-      currentIdentity,
-      process.platform,
-      marker.pid,
-      { allowRuntime: true }
-    ) === 'mismatch';
-  }
-  return invalidRecordIsStale(filePath, graceMs, now);
-}
-
-function readJson(filePath) {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch {
-    return undefined;
-  }
-}
-
-function invalidRecordIsStale(filePath, graceMs, now) {
-  try {
-    return now - fs.statSync(filePath).mtimeMs >= graceMs;
-  } catch {
-    return false;
-  }
-}
-
-function tryUnlink(filePath) {
-  try {
-    fs.unlinkSync(filePath);
-  } catch (error) {
-    if (error.code !== 'ENOENT') {
-      throw error;
-    }
-  }
-}
-
-function processIsAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error.code === 'EPERM';
-  }
 }
 
 async function promisedIdentity(value) {

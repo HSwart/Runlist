@@ -15,11 +15,12 @@ const {
 const { currentProcessIdentity } = require('../src/lifecycle/process-identity');
 const { readRootProcess } = require('../src/lifecycle/process-metrics');
 
-test('uses the retrying atomic writer for lifecycle port reservations', () => {
+test('uses the shared atomic-record updater for lifecycle port reservations', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'ports', 'port-gate.js'), 'utf8');
 
-  assert.match(source, /writeFileAtomically[\s\S]*require\('\.\.\/projects\/project-store'\)/);
-  assert.match(source, /function writeJsonAtomically[\s\S]*writeFileAtomically\(filePath, JSON\.stringify\(value\)\)/);
+  assert.match(source, /createAtomicJsonRecordUpdater[\s\S]*require\('\.\.\/lifecycle\/atomic-json-record'\)/);
+  assert.match(source, /const PORT_RECORDS = createAtomicJsonRecordUpdater\([\s\S]*writeFileAtomically/);
+  assert.doesNotMatch(source, /function updateLock/);
 });
 
 const projects = [

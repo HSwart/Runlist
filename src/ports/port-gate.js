@@ -9,6 +9,12 @@ const {
   readProcessIdentitySync,
   stableProcessIdentity
 } = require('../lifecycle/process-identity');
+const {
+  createAtomicJsonRecordUpdater,
+  processIsAlive,
+  readJsonRecord: readLock,
+  tryUnlink
+} = require('../lifecycle/atomic-json-record');
 const { writeFileAtomically } = require('../projects/project-store');
 
 const OWNER_HEARTBEAT_TIMEOUT_MS = 10000;
@@ -17,6 +23,15 @@ const LOCK_UPDATE_MAX_ATTEMPTS = 200;
 const LOCK_UPDATE_RETRY_MS = 5;
 const LOCK_UPDATE_WAIT = new Int32Array(new SharedArrayBuffer(4));
 const CURRENT_PROCESS_IDENTITY = currentProcessIdentity({ allowRuntimeFallback: true });
+const PORT_RECORDS = createAtomicJsonRecordUpdater({
+  errorMessage: 'Runlist could not safely update a shared port reservation.',
+  invalidRecordGraceMs: INVALID_RECORD_GRACE_MS,
+  processIdentity: CURRENT_PROCESS_IDENTITY,
+  writeFileAtomically
+});
+const removeInvalidLock = PORT_RECORDS.removeInvalid;
+const transientLockIsAbandoned = PORT_RECORDS.transientRecordIsAbandoned;
+const updateLock = PORT_RECORDS.update;
 
 function servicePorts(project) {
   return [...new Set((project?.services || [])
@@ -785,144 +800,6 @@ class PortReservationStore {
     } catch {
       // Local diagnostics must never alter port coordination behavior.
     }
-  }
-}
-
-function readLock(lockPath) {
-  try {
-    return JSON.parse(fs.readFileSync(lockPath, 'utf8'));
-  } catch {
-    return undefined;
-  }
-}
-
-function invalidRecordIsStale(filePath, graceMs, now) {
-  try {
-    return now - fs.statSync(filePath).mtimeMs >= graceMs;
-  } catch {
-    return false;
-  }
-}
-
-function writeJsonAtomically(filePath, value) {
-  writeFileAtomically(filePath, JSON.stringify(value));
-}
-
-function updateLock(lockPath, matches, update) {
-  const updatePath = `${lockPath}.update`;
-  let acquired = false;
-  for (let attempt = 0; attempt < LOCK_UPDATE_MAX_ATTEMPTS; attempt += 1) {
-    try {
-      const descriptor = fs.openSync(updatePath, 'wx');
-      fs.writeFileSync(descriptor, JSON.stringify({
-        pid: process.pid,
-        ...(CURRENT_PROCESS_IDENTITY ? { processIdentity: CURRENT_PROCESS_IDENTITY } : {}),
-        createdAt: Date.now()
-      }));
-      fs.closeSync(descriptor);
-      acquired = true;
-      break;
-    } catch (error) {
-      if (error.code !== 'EEXIST') {
-        throw error;
-      }
-      if (updateMarkerIsAbandoned(updatePath, INVALID_RECORD_GRACE_MS, Date.now())) {
-        tryUnlink(updatePath);
-        continue;
-      }
-      Atomics.wait(LOCK_UPDATE_WAIT, 0, 0, LOCK_UPDATE_RETRY_MS);
-    }
-  }
-  if (!acquired) {
-    throw new Error('Runlist could not safely update a shared port reservation.');
-  }
-  try {
-    const current = readLock(lockPath);
-    const fingerprint = fileFingerprint(lockPath);
-    if (!matches(current, fingerprint)) {
-      return false;
-    }
-    if (typeof update === 'function') {
-      writeJsonAtomically(lockPath, update(current));
-    } else {
-      tryUnlink(lockPath);
-    }
-    return true;
-  } finally {
-    tryUnlink(updatePath);
-  }
-}
-
-function removeInvalidLock(lockPath, graceMs, now) {
-  if (!invalidRecordIsStale(lockPath, graceMs, now)) {
-    return false;
-  }
-  const observedFingerprint = fileFingerprint(lockPath);
-  if (!observedFingerprint) {
-    return false;
-  }
-  return updateLock(
-    lockPath,
-    (current, fingerprint) => !current && fingerprint === observedFingerprint
-  );
-}
-
-function fileFingerprint(filePath) {
-  try {
-    const contents = fs.readFileSync(filePath);
-    const stat = fs.statSync(filePath);
-    return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${crypto
-      .createHash('sha256')
-      .update(contents)
-      .digest('hex')}`;
-  } catch {
-    return undefined;
-  }
-}
-
-function updateMarkerIsAbandoned(filePath, graceMs, now) {
-  const marker = readLock(filePath);
-  return transientLockIsAbandoned(filePath, marker, graceMs, now);
-}
-
-function transientLockIsAbandoned(filePath, marker, graceMs, now) {
-  if (!Number.isInteger(marker?.pid) || marker.pid <= 0) {
-    return invalidRecordIsStale(filePath, graceMs, now);
-  }
-  if (!processIsAlive(marker.pid)) {
-    return true;
-  }
-  const currentIdentity = marker.pid === process.pid
-    ? CURRENT_PROCESS_IDENTITY
-    : readProcessIdentitySync(marker.pid, process.platform);
-  if (typeof marker.processIdentity === 'string') {
-    return processIdentityDecision(
-      marker.processIdentity,
-      currentIdentity,
-      process.platform,
-      marker.pid,
-      { allowRuntime: true }
-    ) === 'mismatch';
-  }
-  return invalidRecordIsStale(filePath, graceMs, now);
-}
-
-function tryUnlink(lockPath) {
-  try {
-    fs.unlinkSync(lockPath);
-  } catch (error) {
-    if (error.code !== 'ENOENT') {
-      throw error;
-    }
-  }
-}
-
-function processIsAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error.code === 'EPERM';
   }
 }
 

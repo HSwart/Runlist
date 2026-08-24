@@ -29,6 +29,7 @@ const REVIEWED_PACKAGE_FILES = Object.freeze([
   'src/groups/run-groups.js',
   'src/integrations/agent-registration.js',
   'src/integrations/skill-installation.js',
+  'src/lifecycle/atomic-json-record.js',
   'src/lifecycle/custom-stop-recovery.js',
   'src/lifecycle/lifecycle-capability.js',
   'src/lifecycle/process-identity.js',

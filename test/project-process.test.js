@@ -153,11 +153,12 @@ function changedCurrentProcessIdentity() {
   return `${identity.slice(0, -1)}${final === '0' ? '1' : '0'}`;
 }
 
-test('uses the retrying atomic writer for lifecycle ownership state', () => {
+test('uses the shared atomic-record updater for lifecycle ownership state', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'lifecycle', 'project-process.js'), 'utf8');
 
-  assert.match(source, /writeFileAtomically[\s\S]*require\('\.\.\/projects\/project-store'\)/);
-  assert.match(source, /function writeJsonAtomically[\s\S]*writeFileAtomically\(filePath, JSON\.stringify\(value\)\)/);
+  assert.match(source, /createAtomicJsonRecordUpdater[\s\S]*require\('\.\/atomic-json-record'\)/);
+  assert.match(source, /const OWNERSHIP_RECORDS = createAtomicJsonRecordUpdater\([\s\S]*writeFileAtomically/);
+  assert.doesNotMatch(source, /function updateJsonRecord/);
 });
 
 test('runs a custom stop locally when the launching host is unavailable', () => {
