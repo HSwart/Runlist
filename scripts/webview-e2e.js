@@ -78,13 +78,17 @@ async function main() {
     await waitForDebugEndpoint(debugPort, WEBVIEW_DEBUG_ENDPOINT_TIMEOUT_MS);
     browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`);
     let webview;
-    await waitFor(async () => {
-      const frames = browser.contexts()
-        .flatMap((context) => context.pages())
-        .flatMap((page) => page.frames());
-      webview = await findRunlistFrame(frames);
-      return Boolean(webview);
-    }, WEBVIEW_FRAME_TIMEOUT_MS, 'the Runlist webview frame');
+    try {
+      await waitFor(async () => {
+        const frames = browser.contexts()
+          .flatMap((context) => context.pages())
+          .flatMap((page) => page.frames());
+        webview = await findRunlistFrame(frames);
+        return Boolean(webview);
+      }, WEBVIEW_FRAME_TIMEOUT_MS, 'the Runlist webview frame');
+    } catch (error) {
+      throw new Error(`${error.message} ${await browserFrameEvidence(browser)}`, { cause: error });
+    }
 
     await runWebviewJourneys(browser, webview, ready, root, extensionDevelopmentPath);
     fs.writeFileSync(path.join(root, 'browser-complete'), 'ok\n');
@@ -481,6 +485,27 @@ async function findRunlistFrame(frames, predicate = () => true) {
     }
   }
   return undefined;
+}
+
+async function browserFrameEvidence(browser) {
+  const pages = browser.contexts().flatMap((context) => context.pages());
+  const frames = pages.flatMap((page) => page.frames()).slice(0, 20);
+  const evidence = [];
+  for (const frame of frames) {
+    try {
+      evidence.push({
+        url: frame.url().slice(0, 200),
+        app: await frame.locator('#app').count(),
+        state: await frame.evaluate(() => Boolean(window.runlistState))
+      });
+    } catch (error) {
+      evidence.push({
+        url: frame.url().slice(0, 200),
+        error: String(error?.message || error).slice(0, 200)
+      });
+    }
+  }
+  return `Observed ${pages.length} pages and ${frames.length} frames: ${JSON.stringify(evidence)}`;
 }
 
 function availablePort() {
