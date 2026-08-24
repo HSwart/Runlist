@@ -2674,7 +2674,7 @@ class RunlistViewProvider {
       }
       this.projectMetrics.delete(id);
       this.ownedProcessMetrics.track(id, child.pid);
-      void recordStartedProcess(this.processOwnership, this.portReservations, launchProject, child, {
+      await recordStartedProcess(this.processOwnership, this.portReservations, launchProject, child, {
         state: hasServices ? 'starting' : 'running',
         readinessDeadline,
         launchedAt,

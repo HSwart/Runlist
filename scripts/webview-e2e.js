@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { chromium } = require('playwright-core');
 const { runTests } = require('@vscode/test-electron');
+const { webviewFrameWasReplaced } = require('./webview-frame-errors');
 
 const UPDATE_SCREENSHOT = process.argv.includes('--update-screenshot')
   || process.env.RUNLIST_UPDATE_SCREENSHOTS === '1';
@@ -251,8 +252,9 @@ async function exerciseRunGroup(browser, webview, groupName) {
     const current = await currentRunlistFrame(browser);
     return current.getByRole('button', { name: `Stop group ${groupName}` }).isVisible();
   }, 15000, `${groupName} to start`);
-  webview = await currentRunlistFrame(browser);
-  await webview.getByRole('button', { name: `Stop group ${groupName}` }).click();
+  await clickCurrentWebview(browser, (frame) => (
+    frame.getByRole('button', { name: `Stop group ${groupName}` })
+  ));
   await waitFor(async () => {
     const current = await currentRunlistFrame(browser);
     return current.getByRole('button', { name: `Start group ${groupName}` }).isVisible();
@@ -394,7 +396,7 @@ async function assertAxeClean(browser, extensionDevelopmentPath, label) {
       return webview;
     } catch (error) {
       lastError = error;
-      if (!/frame.*detached/i.test(error.message)) {
+      if (!webviewFrameWasReplaced(error)) {
         throw error;
       }
     }
@@ -434,7 +436,7 @@ async function clickCurrentWebview(browser, locatorForFrame) {
       return webview;
     } catch (error) {
       lastError = error;
-      if (!/frame.*detached/i.test(error.message)) {
+      if (!webviewFrameWasReplaced(error)) {
         throw error;
       }
     }

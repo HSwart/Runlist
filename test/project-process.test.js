@@ -819,6 +819,59 @@ test('releases coordination only after a failed launch is confirmed terminated',
   assert.deepEqual(released, []);
 });
 
+test('keeps the Windows supervisor until its initial owned tree is captured', async () => {
+  let resolveTree;
+  const tree = new Promise((resolve) => {
+    resolveTree = resolve;
+  });
+  const messages = [];
+  const child = {
+    pid: 304,
+    connected: true,
+    send(message) {
+      messages.push(message);
+    },
+    disconnect() {
+      this.connected = false;
+    }
+  };
+  const ownership = {
+    trackProcessIdentity: async () => '304:100',
+    setProcess: () => true
+  };
+  const reservations = {
+    capture: () => 'generation',
+    setProcess: () => 0
+  };
+
+  const recorded = recordStartedProcess(
+    ownership,
+    reservations,
+    { id: 'project', folder: 'C:\\project', startCommand: 'npm start', services: [] },
+    child,
+    {},
+    {
+      platform: 'win32',
+      readOwnedProcessTree: async () => tree
+    }
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(messages, []);
+  assert.equal(child.connected, true);
+
+  resolveTree([
+    { pid: 304, parentPid: 1, identity: '304:100' },
+    { pid: 305, parentPid: 304, identity: '305:110' }
+  ]);
+  assert.equal(await recorded, '304:100');
+  assert.deepEqual(await child.runlistProcessTree, [
+    { pid: 304, parentPid: 1, identity: '304:100' },
+    { pid: 305, parentPid: 304, identity: '305:110' }
+  ]);
+  assert.deepEqual(messages, [{ type: 'runlistIdentityCaptured' }]);
+  assert.equal(child.connected, false);
+});
+
 test('recovers an old corrupt ownership record but preserves a fresh partial write', (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-corrupt-ownership-'));
   const probe = new ProcessOwnershipStore(directory, {
@@ -1536,6 +1589,82 @@ test('terminates identity-checked Windows descendants after their tracked root e
   }), true);
 
   assert.deepEqual(calls, [['taskkill.exe', ['/PID', '700', '/T', '/F']]]);
+  assert.equal(processes.has('project'), false);
+});
+
+test('terminates an exact orphan from the captured Windows tree after every parent exits', async () => {
+  const child = {
+    pid: 615,
+    exitCode: 0,
+    signalCode: null,
+    runlistIdentity: Promise.resolve('615:100'),
+    runlistProcessTree: Promise.resolve([
+      { pid: 615, parentPid: 1, identity: '615:100' },
+      { pid: 700, parentPid: 615, identity: '700:110' },
+      { pid: 701, parentPid: 700, identity: '701:120' },
+      { pid: 702, parentPid: 701, identity: '702:130' }
+    ])
+  };
+  const processes = new Map([['project', child]]);
+  const calls = [];
+
+  assert.equal(await terminateTrackedProcess(processes, 'project', {
+    platform: 'win32',
+    readOwnedProcessTree: async () => [],
+    readProcessIdentity: async (pid) => (pid === 702 ? '702:130' : undefined),
+    spawnProcess: (command, args) => {
+      calls.push([command, args]);
+      const taskkill = new EventEmitter();
+      taskkill.stderr = new EventEmitter();
+      taskkill.stderr.setEncoding = () => {};
+      process.nextTick(() => taskkill.emit('exit', 0));
+      return taskkill;
+    }
+  }), true);
+
+  assert.deepEqual(calls, [['taskkill.exe', ['/PID', '702', '/T', '/F']]]);
+  assert.equal(processes.has('project'), false);
+});
+
+test('checks captured Windows orphans even when terminating the visible root succeeds', async () => {
+  const child = {
+    pid: 615,
+    exitCode: 0,
+    signalCode: null,
+    runlistIdentity: Promise.resolve('615:100'),
+    runlistProcessTree: Promise.resolve([
+      { pid: 615, parentPid: 1, identity: '615:100' },
+      { pid: 700, parentPid: 615, identity: '700:110' },
+      { pid: 702, parentPid: 700, identity: '702:120' }
+    ])
+  };
+  const processes = new Map([['project', child]]);
+  const calls = [];
+  let treeReads = 0;
+
+  assert.equal(await terminateTrackedProcess(processes, 'project', {
+    platform: 'win32',
+    readOwnedProcessTree: async () => (++treeReads === 1
+      ? [{ pid: 615, parentPid: 1, identity: '615:100' }]
+      : []),
+    readProcessIdentity: async (pid) => ({
+      615: '615:100',
+      702: '702:120'
+    })[pid],
+    spawnProcess: (command, args) => {
+      calls.push([command, args]);
+      const taskkill = new EventEmitter();
+      taskkill.stderr = new EventEmitter();
+      taskkill.stderr.setEncoding = () => {};
+      process.nextTick(() => taskkill.emit('exit', 0));
+      return taskkill;
+    }
+  }), true);
+
+  assert.deepEqual(calls, [
+    ['taskkill.exe', ['/PID', '615', '/T', '/F']],
+    ['taskkill.exe', ['/PID', '702', '/T', '/F']]
+  ]);
   assert.equal(processes.has('project'), false);
 });
 

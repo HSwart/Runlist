@@ -208,8 +208,10 @@ async function terminateTrackedProcess(processes, id, options = {}) {
   processes.delete(id);
   try {
     if (rootExited && platform === 'win32') {
+      const knownTree = await promisedProcessTree(child.runlistProcessTree);
       await terminateExitedWindowsTree(child.pid, expectedIdentity, {
         ...options,
+        knownTree,
         readProcessIdentity: readIdentity
       });
     } else {
@@ -244,7 +246,7 @@ async function terminateExitedWindowsTree(rootPid, rootIdentity, options = {}) {
         expectedIdentity: rootIdentity,
         readProcessIdentity: options.readProcessIdentity || readProcessIdentity
       });
-      return;
+      rows = await readTree(rootPid, 'win32', options);
     } catch (error) {
       rows = await readTree(rootPid, 'win32', options);
       const currentRoot = rows.find((row) => row.pid === rootPid);
@@ -257,19 +259,50 @@ async function terminateExitedWindowsTree(rootPid, rootIdentity, options = {}) {
     }
   }
   const rootStartedAt = windowsIdentityStartedAt(rootIdentity);
-  const directChildren = rows.filter((row) => {
+  const candidates = new Map();
+  for (const row of [...(options.knownTree || []), ...rows]) {
     const childStartedAt = windowsIdentityStartedAt(row.identity);
-    return row.parentPid === rootPid
+    if (row.pid !== rootPid
       && (rootStartedAt === undefined
-        || (childStartedAt !== undefined && childStartedAt >= rootStartedAt));
-  });
-  for (const descendant of directChildren) {
+        || (childStartedAt !== undefined && childStartedAt >= rootStartedAt))) {
+      candidates.set(row.pid, row);
+    }
+  }
+  const surviving = [];
+  for (const candidate of candidates.values()) {
+    const currentIdentity = await (options.readProcessIdentity || readProcessIdentity)(
+      candidate.pid,
+      'win32'
+    );
+    if (processIdentityDecision(
+      candidate.identity,
+      currentIdentity,
+      'win32',
+      candidate.pid
+    ) === 'match') {
+      surviving.push(candidate);
+    }
+  }
+  const survivingPids = new Set(surviving.map((row) => row.pid));
+  for (const descendant of surviving.filter((row) => !survivingPids.has(row.parentPid))) {
     await terminateProcessTree(descendant.pid, {
       ...options,
       platform: 'win32',
       expectedIdentity: descendant.identity,
       readProcessIdentity: options.readProcessIdentity || readProcessIdentity
     });
+  }
+}
+
+async function promisedProcessTree(value) {
+  if (!value) {
+    return [];
+  }
+  try {
+    const rows = await value;
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
   }
 }
 
@@ -528,10 +561,20 @@ function markOwnedRuntimeDetached(processOwnership, portReservations, projectId)
   return { ownershipUpdated, reservationsUpdated };
 }
 
-function recordStartedProcess(processOwnership, portReservations, project, child, details = {}) {
+function recordStartedProcess(
+  processOwnership,
+  portReservations,
+  project,
+  child,
+  details = {},
+  options = {}
+) {
   const identity = processOwnership.trackProcessIdentity(project.id, child.pid);
   child.runlistIdentity = identity;
-  void identity.finally(() => releaseSupervisorIdentityHold(child)).catch(() => undefined);
+  child.runlistProcessTree = captureInitialProcessTree(child.pid, identity, options);
+  const ownershipReady = Promise.all([identity, child.runlistProcessTree])
+    .then(([value]) => value);
+  void ownershipReady.finally(() => releaseSupervisorIdentityHold(child)).catch(() => undefined);
   const portGeneration = portReservations.capture(project.id);
   const recorded = processOwnership.setProcess(project.id, child.pid, {
     ...details,
@@ -559,7 +602,28 @@ function recordStartedProcess(processOwnership, portReservations, project, child
       portReservations.setProcess(project.id, child.pid, value, portGeneration);
     }
   }).catch(() => undefined);
-  return identity;
+  return ownershipReady;
+}
+
+async function captureInitialProcessTree(pid, identity, options = {}) {
+  const platform = options.platform || process.platform;
+  if (platform !== 'win32') {
+    return [];
+  }
+  const expectedIdentity = await identity;
+  if (!stableProcessIdentity(expectedIdentity)) {
+    return [];
+  }
+  try {
+    const readTree = options.readOwnedProcessTree || readOwnedProcessTree;
+    const rows = await readTree(pid, platform, options);
+    const root = rows.find((row) => row.pid === pid);
+    return root && processIdentityDecision(expectedIdentity, root.identity, platform, pid) === 'match'
+      ? rows
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 function releaseSupervisorIdentityHold(child) {
