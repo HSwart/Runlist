@@ -9,7 +9,7 @@
 ---
 
 <p align="center">
-  <img src="media/runlist-preview.png" width="900" alt="Stylized preview of Runlist managing three local projects inside VS Code">
+  <img src="media/runlist-preview.png" width="900" alt="Current Runlist project and group controls inside VS Code">
 </p>
 
 ## A control panel for local projects

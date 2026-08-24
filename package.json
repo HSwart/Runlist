@@ -145,6 +145,8 @@
   "scripts": {
     "test": "node --test",
     "test:smoke": "node smoke/run.js",
+    "test:webview": "node scripts/webview-e2e.js",
+    "update:webview-screenshot": "node scripts/webview-e2e.js --update-screenshot",
     "validate:marketplace": "node scripts/validate-marketplace.js --preparation",
     "validate:marketplace:publish": "node scripts/validate-marketplace.js",
     "validate:marketplace:vsix": "node scripts/validate-vsix.js",
@@ -153,6 +155,8 @@
   },
   "devDependencies": {
     "@vscode/test-electron": "3.1.0",
-    "@vscode/vsce": "3.9.2"
+    "@vscode/vsce": "3.9.2",
+    "axe-core": "4.13.0",
+    "playwright-core": "1.62.1"
   }
 }

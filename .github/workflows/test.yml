@@ -30,6 +30,9 @@ jobs:
       - name: Test the extension host on Linux
         if: runner.os == 'Linux'
         run: xvfb-run -a npm run test:smoke
+      - name: Test the actual webview on Linux
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:webview
 
   windows-compatibility:
     name: Windows compatibility

@@ -1,0 +1,510 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const http = require('node:http');
+const net = require('node:net');
+const os = require('node:os');
+const path = require('node:path');
+const { chromium } = require('playwright-core');
+const { runTests } = require('@vscode/test-electron');
+
+const UPDATE_SCREENSHOT = process.argv.includes('--update-screenshot')
+  || process.env.RUNLIST_UPDATE_SCREENSHOTS === '1';
+
+async function main() {
+  delete process.env.ELECTRON_RUN_AS_NODE;
+  const extensionDevelopmentPath = path.resolve(__dirname, '..');
+  const temporaryParent = process.platform === 'darwin' ? '/tmp' : os.tmpdir();
+  const temporaryPrefix = UPDATE_SCREENSHOT
+    ? path.join(temporaryParent, 'runlist-webview-preview-')
+    : path.join(temporaryParent, 'runlist-e2e-');
+  const root = fs.realpathSync(fs.mkdtempSync(temporaryPrefix));
+  const workspacePath = path.join(root, 'workspace');
+  const userDataPath = path.join(root, 'user-data');
+  const extensionsPath = path.join(root, 'extensions');
+  fs.mkdirSync(workspacePath, { recursive: true });
+  fs.mkdirSync(extensionsPath, { recursive: true });
+  fs.mkdirSync(path.join(userDataPath, 'User'), { recursive: true });
+  fs.writeFileSync(path.join(userDataPath, 'User', 'settings.json'), JSON.stringify({
+    'files.simpleDialog.enable': true,
+    'workbench.startupEditor': 'none'
+  }));
+  const debugPort = await availablePort();
+  let hostOutput = '';
+  const output = {
+    write(chunk) {
+      hostOutput += String(chunk);
+      return true;
+    }
+  };
+
+  let hostFailure;
+  const hostRun = runTests({
+    extensionDevelopmentPath,
+    extensionTestsPath: path.join(extensionDevelopmentPath, 'smoke', 'webview-e2e-host.js'),
+    extensionTestsEnv: {
+      RUNLIST_EXTENSION_SMOKE: '1',
+      RUNLIST_WEBVIEW_E2E_ROOT: root
+    },
+    launchArgs: [
+      workspacePath,
+      `--remote-debugging-port=${debugPort}`,
+      '--disable-extensions',
+      '--disable-workspace-trust',
+      '--skip-release-notes',
+      '--skip-welcome',
+      `--user-data-dir=${userDataPath}`,
+      `--extensions-dir=${extensionsPath}`
+    ],
+    stdout: output,
+    stderr: output
+  }).catch((error) => {
+    hostFailure = error;
+  });
+
+  let browser;
+  try {
+    await waitFor(() => {
+      if (hostFailure) {
+        throw hostFailure;
+      }
+      return fs.existsSync(path.join(root, 'host-ready.json'));
+    }, 30000, 'the extension host to open Runlist');
+    const ready = JSON.parse(fs.readFileSync(path.join(root, 'host-ready.json'), 'utf8'));
+    await waitForDebugEndpoint(debugPort, 30000);
+    browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`);
+    let webview;
+    await waitFor(async () => {
+      const frames = browser.contexts()
+        .flatMap((context) => context.pages())
+        .flatMap((page) => page.frames());
+      webview = await findRunlistFrame(frames);
+      return Boolean(webview);
+    }, 15000, 'the Runlist webview frame');
+
+    await runWebviewJourneys(browser, webview, ready, root, extensionDevelopmentPath);
+    fs.writeFileSync(path.join(root, 'browser-complete'), 'ok\n');
+    await hostRun;
+    if (hostFailure) {
+      throw hostFailure;
+    }
+    process.stdout.write('Runlist webview E2E passed.\n');
+  } catch (error) {
+    fs.writeFileSync(path.join(root, 'browser-complete'), 'failed\n');
+    process.stderr.write(`${hostOutput}\n`);
+    throw error;
+  } finally {
+    if (browser) {
+      await browser.close().catch(() => undefined);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await fs.promises.rm(root, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 100
+    });
+  }
+}
+
+async function runWebviewJourneys(browser, webview, ready, root, extensionDevelopmentPath) {
+  let page = webview.page();
+  await assertVisible(webview.getByRole('heading', { name: 'No projects yet' }));
+
+  const addButton = webview.getByRole('button', { name: 'Add project' });
+  await addButton.focus();
+  assert.equal(await webview.evaluate(() => document.activeElement?.textContent?.trim()), 'Add project');
+  await page.keyboard.press('Enter');
+  webview = await currentRunlistFrame(browser, (frame) => (
+    frame.getByRole('heading', { name: 'Add project' }).isVisible()
+  ));
+  page = webview.page();
+  await assertVisible(webview.getByRole('heading', { name: 'Add project' }));
+  await webview.locator('#project-name').fill('Lifecycle project');
+  await webview.locator('#folder').fill(ready.lifecyclePath);
+  await webview.locator('#start-command').fill('node server.js');
+  const saveButton = webview.getByRole('button', { name: 'Save project' });
+  await saveButton.focus();
+  await page.keyboard.press('Enter');
+  webview = await currentRunlistFrame(browser, (frame) => (
+    frame.getByRole('heading', { name: 'Lifecycle project' }).isVisible()
+  ));
+  await assertVisible(webview.getByRole('heading', { name: 'Lifecycle project' }));
+
+  await verifyMenuKeyboardAndFocus(webview, page, 'Lifecycle project');
+  webview = await editProject(browser, webview, 'Lifecycle project', 'Lifecycle project edited');
+  webview = await exerciseProjectLifecycle(browser, webview, root, 'Lifecycle project edited');
+
+  await openAndCancelImportThroughVsCode(page, root);
+  const seeded = await hostCommand(root, 'seed-review');
+  webview = await currentRunlistFrame(browser, (frame) => (
+    frame.getByRole('heading', { name: 'Imported dashboard' }).isVisible()
+  ));
+  await assertVisible(webview.getByRole('heading', { name: 'Imported dashboard' }));
+  webview = await approveImportedProject(browser, webview);
+  await createRunGroupThroughVsCode(page, root, 'Development stack', 'Lifecycle project edited');
+  webview = await currentRunlistFrame(browser, (frame) => (
+    frame.getByRole('button', { name: 'Start group Development stack' }).isVisible()
+  ));
+  webview = await exerciseRunGroup(browser, webview, 'Development stack');
+
+  await assertAxeClean(webview, extensionDevelopmentPath, 'dark project list');
+  webview = await verifyThemes(browser, root, extensionDevelopmentPath);
+  await verifyNarrowLayout(webview, page);
+
+  await hostCommand(root, 'set-theme', { theme: 'Default Dark Modern' });
+  webview = await waitForTheme(browser, 'vscode-dark');
+  if (UPDATE_SCREENSHOT) {
+    await hostCommand(root, 'prepare-screenshot');
+    webview = await currentRunlistFrame(browser);
+    await widenSidebar(page, 420);
+    await page.locator('.notifications-toasts').evaluate((element) => {
+      element.style.display = 'none';
+    }).catch(() => undefined);
+  }
+  const screenshotPath = UPDATE_SCREENSHOT
+    ? path.join(extensionDevelopmentPath, 'media', 'runlist-preview.png')
+    : path.join(root, 'runlist-webview.png');
+  await page.screenshot({ path: screenshotPath });
+  assert.ok(fs.statSync(screenshotPath).size > 10000,
+    'The generated webview screenshot was unexpectedly small.');
+
+  webview = await deleteProject(browser, webview, root, 'Imported dashboard', false);
+  webview = await deleteProject(browser, webview, root, 'Lifecycle project edited', true);
+  webview = await deleteProject(browser, webview, root, 'Imported dashboard', true);
+  await assertVisible(webview.getByRole('heading', { name: 'No projects yet' }));
+  assert.equal(typeof seeded.importedId, 'string');
+}
+
+async function verifyMenuKeyboardAndFocus(webview, page, projectName) {
+  const trigger = webview.getByRole('button', { name: `More actions for ${projectName}` });
+  await trigger.focus();
+  await page.keyboard.press('Enter');
+  const menu = webview.getByRole('menu', { name: `Actions for ${projectName}` });
+  await assertVisible(menu);
+  await waitFor(async () => (await webview.evaluate(
+    () => document.activeElement?.getAttribute('role')
+  )) === 'menuitem', 3000, 'the first project menu item to receive focus');
+  await page.keyboard.press('End');
+  assert.equal(await webview.evaluate(() => document.activeElement?.textContent?.trim()), 'Delete project');
+  await page.keyboard.press('Escape');
+  assert.equal(await webview.evaluate(() => document.activeElement?.getAttribute('aria-label')),
+    `More actions for ${projectName}`);
+}
+
+async function editProject(browser, webview, before, after) {
+  await webview.getByRole('button', { name: `More actions for ${before}` }).click();
+  await webview.getByRole('menuitem', { name: 'Edit project' }).click();
+  webview = await currentRunlistFrame(browser, (frame) => (
+    frame.getByRole('heading', { name: 'Edit project' }).isVisible()
+  ));
+  await assertVisible(webview.getByRole('heading', { name: 'Edit project' }));
+  await webview.locator('#project-name').fill(after);
+  await webview.getByRole('button', { name: 'Save changes' }).click();
+  webview = await currentRunlistFrame(browser, (frame) => (
+    frame.getByRole('heading', { name: after }).isVisible()
+  ));
+  await assertVisible(webview.getByRole('heading', { name: after }));
+  return webview;
+}
+
+async function exerciseProjectLifecycle(browser, webview, root, projectName) {
+  await webview.getByRole('button', { name: `Start ${projectName}` }).click();
+  await waitForProjectStatus(browser, projectName, 'Running');
+  webview = await currentRunlistFrame(browser);
+  await waitFor(async () => await hostCommand(root, 'start-count') >= 1,
+    5000, 'the start command to write its launch marker');
+
+  await webview.getByRole('button', { name: `More actions for ${projectName}` }).click();
+  await webview.getByRole('menuitem', { name: `Restart ${projectName}` }).click();
+  await waitFor(async () => await hostCommand(root, 'start-count') >= 2,
+    15000, 'restart to launch a new process');
+  await waitForProjectStatus(browser, projectName, 'Running');
+
+  await clickCurrentWebview(browser, (frame) => (
+    frame.getByRole('button', { name: `Stop ${projectName}` })
+  ));
+  await waitForProjectStatus(browser, projectName, 'Stopped');
+  return currentRunlistFrame(browser);
+}
+
+async function approveImportedProject(browser, webview) {
+  await webview.getByRole('button', { name: 'Review setup for Imported dashboard' }).click();
+  webview = await currentRunlistFrame(browser, (frame) => (
+    frame.getByRole('heading', { name: 'Review project setup' }).isVisible()
+  ));
+  await assertVisible(webview.getByRole('heading', { name: 'Review project setup' }));
+  assert.equal(await webview.locator('#start-command').inputValue(),
+    'node -e "setInterval(() => undefined, 1000)"');
+  await webview.getByRole('button', { name: 'Approve setup' }).click();
+  webview = await currentRunlistFrame(browser, (frame) => (
+    frame.getByRole('button', { name: 'Start Imported dashboard' }).isVisible()
+  ));
+  await assertVisible(webview.getByRole('button', { name: 'Start Imported dashboard' }));
+  return webview;
+}
+
+async function exerciseRunGroup(browser, webview, groupName) {
+  const start = webview.getByRole('button', { name: `Start group ${groupName}` });
+  await assertVisible(start);
+  await start.click();
+  await waitFor(async () => {
+    const current = await currentRunlistFrame(browser);
+    return current.getByRole('button', { name: `Stop group ${groupName}` }).isVisible();
+  }, 15000, `${groupName} to start`);
+  webview = await currentRunlistFrame(browser);
+  await webview.getByRole('button', { name: `Stop group ${groupName}` }).click();
+  await waitFor(async () => {
+    const current = await currentRunlistFrame(browser);
+    return current.getByRole('button', { name: `Start group ${groupName}` }).isVisible();
+  }, 15000, `${groupName} to stop`);
+  return currentRunlistFrame(browser);
+}
+
+async function createRunGroupThroughVsCode(page, root, groupName, projectName) {
+  await hostCommand(root, 'begin-vscode-command', { command: 'runlist.manageGroups' });
+  await chooseQuickPick(page, 'Create run group');
+  await fillQuickInput(page, groupName);
+  await chooseQuickPick(page, 'Add project');
+  await chooseQuickPick(page, projectName);
+  await chooseQuickPick(page, 'Save group');
+}
+
+async function openAndCancelImportThroughVsCode(page, root) {
+  await hostCommand(root, 'begin-vscode-command', { command: 'runlist.transferProjects' });
+  await chooseQuickPick(page, 'Import project setups');
+  const input = page.locator('.quick-input-widget:visible input').first();
+  await assertVisible(input);
+  await input.press('Escape');
+  await page.locator('.quick-input-widget:visible').waitFor({ state: 'hidden' });
+}
+
+async function chooseQuickPick(page, text) {
+  const choice = page.locator('.quick-input-widget:visible .monaco-list-row')
+    .filter({ hasText: text }).first();
+  await assertVisible(choice);
+  await choice.click();
+}
+
+async function fillQuickInput(page, value) {
+  const input = page.locator('.quick-input-widget:visible input').first();
+  await assertVisible(input);
+  await input.fill(value);
+  await input.press('Enter');
+}
+
+async function deleteProject(browser, webview, root, projectName, confirm) {
+  const trigger = webview.getByRole('button', { name: `More actions for ${projectName}` });
+  await trigger.click();
+  await hostCommand(root, 'queue-warning-response', {
+    response: confirm ? 'Delete project' : undefined
+  });
+  await webview.getByRole('menuitem', { name: 'Delete project' }).click();
+  if (!confirm) {
+    await waitFor(async () => await trigger.evaluate((element) => element === document.activeElement),
+      3000, 'project menu focus to be restored after canceling deletion');
+    return webview;
+  }
+  webview = await currentRunlistFrame(browser, async (frame) => (
+    await frame.getByRole('heading', { name: projectName }).count() === 0
+  ));
+  assert.equal(await webview.getByRole('heading', { name: projectName }).count(), 0);
+  return webview;
+}
+
+async function verifyThemes(browser, root, extensionDevelopmentPath) {
+  const themes = [
+    ['Default Light Modern', 'vscode-light'],
+    ['Default Dark Modern', 'vscode-dark'],
+    ['Default High Contrast', 'vscode-high-contrast']
+  ];
+  let webview;
+  for (const [theme, className] of themes) {
+    await hostCommand(root, 'set-theme', { theme });
+    webview = await waitForTheme(browser, className);
+    await assertAxeClean(webview, extensionDevelopmentPath, theme);
+  }
+  return webview;
+}
+
+async function waitForTheme(browser, className) {
+  return currentRunlistFrame(browser, (frame) => frame.locator('body').evaluate(
+    (body, expected) => body.classList.contains(expected), className
+  ));
+}
+
+async function verifyNarrowLayout(webview, page) {
+  await page.setViewportSize({ width: 300, height: 760 });
+  await waitFor(async () => await webview.evaluate(() => window.innerWidth <= 300),
+    3000, 'the actual webview to reach narrow-sidebar width');
+  const overflow = await webview.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth
+  }));
+  assert.ok(overflow.scrollWidth <= overflow.clientWidth + 1,
+    `Narrow webview overflowed horizontally (${overflow.scrollWidth} > ${overflow.clientWidth}).`);
+  await page.setViewportSize({ width: 1100, height: 800 });
+}
+
+async function widenSidebar(page, targetWidth) {
+  const sidebar = page.locator('.part.sidebar');
+  const bounds = await sidebar.boundingBox();
+  if (!bounds || bounds.width >= targetWidth) {
+    return;
+  }
+  const sashes = page.locator('.monaco-sash.vertical');
+  for (let index = 0; index < await sashes.count(); index += 1) {
+    const sashBounds = await sashes.nth(index).boundingBox();
+    if (!sashBounds || Math.abs(sashBounds.x - (bounds.x + bounds.width)) > 8) {
+      continue;
+    }
+    const x = sashBounds.x + Math.max(1, sashBounds.width / 2);
+    const y = bounds.y + Math.min(120, bounds.height / 2);
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + targetWidth - bounds.width, y, { steps: 10 });
+    await page.mouse.up();
+    await waitFor(async () => (await sidebar.boundingBox())?.width >= targetWidth - 10,
+      3000, 'the Runlist sidebar to widen for the generated screenshot');
+    return;
+  }
+  throw new Error('Could not find the VS Code sidebar resize handle.');
+}
+
+async function assertAxeClean(webview, extensionDevelopmentPath, label) {
+  const axePath = require.resolve('axe-core/axe.min.js', { paths: [extensionDevelopmentPath] });
+  await webview.evaluate(fs.readFileSync(axePath, 'utf8'));
+  const violations = await webview.evaluate(async () => {
+    const result = await window.axe.run(document, {
+      runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] }
+    });
+    return result.violations
+      .filter((violation) => ['critical', 'serious'].includes(violation.impact))
+      .map((violation) => ({
+        id: violation.id,
+        impact: violation.impact,
+        targets: violation.nodes.map((node) => node.target.join(' ')).slice(0, 5)
+      }));
+  });
+  assert.deepEqual(violations, [], `${label} has serious or critical axe violations.`);
+}
+
+async function waitForProjectStatus(browser, projectName, expected) {
+  await waitFor(async () => {
+    const webview = await currentRunlistFrame(browser);
+    const row = webview.locator('.project-row').filter({
+      has: webview.getByRole('heading', { name: projectName })
+    });
+    return (await row.locator('.project-status').textContent())?.trim() === expected;
+  },
+    15000, `${projectName} to become ${expected}`);
+}
+
+async function currentRunlistFrame(browser, predicate = () => true) {
+  let webview;
+  await waitFor(async () => {
+    const frames = browser.contexts()
+      .flatMap((context) => context.pages())
+      .flatMap((page) => page.frames());
+    webview = await findRunlistFrame(frames, predicate);
+    return Boolean(webview);
+  }, 5000, 'the current Runlist webview frame');
+  return webview;
+}
+
+async function clickCurrentWebview(browser, locatorForFrame) {
+  let lastError;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const webview = await currentRunlistFrame(browser);
+    try {
+      await locatorForFrame(webview).click();
+      return webview;
+    } catch (error) {
+      lastError = error;
+      if (!/frame.*detached/i.test(error.message)) {
+        throw error;
+      }
+    }
+  }
+  throw lastError;
+}
+
+async function hostCommand(root, action, values = {}) {
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const commandPath = path.join(root, 'browser-command.json');
+  const responsePath = path.join(root, 'host-response.json');
+  fs.rmSync(responsePath, { force: true });
+  fs.writeFileSync(commandPath, JSON.stringify({ id, action, ...values }));
+  await waitFor(() => fs.existsSync(responsePath), 10000, `host command ${action}`);
+  const response = JSON.parse(fs.readFileSync(responsePath, 'utf8'));
+  assert.equal(response.id, id, `Host response did not match ${action}.`);
+  if (response.error) {
+    throw new Error(response.error);
+  }
+  return response.result;
+}
+
+async function assertVisible(locator, timeoutMs = 5000) {
+  await locator.waitFor({ state: 'visible', timeout: timeoutMs });
+  assert.equal(await locator.isVisible(), true);
+}
+
+async function findRunlistFrame(frames, predicate = () => true) {
+  for (const frame of frames) {
+    try {
+      if (await frame.locator('#app').count()
+        && await frame.evaluate(() => Boolean(window.runlistState))
+        && await predicate(frame)) {
+        return frame;
+      }
+    } catch {
+      // Cross-target frames can disappear while VS Code finishes opening the view.
+    }
+  }
+  return undefined;
+}
+
+function availablePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const port = server.address().port;
+      server.close((error) => error ? reject(error) : resolve(port));
+    });
+  });
+}
+
+async function waitForDebugEndpoint(port, timeoutMs) {
+  await waitFor(() => new Promise((resolve) => {
+    const request = http.get(`http://127.0.0.1:${port}/json/version`, (response) => {
+      response.resume();
+      resolve(response.statusCode === 200);
+    });
+    request.once('error', () => resolve(false));
+    request.setTimeout(250, () => {
+      request.destroy();
+      resolve(false);
+    });
+  }), timeoutMs, 'the VS Code debugging endpoint');
+}
+
+async function waitFor(predicate, timeoutMs, description) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError;
+  while (Date.now() < deadline) {
+    try {
+      if (await predicate()) {
+        return;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Timed out waiting for ${description}.${lastError ? ` ${lastError.message}` : ''}`);
+}
+
+main().catch((error) => {
+  process.stderr.write(`${error.stack || error.message}\n`);
+  process.exitCode = 1;
+});
