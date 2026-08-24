@@ -206,7 +206,7 @@ async function independentOwnerScenario(context) {
   });
 
   await api.provider.refreshProjectStatuses();
-  const ownershipBeforeStart = api.provider.processOwnership.snapshot().get(crashProject.id);
+  const ownershipBeforeStart = api.provider.projectRuntime.get(crashProject.id);
   assert.ok(ownershipBeforeStart, 'The independent owner disappeared before competing Start.');
   assert.equal(
     ownershipBeforeStart.processActive,

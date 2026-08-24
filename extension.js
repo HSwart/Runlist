@@ -1012,16 +1012,29 @@ class RunlistViewProvider {
           if (this.managedProjectIds.has(id)) {
             const readyAt = processRuntime.get(id)?.readyAt || Date.now();
             this.recordStartupOutcome(id, 'ready', readyAt);
-            this.processOwnership.setState(id, 'running', {
+            const stateUpdated = this.processOwnership.setState(id, 'running', {
               readyAt
             });
             this.portReservations.setState(id, 'running');
+            if (stateUpdated && processRuntime.has(id)) {
+              processRuntime.set(id, {
+                ...processRuntime.get(id),
+                readyAt,
+                state: 'running'
+              });
+            }
           }
         } else if (['not-ready', 'not-responding'].includes(status)
           && this.managedProjectIds.has(id)) {
           this.recordStartupOutcome(id, 'timed-out');
-          this.processOwnership.setState(id, status);
+          const stateUpdated = this.processOwnership.setState(id, status);
           this.portReservations.setState(id, status);
+          if (stateUpdated && processRuntime.has(id)) {
+            processRuntime.set(id, {
+              ...processRuntime.get(id),
+              state: status
+            });
+          }
           this.notifyServiceNotReady(projectsById.get(id), status, readinessDetails);
         }
       }
@@ -1051,7 +1064,10 @@ class RunlistViewProvider {
           id,
           serviceUrls.map(({ port, url }) => ({ port, url }))
         ]));
-      const nextRuntime = this.processOwnership.snapshot();
+      // Publish the same ownership evidence used to calculate this refresh's statuses.
+      // A later identity probe can legitimately become unavailable, especially on Windows;
+      // mixing snapshots would make the displayed state contradict the published runtime.
+      const nextRuntime = processRuntime;
       const runtimeChanged = nextRuntime.size !== this.projectRuntime.size
         || [...nextRuntime].some(([id, runtime]) => {
           const previous = this.projectRuntime.get(id);
@@ -4252,6 +4268,10 @@ function installMcpBridge(context) {
   const serverPath = path.join(mcpRoot, 'server.js');
   const bridgeFiles = [
     'mcp/server.js',
+    'src/lifecycle/atomic-json-record.js',
+    'src/lifecycle/exclusive-json-lock.js',
+    'src/lifecycle/process-identity.js',
+    'src/lifecycle/process-lock.js',
     'src/lifecycle/process-metrics.js',
     'src/lifecycle/project-process.js',
     'src/ports/service-port-overrides.js',

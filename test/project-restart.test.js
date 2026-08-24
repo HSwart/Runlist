@@ -156,6 +156,46 @@ function createDetachedPortReservations(projectId, port) {
   };
 }
 
+test('publishes status and runtime from one ownership snapshot per refresh', async () => {
+  const messages = [];
+  const Provider = loadRunlistProvider(
+    () => ({ on() {}, once() {} }),
+    messages
+  );
+  let snapshotCalls = 0;
+  const owner = {
+    reconcileProcessIdentities: async () => {},
+    consumeStopRequests: () => [],
+    consumeStopRequestFailures: () => [],
+    snapshot: () => {
+      snapshotCalls += 1;
+      return new Map([['project-1', {
+        ownerAvailable: snapshotCalls === 1,
+        processActive: true,
+        state: 'running',
+        token: 'ownership-token'
+      }]]);
+    },
+    setState: () => false
+  };
+  const portReservations = {
+    reconcileProcessIdentities: async () => {},
+    snapshot: () => new Map(),
+    release: () => {},
+    setState: () => {},
+    conflicts: () => []
+  };
+  const provider = createStatusMonitorProvider(Provider, owner, portReservations, []);
+  provider.managedProjectIds.clear();
+
+  await provider.refreshProjectStatuses();
+
+  assert.equal(snapshotCalls, 1);
+  assert.equal(provider.getProjectStatus('project-1'), 'running');
+  assert.equal(provider.projectRuntime.get('project-1').ownerAvailable, true);
+  assert.deepEqual(messages, []);
+});
+
 test('does not attribute a reused port to an old detached runtime', async (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-detached-reuse-'));
   const owner = new ProcessOwnershipStore(directory, {

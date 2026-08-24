@@ -639,6 +639,20 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.match(unsafeUrl.result.content[0].text, /valid HTTP or HTTPS URL/);
 });
 
+test('installs the complete MCP lifecycle dependency closure', () => {
+  const extension = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  for (const relativePath of [
+    'src/lifecycle/atomic-json-record.js',
+    'src/lifecycle/exclusive-json-lock.js',
+    'src/lifecycle/process-identity.js',
+    'src/lifecycle/process-lock.js',
+    'src/lifecycle/process-metrics.js',
+    'src/lifecycle/project-process.js'
+  ]) {
+    assert.match(extension, new RegExp(`installMcpBridge[\\s\\S]*${relativePath.replaceAll('/', '\\/').replace('.', '\\.')}`));
+  }
+});
+
 test('keeps MCP port variables launch-only and rejects stale setup fields', () => {
   const serverSource = fs.readFileSync(path.join(__dirname, '..', 'mcp', 'server.js'), 'utf8');
   assert.doesNotMatch(serverSource, /Include a port variable/);
