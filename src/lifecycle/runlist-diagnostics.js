@@ -25,21 +25,30 @@ class RunlistDiagnostics {
     const parent = this.operationContext.getStore();
     const operationId = parent?.operationId || this.randomUUID();
     const execute = async () => {
-      this.record(`${safeKind}.begin`, { projectId, ...safeSnapshot(snapshot) });
+      const previous = safeSnapshot(snapshot);
+      this.record(`${safeKind}.begin`, { projectId, ...previous });
       try {
         const result = await operation();
+        const resulting = safeSnapshot(snapshot);
         this.record(`${safeKind}.complete`, {
           projectId,
           outcome: result === false ? 'rejected' : 'completed',
-          ...safeSnapshot(snapshot)
+          ...resulting,
+          previousStatus: previous.status,
+          resultingStatus: resulting.status,
+          reasonCode: result === false ? 'operation-rejected' : 'operation-completed'
         });
         return result;
       } catch (error) {
+        const resulting = safeSnapshot(snapshot);
         this.record(`${safeKind}.failed`, {
           projectId,
           outcome: 'failed',
           error,
-          ...safeSnapshot(snapshot)
+          ...resulting,
+          previousStatus: previous.status,
+          resultingStatus: resulting.status,
+          reasonCode: 'operation-failed'
         });
         throw error;
       }
@@ -90,7 +99,7 @@ class RunlistDiagnostics {
       : [];
     return `${JSON.stringify({
       generatedAt: new Date(this.now()).toISOString(),
-      privacy: 'Local diagnostics exclude project names, folders, commands, environment values, ports, and process output.',
+      privacy: 'Local diagnostics exclude project names, folders, commands, environment values, ports, process IDs, and process output.',
       environment: this.environment,
       summary: {
         projectCount: safeCount(snapshot.projectCount ?? projects.length),
@@ -126,17 +135,28 @@ function safeSnapshot(snapshot) {
 }
 
 function copySafeDetails(target, details, traceEnabled) {
-  for (const key of ['outcome', 'status', 'reasonCode', 'processState', 'portState', 'signal']) {
+  for (const key of [
+    'outcome',
+    'status',
+    'previousStatus',
+    'resultingStatus',
+    'reasonCode',
+    'identityDecision',
+    'lockKind',
+    'processState',
+    'portState',
+    'signal'
+  ]) {
     if (details[key] !== undefined) {
       target[key] = safeLabel(details[key], 'unknown');
     }
   }
-  for (const key of ['exitCode', 'serviceCount', 'processCount']) {
+  for (const key of ['exitCode', 'serviceCount', 'processCount', 'attemptCount']) {
     if (Number.isInteger(details[key])) {
       target[key] = details[key];
     }
   }
-  for (const key of ['ownershipPresent', 'reservationPresent', 'localProcess']) {
+  for (const key of ['ownershipPresent', 'reservationPresent', 'localProcess', 'processActive']) {
     if (typeof details[key] === 'boolean') {
       target[key] = details[key];
     }

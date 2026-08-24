@@ -51,6 +51,70 @@ function PortReservationStore(directory, options = {}) {
   });
 }
 
+test('reports ownership acquisition, blocking identity, and stale recovery decisions', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-ownership-diagnostics-'));
+  const events = [];
+  let ownerIdentity = 'test-host:101';
+  const isProcessAlive = (pid) => [101, 202].includes(pid);
+  const readHostProcessIdentity = (pid) => pid === 101 ? ownerIdentity : `test-host:${pid}`;
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  const owner = new RealProcessOwnershipStore(directory, {
+    pid: 101,
+    platform: 'linux',
+    hostIdentity: ownerIdentity,
+    isProcessAlive,
+    readHostProcessIdentity,
+    onDiagnostic: (event, details) => events.push({ event, ...details })
+  });
+  assert.equal(owner.reserve('project-1'), undefined);
+
+  const observer = new RealProcessOwnershipStore(directory, {
+    pid: 202,
+    platform: 'linux',
+    hostIdentity: 'test-host:202',
+    isProcessAlive,
+    readHostProcessIdentity,
+    hostIdentityCacheTtlMs: 0,
+    onDiagnostic: (event, details) => events.push({ event, ...details })
+  });
+  assert.equal(observer.reserve('project-1').kind, 'owned');
+
+  ownerIdentity = 'test-host:replacement';
+  assert.equal(observer.reserve('project-1'), undefined);
+  assert.deepEqual(events.map(({ event, projectId, reasonCode, identityDecision }) => ({
+    event,
+    projectId,
+    reasonCode,
+    identityDecision
+  })), [
+    {
+      event: 'reserve.acquired',
+      projectId: 'project-1',
+      reasonCode: 'ownership-created',
+      identityDecision: 'match'
+    },
+    {
+      event: 'reserve.blocked',
+      projectId: 'project-1',
+      reasonCode: 'owner-available',
+      identityDecision: 'match'
+    },
+    {
+      event: 'reserve.stale-recovered',
+      projectId: 'project-1',
+      reasonCode: 'owner-identity-changed',
+      identityDecision: 'mismatch'
+    },
+    {
+      event: 'reserve.acquired',
+      projectId: 'project-1',
+      reasonCode: 'ownership-created',
+      identityDecision: 'match'
+    }
+  ]);
+});
+
 function expectedDarwinIdentity(pid, startedAt, details) {
   const values = [
     'runlist-darwin-process',

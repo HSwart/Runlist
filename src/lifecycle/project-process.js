@@ -802,6 +802,9 @@ class ProcessOwnershipStore {
     this.stopRequestFailures = new Map();
     this.hostIdentityCache = new Map();
     this.hostIdentityCacheTtlMs = options.hostIdentityCacheTtlMs ?? HOST_IDENTITY_CACHE_TTL_MS;
+    this.onDiagnostic = typeof options.onDiagnostic === 'function'
+      ? options.onDiagnostic
+      : undefined;
     let capturedHostIdentity;
     if (stableProcessIdentity(options.hostIdentity)) {
       capturedHostIdentity = options.hostIdentity;
@@ -820,6 +823,11 @@ class ProcessOwnershipStore {
 
   reserve(projectId) {
     if (!stableProcessIdentity(this.hostIdentity)) {
+      this.diagnose('reserve.blocked', {
+        projectId,
+        reasonCode: 'host-identity-unavailable',
+        identityDecision: 'unavailable'
+      });
       return { kind: 'uncertain' };
     }
     const ownershipPath = this.ownershipPath(projectId);
@@ -849,6 +857,11 @@ class ProcessOwnershipStore {
             (request) => sameStopRequest(request, existingRequest)
           );
         }
+        this.diagnose('reserve.acquired', {
+          projectId,
+          reasonCode: 'ownership-created',
+          identityDecision: 'match'
+        });
         return undefined;
       } catch (error) {
         if (descriptor !== undefined) {
@@ -863,8 +876,18 @@ class ProcessOwnershipStore {
       const existing = readJson(ownershipPath);
       if (!validOwnership(existing, projectId)) {
         if (removeInvalidJsonRecord(ownershipPath, this.invalidRecordGraceMs, this.now())) {
+          this.diagnose('reserve.stale-recovered', {
+            projectId,
+            reasonCode: 'invalid-record',
+            identityDecision: 'unavailable'
+          });
           continue;
         }
+        this.diagnose('reserve.blocked', {
+          projectId,
+          reasonCode: 'invalid-record',
+          identityDecision: 'unavailable'
+        });
         return { kind: 'uncertain' };
       }
       const hostDecision = this.hostIdentityDecision(existing);
@@ -874,6 +897,16 @@ class ProcessOwnershipStore {
       if (existing.detached
         || (hostDecision === 'match' && !heartbeatExpired)
         || (childLiveness !== false && hostDecision !== 'mismatch')) {
+        this.diagnose('reserve.blocked', {
+          projectId,
+          reasonCode: existing.detached
+            ? 'detached-ownership'
+            : hostDecision === 'match' && !heartbeatExpired
+              ? 'owner-available'
+              : 'ownership-uncertain',
+          identityDecision: hostDecision,
+          processActive: processAlive
+        });
         return {
           kind: hostDecision === 'match' && !heartbeatExpired ? 'owned' : 'uncertain',
           ownership: existing
@@ -888,13 +921,34 @@ class ProcessOwnershipStore {
         )
       );
       if (removed) {
+        this.diagnose('reserve.stale-recovered', {
+          projectId,
+          reasonCode: hostDecision === 'mismatch'
+            ? 'owner-identity-changed'
+            : 'owner-absent',
+          identityDecision: hostDecision,
+          processActive: processAlive
+        });
         updateJsonRecord(
           this.stopRequestPath(projectId),
           (request) => request?.token === existing.token
         );
       }
     }
+    this.diagnose('reserve.blocked', {
+      projectId,
+      reasonCode: 'ownership-changed',
+      identityDecision: 'unavailable'
+    });
     return { kind: 'uncertain' };
+  }
+
+  diagnose(event, details) {
+    try {
+      this.onDiagnostic?.(event, details);
+    } catch {
+      // Local diagnostics must never alter process ownership behavior.
+    }
   }
 
   setProcess(projectId, childPid, details = {}) {

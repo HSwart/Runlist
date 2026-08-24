@@ -67,6 +67,46 @@ function PortReservationStore(directory, options = {}) {
   });
 }
 
+test('reports reservation conflicts and stale transaction-lock recovery without port values', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-port-diagnostics-'));
+  const transactionPath = path.join(directory, '.reservation-transaction.lock');
+  const events = [];
+  const old = new Date(Date.now() - 10000);
+  fs.writeFileSync(transactionPath, JSON.stringify({
+    pid: 999999,
+    processIdentity: '999999:dead',
+    createdAt: old.getTime(),
+    token: 'stale-transaction'
+  }));
+  fs.utimesSync(transactionPath, old, old);
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  const first = new PortReservationStore(directory, {
+    pid: 101,
+    isProcessAlive: (pid) => pid === 101 || pid === 202,
+    onDiagnostic: (event, details) => events.push({ event, ...details })
+  });
+  assert.equal(first.reserve({ id: 'project-1', services: [{ port: 4317 }] }), undefined);
+
+  const second = new PortReservationStore(directory, {
+    pid: 202,
+    isProcessAlive: (pid) => pid === 101 || pid === 202,
+    onDiagnostic: (event, details) => events.push({ event, ...details })
+  });
+  assert.equal(second.reserve({ id: 'project-2', services: [{ port: 4317 }] }).projectId, 'project-1');
+
+  assert.ok(events.some((event) => event.event === 'transaction.stale-recovered'
+    && event.reasonCode === 'owner-absent'));
+  assert.ok(events.some((event) => event.event === 'transaction.acquired'
+    && event.reasonCode === 'after-contention'));
+  assert.ok(events.some((event) => event.event === 'reservation.acquired'
+    && event.projectId === 'project-1'));
+  assert.ok(events.some((event) => event.event === 'reservation.blocked'
+    && event.projectId === 'project-2'
+    && event.reasonCode === 'reserved-by-project'));
+  assert.equal(JSON.stringify(events).includes('4317'), false);
+});
+
 test('finds other saved projects that share a configured port', () => {
   assert.deepEqual(
     projectsUsingPort(projects, 3000, 'alpha').map((project) => project.id),

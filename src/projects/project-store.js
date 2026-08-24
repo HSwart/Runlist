@@ -21,6 +21,7 @@ const STORE_LOCK_MAX_ATTEMPTS = 400;
 const STORE_LOCK_RETRY_MS = 5;
 const STORE_LOCK_WAIT = new Int32Array(new SharedArrayBuffer(4));
 const HELD_STORE_LOCKS = new Set();
+const PROJECT_STORE_DIAGNOSTIC_LISTENERS = new Map();
 const UNSAFE_COMMAND_CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
 const CURRENT_PROCESS_IDENTITY = synchronousProcessIdentity(process.pid);
 
@@ -108,7 +109,30 @@ function writeProjects(filePath, projects, options = {}) {
   }));
 }
 
-function withProjectStoreLock(filePath, operation) {
+function subscribeProjectStoreDiagnostics(filePath, listener) {
+  if (typeof listener !== 'function') {
+    throw new TypeError('Expected a project-store diagnostic listener.');
+  }
+  const key = path.resolve(filePath);
+  PROJECT_STORE_DIAGNOSTIC_LISTENERS.set(key, listener);
+  return {
+    dispose() {
+      if (PROJECT_STORE_DIAGNOSTIC_LISTENERS.get(key) === listener) {
+        PROJECT_STORE_DIAGNOSTIC_LISTENERS.delete(key);
+      }
+    }
+  };
+}
+
+function emitProjectStoreDiagnostic(filePath, event, details) {
+  try {
+    PROJECT_STORE_DIAGNOSTIC_LISTENERS.get(path.resolve(filePath))?.(event, details);
+  } catch {
+    // Local diagnostics must never alter project storage behavior.
+  }
+}
+
+function withProjectStoreLock(filePath, operation, options = {}) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const lockPath = `${filePath}.write-lock`;
   if (HELD_STORE_LOCKS.has(lockPath)) {
@@ -116,7 +140,15 @@ function withProjectStoreLock(filePath, operation) {
   }
   let acquired = false;
   let lockToken;
-  for (let attempt = 0; attempt < STORE_LOCK_MAX_ATTEMPTS; attempt += 1) {
+  let contended = false;
+  let attemptCount = 0;
+  const maxAttempts = options.maxAttempts ?? STORE_LOCK_MAX_ATTEMPTS;
+  const retryMs = options.retryMs ?? STORE_LOCK_RETRY_MS;
+  const wait = options.wait || ((milliseconds) => {
+    Atomics.wait(STORE_LOCK_WAIT, 0, 0, milliseconds);
+  });
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    attemptCount = attempt + 1;
     let descriptor;
     try {
       lockToken = crypto.randomUUID();
@@ -130,6 +162,11 @@ function withProjectStoreLock(filePath, operation) {
       fs.closeSync(descriptor);
       descriptor = undefined;
       acquired = true;
+      emitProjectStoreDiagnostic(filePath, 'lock.acquired', {
+        reasonCode: contended ? 'after-contention' : 'immediate',
+        lockKind: 'project-store',
+        attemptCount
+      });
       break;
     } catch (error) {
       if (descriptor !== undefined) {
@@ -146,6 +183,7 @@ function withProjectStoreLock(filePath, operation) {
       if (error.code !== 'EEXIST') {
         throw error;
       }
+      contended = true;
       const observed = storeLockObservation(lockPath);
       if (observed
         && storeLockObservationIsAbandoned(observed)
@@ -154,12 +192,22 @@ function withProjectStoreLock(filePath, operation) {
           observed,
           projectStoreLockRecordIsAbandoned
         )) {
+        emitProjectStoreDiagnostic(filePath, 'lock.stale-recovered', {
+          reasonCode: 'owner-absent',
+          lockKind: 'project-store',
+          attemptCount
+        });
         continue;
       }
-      Atomics.wait(STORE_LOCK_WAIT, 0, 0, STORE_LOCK_RETRY_MS);
+      wait(retryMs);
     }
   }
   if (!acquired) {
+    emitProjectStoreDiagnostic(filePath, 'lock.timeout', {
+      reasonCode: 'owner-active-or-uncertain',
+      lockKind: 'project-store',
+      attemptCount
+    });
     throw projectStoreError(
       'STORE_BUSY',
       'Runlist project storage is busy in another VS Code window. Try again.'
@@ -1369,6 +1417,7 @@ module.exports = {
   saveProjectSnapshot,
   serializeProjectDocument,
   selectProjectLaunchProfile,
+  subscribeProjectStoreDiagnostics,
   toggleProjectPinned,
   upsertProject,
   upsertRunGroup,

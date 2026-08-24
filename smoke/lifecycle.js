@@ -660,7 +660,10 @@ function lifecycleEvidence(provider, projectId) {
 
 function assertSupportDiagnostics(report, sensitive) {
   const parsed = JSON.parse(report);
-  assert.match(parsed.privacy, /exclude project names, folders, commands, environment values, ports, and process output/i);
+  assert.match(
+    parsed.privacy,
+    /exclude project names, folders, commands, environment values, ports, process IDs, and process output/i
+  );
   assert.ok(parsed.projects.length > 0, 'Support diagnostics omitted the project state snapshot.');
   assert.ok(parsed.recentEvents.length > 0, 'Support diagnostics omitted lifecycle events.');
   assert.equal(

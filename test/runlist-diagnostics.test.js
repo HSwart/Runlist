@@ -119,6 +119,52 @@ test('nested lifecycle operations share one correlation identifier', async () =>
   assert.equal(new Set(events.map((event) => event.operationId)).size, 1);
 });
 
+test('lifecycle completion records the previous state, resulting state, and reason', async () => {
+  const diagnostics = createDiagnostics();
+  let status = 'stopped';
+
+  await diagnostics.run('start', 'project-1', async () => {
+    status = 'running';
+    return true;
+  }, () => ({ status }));
+
+  const events = JSON.parse(diagnostics.supportReport()).recentEvents
+    .filter((event) => event.event.startsWith('start.'));
+  assert.deepEqual(events, [
+    {
+      at: '2026-08-23T12:00:01.000Z',
+      event: 'start.begin',
+      operationId: '11111111-1111-4111-8111-111111111111',
+      projectRef: diagnostics.projectRef('project-1'),
+      status: 'stopped'
+    },
+    {
+      at: '2026-08-23T12:00:02.000Z',
+      event: 'start.complete',
+      operationId: '11111111-1111-4111-8111-111111111111',
+      projectRef: diagnostics.projectRef('project-1'),
+      outcome: 'completed',
+      status: 'running',
+      previousStatus: 'stopped',
+      resultingStatus: 'running',
+      reasonCode: 'operation-completed'
+    }
+  ]);
+});
+
+test('rejected lifecycle completion keeps its exact transition reason', async () => {
+  const diagnostics = createDiagnostics();
+
+  await diagnostics.run('stop', 'project-1', async () => false, () => ({
+    status: 'ownership-lost'
+  }));
+
+  const event = JSON.parse(diagnostics.supportReport()).recentEvents.at(-1);
+  assert.equal(event.previousStatus, 'ownership-lost');
+  assert.equal(event.resultingStatus, 'ownership-lost');
+  assert.equal(event.reasonCode, 'operation-rejected');
+});
+
 test('diagnostic history remains bounded in memory', () => {
   const diagnostics = createDiagnostics();
 

@@ -69,6 +69,9 @@ class PortReservationStore {
     this.ownerHeartbeatTimeoutMs = options.ownerHeartbeatTimeoutMs ?? OWNER_HEARTBEAT_TIMEOUT_MS;
     this.invalidRecordGraceMs = options.invalidRecordGraceMs ?? INVALID_RECORD_GRACE_MS;
     this.locks = new Map();
+    this.onDiagnostic = typeof options.onDiagnostic === 'function'
+      ? options.onDiagnostic
+      : undefined;
     let capturedHostIdentity;
     if (stableProcessIdentity(options.hostIdentity)) {
       capturedHostIdentity = options.hostIdentity;
@@ -92,19 +95,38 @@ class PortReservationStore {
 
   reserveUnlocked(project) {
     const acquired = [];
-    if (servicePorts(project).length > 0 && !stableProcessIdentity(this.hostIdentity)) {
+    const ports = servicePorts(project);
+    if (ports.length > 0 && !stableProcessIdentity(this.hostIdentity)) {
+      this.diagnose('reservation.blocked', {
+        projectId: project?.id,
+        reasonCode: 'host-identity-unavailable',
+        identityDecision: 'unavailable',
+        serviceCount: ports.length
+      });
       throw new Error('Runlist could not verify the port reservation host identity.');
     }
     try {
-      for (const port of servicePorts(project).sort((left, right) => left - right)) {
+      for (const port of ports.sort((left, right) => left - right)) {
         const conflict = this.acquire(port, project.id);
         if (conflict) {
           for (const acquiredPort of acquired) {
             this.releasePort(acquiredPort);
           }
+          this.diagnose('reservation.blocked', {
+            projectId: project?.id,
+            reasonCode: 'reserved-by-project',
+            serviceCount: ports.length
+          });
           return conflict;
         }
         acquired.push(port);
+      }
+      if (ports.length > 0) {
+        this.diagnose('reservation.acquired', {
+          projectId: project?.id,
+          reasonCode: 'ports-reserved',
+          serviceCount: ports.length
+        });
       }
       return undefined;
     } catch (error) {
@@ -490,6 +512,11 @@ class PortReservationStore {
         }
         const owner = readLock(lockPath);
         if (!owner && removeInvalidLock(lockPath, this.invalidRecordGraceMs, this.now())) {
+          this.diagnose('reservation.stale-recovered', {
+            projectId,
+            reasonCode: 'invalid-record',
+            identityDecision: 'unavailable'
+          });
           continue;
         }
         if (owner && !owner.detached
@@ -502,6 +529,11 @@ class PortReservationStore {
                 || (!current.detached && this.lockOwnerState(current) === 'absent'))
           );
           if (removed) {
+            this.diagnose('reservation.stale-recovered', {
+              projectId,
+              reasonCode: 'owner-absent',
+              identityDecision: owner ? this.hostIdentityDecision(owner) : 'unavailable'
+            });
             continue;
           }
         }
@@ -652,7 +684,10 @@ class PortReservationStore {
   withReservationTransaction(operation) {
     const transactionPath = path.join(this.directory, '.reservation-transaction.lock');
     let token;
+    let contended = false;
+    let attemptCount = 0;
     for (let attempt = 0; attempt < LOCK_UPDATE_MAX_ATTEMPTS; attempt += 1) {
+      attemptCount = attempt + 1;
       let descriptor;
       try {
         token = crypto.randomUUID();
@@ -665,6 +700,13 @@ class PortReservationStore {
         }));
         fs.closeSync(descriptor);
         descriptor = undefined;
+        if (contended) {
+          this.diagnose('transaction.acquired', {
+            reasonCode: 'after-contention',
+            lockKind: 'port-transaction',
+            attemptCount
+          });
+        }
         break;
       } catch (error) {
         if (descriptor !== undefined) {
@@ -674,6 +716,7 @@ class PortReservationStore {
         if (error.code !== 'EEXIST') {
           throw error;
         }
+        contended = true;
         const existing = readLock(transactionPath);
         if (existing && transientLockIsAbandoned(
           transactionPath,
@@ -681,7 +724,7 @@ class PortReservationStore {
           this.invalidRecordGraceMs,
           this.now()
         )) {
-          updateLock(
+          const removed = updateLock(
             transactionPath,
             (current) => current?.token === existing.token
               && transientLockIsAbandoned(
@@ -691,6 +734,13 @@ class PortReservationStore {
                 this.now()
               )
           );
+          if (removed) {
+            this.diagnose('transaction.stale-recovered', {
+              reasonCode: 'owner-absent',
+              lockKind: 'port-transaction',
+              attemptCount
+            });
+          }
           continue;
         }
         if (!existing && removeInvalidLock(
@@ -698,18 +748,36 @@ class PortReservationStore {
           this.invalidRecordGraceMs,
           this.now()
         )) {
+          this.diagnose('transaction.stale-recovered', {
+            reasonCode: 'invalid-record',
+            lockKind: 'port-transaction',
+            attemptCount
+          });
           continue;
         }
         Atomics.wait(LOCK_UPDATE_WAIT, 0, 0, LOCK_UPDATE_RETRY_MS);
       }
     }
     if (!token || readLock(transactionPath)?.token !== token) {
+      this.diagnose('transaction.timeout', {
+        reasonCode: 'owner-active-or-uncertain',
+        lockKind: 'port-transaction',
+        attemptCount
+      });
       throw new Error('Runlist could not safely coordinate shared port reservations.');
     }
     try {
       return operation();
     } finally {
       updateLock(transactionPath, (current) => current?.token === token);
+    }
+  }
+
+  diagnose(event, details) {
+    try {
+      this.onDiagnostic?.(event, details);
+    } catch {
+      // Local diagnostics must never alter port coordination behavior.
     }
   }
 }

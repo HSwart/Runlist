@@ -156,6 +156,7 @@ const {
   removeRunGroup,
   saveProjectSnapshot,
   selectProjectLaunchProfile,
+  subscribeProjectStoreDiagnostics,
   toggleProjectPinned,
   upsertRunGroup
 } = require('./src/projects/project-store');
@@ -235,10 +236,22 @@ class RunlistViewProvider {
     this.managedProjectIds = new Set();
     this.detachedProjectIds = new Set();
     this.portReservations = new PortReservationStore(
-      path.join(path.dirname(projectsFile), 'port-reservations')
+      path.join(path.dirname(projectsFile), 'port-reservations'),
+      {
+        onDiagnostic: (event, details) => this.diagnostics.record(
+          `port-lock.${event}`,
+          details
+        )
+      }
     );
     this.processOwnership = new ProcessOwnershipStore(
-      path.join(path.dirname(projectsFile), 'process-ownership')
+      path.join(path.dirname(projectsFile), 'process-ownership'),
+      {
+        onDiagnostic: (event, details) => this.diagnostics.record(
+          `ownership.${event}`,
+          details
+        )
+      }
     );
     this.runGroupCoordinator = new RunGroupCoordinator(
       path.join(path.dirname(projectsFile), 'run-group-invocations'),
@@ -4290,6 +4303,10 @@ function activate(context) {
       remoteKind: vscode.env.remoteName || 'local'
     }
   });
+  const projectStoreDiagnostics = subscribeProjectStoreDiagnostics(
+    projectsFile,
+    (event, details) => diagnostics.record(`store.${event}`, details)
+  );
   const provider = new RunlistViewProvider(context, projectsFile, serverPath, diagnostics);
   activeProvider = provider;
   context.subscriptions.push({ dispose: () => { void provider.dispose(); } });
@@ -4310,6 +4327,7 @@ function activate(context) {
 
   context.subscriptions.push(
     diagnosticOutput,
+    projectStoreDiagnostics,
     vscode.window.registerWebviewViewProvider('runlist.projects', provider),
     vscode.commands.registerCommand('runlist.addProject', () => provider.showAddProject()),
     vscode.commands.registerCommand('runlist.showAgentSetup', () => provider.showAgentSetup()),

@@ -14,8 +14,10 @@ const {
   saveProjectSnapshot,
   selectProjectLaunchProfile,
   serializeProjectDocument,
+  subscribeProjectStoreDiagnostics,
   toggleProjectPinned,
   upsertProject,
+  withProjectStoreLock,
   writeProjects
 } = require('../src/projects/project-store');
 
@@ -40,6 +42,59 @@ function projectStoreFixture(t) {
   t.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
   return { temporaryRoot, projectFolder, storageFolder, projectsFile };
 }
+
+test('reports project-store lock acquisition, stale recovery, and timeout decisions', (t) => {
+  const { projectsFile } = projectStoreFixture(t);
+  const lockPath = `${projectsFile}.write-lock`;
+  let liveLock;
+  withProjectStoreLock(projectsFile, () => {
+    liveLock = fs.readFileSync(lockPath, 'utf8');
+  });
+  const events = [];
+  const subscription = subscribeProjectStoreDiagnostics(
+    projectsFile,
+    (event, details) => events.push({ event, ...details })
+  );
+  t.after(() => subscription.dispose());
+
+  fs.writeFileSync(lockPath, JSON.stringify({
+    pid: 999999,
+    processIdentity: '999999:dead',
+    createdAt: Date.now() - 10000,
+    token: 'stale-owner'
+  }));
+  withProjectStoreLock(projectsFile, () => undefined);
+
+  fs.writeFileSync(lockPath, liveLock);
+  assert.throws(() => withProjectStoreLock(projectsFile, () => undefined, {
+    maxAttempts: 1,
+    retryMs: 0,
+    wait: () => undefined
+  }), (error) => error?.code === 'STORE_BUSY');
+  fs.rmSync(lockPath, { force: true });
+
+  assert.deepEqual(events.map(({ event, reasonCode, attemptCount }) => ({
+    event,
+    reasonCode,
+    attemptCount
+  })), [
+    {
+      event: 'lock.stale-recovered',
+      reasonCode: 'owner-absent',
+      attemptCount: 1
+    },
+    {
+      event: 'lock.acquired',
+      reasonCode: 'after-contention',
+      attemptCount: 2
+    },
+    {
+      event: 'lock.timeout',
+      reasonCode: 'owner-active-or-uncertain',
+      attemptCount: 1
+    }
+  ]);
+});
 
 test('serializes independent project writes across extension hosts', async (t) => {
   const { temporaryRoot, projectsFile } = projectStoreFixture(t);
