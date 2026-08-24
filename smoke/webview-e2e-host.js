@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vscode = require('vscode');
 const { upsertProject } = require('../src/projects/project-store');
+const { WEBVIEW_HOST_COMPLETION_TIMEOUT_MS } = require('../scripts/webview-e2e-timeouts');
 
 async function run() {
   const root = requiredEnvironment('RUNLIST_WEBVIEW_E2E_ROOT');
@@ -49,7 +50,7 @@ async function serveBrowserCommands(root, provider) {
   const completePath = path.join(root, 'browser-complete');
   const commandPath = path.join(root, 'browser-command.json');
   const responsePath = path.join(root, 'host-response.json');
-  const deadline = Date.now() + 120000;
+  const deadline = Date.now() + WEBVIEW_HOST_COMPLETION_TIMEOUT_MS;
   while (Date.now() < deadline) {
     if (fs.existsSync(completePath)) {
       assert.equal(provider.processes.size, 0, 'The browser suite left a Runlist process running.');

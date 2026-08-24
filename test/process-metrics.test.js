@@ -396,6 +396,8 @@ test('builds a bounded Windows descendant query without a system-wide process re
   assert.doesNotMatch(script, /Get-CimInstance Win32_Process;/);
   assert.doesNotMatch(script, /};elseif/);
   assert.match(script, /if\(\$null -eq \$root -and \$includeTree\)/);
+  assert.match(script, /Get-Process -Id \$process\.ProcessId/);
+  assert.match(script, /\$live\.StartTime\.ToUniversalTime\(\)\.Ticks/);
 
   assert.deepEqual(parseWindowsProcessOutput(JSON.stringify({
     pid: 55,
@@ -410,6 +412,18 @@ test('builds a bounded Windows descendant query without a system-wide process re
     cpuSeconds: 1.25,
     memoryBytes: 4096
   }]);
+});
+
+test('allows the bounded Windows tree query enough time for cold CI process inspection', async () => {
+  let commandOptions;
+  await readOwnedProcessTree(55, 'win32', {
+    runFile: async (_command, _args, options) => {
+      commandOptions = options;
+      return '[]';
+    }
+  });
+
+  assert.equal(commandOptions.timeout, 10000);
 });
 
 test('renders accessible metrics only inside the expanded preview and stops sampling on collapse', () => {

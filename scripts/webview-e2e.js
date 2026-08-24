@@ -7,6 +7,10 @@ const path = require('node:path');
 const { chromium } = require('playwright-core');
 const { runTests } = require('@vscode/test-electron');
 const { webviewFrameWasReplaced } = require('./webview-frame-errors');
+const {
+  WEBVIEW_DEBUG_ENDPOINT_TIMEOUT_MS,
+  WEBVIEW_FRAME_TIMEOUT_MS
+} = require('./webview-e2e-timeouts');
 
 const UPDATE_SCREENSHOT = process.argv.includes('--update-screenshot')
   || process.env.RUNLIST_UPDATE_SCREENSHOTS === '1';
@@ -71,7 +75,7 @@ async function main() {
       return fs.existsSync(path.join(root, 'host-ready.json'));
     }, 30000, 'the extension host to open Runlist');
     const ready = JSON.parse(fs.readFileSync(path.join(root, 'host-ready.json'), 'utf8'));
-    await waitForDebugEndpoint(debugPort, 30000);
+    await waitForDebugEndpoint(debugPort, WEBVIEW_DEBUG_ENDPOINT_TIMEOUT_MS);
     browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`);
     let webview;
     await waitFor(async () => {
@@ -80,7 +84,7 @@ async function main() {
         .flatMap((page) => page.frames());
       webview = await findRunlistFrame(frames);
       return Boolean(webview);
-    }, 45000, 'the Runlist webview frame');
+    }, WEBVIEW_FRAME_TIMEOUT_MS, 'the Runlist webview frame');
 
     await runWebviewJourneys(browser, webview, ready, root, extensionDevelopmentPath);
     fs.writeFileSync(path.join(root, 'browser-complete'), 'ok\n');

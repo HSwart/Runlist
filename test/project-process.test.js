@@ -873,6 +873,46 @@ test('keeps the Windows supervisor until its initial owned tree is captured', as
   assert.equal(child.connected, false);
 });
 
+test('fails Windows Start closed when its initial owned tree cannot be verified', async () => {
+  const messages = [];
+  const child = {
+    pid: 306,
+    connected: true,
+    send(message) {
+      messages.push(message);
+    },
+    disconnect() {
+      this.connected = false;
+    }
+  };
+  const ownership = {
+    trackProcessIdentity: async () => '306:100',
+    setProcess: () => true
+  };
+  const reservations = {
+    capture: () => 'generation',
+    setProcess: () => 0
+  };
+
+  await assert.rejects(
+    recordStartedProcess(
+      ownership,
+      reservations,
+      { id: 'project', folder: 'C:\\project', startCommand: 'npm start', services: [] },
+      child,
+      {},
+      {
+        platform: 'win32',
+        processTreeSettleMs: 0,
+        readOwnedProcessTree: async () => []
+      }
+    ),
+    /could not verify the launched Windows process tree/
+  );
+  assert.deepEqual(messages, [{ type: 'runlistIdentityCaptured' }]);
+  assert.equal(child.connected, false);
+});
+
 test('recovers an old corrupt ownership record but preserves a fresh partial write', (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-corrupt-ownership-'));
   const probe = new ProcessOwnershipStore(directory, {

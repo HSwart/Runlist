@@ -5,6 +5,7 @@ const fs = require('fs');
 const MAX_PROCESS_COUNT = 64;
 const COMMAND_TIMEOUT_MS = 4000;
 const ROOT_PROCESS_COMMAND_TIMEOUT_MS = 10000;
+const WINDOWS_TREE_COMMAND_TIMEOUT_MS = 10000;
 const DARWIN_MONTHS = new Map([
   ['Jan', 1], ['Feb', 2], ['Mar', 3], ['Apr', 4], ['May', 5], ['Jun', 6],
   ['Jul', 7], ['Aug', 8], ['Sep', 9], ['Oct', 10], ['Nov', 11], ['Dec', 12]
@@ -363,7 +364,10 @@ async function readWindowsProcesses(pid, includeTree, options = {}) {
   const script = windowsProcessScript(pid, includeTree);
   const output = await runFile('powershell.exe', [
     '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script
-  ], commandOptions(options));
+  ], commandOptions({
+    ...options,
+    timeoutMs: options.timeoutMs || WINDOWS_TREE_COMMAND_TIMEOUT_MS
+  }));
   if (!String(output).trim()) {
     return [];
   }
@@ -413,7 +417,9 @@ function windowsProcessScript(pid, includeTree) {
     '  $process=Get-CimInstance Win32_Process -Filter ("ProcessId = " + [int]$item.id)',
     '  if($null -eq $process){continue}',
     '  if($null -ne $item.parent -and [int]$process.ParentProcessId -ne [int]$item.parent){continue}',
-    '  $rows += [pscustomobject]@{pid=[int]$process.ProcessId;parentPid=[int]$process.ParentProcessId;startedAt=$process.CreationDate.ToUniversalTime().Ticks.ToString();cpuSeconds=([double]$process.KernelModeTime+[double]$process.UserModeTime)/10000000;memoryBytes=[double]$process.WorkingSetSize}',
+    '  $live=Get-Process -Id $process.ProcessId -ErrorAction SilentlyContinue',
+    '  if($null -eq $live){continue}',
+    '  $rows += [pscustomobject]@{pid=[int]$process.ProcessId;parentPid=[int]$process.ParentProcessId;startedAt=$live.StartTime.ToUniversalTime().Ticks.ToString();cpuSeconds=[double]$live.TotalProcessorTime.TotalSeconds;memoryBytes=[double]$live.WorkingSet64}',
     '  if($includeTree){',
     '    $children=@(Get-CimInstance Win32_Process -Filter ("ParentProcessId = " + [int]$process.ProcessId))',
     '    foreach($child in $children){$queue.Enqueue([pscustomobject]@{id=[int]$child.ProcessId;parent=[int]$process.ProcessId})}',

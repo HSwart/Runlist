@@ -613,18 +613,25 @@ async function captureInitialProcessTree(pid, identity, options = {}) {
   }
   const expectedIdentity = await identity;
   if (!stableProcessIdentity(expectedIdentity)) {
-    return [];
+    throw new Error('Runlist could not verify the launched Windows process identity.');
   }
   try {
     await delay(options.processTreeSettleMs ?? WINDOWS_PROCESS_TREE_SETTLE_MS);
     const readTree = options.readOwnedProcessTree || readOwnedProcessTree;
     const rows = await readTree(pid, platform, options);
     const root = rows.find((row) => row.pid === pid);
-    return root && processIdentityDecision(expectedIdentity, root.identity, platform, pid) === 'match'
-      ? rows
-      : [];
-  } catch {
-    return [];
+    if (!root || processIdentityDecision(expectedIdentity, root.identity, platform, pid) !== 'match') {
+      throw new Error('Runlist could not verify the launched Windows process tree.');
+    }
+    return rows;
+  } catch (error) {
+    if (error?.message === 'Runlist could not verify the launched Windows process tree.') {
+      throw error;
+    }
+    throw new Error(
+      `Runlist could not verify the launched Windows process tree: ${error?.message || 'process inspection failed.'}`,
+      { cause: error }
+    );
   }
 }
 
