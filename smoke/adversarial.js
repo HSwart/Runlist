@@ -88,6 +88,15 @@ async function rootExitScenario(context) {
   );
   assert.equal(await exactProcessIsAlive(firstChild), true, 'The descendant was not alive before its root exited.');
   assert.equal(api.provider.processOwnership.snapshot().has(project.id), true, 'Root exit Start omitted ownership.');
+  if (process.platform === 'win32') {
+    const tracked = api.provider.processes.get(project.id);
+    const capturedTree = await tracked?.runlistProcessTree;
+    assert.equal(
+      capturedTree?.some((row) => row.pid === firstChild.pid),
+      true,
+      `Runlist did not capture the Windows descendant before releasing Start: ${JSON.stringify(capturedTree || [])}`
+    );
+  }
   fs.writeFileSync(exitSignalPath, 'exit\n');
 
   await waitFor(

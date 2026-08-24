@@ -29,6 +29,7 @@ const { projectWithPortOverrides } = require('../ports/service-port-overrides');
 const OWNER_HEARTBEAT_TIMEOUT_MS = 10000;
 const HOST_IDENTITY_CACHE_TTL_MS = 250;
 const EXITED_WINDOWS_IDENTITY_WAIT_MS = 250;
+const WINDOWS_PROCESS_TREE_SETTLE_MS = 500;
 const INVALID_RECORD_GRACE_MS = 2000;
 const CURRENT_PROCESS_IDENTITY = currentProcessIdentity({ allowRuntimeFallback: true });
 const OWNERSHIP_RECORDS = createAtomicJsonRecordUpdater({
@@ -615,6 +616,7 @@ async function captureInitialProcessTree(pid, identity, options = {}) {
     return [];
   }
   try {
+    await delay(options.processTreeSettleMs ?? WINDOWS_PROCESS_TREE_SETTLE_MS);
     const readTree = options.readOwnedProcessTree || readOwnedProcessTree;
     const rows = await readTree(pid, platform, options);
     const root = rows.find((row) => row.pid === pid);

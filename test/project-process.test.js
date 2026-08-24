@@ -852,6 +852,7 @@ test('keeps the Windows supervisor until its initial owned tree is captured', as
     {},
     {
       platform: 'win32',
+      processTreeSettleMs: 0,
       readOwnedProcessTree: async () => tree
     }
   );
