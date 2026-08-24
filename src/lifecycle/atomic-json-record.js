@@ -36,6 +36,7 @@ function createAtomicJsonRecordUpdater(options = {}) {
 
   function update(filePath, matches, replacement) {
     const updatePath = `${filePath}.update`;
+    const identityCache = new Map();
     let acquired = false;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       let descriptor;
@@ -61,7 +62,7 @@ function createAtomicJsonRecordUpdater(options = {}) {
         if (error.code !== 'EEXIST') {
           throw error;
         }
-        if (markerIsAbandoned(updatePath, invalidRecordGraceMs, now())) {
+        if (markerIsAbandoned(updatePath, invalidRecordGraceMs, now(), identityCache)) {
           tryUnlink(updatePath);
           continue;
         }
@@ -105,13 +106,15 @@ function createAtomicJsonRecordUpdater(options = {}) {
   function markerIsAbandoned(
     filePath,
     graceMs = invalidRecordGraceMs,
-    timestamp = now()
+    timestamp = now(),
+    identityCache
   ) {
     return transientRecordIsAbandoned(
       filePath,
       readJsonRecord(filePath),
       graceMs,
-      timestamp
+      timestamp,
+      identityCache
     );
   }
 
@@ -119,7 +122,8 @@ function createAtomicJsonRecordUpdater(options = {}) {
     filePath,
     marker,
     graceMs = invalidRecordGraceMs,
-    timestamp = now()
+    timestamp = now(),
+    identityCache
   ) {
     if (!Number.isInteger(marker?.pid) || marker.pid <= 0) {
       return invalidJsonRecordIsStale(filePath, graceMs, timestamp);
@@ -129,6 +133,7 @@ function createAtomicJsonRecordUpdater(options = {}) {
         allowRuntime: true,
         currentPid,
         currentProcessIdentity: currentIdentity,
+        identityCache,
         isProcessAlive,
         platform,
         readProcessIdentitySync: options.readProcessIdentitySync

@@ -250,6 +250,31 @@ test('keeps a live store lock when its owner identity was unavailable', () => {
   }), false);
 });
 
+test('probes an uncertain store-lock identity once per bounded acquisition', (t) => {
+  const { projectsFile } = projectStoreFixture(t);
+  const lockPath = `${projectsFile}.write-lock`;
+  let identityReads = 0;
+  fs.writeFileSync(lockPath, JSON.stringify({
+    pid: 2147483646,
+    processIdentity: '2147483646:1000',
+    token: 'uncertain-lock'
+  }));
+
+  assert.throws(() => withProjectStoreLock(projectsFile, () => undefined, {
+    kill: () => {},
+    maxAttempts: 3,
+    platform: 'win32',
+    readProcessIdentity: () => {
+      identityReads += 1;
+      return undefined;
+    },
+    retryMs: 0,
+    wait: () => undefined
+  }), (error) => error?.code === 'STORE_BUSY');
+  assert.equal(identityReads, 1);
+  assert.equal(fs.existsSync(lockPath), true);
+});
+
 test('does not publish an unverifiable fallback identity in a store lock', async (t) => {
   const { temporaryRoot, projectsFile } = projectStoreFixture(t);
   const storeModule = path.join(__dirname, '..', 'src', 'projects', 'project-store.js');

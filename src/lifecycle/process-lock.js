@@ -23,10 +23,7 @@ function processLockOwnerDecision(record, options = {}) {
   try {
     currentIdentity = record.pid === currentPid
       ? options.currentProcessIdentity
-      : (options.readProcessIdentitySync || readProcessIdentitySync)(
-        record.pid,
-        options.platform || process.platform
-      );
+      : cachedProcessIdentity(record.pid, record.processIdentity, options);
   } catch {
     return 'uncertain';
   }
@@ -41,6 +38,26 @@ function processLockOwnerDecision(record, options = {}) {
     return 'active';
   }
   return identityDecision === 'mismatch' ? 'absent' : 'uncertain';
+}
+
+function cachedProcessIdentity(pid, expectedIdentity, options = {}) {
+  const platform = options.platform || process.platform;
+  const cache = options.identityCache;
+  const key = `${platform}:${pid}:${expectedIdentity}`;
+  if (cache?.has(key)) {
+    return cache.get(key);
+  }
+  let identity;
+  try {
+    identity = (options.readProcessIdentitySync || readProcessIdentitySync)(
+      pid,
+      platform
+    );
+  } catch {
+    identity = undefined;
+  }
+  cache?.set(key, identity);
+  return identity;
 }
 
 function processLockRecordIsAbandoned(record, options) {

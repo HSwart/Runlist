@@ -65,3 +65,23 @@ test('treats unexpected process-probe failures as uncertain instead of absent', 
     readProcessIdentitySync: () => '303:linux:2000'
   }), 'uncertain');
 });
+
+test('caches an expensive identity probe for one lock acquisition attempt', () => {
+  const identityCache = new Map();
+  let reads = 0;
+  const options = {
+    currentPid: 404,
+    identityCache,
+    isProcessAlive: () => true,
+    platform: 'win32',
+    readProcessIdentitySync: () => {
+      reads += 1;
+      throw new Error('identity probe timed out');
+    }
+  };
+  const record = { pid: 303, processIdentity: '303:1000' };
+
+  assert.equal(processLockOwnerDecision(record, options), 'uncertain');
+  assert.equal(processLockOwnerDecision(record, options), 'uncertain');
+  assert.equal(reads, 1);
+});

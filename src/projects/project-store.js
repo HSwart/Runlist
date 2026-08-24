@@ -146,8 +146,15 @@ function withProjectStoreLock(filePath, operation, options = {}) {
   let lockToken;
   let contended = false;
   let attemptCount = 0;
+  const identityCache = new Map();
   const maxAttempts = options.maxAttempts ?? STORE_LOCK_MAX_ATTEMPTS;
   const retryMs = options.retryMs ?? STORE_LOCK_RETRY_MS;
+  const lockOwnerOptions = {
+    identityCache,
+    kill: options.kill,
+    platform: options.platform,
+    readProcessIdentity: options.readProcessIdentity
+  };
   const wait = options.wait || ((milliseconds) => {
     Atomics.wait(STORE_LOCK_WAIT, 0, 0, milliseconds);
   });
@@ -190,11 +197,12 @@ function withProjectStoreLock(filePath, operation, options = {}) {
       contended = true;
       const observed = storeLockObservation(lockPath);
       if (observed
-        && storeLockObservationIsAbandoned(observed)
+        && storeLockObservationIsAbandoned(observed, lockOwnerOptions)
         && removeObservedStoreLock(
           lockPath,
           observed,
-          projectStoreLockRecordIsAbandoned
+          (record) => projectStoreLockRecordIsAbandoned(record, lockOwnerOptions),
+          lockOwnerOptions
         )) {
         emitProjectStoreDiagnostic(filePath, 'lock.stale-recovered', {
           reasonCode: 'owner-absent',
@@ -233,18 +241,18 @@ function withProjectStoreLock(filePath, operation, options = {}) {
   }
 }
 
-function projectStoreLockIsAbandoned(lockPath) {
+function projectStoreLockIsAbandoned(lockPath, options = {}) {
   try {
     const record = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
-    return projectStoreLockRecordIsAbandoned(record);
+    return projectStoreLockRecordIsAbandoned(record, options);
   } catch {
     return false;
   }
 }
 
-function storeLockObservationIsAbandoned(observed) {
+function storeLockObservationIsAbandoned(observed, options = {}) {
   try {
-    return projectStoreLockRecordIsAbandoned(JSON.parse(observed.contents));
+    return projectStoreLockRecordIsAbandoned(JSON.parse(observed.contents), options);
   } catch {
     return false;
   }
@@ -253,13 +261,14 @@ function storeLockObservationIsAbandoned(observed) {
 function projectStoreLockRecordIsAbandoned(record, options = {}) {
   return processLockRecordIsAbandoned(record, {
     currentProcessIdentity: CURRENT_PROCESS_IDENTITY,
+    identityCache: options.identityCache,
     kill: options.kill,
     platform: options.platform,
     readProcessIdentitySync: options.readProcessIdentity || readProcessIdentitySync
   });
 }
 
-function removeObservedStoreLock(lockPath, observed, canRemove) {
+function removeObservedStoreLock(lockPath, observed, canRemove, options = {}) {
   const cleanupPath = `${lockPath}.cleanup`;
   let cleanupToken;
   let acquired = false;
@@ -291,7 +300,7 @@ function removeObservedStoreLock(lockPath, observed, canRemove) {
       if (error.code !== 'EEXIST') {
         throw error;
       }
-      if (projectStoreLockIsAbandoned(cleanupPath)) {
+      if (projectStoreLockIsAbandoned(cleanupPath, options)) {
         try {
           fs.unlinkSync(cleanupPath);
         } catch (unlinkError) {

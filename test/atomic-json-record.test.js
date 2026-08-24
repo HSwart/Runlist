@@ -92,6 +92,27 @@ test('times out without changing data when an updater marker is still owned', (t
   assert.equal(fs.existsSync(`${recordPath}.update`), true);
 });
 
+test('probes an uncertain updater owner identity once per bounded update', (t) => {
+  let identityReads = 0;
+  const { recordPath, records } = fixture(t, {
+    isProcessAlive: () => true,
+    platform: 'win32',
+    readProcessIdentitySync: () => {
+      identityReads += 1;
+      return undefined;
+    }
+  });
+  fs.writeFileSync(recordPath, JSON.stringify({ token: 'current' }));
+  fs.writeFileSync(`${recordPath}.update`, JSON.stringify({
+    pid: 303,
+    processIdentity: '303:1000'
+  }));
+
+  assert.throws(() => records.update(recordPath, () => true));
+  assert.equal(identityReads, 1);
+  assert.deepEqual(readJsonRecord(recordPath), { token: 'current' });
+});
+
 test('cleans its updater marker when the atomic replacement fails', (t) => {
   const failure = new Error('disk unavailable');
   const { recordPath, records } = fixture(t, {
