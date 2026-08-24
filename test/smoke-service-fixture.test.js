@@ -10,6 +10,48 @@ const { recoverProjectPorts } = require('../src/ports/port-recovery');
 const { terminateListenerProcess } = require('../src/ports/port-process');
 const { readRootProcess } = require('../src/lifecycle/process-metrics');
 
+test('root-exit fixture keeps its descendant alive until the scenario releases the root', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-root-exit-fixture-'));
+  const rootPidPath = path.join(root, 'root.pid');
+  const childPidPath = path.join(root, 'child.pid');
+  const runCountPath = path.join(root, 'run-count');
+  const exitSignalPath = path.join(root, 'exit-now');
+  const fixture = spawn(process.execPath, [
+    path.join(__dirname, '..', 'smoke', 'fixtures', 'root-exits.js'),
+    rootPidPath,
+    childPidPath,
+    runCountPath,
+    exitSignalPath
+  ], { stdio: 'ignore' });
+  let childPid;
+
+  t.after(async () => {
+    for (const pid of [fixture.pid, childPid]) {
+      if (processIsAlive(pid)) {
+        try {
+          process.kill(pid);
+        } catch {
+          // The fixture can finish between the liveness check and cleanup.
+        }
+      }
+    }
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  await waitFor(
+    () => fs.existsSync(rootPidPath) && fs.existsSync(childPidPath),
+    'root-exit fixture did not expose its process tree'
+  );
+  childPid = Number(fs.readFileSync(childPidPath, 'utf8'));
+  await new Promise((resolve) => setTimeout(resolve, 1700));
+  assert.equal(processIsAlive(fixture.pid), true, 'root exited before the scenario released it');
+  assert.equal(processIsAlive(childPid), true, 'descendant exited before the root was released');
+
+  fs.writeFileSync(exitSignalPath, 'exit\n');
+  await waitFor(() => !processIsAlive(fixture.pid), 'root did not exit after its release signal');
+  assert.equal(processIsAlive(childPid), true, 'descendant did not survive the controlled root exit');
+});
+
 test('portable ready fixture can create a real child and grandchild process tree', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-smoke-fixture-'));
   const childPidPath = path.join(root, 'child.pid');
@@ -437,6 +479,9 @@ async function waitForAsync(predicate, message, timeoutMs = 2000) {
 }
 
 function processIsAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return false;
+  }
   try {
     process.kill(pid, 0);
     return true;

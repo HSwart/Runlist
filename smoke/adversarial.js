@@ -56,11 +56,19 @@ async function rootExitScenario(context) {
   const rootPidPath = path.join(smokeRoot, 'root-exit-root.pid');
   const childPidPath = path.join(smokeRoot, 'root-exit-child.pid');
   const runCountPath = path.join(smokeRoot, 'root-exit-count');
+  const exitSignalPath = path.join(smokeRoot, 'root-exit-now');
   const fixturePath = path.join(extension.extensionPath, 'smoke', 'fixtures', 'root-exits.js');
   const project = await saveProject(api.provider, {
     name: 'Root exit adversarial project',
     folder: projectFolder(workspacePath, 'adversarial-root-exit'),
-    startCommand: command(nodePath, fixturePath, rootPidPath, childPidPath, runCountPath)
+    startCommand: command(
+      nodePath,
+      fixturePath,
+      rootPidPath,
+      childPidPath,
+      runCountPath,
+      exitSignalPath
+    )
   });
 
   assert.equal(await api.provider.startProject(project.id), true, 'The root-exit fixture did not start.');
@@ -80,6 +88,7 @@ async function rootExitScenario(context) {
   );
   assert.equal(await exactProcessIsAlive(firstChild), true, 'The descendant was not alive before its root exited.');
   assert.equal(api.provider.processOwnership.snapshot().has(project.id), true, 'Root exit Start omitted ownership.');
+  fs.writeFileSync(exitSignalPath, 'exit\n');
 
   await waitFor(
     async () => !(await exactProcessIsAlive(firstRoot))
@@ -93,6 +102,7 @@ async function rootExitScenario(context) {
 
   fs.rmSync(rootPidPath, { force: true });
   fs.rmSync(childPidPath, { force: true });
+  fs.rmSync(exitSignalPath, { force: true });
   assert.equal(await api.provider.startProject(project.id), true, 'The project did not recover after root-exit cleanup.');
   await waitFor(
     () => fs.existsSync(rootPidPath) && fs.existsSync(childPidPath),
