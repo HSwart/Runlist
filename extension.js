@@ -69,6 +69,7 @@ const {
   cleanupTrackedProcessForDeletion,
   customStopSpawnOptions,
   detachedServiceIdentityDecision,
+  markOwnedRuntimeDetached,
   ProcessOwnershipStore,
   projectStopStrategy,
   readProcessIdentity,
@@ -81,7 +82,8 @@ const {
   startExitDetached,
   startExitFailed,
   terminateProcessTree,
-  terminateTrackedProcess
+  terminateTrackedProcess,
+  transitionOwnedRuntimeState
 } = require('./src/lifecycle/project-process');
 const {
   effectiveProjectPortOverrides,
@@ -1012,10 +1014,15 @@ class RunlistViewProvider {
           if (this.managedProjectIds.has(id)) {
             const readyAt = processRuntime.get(id)?.readyAt || Date.now();
             this.recordStartupOutcome(id, 'ready', readyAt);
-            const stateUpdated = this.processOwnership.setState(id, 'running', {
-              readyAt
-            });
-            this.portReservations.setState(id, 'running');
+            const { ownershipUpdated: stateUpdated } = transitionOwnedRuntimeState(
+              this.processOwnership,
+              this.portReservations,
+              id,
+              'running',
+              {
+                readyAt
+              }
+            );
             if (stateUpdated && processRuntime.has(id)) {
               processRuntime.set(id, {
                 ...processRuntime.get(id),
@@ -1027,8 +1034,12 @@ class RunlistViewProvider {
         } else if (['not-ready', 'not-responding'].includes(status)
           && this.managedProjectIds.has(id)) {
           this.recordStartupOutcome(id, 'timed-out');
-          const stateUpdated = this.processOwnership.setState(id, status);
-          this.portReservations.setState(id, status);
+          const { ownershipUpdated: stateUpdated } = transitionOwnedRuntimeState(
+            this.processOwnership,
+            this.portReservations,
+            id,
+            status
+          );
           if (stateUpdated && processRuntime.has(id)) {
             processRuntime.set(id, {
               ...processRuntime.get(id),
@@ -2672,7 +2683,6 @@ class RunlistViewProvider {
       });
       this.projectRuntime = this.processOwnership.snapshot();
       this.startAttempts.delete(id);
-      this.portReservations.setState(id, hasServices ? 'starting' : 'running');
       this.statusRevision += 1;
       this.renderProjectList();
       return true;
@@ -2692,8 +2702,12 @@ class RunlistViewProvider {
         this.projectStatuses.set(id, 'stopped');
       } else {
         const state = launchProject.services?.length ? 'not-ready' : 'running';
-        this.processOwnership.setState(id, state);
-        this.portReservations.setState(id, state);
+        transitionOwnedRuntimeState(
+          this.processOwnership,
+          this.portReservations,
+          id,
+          state
+        );
         this.projectRuntime = this.processOwnership.snapshot();
         this.projectStatuses.set(id, state);
       }
@@ -2746,8 +2760,12 @@ class RunlistViewProvider {
         const detail = `Runlist could not confirm cleanup after the launch process exited: ${error.message}`;
         this.statusRevision += 1;
         this.forgetProjectMetrics(id);
-        this.processOwnership.setState(id, 'ownership-lost');
-        this.portReservations.setState(id, 'ownership-lost');
+        transitionOwnedRuntimeState(
+          this.processOwnership,
+          this.portReservations,
+          id,
+          'ownership-lost'
+        );
         this.projectRuntime = this.processOwnership.snapshot();
         this.projectStatuses.set(id, 'ownership-lost');
         this.startReadinessDeadlines.delete(id);
@@ -2774,12 +2792,25 @@ class RunlistViewProvider {
     this.projectRuntime.delete(id);
     if (detached) {
       const detachedToken = this.processOwnership.currentOwnership(id)?.token;
-      this.processOwnership.markDetached(id);
-      this.portReservations.markDetached(id);
+      const detachedTransition = markOwnedRuntimeDetached(
+        this.processOwnership,
+        this.portReservations,
+        id
+      );
       this.startAttempts.delete(id);
-      this.detachedProjectIds.add(id);
-      this.projectStatuses.set(id, 'starting');
-      void this.captureDetachedServiceListeners(launchProject, detachedToken);
+      if (detachedTransition.ownershipUpdated) {
+        this.detachedProjectIds.add(id);
+        this.projectStatuses.set(id, 'starting');
+        void this.captureDetachedServiceListeners(launchProject, detachedToken);
+      } else {
+        this.managedProjectIds.delete(id);
+        this.detachedProjectIds.delete(id);
+        this.projectRuntime = this.processOwnership.snapshot();
+        this.projectStatuses.set(id, 'ownership-lost');
+        const detail = 'Runlist could not preserve process ownership after the start command exited. The remaining service was left running.';
+        this.addProjectOutput(id, `Runlist: ${detail}\n`, savedProjectRevision);
+        vscode.window.showErrorMessage(`${project.name}: ${detail}`);
+      }
     } else {
       this.processOwnership.release(id);
       this.releaseStartReservation(id);
@@ -3441,8 +3472,12 @@ class RunlistViewProvider {
     if (options.detachedStopClaim) {
       this.portReservations.setStateShared(id, 'stopping', options.portGeneration);
     } else {
-      this.processOwnership.setState(id, 'stopping');
-      this.portReservations.setState(id, 'stopping');
+      transitionOwnedRuntimeState(
+        this.processOwnership,
+        this.portReservations,
+        id,
+        'stopping'
+      );
     }
     this.statusRevision += 1;
     this.projectStatuses.set(id, 'stopping');
@@ -3508,8 +3543,12 @@ class RunlistViewProvider {
       const state = hasServices
         ? readinessTimedOut ? 'not-ready' : 'starting'
         : 'running';
-      this.processOwnership.setState(id, state);
-      this.portReservations.setState(id, state);
+      transitionOwnedRuntimeState(
+        this.processOwnership,
+        this.portReservations,
+        id,
+        state
+      );
       this.projectStatuses.set(id, state);
     }
     if (succeededCleanup) {

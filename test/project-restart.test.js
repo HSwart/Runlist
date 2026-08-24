@@ -156,6 +156,72 @@ function createDetachedPortReservations(projectId, port) {
   };
 }
 
+test('fails closed when root-exit ownership cannot transition to detached', async () => {
+  const messages = [];
+  const Provider = loadRunlistProvider(() => undefined, messages);
+  const provider = Object.create(Provider.prototype);
+  const child = { pid: 303 };
+  const project = {
+    id: 'project-1',
+    name: 'Project',
+    services: [{ name: 'Web', port: 4320 }],
+    stopCommand: 'npm stop'
+  };
+  let portMarked = false;
+  const output = [];
+
+  provider.processes = new Map([[project.id, child]]);
+  provider.processOwnership = {
+    currentOwnership: () => ({ token: 'original-token' }),
+    markDetached: () => false,
+    snapshot: () => new Map([[project.id, {
+      processActive: true,
+      state: 'starting',
+      token: 'replacement-token'
+    }]])
+  };
+  provider.portReservations = {
+    snapshot: () => new Map([[project.id, 'starting']]),
+    markDetached: () => {
+      portMarked = true;
+      return true;
+    }
+  };
+  provider.diagnostics = { record: () => {} };
+  provider.managedProjectIds = new Set([project.id]);
+  provider.detachedProjectIds = new Set();
+  provider.startAttempts = new Map([[project.id, Symbol(project.id)]]);
+  provider.projectStatuses = new Map([[project.id, 'starting']]);
+  provider.projectRuntime = new Map();
+  provider.startReadinessDeadlines = new Map([[project.id, Date.now() + 1000]]);
+  provider.readinessWarnings = new Set();
+  provider.stoppingProjectIds = new Set();
+  provider.statusRevision = 0;
+  provider.forgetProjectMetrics = () => {};
+  provider.addProjectOutput = (id, message) => output.push([id, message]);
+  provider.renderProjectList = () => {};
+  provider.refreshProjectStatuses = async () => {};
+
+  await provider.handleProjectProcessExit({
+    child,
+    code: 0,
+    hasServices: true,
+    id: project.id,
+    launchProject: project,
+    project,
+    savedProjectRevision: 'revision-1',
+    signal: null
+  });
+
+  assert.equal(portMarked, false);
+  assert.equal(provider.detachedProjectIds.has(project.id), false);
+  assert.equal(provider.managedProjectIds.has(project.id), false);
+  assert.equal(provider.projectStatuses.get(project.id), 'ownership-lost');
+  assert.equal(provider.projectRuntime.get(project.id).token, 'replacement-token');
+  assert.match(output[0][1], /could not preserve process ownership/i);
+  assert.match(messages[0], /remaining service was left running/i);
+});
+
 test('publishes status and runtime from one ownership snapshot per refresh', async () => {
   const messages = [];
   const Provider = loadRunlistProvider(

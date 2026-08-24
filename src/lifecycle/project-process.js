@@ -506,6 +506,28 @@ function projectStopStrategy(project, ownership) {
   }
 }
 
+function transitionOwnedRuntimeState(
+  processOwnership,
+  portReservations,
+  projectId,
+  state,
+  details = {}
+) {
+  const ownershipUpdated = processOwnership.setState(projectId, state, details);
+  const reservationsUpdated = ownershipUpdated
+    ? portReservations.setState(projectId, state)
+    : false;
+  return { ownershipUpdated, reservationsUpdated };
+}
+
+function markOwnedRuntimeDetached(processOwnership, portReservations, projectId) {
+  const ownershipUpdated = processOwnership.markDetached(projectId);
+  const reservationsUpdated = ownershipUpdated
+    ? portReservations.markDetached(projectId)
+    : false;
+  return { ownershipUpdated, reservationsUpdated };
+}
+
 function recordStartedProcess(processOwnership, portReservations, project, child, details = {}) {
   const identity = processOwnership.trackProcessIdentity(project.id, child.pid);
   child.runlistIdentity = identity;
@@ -1959,6 +1981,7 @@ module.exports = {
   customStopSpawnOptions,
   detachedServiceIdentityDecision,
   handoffProjectSafely,
+  markOwnedRuntimeDetached,
   ProcessOwnershipStore,
   projectStopStrategy,
   projectProcessSpawnOptions,
@@ -1974,5 +1997,6 @@ module.exports = {
   startExitDetached,
   startExitFailed,
   terminateProcessTree,
-  terminateTrackedProcess
+  terminateTrackedProcess,
+  transitionOwnedRuntimeState
 };

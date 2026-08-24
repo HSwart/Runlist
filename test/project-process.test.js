@@ -9,6 +9,7 @@ const {
   cleanupTrackedProcessForDeletion,
   customStopSpawnOptions,
   detachedServiceIdentityDecision,
+  markOwnedRuntimeDetached,
   ProcessOwnershipStore: RealProcessOwnershipStore,
   projectStopStrategy,
   projectProcessSpawnOptions,
@@ -22,11 +23,87 @@ const {
   startExitDetached,
   startExitFailed,
   terminateProcessTree,
-  terminateTrackedProcess
+  terminateTrackedProcess,
+  transitionOwnedRuntimeState
 } = require('../src/lifecycle/project-process');
 const { reconcileDetachedProjectIds } = require('../src/lifecycle/project-status');
 const { currentProcessIdentity } = require('../src/lifecycle/process-identity');
 const { PortReservationStore: RealPortReservationStore } = require('../src/ports/port-gate');
+
+test('updates reservation state only after the authoritative process transition succeeds', () => {
+  const calls = [];
+  const processOwnership = {
+    setState: (projectId, state, details) => {
+      calls.push(['process', projectId, state, details]);
+      return false;
+    }
+  };
+  const portReservations = {
+    setState: (...args) => {
+      calls.push(['ports', ...args]);
+      return true;
+    }
+  };
+
+  assert.deepEqual(transitionOwnedRuntimeState(
+    processOwnership,
+    portReservations,
+    'project-1',
+    'running',
+    { readyAt: 1234 }
+  ), { ownershipUpdated: false, reservationsUpdated: false });
+  assert.deepEqual(calls, [
+    ['process', 'project-1', 'running', { readyAt: 1234 }]
+  ]);
+
+  processOwnership.setState = (projectId, state, details) => {
+    calls.push(['process', projectId, state, details]);
+    return true;
+  };
+  assert.deepEqual(transitionOwnedRuntimeState(
+    processOwnership,
+    portReservations,
+    'project-1',
+    'not-ready'
+  ), { ownershipUpdated: true, reservationsUpdated: true });
+  assert.deepEqual(calls.slice(-2), [
+    ['process', 'project-1', 'not-ready', {}],
+    ['ports', 'project-1', 'not-ready']
+  ]);
+});
+
+test('does not detach port reservations after process ownership changes generation', () => {
+  let portsMarked = false;
+  const processOwnership = { markDetached: () => false };
+  const portReservations = {
+    markDetached: () => {
+      portsMarked = true;
+      return true;
+    }
+  };
+  const result = markOwnedRuntimeDetached(
+    processOwnership,
+    portReservations,
+    'project-1'
+  );
+
+  assert.deepEqual(result, {
+    ownershipUpdated: false,
+    reservationsUpdated: false
+  });
+  assert.equal(portsMarked, false);
+
+  processOwnership.markDetached = () => true;
+  assert.deepEqual(markOwnedRuntimeDetached(
+    processOwnership,
+    portReservations,
+    'project-1'
+  ), {
+    ownershipUpdated: true,
+    reservationsUpdated: true
+  });
+  assert.equal(portsMarked, true);
+});
 
 function createOwnershipStore(directory, options = {}) {
   const pid = options.pid || process.pid;
