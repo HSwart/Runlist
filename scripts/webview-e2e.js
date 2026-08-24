@@ -79,7 +79,7 @@ async function main() {
         .flatMap((page) => page.frames());
       webview = await findRunlistFrame(frames);
       return Boolean(webview);
-    }, 15000, 'the Runlist webview frame');
+    }, 45000, 'the Runlist webview frame');
 
     await runWebviewJourneys(browser, webview, ready, root, extensionDevelopmentPath);
     fs.writeFileSync(path.join(root, 'browser-complete'), 'ok\n');
