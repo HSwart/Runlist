@@ -147,7 +147,7 @@ async function runWebviewJourneys(browser, webview, ready, root, extensionDevelo
   ));
   webview = await exerciseRunGroup(browser, webview, 'Development stack');
 
-  await assertAxeClean(webview, extensionDevelopmentPath, 'dark project list');
+  webview = await assertAxeClean(browser, extensionDevelopmentPath, 'dark project list');
   webview = await verifyThemes(browser, root, extensionDevelopmentPath);
   await verifyNarrowLayout(webview, page);
 
@@ -321,7 +321,7 @@ async function verifyThemes(browser, root, extensionDevelopmentPath) {
   for (const [theme, className] of themes) {
     await hostCommand(root, 'set-theme', { theme });
     webview = await waitForTheme(browser, className);
-    await assertAxeClean(webview, extensionDevelopmentPath, theme);
+    webview = await assertAxeClean(browser, extensionDevelopmentPath, theme);
   }
   return webview;
 }
@@ -370,22 +370,36 @@ async function widenSidebar(page, targetWidth) {
   throw new Error('Could not find the VS Code sidebar resize handle.');
 }
 
-async function assertAxeClean(webview, extensionDevelopmentPath, label) {
+async function assertAxeClean(browser, extensionDevelopmentPath, label) {
   const axePath = require.resolve('axe-core/axe.min.js', { paths: [extensionDevelopmentPath] });
-  await webview.evaluate(fs.readFileSync(axePath, 'utf8'));
-  const violations = await webview.evaluate(async () => {
-    const result = await window.axe.run(document, {
-      runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] }
-    });
-    return result.violations
-      .filter((violation) => ['critical', 'serious'].includes(violation.impact))
-      .map((violation) => ({
-        id: violation.id,
-        impact: violation.impact,
-        targets: violation.nodes.map((node) => node.target.join(' ')).slice(0, 5)
-      }));
-  });
-  assert.deepEqual(violations, [], `${label} has serious or critical axe violations.`);
+  const axeSource = fs.readFileSync(axePath, 'utf8');
+  let lastError;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const webview = await currentRunlistFrame(browser);
+    try {
+      await webview.evaluate(axeSource);
+      const violations = await webview.evaluate(async () => {
+        const result = await window.axe.run(document, {
+          runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] }
+        });
+        return result.violations
+          .filter((violation) => ['critical', 'serious'].includes(violation.impact))
+          .map((violation) => ({
+            id: violation.id,
+            impact: violation.impact,
+            targets: violation.nodes.map((node) => node.target.join(' ')).slice(0, 5)
+          }));
+      });
+      assert.deepEqual(violations, [], `${label} has serious or critical axe violations.`);
+      return webview;
+    } catch (error) {
+      lastError = error;
+      if (!/frame.*detached/i.test(error.message)) {
+        throw error;
+      }
+    }
+  }
+  throw lastError;
 }
 
 async function waitForProjectStatus(browser, projectName, expected) {
