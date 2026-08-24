@@ -222,6 +222,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
     'src/lifecycle/process-lock.js',
     'src/lifecycle/process-metrics.js',
     'src/lifecycle/project-process.js',
+    'src/lifecycle/runtime-process-owner.js',
     'src/ports/service-port-overrides.js',
     'src/projects/launch-profile.js',
     'src/projects/project-output.js',
@@ -647,7 +648,8 @@ test('installs the complete MCP lifecycle dependency closure', () => {
     'src/lifecycle/process-identity.js',
     'src/lifecycle/process-lock.js',
     'src/lifecycle/process-metrics.js',
-    'src/lifecycle/project-process.js'
+    'src/lifecycle/project-process.js',
+    'src/lifecycle/runtime-process-owner.js'
   ]) {
     assert.match(extension, new RegExp(`installMcpBridge[\\s\\S]*${relativePath.replaceAll('/', '\\/').replace('.', '\\.')}`));
   }

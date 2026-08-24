@@ -3,12 +3,15 @@ const path = require('path');
 const crypto = require('crypto');
 const {
   currentProcessIdentity,
-  processIdentityDecision,
   processIdentityMismatch,
   readProcessIdentity,
   readProcessIdentitySync,
   stableProcessIdentity
 } = require('../lifecycle/process-identity');
+const {
+  runtimeHostOwnerState,
+  runtimeProcessOwnerDecision
+} = require('../lifecycle/runtime-process-owner');
 const {
   createAtomicJsonRecordUpdater,
   processIsAlive,
@@ -626,61 +629,25 @@ class PortReservationStore {
 
   hostOwnerState(lock, identityCache) {
     const identityDecision = this.hostIdentityDecision(lock, identityCache);
-    if (identityDecision === 'unavailable') {
-      return 'uncertain';
-    }
-    const heartbeatCurrent = !Number.isFinite(lock.heartbeatAt)
-      || this.now() - lock.heartbeatAt <= this.ownerHeartbeatTimeoutMs;
-    return identityDecision === 'match' && heartbeatCurrent
-      ? 'available'
-      : 'absent';
+    return runtimeHostOwnerState(identityDecision, {
+      heartbeatAt: lock?.heartbeatAt,
+      heartbeatTimeoutMs: this.ownerHeartbeatTimeoutMs,
+      now: this.now()
+    });
   }
 
   hostIdentityDecision(lock, identityCache) {
-    if (!stableProcessIdentity(lock?.hostIdentity)) {
-      return this.processLiveness(lock?.pid) === false ? 'absent' : 'unavailable';
-    }
-    let currentIdentity;
-    if (lock.pid === this.pid) {
-      currentIdentity = this.hostIdentity;
-    } else {
-      const cacheKey = `${lock.pid}:${lock.platform || this.platform}:${lock.hostIdentity}`;
-      if (identityCache?.has(cacheKey)) {
-        return identityCache.get(cacheKey);
-      }
-      try {
-        currentIdentity = this.readHostProcessIdentity(
-          lock.pid,
-          lock.platform || this.platform
-        );
-      } catch {
-        currentIdentity = undefined;
-      }
-      const decision = this.processIdentityDecision(lock, currentIdentity);
-      identityCache?.set(cacheKey, decision);
-      return decision;
-    }
-    return this.processIdentityDecision(lock, currentIdentity);
-  }
-
-  processIdentityDecision(lock, currentIdentity) {
-    if (!stableProcessIdentity(currentIdentity)) {
-      return this.processLiveness(lock.pid) === false ? 'absent' : 'unavailable';
-    }
-    const decision = processIdentityDecision(
-      lock.hostIdentity,
-      currentIdentity,
-      lock.platform || this.platform,
-      lock.pid,
-      { allowRuntime: true }
-    );
-    if (decision === 'mismatch') {
-      return 'mismatch';
-    }
-    const liveness = this.processLiveness(lock.pid);
-    return decision === 'match' && liveness === true
-      ? 'match'
-      : liveness === false ? 'absent' : 'unavailable';
+    return runtimeProcessOwnerDecision({
+      cache: identityCache,
+      currentIdentity: this.hostIdentity,
+      currentPid: this.pid,
+      expectedIdentity: lock?.hostIdentity,
+      isProcessAlive: this.isProcessAlive,
+      now: this.now,
+      pid: lock?.pid,
+      platform: lock?.platform || this.platform,
+      readProcessIdentity: this.readHostProcessIdentity
+    });
   }
 
   processLiveness(pid) {

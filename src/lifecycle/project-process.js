@@ -14,6 +14,10 @@ const {
   stableProcessIdentity
 } = require('./process-identity');
 const {
+  runtimeHostOwnerState,
+  runtimeProcessOwnerDecision
+} = require('./runtime-process-owner');
+const {
   createAtomicJsonRecordUpdater,
   processIsAlive,
   readJsonRecord: readJson,
@@ -1597,7 +1601,11 @@ class ProcessOwnershipStore {
         continue;
       }
       const hostDecision = this.hostIdentityDecision(ownership);
-      const hostAlive = hostDecision === 'match' && !this.ownerHeartbeatExpired(ownership);
+      const hostAlive = runtimeHostOwnerState(hostDecision, {
+        heartbeatAt: ownership.heartbeatAt,
+        heartbeatTimeoutMs: this.ownerHeartbeatTimeoutMs,
+        now: this.now()
+      }) === 'available';
       const childLiveness = this.childProcessLiveness(ownership);
       const processAlive = childLiveness === true;
       if (!ownership.detached
@@ -1781,8 +1789,11 @@ class ProcessOwnershipStore {
   }
 
   ownerIsAvailable(ownership) {
-    return this.hostIdentityDecision(ownership) === 'match'
-      && !this.ownerHeartbeatExpired(ownership);
+    return runtimeHostOwnerState(this.hostIdentityDecision(ownership), {
+      heartbeatAt: ownership?.heartbeatAt,
+      heartbeatTimeoutMs: this.ownerHeartbeatTimeoutMs,
+      now: this.now()
+    }) === 'available';
   }
 
   hostIdentityMatches(ownership, options = {}) {
@@ -1790,86 +1801,19 @@ class ProcessOwnershipStore {
   }
 
   hostIdentityDecision(ownership, options = {}) {
-    if (!stableProcessIdentity(ownership?.hostIdentity)) {
-      return this.processLiveness(ownership?.hostPid) === false
-        ? 'absent'
-        : 'unavailable';
-    }
-    if (ownership.hostPid === this.pid) {
-      if (!stableProcessIdentity(this.hostIdentity)) {
-        return this.processLiveness(ownership.hostPid) === false
-          ? 'absent'
-          : 'unavailable';
-      }
-      const identityDecision = processIdentityDecision(
-        ownership.hostIdentity,
-        this.hostIdentity,
-        ownership.platform || this.platform,
-        ownership.hostPid,
-        { allowRuntime: true }
-      );
-      if (identityDecision === 'mismatch') {
-        return 'mismatch';
-      }
-      const liveness = this.processLiveness(ownership.hostPid);
-      if (identityDecision !== 'match') {
-        return liveness === false ? 'absent' : 'unavailable';
-      }
-      return liveness === true ? 'match' : liveness === false ? 'absent' : 'unavailable';
-    }
-    const cacheKey = `${ownership.hostPid}:${ownership.platform || this.platform}:${ownership.hostIdentity}`;
-    const now = this.now();
-    const cached = !options.fresh ? this.hostIdentityCache.get(cacheKey) : undefined;
-    if (cached && cached.expiresAt > now) {
-      return cached.decision;
-    }
-    let currentIdentity;
-    try {
-      currentIdentity = this.readHostProcessIdentity(
-        ownership.hostPid,
-        ownership.platform || this.platform
-      );
-    } catch {
-      const decision = this.processLiveness(ownership.hostPid) === false
-        ? 'absent'
-        : 'unavailable';
-      if (!options.fresh) {
-        this.hostIdentityCache.set(cacheKey, {
-          decision,
-          expiresAt: now + this.hostIdentityCacheTtlMs
-        });
-      }
-      return decision;
-    }
-    let decision;
-    if (!stableProcessIdentity(currentIdentity)) {
-      decision = this.processLiveness(ownership.hostPid) === false
-        ? 'absent'
-        : 'unavailable';
-    } else {
-      const identityDecision = processIdentityDecision(
-        ownership.hostIdentity,
-        currentIdentity,
-        ownership.platform || this.platform,
-        ownership.hostPid,
-        { allowRuntime: true }
-      );
-      if (identityDecision === 'mismatch') {
-        decision = 'mismatch';
-      } else {
-        const liveness = this.processLiveness(ownership.hostPid);
-        decision = identityDecision === 'match' && liveness === true
-          ? 'match'
-          : liveness === false ? 'absent' : 'unavailable';
-      }
-    }
-    if (!options.fresh) {
-      this.hostIdentityCache.set(cacheKey, {
-        decision,
-        expiresAt: now + this.hostIdentityCacheTtlMs
-      });
-    }
-    return decision;
+    return runtimeProcessOwnerDecision({
+      cache: this.hostIdentityCache,
+      cacheTtlMs: this.hostIdentityCacheTtlMs,
+      currentIdentity: this.hostIdentity,
+      currentPid: this.pid,
+      expectedIdentity: ownership?.hostIdentity,
+      fresh: options.fresh === true,
+      isProcessAlive: this.isProcessAlive,
+      now: this.now,
+      pid: ownership?.hostPid,
+      platform: ownership?.platform || this.platform,
+      readProcessIdentity: this.readHostProcessIdentity
+    });
   }
 
   ownerHeartbeatExpired(ownership) {
