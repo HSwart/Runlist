@@ -217,6 +217,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
   const bridgeFiles = [
     'mcp/server.js',
     'src/lifecycle/atomic-json-record.js',
+    'src/lifecycle/exclusive-json-lock.js',
     'src/lifecycle/process-identity.js',
     'src/lifecycle/process-lock.js',
     'src/lifecycle/process-metrics.js',

@@ -1,12 +1,13 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const crypto = require('crypto');
 const {
   currentProcessIdentity,
   readProcessIdentitySync
 } = require('../lifecycle/process-identity');
 const { processLockRecordIsAbandoned } = require('../lifecycle/process-lock');
+const { createAtomicJsonRecordUpdater } = require('../lifecycle/atomic-json-record');
+const { withExclusiveJsonLock } = require('../lifecycle/exclusive-json-lock');
 const { safeServiceUrl } = require('../services/external-url');
 const { optionalPortVariableValidationMessage } = require('../ports/service-port-overrides');
 const { normalizeProjectTags } = require('./project-tags');
@@ -23,11 +24,17 @@ const ATOMIC_RENAME_WAIT = new Int32Array(new SharedArrayBuffer(4));
 const TRANSIENT_RENAME_ERROR_CODES = new Set(['EACCES', 'EBUSY', 'EPERM']);
 const STORE_LOCK_MAX_ATTEMPTS = 400;
 const STORE_LOCK_RETRY_MS = 5;
-const STORE_LOCK_WAIT = new Int32Array(new SharedArrayBuffer(4));
+const STORE_LOCK_INVALID_GRACE_MS = 2000;
 const HELD_STORE_LOCKS = new Set();
 const PROJECT_STORE_DIAGNOSTIC_LISTENERS = new Map();
 const UNSAFE_COMMAND_CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
 const CURRENT_PROCESS_IDENTITY = currentProcessIdentity();
+const PROJECT_STORE_LOCK_RECORDS = createAtomicJsonRecordUpdater({
+  errorMessage: 'Runlist could not safely update the project-store lock.',
+  invalidRecordGraceMs: STORE_LOCK_INVALID_GRACE_MS,
+  processIdentity: CURRENT_PROCESS_IDENTITY,
+  writeFileAtomically
+});
 
 class ProjectStoreError extends Error {
   constructor(code, message, options) {
@@ -139,123 +146,43 @@ function emitProjectStoreDiagnostic(filePath, event, details) {
 function withProjectStoreLock(filePath, operation, options = {}) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const lockPath = `${filePath}.write-lock`;
-  if (HELD_STORE_LOCKS.has(lockPath)) {
-    return operation();
-  }
-  let acquired = false;
-  let lockToken;
-  let contended = false;
-  let attemptCount = 0;
-  const identityCache = new Map();
-  const maxAttempts = options.maxAttempts ?? STORE_LOCK_MAX_ATTEMPTS;
-  const retryMs = options.retryMs ?? STORE_LOCK_RETRY_MS;
-  const lockOwnerOptions = {
-    identityCache,
-    kill: options.kill,
-    platform: options.platform,
-    readProcessIdentity: options.readProcessIdentity
-  };
-  const wait = options.wait || ((milliseconds) => {
-    Atomics.wait(STORE_LOCK_WAIT, 0, 0, milliseconds);
-  });
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    attemptCount = attempt + 1;
-    let descriptor;
-    try {
-      lockToken = crypto.randomUUID();
-      descriptor = fs.openSync(lockPath, 'wx', 0o600);
-      fs.writeFileSync(descriptor, JSON.stringify({
-        pid: process.pid,
-        processIdentity: CURRENT_PROCESS_IDENTITY,
-        createdAt: Date.now(),
-        token: lockToken
-      }));
-      fs.closeSync(descriptor);
-      descriptor = undefined;
-      acquired = true;
-      emitProjectStoreDiagnostic(filePath, 'lock.acquired', {
-        reasonCode: contended ? 'after-contention' : 'immediate',
-        lockKind: 'project-store',
-        attemptCount
-      });
-      break;
-    } catch (error) {
-      if (descriptor !== undefined) {
-        fs.closeSync(descriptor);
-        descriptor = undefined;
-        try {
-          fs.unlinkSync(lockPath);
-        } catch (unlinkError) {
-          if (unlinkError.code !== 'ENOENT') {
-            throw unlinkError;
-          }
-        }
-      }
-      if (error.code !== 'EEXIST') {
-        throw error;
-      }
-      contended = true;
-      const observed = storeLockObservation(lockPath);
-      if (observed
-        && storeLockObservationIsAbandoned(observed, lockOwnerOptions)
-        && removeObservedStoreLock(
-          lockPath,
-          observed,
-          (record) => projectStoreLockRecordIsAbandoned(record, lockOwnerOptions),
-          lockOwnerOptions
-        )) {
-        emitProjectStoreDiagnostic(filePath, 'lock.stale-recovered', {
-          reasonCode: 'owner-absent',
-          lockKind: 'project-store',
-          attemptCount
-        });
-        continue;
-      }
-      wait(retryMs);
-    }
-  }
-  if (!acquired) {
-    emitProjectStoreDiagnostic(filePath, 'lock.timeout', {
-      reasonCode: 'owner-active-or-uncertain',
-      lockKind: 'project-store',
-      attemptCount
-    });
-    throw projectStoreError(
+  return withExclusiveJsonLock({
+    createRecord: (token, createdAt) => ({
+      pid: process.pid,
+      ...(CURRENT_PROCESS_IDENTITY ? { processIdentity: CURRENT_PROCESS_IDENTITY } : {}),
+      createdAt,
+      token
+    }),
+    diagnose: (event, details) => emitProjectStoreDiagnostic(filePath, event, details),
+    heldLocks: HELD_STORE_LOCKS,
+    lockKind: 'project-store',
+    lockPath,
+    maxAttempts: options.maxAttempts ?? STORE_LOCK_MAX_ATTEMPTS,
+    observe: () => storeLockObservation(lockPath),
+    ownerIsAbandoned: (record, identityCache) => projectStoreLockRecordIsAbandoned(record, {
+      identityCache,
+      kill: options.kill,
+      platform: options.platform,
+      readProcessIdentity: options.readProcessIdentity
+    }),
+    recordFromObservation: storeLockRecord,
+    removeInvalid: () => PROJECT_STORE_LOCK_RECORDS.removeInvalid(
+      lockPath,
+      STORE_LOCK_INVALID_GRACE_MS,
+      Date.now()
+    ),
+    removeObserved: (observed, canRemove) => removeObservedStoreLock(
+      lockPath,
+      observed,
+      canRemove
+    ),
+    retryMs: options.retryMs ?? STORE_LOCK_RETRY_MS,
+    timeoutError: () => projectStoreError(
       'STORE_BUSY',
       'Runlist project storage is busy in another VS Code window. Try again.'
-    );
-  }
-  HELD_STORE_LOCKS.add(lockPath);
-  try {
-    return operation();
-  } finally {
-    HELD_STORE_LOCKS.delete(lockPath);
-    const observed = storeLockObservation(lockPath);
-    if (observed) {
-      removeObservedStoreLock(
-        lockPath,
-        observed,
-        (record) => record?.token === lockToken
-      );
-    }
-  }
-}
-
-function projectStoreLockIsAbandoned(lockPath, options = {}) {
-  try {
-    const record = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
-    return projectStoreLockRecordIsAbandoned(record, options);
-  } catch {
-    return false;
-  }
-}
-
-function storeLockObservationIsAbandoned(observed, options = {}) {
-  try {
-    return projectStoreLockRecordIsAbandoned(JSON.parse(observed.contents), options);
-  } catch {
-    return false;
-  }
+    ),
+    wait: options.wait
+  }, operation);
 }
 
 function projectStoreLockRecordIsAbandoned(record, options = {}) {
@@ -268,87 +195,19 @@ function projectStoreLockRecordIsAbandoned(record, options = {}) {
   });
 }
 
-function removeObservedStoreLock(lockPath, observed, canRemove, options = {}) {
-  const cleanupPath = `${lockPath}.cleanup`;
-  let cleanupToken;
-  let acquired = false;
-  for (let attempt = 0; attempt < STORE_LOCK_MAX_ATTEMPTS; attempt += 1) {
-    let descriptor;
-    try {
-      cleanupToken = crypto.randomUUID();
-      descriptor = fs.openSync(cleanupPath, 'wx', 0o600);
-      fs.writeFileSync(descriptor, JSON.stringify({
-        pid: process.pid,
-        processIdentity: CURRENT_PROCESS_IDENTITY,
-        token: cleanupToken
-      }));
-      fs.closeSync(descriptor);
-      descriptor = undefined;
-      acquired = true;
-      break;
-    } catch (error) {
-      if (descriptor !== undefined) {
-        fs.closeSync(descriptor);
-        try {
-          fs.unlinkSync(cleanupPath);
-        } catch (unlinkError) {
-          if (unlinkError.code !== 'ENOENT') {
-            throw unlinkError;
-          }
-        }
-      }
-      if (error.code !== 'EEXIST') {
-        throw error;
-      }
-      if (projectStoreLockIsAbandoned(cleanupPath, options)) {
-        try {
-          fs.unlinkSync(cleanupPath);
-        } catch (unlinkError) {
-          if (unlinkError.code !== 'ENOENT') {
-            throw unlinkError;
-          }
-        }
-        continue;
-      }
-      Atomics.wait(STORE_LOCK_WAIT, 0, 0, STORE_LOCK_RETRY_MS);
-    }
-  }
-  if (!acquired) {
-    return false;
-  }
+function removeObservedStoreLock(lockPath, observed, canRemove) {
+  return PROJECT_STORE_LOCK_RECORDS.update(
+    lockPath,
+    (record) => sameStoreLockObservation(storeLockObservation(lockPath), observed)
+      && canRemove(record, lockPath)
+  );
+}
+
+function storeLockRecord(observed) {
   try {
-    const current = storeLockObservation(lockPath);
-    if (!sameStoreLockObservation(current, observed)) {
-      return false;
-    }
-    let record;
-    try {
-      record = JSON.parse(current.contents);
-    } catch {
-      record = undefined;
-    }
-    if (!canRemove(record, lockPath)) {
-      return false;
-    }
-    fs.unlinkSync(lockPath);
-    return true;
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      return false;
-    }
-    throw error;
-  } finally {
-    const cleanup = storeLockObservation(cleanupPath);
-    if (cleanup) {
-      try {
-        const record = JSON.parse(cleanup.contents);
-        if (record.token === cleanupToken) {
-          fs.unlinkSync(cleanupPath);
-        }
-      } catch {
-        // Leave uncertain cleanup ownership in place rather than deleting another host's marker.
-      }
-    }
+    return JSON.parse(observed.contents);
+  } catch {
+    return undefined;
   }
 }
 

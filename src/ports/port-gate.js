@@ -15,6 +15,7 @@ const {
   readJsonRecord: readLock,
   tryUnlink
 } = require('../lifecycle/atomic-json-record');
+const { withExclusiveJsonLock } = require('../lifecycle/exclusive-json-lock');
 const { writeFileAtomically } = require('../projects/project-store');
 
 const OWNER_HEARTBEAT_TIMEOUT_MS = 10000;
@@ -704,94 +705,46 @@ class PortReservationStore {
 
   withReservationTransaction(operation) {
     const transactionPath = path.join(this.directory, '.reservation-transaction.lock');
-    let token;
-    let contended = false;
-    let attemptCount = 0;
-    for (let attempt = 0; attempt < LOCK_UPDATE_MAX_ATTEMPTS; attempt += 1) {
-      attemptCount = attempt + 1;
-      let descriptor;
-      try {
-        token = crypto.randomUUID();
-        descriptor = fs.openSync(transactionPath, 'wx', 0o600);
-        fs.writeFileSync(descriptor, JSON.stringify({
-          pid: process.pid,
-          ...(CURRENT_PROCESS_IDENTITY ? { processIdentity: CURRENT_PROCESS_IDENTITY } : {}),
-          createdAt: this.now(),
-          token
-        }));
-        fs.closeSync(descriptor);
-        descriptor = undefined;
-        if (contended) {
-          this.diagnose('transaction.acquired', {
-            reasonCode: 'after-contention',
-            lockKind: 'port-transaction',
-            attemptCount
-          });
-        }
-        break;
-      } catch (error) {
-        if (descriptor !== undefined) {
-          fs.closeSync(descriptor);
-          tryUnlink(transactionPath);
-        }
-        if (error.code !== 'EEXIST') {
-          throw error;
-        }
-        contended = true;
-        const existing = readLock(transactionPath);
-        if (existing && transientLockIsAbandoned(
-          transactionPath,
-          existing,
-          this.invalidRecordGraceMs,
-          this.now()
-        )) {
-          const removed = updateLock(
-            transactionPath,
-            (current) => current?.token === existing.token
-              && transientLockIsAbandoned(
-                transactionPath,
-                current,
-                this.invalidRecordGraceMs,
-                this.now()
-              )
-          );
-          if (removed) {
-            this.diagnose('transaction.stale-recovered', {
-              reasonCode: 'owner-absent',
-              lockKind: 'port-transaction',
-              attemptCount
-            });
-          }
-          continue;
-        }
-        if (!existing && removeInvalidLock(
-          transactionPath,
-          this.invalidRecordGraceMs,
-          this.now()
-        )) {
-          this.diagnose('transaction.stale-recovered', {
-            reasonCode: 'invalid-record',
-            lockKind: 'port-transaction',
-            attemptCount
-          });
-          continue;
-        }
-        Atomics.wait(LOCK_UPDATE_WAIT, 0, 0, LOCK_UPDATE_RETRY_MS);
-      }
-    }
-    if (!token || readLock(transactionPath)?.token !== token) {
-      this.diagnose('transaction.timeout', {
-        reasonCode: 'owner-active-or-uncertain',
-        lockKind: 'port-transaction',
-        attemptCount
-      });
-      throw new Error('Runlist could not safely coordinate shared port reservations.');
-    }
-    try {
-      return operation();
-    } finally {
-      updateLock(transactionPath, (current) => current?.token === token);
-    }
+    return withExclusiveJsonLock({
+      createRecord: (token, createdAt) => ({
+        pid: process.pid,
+        ...(CURRENT_PROCESS_IDENTITY ? { processIdentity: CURRENT_PROCESS_IDENTITY } : {}),
+        createdAt,
+        token
+      }),
+      diagnose: (event, details) => this.diagnose(event, details),
+      diagnoseImmediate: false,
+      events: {
+        acquired: 'transaction.acquired',
+        staleRecovered: 'transaction.stale-recovered',
+        timeout: 'transaction.timeout'
+      },
+      lockKind: 'port-transaction',
+      lockPath: transactionPath,
+      maxAttempts: LOCK_UPDATE_MAX_ATTEMPTS,
+      now: this.now,
+      observe: () => readLock(transactionPath),
+      ownerIsAbandoned: (record, identityCache) => transientLockIsAbandoned(
+        transactionPath,
+        record,
+        this.invalidRecordGraceMs,
+        this.now(),
+        identityCache
+      ),
+      recordFromObservation: (record) => record,
+      removeInvalid: () => removeInvalidLock(
+        transactionPath,
+        this.invalidRecordGraceMs,
+        this.now()
+      ),
+      removeObserved: (observed, canRemove) => updateLock(
+        transactionPath,
+        (current) => current?.token === observed.token && canRemove(current)
+      ),
+      retryMs: LOCK_UPDATE_RETRY_MS,
+      timeoutError: () => new Error('Runlist could not safely coordinate shared port reservations.'),
+      wait: (milliseconds) => Atomics.wait(LOCK_UPDATE_WAIT, 0, 0, milliseconds)
+    }, operation);
   }
 
   diagnose(event, details) {

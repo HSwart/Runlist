@@ -96,6 +96,32 @@ test('reports project-store lock acquisition, stale recovery, and timeout decisi
   ]);
 });
 
+test('recovers an old partial project-store lock without deleting a fresh write', (t) => {
+  const { projectsFile } = projectStoreFixture(t);
+  const lockPath = `${projectsFile}.write-lock`;
+  const events = [];
+  const subscription = subscribeProjectStoreDiagnostics(
+    projectsFile,
+    (event, details) => events.push({ event, ...details })
+  );
+  t.after(() => subscription.dispose());
+
+  fs.writeFileSync(lockPath, '{"pid":');
+  assert.throws(() => withProjectStoreLock(projectsFile, () => undefined, {
+    maxAttempts: 1,
+    retryMs: 0,
+    wait: () => undefined
+  }), (error) => error?.code === 'STORE_BUSY');
+  assert.equal(fs.existsSync(lockPath), true);
+
+  const old = new Date(Date.now() - 10000);
+  fs.utimesSync(lockPath, old, old);
+  assert.equal(withProjectStoreLock(projectsFile, () => 'recovered'), 'recovered');
+  assert.equal(fs.existsSync(lockPath), false);
+  assert.ok(events.some((event) => event.event === 'lock.stale-recovered'
+    && event.reasonCode === 'invalid-record'));
+});
+
 test('serializes independent project writes across extension hosts', async (t) => {
   const { temporaryRoot, projectsFile } = projectStoreFixture(t);
   const storeModule = path.join(__dirname, '..', 'src', 'projects', 'project-store.js');
@@ -304,7 +330,7 @@ test('does not publish an unverifiable fallback identity in a store lock', async
   assert.equal(Object.hasOwn(lock, 'processIdentity'), false);
 });
 
-test('does not claim cleanup ownership for a live unverified store lock', async (t) => {
+test('does not start atomic lock removal for a live unverified store lock', async (t) => {
   const { temporaryRoot, projectsFile } = projectStoreFixture(t);
   const storeModule = path.join(__dirname, '..', 'src', 'projects', 'project-store.js');
   const ownerReady = path.join(temporaryRoot, 'owner-ready');
@@ -353,10 +379,10 @@ test('does not claim cleanup ownership for a live unverified store lock', async 
 
   const originalOpenSync = fs.openSync;
   fs.openSync = function(filePath, ...args) {
-    if (String(filePath) === `${projectsFile}.write-lock.cleanup`) {
+    if (String(filePath) === `${projectsFile}.write-lock.update`) {
       const lock = JSON.parse(fs.readFileSync(`${projectsFile}.write-lock`, 'utf8'));
       if (lock.pid === owner.pid) {
-        throw new Error('live lock cleanup must not be claimed');
+        throw new Error('live lock removal must not be started');
       }
     }
     return originalOpenSync.call(this, filePath, ...args);
