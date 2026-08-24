@@ -757,7 +757,8 @@ test('records child identity and launch-time Stop details in both coordination s
         port: 4311,
         variable: 'PORT'
       }]
-    }
+    },
+    { platform: 'linux' }
   );
 
   assert.equal(identity, '303:original');
@@ -1154,7 +1155,22 @@ test('keeps a fast Windows launch alive through the complete identity-recording 
     startCommand: 'fast failure',
     services: []
   };
-  const recordedIdentity = recordStartedProcess(ownership, reservations, project, child);
+  const recordedIdentity = recordStartedProcess(
+    ownership,
+    reservations,
+    project,
+    child,
+    {},
+    {
+      platform: 'win32',
+      processTreeSettleMs: 0,
+      readOwnedProcessTree: async () => [{
+        pid: child.pid,
+        parentPid: process.pid,
+        identity: await identity
+      }]
+    }
+  );
 
   await once(child.stdout, 'data');
   await new Promise((resolve) => setTimeout(resolve, 100));
