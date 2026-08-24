@@ -88,7 +88,11 @@ test('validates and captures current identity through the shared boundary', () =
   });
   assert.equal(currentProcessIdentity({
     platform: 'linux',
-    readFileSync: () => { throw new Error('unavailable'); },
+    readFileSync: () => {
+      const fields = Array(20).fill('0');
+      fields[18] = '987654';
+      return `${process.pid} (node) S ${fields.join(' ')}`;
+    },
     allowRuntimeFallback: true
   }), fallback);
 });

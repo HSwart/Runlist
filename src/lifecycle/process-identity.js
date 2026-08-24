@@ -15,6 +15,7 @@ const DARWIN_IDENTITY_PS_ARGS = [
   '-o', 'command='
 ];
 const RUNTIME_PROCESS_STARTED_AT = Math.round(Date.now() - (process.uptime() * 1000));
+const CURRENT_PROCESS_IDENTITIES = new Map();
 
 function stableProcessIdentity(identity) {
   return typeof identity === 'string'
@@ -143,14 +144,32 @@ function currentProcessIdentity(options = {}) {
   if (!Number.isInteger(pid) || pid <= 0) {
     return undefined;
   }
+  const cacheKey = pid === process.pid
+    && options.now === undefined
+    && options.uptime === undefined
+    ? platform
+    : undefined;
+  if (cacheKey && CURRENT_PROCESS_IDENTITIES.has(cacheKey)) {
+    return CURRENT_PROCESS_IDENTITIES.get(cacheKey);
+  }
   const identity = readProcessIdentitySync(pid, platform, options);
-  if (stableProcessIdentity(identity) || !options.allowRuntimeFallback) {
+  if (stableProcessIdentity(identity)) {
+    if (cacheKey) {
+      CURRENT_PROCESS_IDENTITIES.set(cacheKey, identity);
+    }
     return identity;
+  }
+  if (!options.allowRuntimeFallback) {
+    return undefined;
   }
   const runtimeStartedAt = options.now || options.uptime
     ? Math.round((options.now || Date.now)() - ((options.uptime || process.uptime)() * 1000))
     : RUNTIME_PROCESS_STARTED_AT;
-  return `${pid}:runtime:${runtimeStartedAt}`;
+  const fallbackIdentity = `${pid}:runtime:${runtimeStartedAt}`;
+  if (cacheKey) {
+    CURRENT_PROCESS_IDENTITIES.set(cacheKey, fallbackIdentity);
+  }
+  return fallbackIdentity;
 }
 
 function darwinIdentityPsArgs(pid) {
