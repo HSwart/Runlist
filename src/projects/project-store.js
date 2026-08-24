@@ -4,9 +4,9 @@ const path = require('path');
 const crypto = require('crypto');
 const {
   currentProcessIdentity,
-  processIdentityDecision,
   readProcessIdentitySync
 } = require('../lifecycle/process-identity');
+const { processLockRecordIsAbandoned } = require('../lifecycle/process-lock');
 const { safeServiceUrl } = require('../services/external-url');
 const { optionalPortVariableValidationMessage } = require('../ports/service-port-overrides');
 const { normalizeProjectTags } = require('./project-tags');
@@ -251,30 +251,12 @@ function storeLockObservationIsAbandoned(observed) {
 }
 
 function projectStoreLockRecordIsAbandoned(record, options = {}) {
-  if (!Number.isInteger(record?.pid) || record.pid <= 0) {
-    return false;
-  }
-  const kill = options.kill || process.kill;
-  try {
-    kill(record.pid, 0);
-  } catch (error) {
-    return error.code === 'ESRCH';
-  }
-  if (typeof record.processIdentity === 'string') {
-    const currentIdentity = record.pid === process.pid
-      ? CURRENT_PROCESS_IDENTITY
-      : (options.readProcessIdentity || readProcessIdentitySync)(
-        record.pid,
-        options.platform || process.platform
-      );
-    return processIdentityDecision(
-      record.processIdentity,
-      currentIdentity,
-      options.platform || process.platform,
-      record.pid
-    ) === 'mismatch';
-  }
-  return false;
+  return processLockRecordIsAbandoned(record, {
+    currentProcessIdentity: CURRENT_PROCESS_IDENTITY,
+    kill: options.kill,
+    platform: options.platform,
+    readProcessIdentitySync: options.readProcessIdentity || readProcessIdentitySync
+  });
 }
 
 function removeObservedStoreLock(lockPath, observed, canRemove) {

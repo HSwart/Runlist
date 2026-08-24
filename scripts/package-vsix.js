@@ -33,6 +33,7 @@ const REVIEWED_PACKAGE_FILES = Object.freeze([
   'src/lifecycle/custom-stop-recovery.js',
   'src/lifecycle/lifecycle-capability.js',
   'src/lifecycle/process-identity.js',
+  'src/lifecycle/process-lock.js',
   'src/lifecycle/process-metrics.js',
   'src/lifecycle/process-supervisor.js',
   'src/lifecycle/project-lifecycle.js',

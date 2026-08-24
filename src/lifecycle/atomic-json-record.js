@@ -1,10 +1,12 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const {
-  processIdentityDecision,
-  readProcessIdentitySync,
   stableProcessIdentity
 } = require('./process-identity');
+const {
+  processLockOwnerDecision,
+  processPresence
+} = require('./process-lock');
 
 const DEFAULT_INVALID_RECORD_GRACE_MS = 2000;
 const DEFAULT_MAX_ATTEMPTS = 200;
@@ -29,7 +31,6 @@ function createAtomicJsonRecordUpdater(options = {}) {
     Atomics.wait(UPDATE_WAIT, 0, 0, milliseconds);
   });
   const isProcessAlive = options.isProcessAlive || processIsAlive;
-  const readIdentity = options.readProcessIdentitySync || readProcessIdentitySync;
   const errorMessage = options.errorMessage
     || 'Runlist could not safely update a shared record.';
 
@@ -123,20 +124,18 @@ function createAtomicJsonRecordUpdater(options = {}) {
     if (!Number.isInteger(marker?.pid) || marker.pid <= 0) {
       return invalidJsonRecordIsStale(filePath, graceMs, timestamp);
     }
-    if (!isProcessAlive(marker.pid)) {
-      return true;
-    }
-    const observedIdentity = marker.pid === currentPid
-      ? currentIdentity
-      : readIdentity(marker.pid, platform);
     if (typeof marker.processIdentity === 'string') {
-      return processIdentityDecision(
-        marker.processIdentity,
-        observedIdentity,
+      return processLockOwnerDecision(marker, {
+        allowRuntime: true,
+        currentPid,
+        currentProcessIdentity: currentIdentity,
+        isProcessAlive,
         platform,
-        marker.pid,
-        { allowRuntime: true }
-      ) === 'mismatch';
+        readProcessIdentitySync: options.readProcessIdentitySync
+      }) === 'absent';
+    }
+    if (processPresence(marker.pid, { isProcessAlive }) === 'absent') {
+      return true;
     }
     return invalidJsonRecordIsStale(filePath, graceMs, timestamp);
   }

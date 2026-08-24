@@ -218,6 +218,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
     'mcp/server.js',
     'src/lifecycle/atomic-json-record.js',
     'src/lifecycle/process-identity.js',
+    'src/lifecycle/process-lock.js',
     'src/lifecycle/process-metrics.js',
     'src/lifecycle/project-process.js',
     'src/ports/service-port-overrides.js',
