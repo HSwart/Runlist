@@ -35,6 +35,9 @@ async function run() {
   await vscode.commands.executeCommand('workbench.view.extension.runlist');
   await vscode.commands.executeCommand('runlist.projects.focus');
   await waitFor(() => Boolean(api.provider.view), 'The Runlist webview did not open.');
+  api.provider.view.show(false);
+  await waitFor(() => api.provider.view?.visible === true,
+    'The Runlist webview did not become visible.');
 
   fs.writeFileSync(path.join(root, 'host-ready.json'), JSON.stringify({
     fixturePath,
