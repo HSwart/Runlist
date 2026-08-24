@@ -2,7 +2,11 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { execFileSync } = require('child_process');
+const {
+  currentProcessIdentity,
+  processIdentityDecision,
+  readProcessIdentitySync
+} = require('../lifecycle/process-identity');
 const { safeServiceUrl } = require('../services/external-url');
 const { optionalPortVariableValidationMessage } = require('../ports/service-port-overrides');
 const { normalizeProjectTags } = require('./project-tags');
@@ -23,7 +27,7 @@ const STORE_LOCK_WAIT = new Int32Array(new SharedArrayBuffer(4));
 const HELD_STORE_LOCKS = new Set();
 const PROJECT_STORE_DIAGNOSTIC_LISTENERS = new Map();
 const UNSAFE_COMMAND_CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
-const CURRENT_PROCESS_IDENTITY = synchronousProcessIdentity(process.pid);
+const CURRENT_PROCESS_IDENTITY = currentProcessIdentity();
 
 class ProjectStoreError extends Error {
   constructor(code, message, options) {
@@ -259,8 +263,16 @@ function projectStoreLockRecordIsAbandoned(record, options = {}) {
   if (typeof record.processIdentity === 'string') {
     const currentIdentity = record.pid === process.pid
       ? CURRENT_PROCESS_IDENTITY
-      : (options.readProcessIdentity || synchronousProcessIdentity)(record.pid);
-    return Boolean(currentIdentity && currentIdentity !== record.processIdentity);
+      : (options.readProcessIdentity || readProcessIdentitySync)(
+        record.pid,
+        options.platform || process.platform
+      );
+    return processIdentityDecision(
+      record.processIdentity,
+      currentIdentity,
+      options.platform || process.platform,
+      record.pid
+    ) === 'mismatch';
   }
   return false;
 }
@@ -371,33 +383,6 @@ function sameStoreLockObservation(left, right) {
     && left.inode === right.inode
     && left.modifiedAt === right.modifiedAt
     && left.size === right.size);
-}
-
-function synchronousProcessIdentity(pid) {
-  try {
-    if (process.platform === 'linux') {
-      const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
-      const close = stat.lastIndexOf(')');
-      const fields = stat.slice(close + 2).split(' ');
-      return fields[19] ? `${pid}:${fields[19]}` : undefined;
-    }
-    if (process.platform === 'win32') {
-      const script = `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().Ticks`;
-      const startedAt = String(execFileSync('powershell.exe', [
-        '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script
-      ], { encoding: 'utf8', windowsHide: true, timeout: 1000 })).trim();
-      return startedAt ? `${pid}:${startedAt}` : undefined;
-    }
-    const startedAt = String(execFileSync('ps', ['-p', String(pid), '-o', 'lstart='], {
-      encoding: 'utf8',
-      env: { ...process.env, LC_ALL: 'C' },
-      timeout: 1000,
-      windowsHide: true
-    })).trim();
-    return startedAt ? `${pid}:${startedAt}` : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 function recoverProjects(filePath, primaryContents, primaryError) {

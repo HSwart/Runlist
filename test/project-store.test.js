@@ -235,6 +235,7 @@ test('identifies a store lock after its PID is reused by another process identit
     token: 'stale-lock'
   }, {
     kill: () => {},
+    platform: 'linux',
     readProcessIdentity: () => '2147483646:replacement'
   }), true);
 });

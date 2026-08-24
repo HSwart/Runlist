@@ -146,10 +146,11 @@ test('terminates the exact Windows listener tree after identity validation', asy
 
 test('terminates a verified Runlist process tree on macOS', async () => {
   const terminated = [];
-  await terminateListenerProcess({ pid: 120, identity: '120:first' }, {
+  const identity = '120:darwin:v2:2024-01-01T00:00:00:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  await terminateListenerProcess({ pid: 120, identity }, {
     platform: 'darwin',
     terminateTree: true,
-    readProcessIdentity: async () => '120:first',
+    readProcessIdentity: async () => identity,
     terminateProcessTree: async (pid, options) => terminated.push([pid, options.platform]),
     kill: () => {
       throw new Error('owned process trees must use process-group termination');
@@ -179,13 +180,15 @@ test('terminates an exact POSIX listener PID without assuming it leads a process
 test('revalidates a POSIX listener identity before escalating to SIGKILL', async () => {
   const signals = [];
   let identityRead = 0;
+  const original = '120:darwin:v2:2024-01-01T00:00:00:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const replacement = '120:darwin:v2:2024-01-01T00:00:00:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
   await assert.rejects(
-    terminateListenerProcess({ pid: 120, identity: '120:first' }, {
+    terminateListenerProcess({ pid: 120, identity: original }, {
       platform: 'darwin',
       graceMs: 0,
       readProcessIdentity: async () => {
         identityRead += 1;
-        return identityRead === 1 ? '120:first' : '120:replacement';
+        return identityRead === 1 ? original : replacement;
       },
       kill: (pid, signal) => signals.push([pid, signal]),
       isProcessAlive: () => true,

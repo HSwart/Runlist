@@ -1,5 +1,8 @@
 const { execFile } = require('child_process');
-const { readRootProcess } = require('../lifecycle/process-metrics');
+const {
+  processIdentityDecision,
+  readProcessIdentity
+} = require('../lifecycle/process-identity');
 const { terminateProcessTree } = require('../lifecycle/project-process');
 
 const COMMAND_TIMEOUT_MS = 10000;
@@ -53,7 +56,7 @@ async function findListeningProcesses(ports, options = {}) {
   }
 
   const readIdentity = options.readProcessIdentity
-    || (async (pid) => (await readRootProcess(pid, platform, options))?.identity);
+    || ((pid) => readProcessIdentity(pid, platform, options));
   const identities = new Map();
   return Promise.all(listeners.map(async (listener) => {
     if (!identities.has(listener.pid)) {
@@ -76,12 +79,12 @@ async function terminateListenerProcess(listener, options = {}) {
     throw new Error('Runlist will not terminate a protected host process.');
   }
   const readIdentity = options.readProcessIdentity
-    || (async (processId) => (await readRootProcess(processId, platform, options))?.identity);
+    || ((processId) => readProcessIdentity(processId, platform, options));
   const currentIdentity = await readIdentity(pid, platform);
   if (!currentIdentity && options.allowMissing) {
     return;
   }
-  if (currentIdentity !== expectedIdentity) {
+  if (processIdentityDecision(expectedIdentity, currentIdentity, platform, pid) !== 'match') {
     throw new Error('Runlist did not close the process because its identity changed.');
   }
 
@@ -120,7 +123,7 @@ async function terminateListenerProcess(listener, options = {}) {
   if (!escalatedIdentity) {
     return;
   }
-  if (escalatedIdentity !== expectedIdentity) {
+  if (processIdentityDecision(expectedIdentity, escalatedIdentity, platform, pid) !== 'match') {
     throw new Error('Runlist did not force close the process because its identity changed.');
   }
   try {

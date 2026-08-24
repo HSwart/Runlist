@@ -25,6 +25,7 @@ const {
   terminateTrackedProcess
 } = require('../src/lifecycle/project-process');
 const { reconcileDetachedProjectIds } = require('../src/lifecycle/project-status');
+const { currentProcessIdentity } = require('../src/lifecycle/process-identity');
 const { PortReservationStore: RealPortReservationStore } = require('../src/ports/port-gate');
 
 function createOwnershipStore(directory, options = {}) {
@@ -144,6 +145,12 @@ function testProcessIdentity(pid, platform) {
       command: `/usr/local/bin/node process-${pid}.js`
     })
     : `${pid}:first`;
+}
+
+function changedCurrentProcessIdentity() {
+  const identity = currentProcessIdentity({ allowRuntimeFallback: true });
+  const final = identity.at(-1);
+  return `${identity.slice(0, -1)}${final === '0' ? '1' : '0'}`;
 }
 
 test('uses the retrying atomic writer for lifecycle ownership state', () => {
@@ -761,7 +768,7 @@ test('recovers a shared ownership update marker after its host PID is reused', (
   assert.equal(ownership.reserve('project-1'), undefined);
   fs.writeFileSync(`${ownershipPath}.update`, JSON.stringify({
     pid: process.pid,
-    processIdentity: `${process.pid}:previous-process`
+    processIdentity: changedCurrentProcessIdentity()
   }));
 
   assert.equal(ownership.release('project-1'), true);
@@ -2430,7 +2437,7 @@ test('captures native process identities with safe platform-specific arguments',
       calls.push(['read', filePath, encoding]);
       return `303 (node) S ${linuxFields.join(' ')}`;
     }
-  }), '303:987654');
+  }), '303:linux:987654');
   for (const malformed of [
     '303 (node S 0 0 0',
     '303 (node) S 0',

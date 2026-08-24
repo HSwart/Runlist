@@ -1,8 +1,14 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { darwinProcessIdentityFormat, readRootProcess } = require('../lifecycle/process-metrics');
-const { readProcessIdentitySync } = require('../lifecycle/project-process');
+const {
+  currentProcessIdentity,
+  processIdentityDecision,
+  processIdentityMismatch,
+  readProcessIdentity,
+  readProcessIdentitySync,
+  stableProcessIdentity
+} = require('../lifecycle/process-identity');
 const { writeFileAtomically } = require('../projects/project-store');
 
 const OWNER_HEARTBEAT_TIMEOUT_MS = 10000;
@@ -10,8 +16,7 @@ const INVALID_RECORD_GRACE_MS = 2000;
 const LOCK_UPDATE_MAX_ATTEMPTS = 200;
 const LOCK_UPDATE_RETRY_MS = 5;
 const LOCK_UPDATE_WAIT = new Int32Array(new SharedArrayBuffer(4));
-const CURRENT_PROCESS_IDENTITY = readProcessIdentitySync(process.pid, process.platform)
-  || `${process.pid}:runtime:${Math.round(Date.now() - (process.uptime() * 1000))}`;
+const CURRENT_PROCESS_IDENTITY = currentProcessIdentity({ allowRuntimeFallback: true });
 
 function servicePorts(project) {
   return [...new Set((project?.services || [])
@@ -650,7 +655,8 @@ class PortReservationStore {
       lock.hostIdentity,
       currentIdentity,
       lock.platform || this.platform,
-      lock.pid
+      lock.pid,
+      { allowRuntime: true }
     );
     if (decision === 'mismatch') {
       return 'mismatch';
@@ -889,8 +895,14 @@ function transientLockIsAbandoned(filePath, marker, graceMs, now) {
   const currentIdentity = marker.pid === process.pid
     ? CURRENT_PROCESS_IDENTITY
     : readProcessIdentitySync(marker.pid, process.platform);
-  if (typeof marker.processIdentity === 'string' && currentIdentity) {
-    return currentIdentity !== marker.processIdentity;
+  if (typeof marker.processIdentity === 'string') {
+    return processIdentityDecision(
+      marker.processIdentity,
+      currentIdentity,
+      process.platform,
+      marker.pid,
+      { allowRuntime: true }
+    ) === 'mismatch';
   }
   return invalidRecordIsStale(filePath, graceMs, now);
 }
@@ -912,32 +924,6 @@ function processIsAlive(pid) {
   } catch (error) {
     return error.code === 'EPERM';
   }
-}
-
-function stableProcessIdentity(identity) {
-  return typeof identity === 'string'
-    && identity.length > 0
-    && identity.trim() === identity;
-}
-
-function processIdentityDecision(expectedIdentity, currentIdentity, platform, pid) {
-  if (!stableProcessIdentity(expectedIdentity) || !stableProcessIdentity(currentIdentity)) {
-    return 'unavailable';
-  }
-  if (platform === 'darwin'
-    && (darwinProcessIdentityFormat(expectedIdentity, pid) !== 'v2'
-      || darwinProcessIdentityFormat(currentIdentity, pid) !== 'v2')) {
-    return 'unavailable';
-  }
-  return expectedIdentity === currentIdentity ? 'match' : 'mismatch';
-}
-
-function processIdentityMismatch(expectedIdentity, currentIdentity, platform, pid) {
-  return processIdentityDecision(expectedIdentity, currentIdentity, platform, pid) === 'mismatch';
-}
-
-async function readProcessIdentity(pid, platform) {
-  return (await readRootProcess(pid, platform))?.identity;
 }
 
 function releaseProjectPorts(reservations, projectId) {

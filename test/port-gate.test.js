@@ -12,6 +12,7 @@ const {
   releaseProjectPorts,
   reserveProjectPorts
 } = require('../src/ports/port-gate');
+const { currentProcessIdentity } = require('../src/lifecycle/process-identity');
 const { readRootProcess } = require('../src/lifecycle/process-metrics');
 
 test('uses the retrying atomic writer for lifecycle port reservations', () => {
@@ -53,6 +54,12 @@ function testHostIdentity(pid, platform = process.platform) {
       command: '/Applications/Visual Studio Code.app/Contents/MacOS/Electron'
     })
     : `test-host:${pid}`;
+}
+
+function changedCurrentProcessIdentity() {
+  const identity = currentProcessIdentity({ allowRuntimeFallback: true });
+  const final = identity.at(-1);
+  return `${identity.slice(0, -1)}${final === '0' ? '1' : '0'}`;
 }
 
 function PortReservationStore(directory, options = {}) {
@@ -448,12 +455,12 @@ test('recovers transaction and update locks after their host PID is reused', (t)
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   fs.writeFileSync(transactionPath, JSON.stringify({
     pid: process.pid,
-    processIdentity: `${process.pid}:previous-process`,
+    processIdentity: changedCurrentProcessIdentity(),
     token: 'stale-transaction'
   }));
   fs.writeFileSync(`${transactionPath}.update`, JSON.stringify({
     pid: process.pid,
-    processIdentity: `${process.pid}:previous-process`
+    processIdentity: changedCurrentProcessIdentity()
   }));
 
   const reservations = new PortReservationStore(directory, {

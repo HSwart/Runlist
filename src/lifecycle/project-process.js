@@ -2,13 +2,17 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { resolveLaunchProfile } = require('../projects/launch-profile');
-const { execFile, execFileSync, spawn } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const {
-  darwinProcessIdentityFormat,
-  parseDarwinProcessIdentity,
   readOwnedProcessTree,
-  readRootProcess
 } = require('./process-metrics');
+const {
+  currentProcessIdentity,
+  processIdentityDecision,
+  readProcessIdentity,
+  readProcessIdentitySync,
+  stableProcessIdentity
+} = require('./process-identity');
 const { writeFileAtomically } = require('../projects/project-store');
 const { projectWithPortOverrides } = require('../ports/service-port-overrides');
 
@@ -19,16 +23,7 @@ const INVALID_RECORD_GRACE_MS = 2000;
 const OWNERSHIP_UPDATE_MAX_ATTEMPTS = 200;
 const OWNERSHIP_UPDATE_RETRY_MS = 5;
 const OWNERSHIP_UPDATE_WAIT = new Int32Array(new SharedArrayBuffer(4));
-const DARWIN_IDENTITY_PS_ARGS = [
-  '-ww', '-p', undefined,
-  '-o', 'lstart=',
-  '-o', 'uid=',
-  '-o', 'pgid=',
-  '-o', 'sess=',
-  '-o', 'command='
-];
-const CURRENT_PROCESS_IDENTITY = readProcessIdentitySync(process.pid, process.platform)
-  || `${process.pid}:runtime:${Math.round(Date.now() - (process.uptime() * 1000))}`;
+const CURRENT_PROCESS_IDENTITY = currentProcessIdentity({ allowRuntimeFallback: true });
 
 function projectProcessSpawnOptions(platform = process.platform) {
   return platform === 'win32'
@@ -89,20 +84,18 @@ async function terminateProcessTree(pid, options = {}) {
   const platform = options.platform || process.platform;
   const hasExpectedIdentity = Object.prototype.hasOwnProperty.call(options, 'expectedIdentity');
   if (hasExpectedIdentity) {
-    if (!stableProcessIdentity(options.expectedIdentity)) {
-      throw new Error('Runlist could not verify the process identity.');
-    }
-    if (platform === 'darwin'
-      && darwinProcessIdentityFormat(options.expectedIdentity, pid) !== 'v2') {
-      throw new Error('Runlist could not verify the process identity.');
-    }
     const readIdentity = options.readProcessIdentity || readProcessIdentity;
     const currentIdentity = await readIdentity(pid, platform);
-    if (platform === 'darwin'
-      && darwinProcessIdentityFormat(currentIdentity, pid) !== 'v2') {
+    const identityDecision = processIdentityDecision(
+      options.expectedIdentity,
+      currentIdentity,
+      platform,
+      pid
+    );
+    if (identityDecision === 'unavailable') {
       throw new Error('Runlist could not verify the process identity.');
     }
-    if (currentIdentity !== options.expectedIdentity) {
+    if (identityDecision === 'mismatch') {
       throw new Error('Runlist did not stop the process because its process identity changed.');
     }
   }
@@ -178,10 +171,16 @@ async function terminateTrackedProcess(processes, id, options = {}) {
     } catch {
       currentIdentity = undefined;
     }
-    if (stableProcessIdentity(currentIdentity) && currentIdentity !== expectedIdentity) {
+    const identityDecision = processIdentityDecision(
+      expectedIdentity,
+      currentIdentity,
+      platform,
+      child.pid
+    );
+    if (identityDecision === 'mismatch') {
       throw new Error('Runlist did not stop the process because its process identity changed.');
     }
-    if (!stableProcessIdentity(currentIdentity) && !rootExited) {
+    if (identityDecision === 'unavailable' && !rootExited) {
       const liveness = await trackedProcessLiveness(child.pid, platform, options);
       if (liveness === false && options.allowMissing) {
         processes.delete(id);
@@ -220,7 +219,7 @@ async function terminateExitedWindowsTree(rootPid, rootIdentity, options = {}) {
   let rows = await readTree(rootPid, 'win32', options);
   const visibleRoot = rows.find((row) => row.pid === rootPid);
   if (visibleRoot) {
-    if (visibleRoot.identity !== rootIdentity) {
+    if (processIdentityDecision(rootIdentity, visibleRoot.identity, 'win32', rootPid) !== 'match') {
       throw new Error('Runlist did not stop the process because its process identity changed.');
     }
     try {
@@ -235,7 +234,7 @@ async function terminateExitedWindowsTree(rootPid, rootIdentity, options = {}) {
       rows = await readTree(rootPid, 'win32', options);
       const currentRoot = rows.find((row) => row.pid === rootPid);
       if (currentRoot) {
-        if (currentRoot.identity !== rootIdentity) {
+        if (processIdentityDecision(rootIdentity, currentRoot.identity, 'win32', rootPid) !== 'match') {
           throw new Error('Runlist did not stop the process because its process identity changed.');
         }
         throw error;
@@ -273,12 +272,6 @@ function shutdownTrackedProcesses(processes, processOwnership, portReservations,
     portReservations.release(id);
     return true;
   }));
-}
-
-function stableProcessIdentity(identity) {
-  return typeof identity === 'string'
-    && identity.length > 0
-    && identity.trim() === identity;
 }
 
 function detachedServicePorts(ownership) {
@@ -680,13 +673,19 @@ async function posixEscalationTargetIsCurrent(pid, kill, options) {
   } catch {
     currentIdentity = undefined;
   }
-  if (!stableProcessIdentity(currentIdentity)) {
+  const identityDecision = processIdentityDecision(
+    options.expectedIdentity,
+    currentIdentity,
+    options.platform || process.platform,
+    pid
+  );
+  if (identityDecision === 'unavailable') {
     if (!await processGroupIsAlive(pid, kill, options)) {
       return false;
     }
     throw new Error('Runlist could not verify the process identity before force stopping it.');
   }
-  if (currentIdentity !== options.expectedIdentity) {
+  if (identityDecision === 'mismatch') {
     throw new Error('Runlist did not force stop the process because its process identity changed.');
   }
   return true;
@@ -1425,7 +1424,12 @@ class ProcessOwnershipStore {
         current.childPid,
         this.platform
       );
-      if (!stableProcessIdentity(identity) || identity !== expectedIdentity) {
+      if (processIdentityDecision(
+        expectedIdentity,
+        identity,
+        this.platform,
+        current.childPid
+      ) !== 'match') {
         throw new Error('Runlist did not stop the process because its process identity changed.');
       }
     }
@@ -1790,7 +1794,8 @@ class ProcessOwnershipStore {
         ownership.hostIdentity,
         this.hostIdentity,
         ownership.platform || this.platform,
-        ownership.hostPid
+        ownership.hostPid,
+        { allowRuntime: true }
       );
       if (identityDecision === 'mismatch') {
         return 'mismatch';
@@ -1835,7 +1840,8 @@ class ProcessOwnershipStore {
         ownership.hostIdentity,
         currentIdentity,
         ownership.platform || this.platform,
-        ownership.hostPid
+        ownership.hostPid,
+        { allowRuntime: true }
       );
       if (identityDecision === 'mismatch') {
         decision = 'mismatch';
@@ -2037,8 +2043,14 @@ function updateMarkerIsAbandoned(filePath, graceMs, now) {
   const currentIdentity = marker.pid === process.pid
     ? CURRENT_PROCESS_IDENTITY
     : readProcessIdentitySync(marker.pid, process.platform);
-  if (typeof marker.processIdentity === 'string' && currentIdentity) {
-    return currentIdentity !== marker.processIdentity;
+  if (typeof marker.processIdentity === 'string') {
+    return processIdentityDecision(
+      marker.processIdentity,
+      currentIdentity,
+      process.platform,
+      marker.pid,
+      { allowRuntime: true }
+    ) === 'mismatch';
   }
   return invalidRecordIsStale(filePath, graceMs, now);
 }
@@ -2075,102 +2087,6 @@ function processIsAlive(pid) {
     return true;
   } catch (error) {
     return error.code === 'EPERM';
-  }
-}
-
-async function readProcessIdentity(pid, platform = process.platform, options = {}) {
-  if (!Number.isInteger(pid) || pid <= 0) {
-    return undefined;
-  }
-  try {
-    return (await readRootProcess(pid, platform, options))?.identity;
-  } catch {
-    return undefined;
-  }
-}
-
-function processIdentityDecision(expectedIdentity, currentIdentity, platform, pid) {
-  if (!stableProcessIdentity(expectedIdentity) || !stableProcessIdentity(currentIdentity)) {
-    return 'unavailable';
-  }
-  if (platform === 'darwin') {
-    if (darwinProcessIdentityFormat(expectedIdentity, pid) !== 'v2'
-      || darwinProcessIdentityFormat(currentIdentity, pid) !== 'v2') {
-      return 'unavailable';
-    }
-  }
-  return expectedIdentity === currentIdentity ? 'match' : 'mismatch';
-}
-
-function darwinIdentityPsArgs(pid) {
-  const args = [...DARWIN_IDENTITY_PS_ARGS];
-  args[2] = String(pid);
-  return args;
-}
-
-function darwinIdentityCommandOptions() {
-  return {
-    encoding: 'utf8',
-    env: { ...process.env, LANG: 'C', LC_ALL: 'C', TZ: 'UTC' },
-    maxBuffer: 64 * 1024,
-    shell: false,
-    timeout: 1000,
-    windowsHide: true
-  };
-}
-
-function readProcessIdentitySync(pid, platform = process.platform, options = {}) {
-  if (!Number.isInteger(pid) || pid <= 0) {
-    return undefined;
-  }
-  const readFile = options.readFileSync || fs.readFileSync;
-  const runFile = options.execFileSync || execFileSync;
-  try {
-    if (platform === 'linux') {
-      const stat = String(readFile(`/proc/${pid}/stat`, 'utf8'));
-      const open = stat.indexOf('(');
-      const close = stat.lastIndexOf(')');
-      if (open <= 0
-        || close <= open
-        || stat.slice(0, open).trim() !== String(pid)) {
-        return undefined;
-      }
-      const fields = stat.slice(close + 1).trim().split(/\s+/);
-      const startTicks = fields[19];
-      if (!/^\d+$/.test(startTicks || '')) {
-        return undefined;
-      }
-      try {
-        if (BigInt(startTicks) <= 0n) {
-          return undefined;
-        }
-      } catch {
-        return undefined;
-      }
-      return `${pid}:${startTicks}`;
-    }
-    if (platform === 'win32') {
-      const startedAt = String(runFile('powershell.exe', [
-        '-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
-        `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().Ticks`
-      ], { encoding: 'utf8', windowsHide: true, timeout: 1000 })).trim();
-      return startedAt ? `${pid}:${startedAt}` : undefined;
-    }
-    if (platform === 'darwin') {
-      return parseDarwinProcessIdentity(
-        pid,
-        runFile('ps', darwinIdentityPsArgs(pid), darwinIdentityCommandOptions())
-      );
-    }
-    const startedAt = String(runFile('ps', ['-p', String(pid), '-o', 'lstart='], {
-      encoding: 'utf8',
-      env: { ...process.env, LC_ALL: 'C' },
-      timeout: 1000,
-      windowsHide: true
-    })).trim();
-    return startedAt ? `${pid}:${startedAt}` : undefined;
-  } catch {
-    return undefined;
   }
 }
 
