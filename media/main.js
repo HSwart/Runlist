@@ -641,12 +641,12 @@ function serviceDisplayDetails(project, service) {
 }
 
 function servicesSummary(project) {
-  const counts = new Map();
-  for (const service of project.services || []) {
-    const stateLabel = serviceDisplayDetails(project, service).state.toLocaleLowerCase();
-    counts.set(stateLabel, (counts.get(stateLabel) || 0) + 1);
+  const services = project.services || [];
+  const labels = services.slice(0, 3).map((service) => `${service.name} :${service.port}`);
+  if (services.length > 3) {
+    labels.push(`+${services.length - 3}`);
   }
-  return [...counts].map(([label, count]) => `${count} ${label}`).join(' · ');
+  return labels.join(' · ');
 }
 
 function projectServicesDetailHtml(project, projectName) {
@@ -680,7 +680,6 @@ function projectServicesDetailHtml(project, projectName) {
                 <button data-action="copy-service-url" data-id="${projectId}" data-port="${escapeHtml(port)}" ${details.canUseUrl ? '' : 'disabled'}>${icon('copy')}<span>Copy URL</span></button>
                 ${details.canResolve ? `<button data-action="resolve-service-port" data-id="${projectId}" data-port="${escapeHtml(String(savedPort))}">${icon('refresh')}<span>Resolve port</span></button>` : ''}
               </div>
-              <p class="service-lifecycle-note">Start and Stop control the project process that owns this service.</p>
             </div>` : ''}
           </div>`;
       }).join('')}
@@ -922,7 +921,6 @@ function renderList() {
     app.innerHTML = `
       ${runGroupsHtml()}
       <section class="empty-state">
-        ${icon('folder', 'empty-icon')}
         <h2>No projects yet</h2>
         <p>${escapeHtml(emptyCopy)}</p>
         ${state.lifecycleWindowSupported === false ? `<p>Start and Stop work for apps on this computer. You can still save projects here. Remote SSH, Dev Containers, GitHub Codespaces, VS Code Tunnels, and Windows WSL network paths will not start or stop processes in this release.</p>` : ''}
@@ -938,7 +936,14 @@ function renderList() {
   app.innerHTML = `
     <header class="summary" aria-label="Project status summary">
       <span id="project-count"><strong>${state.projects.length}</strong> ${state.projects.length === 1 ? 'project' : 'projects'}</span>
-      <span id="summary-status" class="summary-status">${statusSummaryHtml(state.projects)}</span>
+      <span class="summary-trailing">
+        <span id="summary-status" class="summary-status">${statusSummaryHtml(state.projects)}</span>
+        ${state.stopAllCount > 1 ? `
+          <button class="stop-all-button" data-action="stop-all" aria-label="Stop all ${state.stopAllCount} running projects">
+            ${productIcon('stop', 'bulk-stop-icon')}
+            Stop all (${state.stopAllCount})
+          </button>` : ''}
+      </span>
     </header>
     <span id="project-lifecycle-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span>
     ${state.routeNotice ? `
@@ -951,13 +956,6 @@ function renderList() {
         <p>Start and Stop work for apps on this computer. Remote SSH, Dev Containers, GitHub Codespaces, VS Code Tunnels, and Windows WSL network paths can save and list projects only.</p>
       </section>` : ''}
     ${runGroupsHtml()}
-    ${state.stopAllCount > 1 ? `
-      <div class="bulk-actions">
-        <button class="stop-all-button" data-action="stop-all" aria-label="Stop all ${state.stopAllCount} running projects">
-          ${productIcon('stop', 'bulk-stop-icon')}
-          Stop all running (${state.stopAllCount})
-        </button>
-      </div>` : ''}
     <div class="project-search">
       ${icon('search', 'search-icon')}
       <input id="project-search" type="search" value="${escapeHtml(searchQuery)}" placeholder="Search projects" aria-label="Search projects" autocomplete="off" spellcheck="false">
@@ -1054,8 +1052,14 @@ function renderList() {
               ? `${escapedConflictOwnerName} is using port :${conflict?.port || 'unknown'}.`
               : '';
         const displayedStatus = projectDisplayedStatus(project);
+        const statusDotClass = ['running', 'active'].includes(statusClass)
+          && !(projectStatus === 'active' && project.httpUnresponsive)
+          ? 'running'
+          : ['port-in-use', 'port-in-use-unknown', 'not-ready', 'not-responding', 'review-required', 'ownership-lost'].includes(statusClass)
+            ? 'conflict'
+            : '';
         return `
-          <article id="project-row-${projectId}" class="project-row" data-project-id="${projectId}" aria-labelledby="project-${projectId}" tabindex="-1">
+          <article id="project-row-${projectId}" class="project-row" data-project-id="${projectId}" aria-labelledby="project-${projectId}" aria-describedby="project-folder-${projectId}" tabindex="-1" title="${escapeHtml(project.folder)}">
             <div class="project-topline">
               <div class="project-heading">
                 <div class="project-title-line">
@@ -1065,8 +1069,18 @@ function renderList() {
                   </h2>
                   ${project.currentWorkspace ? '<span class="current-window-label">This window</span>' : ''}
                 </div>
-                <div class="project-status status-${statusClass}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : ''}<span class="auto-scroll"><span class="auto-scroll-content">${escapeHtml(displayedStatus)}</span></span></div>
-                ${!reviewRequired ? readinessDetailsHtml(project, projectStatus) : ''}
+                <div class="project-meta">
+                  <div class="project-status status-${statusClass}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : `<span class="status-dot ${statusDotClass}" aria-hidden="true"></span>`}<span class="auto-scroll"><span class="auto-scroll-content">${escapeHtml(displayedStatus)}</span></span></div>
+                  ${!reviewRequired ? readinessDetailsHtml(project, projectStatus) : ''}
+                  ${project.services?.length ? `
+                    <button class="project-services-summary" data-action="open-services" data-id="${projectId}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} services for ${projectName}">
+                      <span><small>${escapeHtml(servicesSummary(project))}</small></span>
+                      ${icon('chevron-down')}
+                    </button>` : ''}
+                  ${!project.services?.length && project.startupHistory?.length ? `
+                    <button class="preview-toggle" data-action="toggle-preview" data-id="${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} project details for ${projectName}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" title="${project.detailsExpanded ? 'Collapse' : 'Expand'} project details">${icon('chevron-down')}</button>` : ''}
+                </div>
+                <span id="project-folder-${projectId}" class="visually-hidden">${escapeHtml(project.folder)}</span>
               </div>
               <div class="project-actions">
                 ${hasLaunchProfiles ? `
@@ -1117,26 +1131,11 @@ function renderList() {
                 </div>
               </div>
             </div>
-            <div class="project-details">
-              <div class="detail-row" title="${escapeHtml(project.folder)}">
-                ${icon('folder', 'detail-icon')}<span class="auto-scroll"><span class="auto-scroll-content">${escapeHtml(project.folder)}</span></span>
-              </div>
-            </div>
-            ${project.services?.length ? `
-              <button class="project-services-summary" data-action="open-services" data-id="${projectId}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} services for ${projectName}">
-                <span><strong>Services · ${project.services.length}</strong><small>${escapeHtml(servicesSummary(project))}</small></span>
-                ${icon('chevron-down')}
-              </button>` : ''}
-            ${!project.services?.length && project.startupHistory?.length ? `
-              <div class="project-details-toggle-row">
-                <button class="preview-toggle" data-action="toggle-preview" data-id="${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} project details for ${projectName}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" title="${project.detailsExpanded ? 'Collapse' : 'Expand'} project details">${icon('chevron-down')}</button>
-              </div>` : ''}
             ${(project.services?.length || project.timeline || project.previewUrl || project.startupHistory?.length) ? `<div id="details-${projectId}" class="project-live-details" ${project.detailsExpanded ? '' : 'hidden'}>${projectDetailTabsHtml(project, projectName)}</div>` : ''}
           </article>`;
       }).join('')}
       <div class="search-empty" data-search-empty hidden>
         <h2>No matching projects</h2>
-        <p>Try a different search or tag.</p>
       </div>
     </section>`;
 
@@ -1574,7 +1573,7 @@ function renderProjectForm(mode) {
         <h2>${reviewing ? 'Review project setup' : editing ? 'Edit project' : 'Add project'}</h2>
         <button class="icon-button" data-action="close-screen" aria-label="Close ${reviewing ? 'review' : editing ? 'edit' : 'add'} project screen">${icon('close')}</button>
       </header>
-      <p class="screen-copy">${reviewing ? 'A coding agent added or updated this setup. Check its folder, commands, and services before approving.' : editing ? `Update ${escapeHtml(state.draft.name || 'this project')} and its saved setup.` : 'Choose a folder and save its commands and services once.'}</p>
+      ${reviewing ? '<p class="screen-copy">A coding agent added or updated this setup. Check its folder, commands, and services before approving.</p>' : ''}
       <form id="project-form" novalidate>
         ${errors.form ? `<p id="form-error-summary" class="form-error-summary" role="alert" tabindex="-1">${escapeHtml(errors.form)}</p>` : ''}
         <label for="project-name">Project name <span class="optional-label">Optional</span></label>
@@ -1584,7 +1583,6 @@ function renderProjectForm(mode) {
         <label for="tags">Tags <span class="optional-label">Optional</span></label>
         <input id="tags" name="tags" value="${escapeHtml(state.draft.tags || '')}" placeholder="frontend, customer portal" maxlength="406" autocomplete="off" spellcheck="false" ${errorAttributes('tags')}>
         ${fieldError('tags')}
-        <p class="field-hint">Separate up to 12 tags with commas.</p>
 
         <label for="folder">Project folder</label>
         <div class="folder-control">
@@ -1619,7 +1617,7 @@ function renderProjectForm(mode) {
         <label for="stop-command">Custom stop command <span class="optional-label">Optional</span></label>
         <input id="stop-command" name="stopCommand" value="${escapeHtml(activeProfile.stopCommand || '')}" placeholder="docker compose down" ${errorAttributes('stop-command')}>
         ${fieldError('stop-command')}
-        <p class="field-hint">Leave empty to stop only Runlist's process tree. Custom commands are user-controlled and confirmed before every run.</p>
+        <p class="field-hint">Leave blank unless this project needs its own stop command.</p>
 
         <fieldset id="services" class="service-editor" ${state.servicesLocked ? 'disabled' : ''} ${errors.services ? 'aria-invalid="true" aria-describedby="services-hint services-error" tabindex="-1"' : 'aria-describedby="services-hint"'}>
           <legend>Services <span class="optional-label">Optional</span></legend>
@@ -1633,7 +1631,7 @@ function renderProjectForm(mode) {
         </fieldset>
 
         <button class="primary-button save-button" type="submit">${reviewing ? 'Approve setup' : editing ? 'Save changes' : 'Save project'}</button>
-        <p class="form-hint">${reviewing ? 'Approving makes Start and Stop available for this project.' : editing ? 'Changes apply the next time you start this project.' : 'Commands run inside the selected folder.'}</p>
+        ${reviewing ? '<p class="form-hint">Approving makes Start and Stop available for this project.</p>' : editing ? '<p class="form-hint">Changes apply the next time you start this project.</p>' : ''}
       </form>
     </section>`;
 }
@@ -1666,13 +1664,11 @@ function renderAgentSetup() {
         <h2>Agent connections</h2>
         <button class="icon-button" data-action="close-screen" aria-label="Close agent connections screen">${icon('close')}</button>
       </header>
-      <p class="screen-copy">Connect Runlist and add its guided project setup skill.</p>
       <div class="agent-list" aria-label="Supported coding agents">
         ${agentCard('copilot', 'GitHub Copilot', 'Adds /runlist. The connection is discovered automatically through VS Code.')}
         ${agentCard('codex', 'Codex', 'Registers the connection and adds $runlist.')}
         ${agentCard('claude', 'Claude Code', 'Registers the connection and adds /runlist.')}
       </div>
-      <p class="agent-footnote">The skill inspects exact project commands and service ports, then saves them through Runlist.</p>
     </section>`;
 }
 

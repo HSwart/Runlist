@@ -1175,3 +1175,33 @@ test('shows launch profiles when editing or when alternatives already exist', ()
   });
   assert.match(addWithProfiles.app.innerHTML, /class="launch-profile-editor"/);
 });
+
+test('renders everyday project rows without a competing folder path', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/northstar-dashboard',
+    id: 'northstar',
+    launchProfiles: [],
+    name: 'Northstar Dashboard',
+    openPorts: [4310],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 4310 }],
+    status: 'running',
+    tags: []
+  }], {
+    stateOverrides: { stopAllCount: 2 }
+  });
+
+  assert.match(result.app.innerHTML, /class="project-meta"/);
+  assert.match(result.app.innerHTML, /class="project-status status-running"/);
+  assert.match(result.app.innerHTML, /web :4310/);
+  assert.match(result.app.innerHTML, /class="visually-hidden">\/Users\/shared\/Projects\/northstar-dashboard/);
+  assert.match(result.app.innerHTML, /data-action="stop-all"/);
+  assert.match(result.app.innerHTML, /Stop all \(2\)/);
+  assert.doesNotMatch(result.app.innerHTML, /class="detail-row"/);
+  assert.doesNotMatch(result.app.innerHTML, /Services · 1/);
+});
