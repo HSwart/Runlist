@@ -12,6 +12,7 @@ test('enforces focused static analysis, critical coverage, SBOM, and package ide
 
   assert.equal(manifest.scripts.lint, 'eslint . --max-warnings=0');
   assert.match(manifest.scripts.quality, /npm run lint/);
+  assert.match(manifest.scripts.quality, /npm run scan:secrets/);
   assert.match(manifest.scripts.quality, /npm run test:critical-coverage/);
   assert.match(manifest.scripts.quality, /npm run validate:sbom/);
   assert.match(manifest.scripts.quality, /npm run validate:marketplace:vsix/);
@@ -36,5 +37,18 @@ test('runs pinned CodeQL, secret scanning, and SBOM artifact gates in CI', () =>
   assert.doesNotMatch(testWorkflow, unpinnedAction);
   assert.match(securityWorkflow, /languages: javascript-typescript/);
   assert.match(securityWorkflow, /name: Secret scan/);
+  assert.match(securityWorkflow, /run: npm run scan:secrets/);
   assert.doesNotMatch(securityWorkflow, unpinnedAction);
+});
+
+test('detects high-confidence secrets without reproducing their values', () => {
+  const { detectSecrets } = require('../scripts/scan-secrets');
+  const githubToken = 'ghp_' + 'a'.repeat(36);
+  const privateKey = ['-----BEGIN RSA', ' PRIVATE KEY-----'].join('');
+
+  assert.deepEqual(detectSecrets(`${githubToken}\n${privateKey}`), [
+    'private-key',
+    'github-token'
+  ]);
+  assert.deepEqual(detectSecrets('TOKEN=example-value'), []);
 });

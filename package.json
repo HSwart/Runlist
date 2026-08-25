@@ -144,6 +144,7 @@
   },
   "scripts": {
     "lint": "eslint . --max-warnings=0",
+    "scan:secrets": "node scripts/scan-secrets.js",
     "test": "node --test",
     "test:critical-coverage": "node scripts/test-critical-coverage.js",
     "test:smoke": "node smoke/run.js",
@@ -153,7 +154,7 @@
     "validate:marketplace:publish": "node scripts/validate-marketplace.js",
     "validate:marketplace:vsix": "node scripts/validate-vsix.js",
     "validate:sbom": "node scripts/validate-sbom.js",
-    "quality": "npm run lint && npm run test:critical-coverage && npm run validate:sbom && npm run validate:marketplace:vsix",
+    "quality": "npm run lint && npm run scan:secrets && npm run test:critical-coverage && npm run validate:sbom && npm run validate:marketplace:vsix",
     "package": "npm run validate:marketplace:publish && node scripts/package-vsix.js",
     "publish:marketplace": "npm run validate:marketplace:publish && npm run validate:marketplace:vsix && vsce publish --azure-credential --packagePath releases/runlist.vsix"
   },
