@@ -39,6 +39,7 @@ function renderRepairComparison(comparison) {
         return { action: 'start', disabled: false, label: 'Start', mode: 'start' };
       }
     },
+    RunlistProjectStatus: require('../media/project-status-display'),
     addEventListener() {},
     getSelection() {
       return undefined;
