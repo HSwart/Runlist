@@ -390,14 +390,22 @@ class RunlistViewProvider {
   }
 
   async startThisFolder() {
+    if (!await this.confirmDiscardProjectChanges()) {
+      return false;
+    }
     const decision = startThisFolderDecision(
       this.projects,
       vscode.workspace.workspaceFolders
     );
+    this.mode = 'list';
+    await this.revealRunlistView();
     if (decision.status !== 'start') {
       vscode.window.showWarningMessage(decision.message);
+      this.render();
       return false;
     }
+    this.focusTarget = { type: 'project-control', id: decision.projectId };
+    this.render();
     return this.startProject(decision.projectId);
   }
 
@@ -579,8 +587,8 @@ class RunlistViewProvider {
         busy: true,
         message: `Stopping ${project?.name || 'project'}…`
       },
-      started: { busy: false, message: 'All group projects are ready.' },
-      stopped: { busy: false, message: 'Owned group processes stopped.' },
+      started: { busy: false, message: '' },
+      stopped: { busy: false, message: '' },
       failed: {
         busy: false,
         message: progress.reason

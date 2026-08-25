@@ -13,7 +13,7 @@ const providerSource = fs.readFileSync(
 );
 const entrySource = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
 
-test('Add Project and Agent connections reveal the Runlist sidebar when it is not open yet', () => {
+test('palette commands that need the sidebar reveal Runlist when it is not open yet', () => {
   const revealStart = extension.indexOf('async revealRunlistView()');
   const addStart = extension.indexOf('async showAddProject(returnFocus)');
   const agentsStart = extension.indexOf('async showAgentSetup()');
@@ -30,7 +30,7 @@ test('Add Project and Agent connections reveal the Runlist sidebar when it is no
   assert.match(reveal, /workbench\.view\.extension\.runlist/);
   assert.match(reveal, /runlist\.projects\.focus/);
   assert.match(addAndAgents, /await this\.revealRunlistView\(\)/);
-  assert.equal((addAndAgents.match(/await this\.revealRunlistView\(\)/g) || []).length, 2);
+  assert.equal((addAndAgents.match(/await this\.revealRunlistView\(\)/g) || []).length, 3);
   assert.doesNotMatch(addAndAgents, /this\.view\?\.show\?\.\(true\)/);
 });
 
@@ -127,13 +127,17 @@ test('workspace-folder listener rerenders and is disposed with the provider', as
   assert.equal(folderListener, undefined);
 });
 
-test('Start This Folder reuses startProject after the This-window decision', () => {
+test('Start This Folder reveals the sidebar and starts from the project card', () => {
   const start = extension.indexOf('async startThisFolder()');
   const end = extension.indexOf('async showProjectTransfer()');
   const method = extension.slice(start, end);
 
   assert.match(method, /startThisFolderDecision\(/);
+  assert.match(method, /confirmDiscardProjectChanges\(\)/);
   assert.match(method, /showWarningMessage\(decision\.message\)/);
+  assert.match(method, /this\.mode = 'list'/);
+  assert.match(method, /await this\.revealRunlistView\(\)/);
+  assert.match(method, /type: 'project-control'/);
   assert.match(method, /return this\.startProject\(decision\.projectId\)/);
   assert.doesNotMatch(method, /startProjectProcess/);
   assert.match(extension, /registerCommand\('runlist\.startThisFolder'/);

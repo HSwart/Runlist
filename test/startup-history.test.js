@@ -194,7 +194,7 @@ test('wires bounded outcomes and an accessible non-color-only ribbon into the li
   assert.match(webview, /Number\.isFinite\(project\.averageReadyDurationMs\)[\s\S]*averageReadyDuration !== undefined[\s\S]*aria-label="Average ready time:[\s\S]*Avg ready/);
   assert.match(webview, /function closeStartupFailure[\s\S]*renderList\(\)[\s\S]*data-action="show-startup-failure"[\s\S]*\.focus\(\)/);
   assert.match(webview, /if \(!history\.length \|\| !project\.detailsExpanded\) \{[\s\S]*return ''/);
-  assert.match(webview, /!project\.services\?\.length && project\.startupHistory\?\.length[\s\S]*project-details-toggle-row/);
+  assert.match(webview, /!project\.services\?\.length && project\.startupHistory\?\.length[\s\S]*preview-toggle/);
   assert.match(styles, /grid-template-columns: repeat\(auto-fit, minmax\(52px, 1fr\)\)/);
   assert.match(styles, /\.startup-history > header[\s\S]*flex-wrap: wrap/);
   assert.match(styles, /\.startup-history-stats[\s\S]*flex-wrap: wrap/);

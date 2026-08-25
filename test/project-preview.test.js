@@ -107,7 +107,7 @@ test('renders one lazy, sandboxed, accessible expandable preview', () => {
   assert.match(webview, /announceProjectStatusChanges\(state\.projects\)/);
   assert.match(webview, /\(timeline\.failed \|\| timeline\.attention\) && timeline\.outputAvailable/);
   assert.doesNotMatch(webview, /icon\('arrow-down'\)/);
-  assert.match(webview, /class="project-services-summary" data-action="open-services"[\s\S]*Services · \$\{project\.services\.length\}/);
+  assert.match(webview, /class="project-services-summary" data-action="open-services"[\s\S]*\$\{escapeHtml\(servicesSummary\(project\)\)\}/);
   assert.match(webview, /project\.previewExpanded \? `[\s\S]*data-preview-frame data-src=/);
   assert.match(webview, /sandbox="allow-forms allow-scripts allow-same-origin" referrerpolicy="no-referrer"/);
   assert.match(webview, /frame\.src = source/);
