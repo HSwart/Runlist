@@ -18,6 +18,7 @@ test('keeps the root entrypoint separate from organized source modules', () => {
   assert.deepEqual(rootJavaScriptFiles, ['eslint.config.js', 'extension.js']);
   assert.deepEqual(sourceDirectories, [
     'groups',
+    'host',
     'integrations',
     'lifecycle',
     'ports',
@@ -25,6 +26,18 @@ test('keeps the root entrypoint separate from organized source modules', () => {
     'services',
     'webview'
   ]);
+  assert.match(
+    fs.readFileSync(path.join(root, 'extension.js'), 'utf8'),
+    /function activate\(/
+  );
+  assert.doesNotMatch(
+    fs.readFileSync(path.join(root, 'extension.js'), 'utf8'),
+    /class RunlistViewProvider/
+  );
+  assert.match(
+    fs.readFileSync(path.join(root, 'src', 'host', 'runlist-view-provider.js'), 'utf8'),
+    /class RunlistViewProvider/
+  );
 });
 
 test('resolves every static relative import in shipped JavaScript', () => {

@@ -9,6 +9,7 @@ const {
   derivePhoneHandoffUrl,
   privateIpv4Priority
 } = require('../src/webview/phone-handoff');
+const { readShippedHostSource } = require('./helpers/extension-source');
 
 const interfaces = {
   lo0: [{ address: '127.0.0.1', family: 'IPv4', internal: true }],
@@ -91,7 +92,7 @@ test('encodes the exact displayed LAN URL locally', () => {
 
 test('shows the handoff only for an eligible preview and copies its exact URL', () => {
   const root = path.join(__dirname, '..');
-  const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const extension = readShippedHostSource(root);
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
 
   assert.match(extension, /const phoneHandoff = previewExpanded\s*\? createPhoneHandoff\(previewService\.url\)/);

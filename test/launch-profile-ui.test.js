@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const { readShippedHostSource } = require('./helpers/extension-source');
 
 const main = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
 const styles = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.css'), 'utf8');
@@ -56,7 +57,7 @@ test('keeps health checks inside the existing service Options disclosure', () =>
 });
 
 test('uses the effective launch profile for timeline and failed-stop state', () => {
-  const extension = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const extension = readShippedHostSource();
 
   assert.match(extension, /projectHasLiveTimeline\(project\.id, runtimeProject, status\)/);
   assert.match(extension, /const project = projectStopStrategy\([\s\S]*const hasServices = Boolean\(project\?\.services\?\.length\)/);

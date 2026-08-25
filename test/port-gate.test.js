@@ -14,6 +14,7 @@ const {
 } = require('../src/ports/port-gate');
 const { currentProcessIdentity } = require('../src/lifecycle/process-identity');
 const { readRootProcess } = require('../src/lifecycle/process-metrics');
+const { readShippedHostSource } = require('./helpers/extension-source');
 
 test('uses the shared atomic-record updater and exclusive lock protocol for port reservations', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'ports', 'port-gate.js'), 'utf8');
@@ -389,7 +390,7 @@ test('does not let stale detached cleanup remove a replacement reservation', (t)
 });
 
 test('keeps a replacement reservation when force-close cleanup runs after an async gap', async (t) => {
-  const extension = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const extension = readShippedHostSource();
   const forceCloseStart = extension.indexOf('async forceCloseProjectPorts(');
   const recoveryStart = extension.indexOf('const result = await recoverProjectPorts', forceCloseStart);
   const finishStart = extension.indexOf('finishStopping(id, succeeded, portGeneration)');

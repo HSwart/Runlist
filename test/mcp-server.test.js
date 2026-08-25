@@ -18,6 +18,7 @@ const {
   createRequestLineParser,
   MAX_JSON_RPC_REQUEST_BYTES
 } = require('../mcp/server');
+const { readShippedHostSource } = require('./helpers/extension-source');
 
 function availablePort() {
   return new Promise((resolve, reject) => {
@@ -641,7 +642,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
 });
 
 test('installs the complete MCP lifecycle dependency closure', () => {
-  const extension = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const extension = readShippedHostSource();
   for (const relativePath of [
     'src/lifecycle/atomic-json-record.js',
     'src/lifecycle/exclusive-json-lock.js',
@@ -664,7 +665,7 @@ test('keeps MCP port variables launch-only and rejects stale setup fields', () =
 });
 
 test('does not probe review-required projects before approval', () => {
-  const extensionSource = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const extensionSource = readShippedHostSource();
   assert.match(extensionSource, /const checkProject = async \(project\) => \{[\s\S]*if \(project\.reviewRequired\) \{[\s\S]*return \[project\.id, 'stopped'/);
   assert.match(extensionSource, /mapWithConcurrency\([\s\S]*effectiveProjects,[\s\S]*STATUS_CHECK_CONCURRENCY,[\s\S]*checkProject/);
 });

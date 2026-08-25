@@ -1,7 +1,7 @@
 {
   "name": "runlist",
   "displayName": "Runlist: Local Development Control Panel",
-  "description": "Start, stop, monitor, and group dev servers, workers, and project commands across repositories from one VS Code sidebar.",
+  "description": "Start, stop, monitor, and group local apps on the same computer as this VS Code window.",
   "version": "0.0.8",
   "publisher": "hankoswart",
   "license": "SEE LICENSE IN LICENSE",
@@ -60,7 +60,8 @@
   ],
   "main": "./extension.js",
   "extensionKind": [
-    "ui"
+    "ui",
+    "workspace"
   ],
   "contributes": {
     "commands": [

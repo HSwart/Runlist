@@ -11,6 +11,7 @@ const {
   validateWebviewMessage
 } = require('../media/message-router');
 const { createRunlistWebviewRouter } = require('../src/webview/webview-message-router');
+const { readShippedHostSource } = require('./helpers/extension-source');
 
 test('allowlists the complete host-to-webview message contract', () => {
   assert.deepEqual([...WEBVIEW_MESSAGE_TYPES].sort(), [
@@ -294,10 +295,13 @@ test('routes one validated message to its exact handler', () => {
 
 test('loads the router before the webview entry point and uses one message listener', () => {
   const root = path.join(__dirname, '..');
-  const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const extension = readShippedHostSource(root);
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
 
-  assert.match(extension, /message-router\.js[\s\S]*src="\$\{messageRouterUri\}"[\s\S]*src="\$\{scriptUri\}"/);
+  assert.match(
+    extension,
+    /message-router\.js[\s\S]*src="\$\{messageRouterUri\}"[\s\S]*src="\$\{projectActionsUri\}"[\s\S]*src="\$\{projectStatusUri\}"[\s\S]*src="\$\{scriptUri\}"/
+  );
   assert.match(webview, /createWebviewMessageRouter\(\{[\s\S]*hostMessageHandlers/);
   assert.equal((webview.match(/window\.addEventListener\('message'/g) || []).length, 1);
 });

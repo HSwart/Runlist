@@ -1,8 +1,11 @@
 # Runlist lifecycle contract
 
 This contract defines the safety outcomes Runlist must preserve across macOS,
-Windows, Linux, extension-host reloads, and multiple VS Code windows. It is a
-release gate for lifecycle changes, not a description of implementation details.
+Windows, Linux, Remote WSL workspace hosts, extension-host reloads, and multiple
+VS Code windows. It is a release gate for lifecycle changes, not a description of
+implementation details. Process identities, ownership tokens, and port
+reservations are local to one extension host. A Windows host and a WSL Linux host
+must never treat each other's PIDs as interchangeable.
 
 ## Invariants
 
@@ -48,6 +51,7 @@ release gate for lifecycle changes, not a description of implementation details.
 | Temporary port is selected | Saved setup is unchanged, the launch generation owns the effective port, and Stop returns status to the untouched saved-port listener | Native lifecycle smoke, `service-port-overrides.test.js`, `service-port-management.test.js` |
 | Custom Stop fails, hangs, or cannot prove completion | Runlist reports failure, cleans up its timed-out command tree, and retains uncertain project coordination | Native adversarial smoke, `project-restart.test.js`, `custom-stop-recovery.test.js` |
 | Partial storage or lock update | State is recovered or retained fail-closed without deleting newer data | Native adversarial smoke, `project-store.test.js`, `project-process.test.js`, `port-gate.test.js` |
+| Remote WSL workspace Start/Stop | Linux-folder projects use WSL loopback ports and the exact WSL process tree; Windows host PIDs and `\\wsl$` folders stay unsupported | `wsl-workspace-lifecycle.test.js`, `lifecycle-capability.test.js` |
 
 The native smoke suite must assert process liveness, displayed status, process
 ownership, and port reservations together. Unit tests remain responsible for

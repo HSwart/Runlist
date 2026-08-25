@@ -6,6 +6,7 @@ const {
   availableProjectDetailTabs,
   preferredProjectDetailTab
 } = require('../src/webview/project-detail-tabs');
+const { readShippedHostSource } = require('./helpers/extension-source');
 
 test('offers only relevant detail tabs and defaults to a live preview', () => {
   assert.deepEqual(availableProjectDetailTabs(), ['overview']);
@@ -27,7 +28,7 @@ test('offers only relevant detail tabs and defaults to a live preview', () => {
 
 test('renders a stable accessible tabbed workspace and preserves its selected tab', () => {
   const root = path.join(__dirname, '..');
-  const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const extension = readShippedHostSource(root);
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
   const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
 

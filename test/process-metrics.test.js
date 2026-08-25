@@ -12,6 +12,7 @@ const {
   windowsProcessScript
 } = require('../src/lifecycle/process-metrics');
 const { HttpResponseHistory, RuntimePulseHistory } = require('../src/lifecycle/runtime-pulse');
+const { readShippedHostSource } = require('./helpers/extension-source');
 
 function row(pid, identity, cpuSeconds, memoryBytes) {
   return { pid, identity, cpuSeconds, memoryBytes };
@@ -466,7 +467,7 @@ test('allows the bounded Windows tree query enough time for cold CI process insp
 
 test('renders accessible metrics only inside the expanded preview and stops sampling on collapse', () => {
   const root = path.join(__dirname, '..');
-  const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const extension = readShippedHostSource(root);
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
   const messageRouter = fs.readFileSync(path.join(root, 'media', 'message-router.js'), 'utf8');
 
@@ -485,7 +486,7 @@ test('renders accessible metrics only inside the expanded preview and stops samp
 
 test('reuses health polling for an accessible expanded HTTP response pulse', () => {
   const root = path.join(__dirname, '..');
-  const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const extension = readShippedHostSource(root);
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
 
   assert.match(extension, /this\.httpResponseHistory\.record\([\s\S]*activeCheck\?\.\[6\]/);

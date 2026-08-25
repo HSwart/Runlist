@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const { handoffProjectSafely } = require('../src/lifecycle/project-process');
+const { readShippedHostSource } = require('./helpers/extension-source');
 
 function actions(calls, overrides = {}) {
   return {
@@ -111,7 +112,7 @@ test('rejects duplicate handoffs for the same requested project', async () => {
 });
 
 test('wires one accessible contextual control through guarded handoff and port recovery', () => {
-  const extension = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const extension = readShippedHostSource();
   const lifecycle = fs.readFileSync(path.join(__dirname, '..', 'src', 'lifecycle', 'project-lifecycle.js'), 'utf8');
   const webview = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
 

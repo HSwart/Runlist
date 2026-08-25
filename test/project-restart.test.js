@@ -10,6 +10,7 @@ const {
   restartProjectSafely
 } = require('../src/lifecycle/project-process');
 const { ProjectLifecycleCoordinator } = require('../src/lifecycle/project-lifecycle');
+const { readShippedHostSource } = require('./helpers/extension-source');
 
 function ProcessOwnershipStore(directory, options = {}) {
   const pid = options.pid || process.pid;
@@ -23,13 +24,11 @@ function ProcessOwnershipStore(directory, options = {}) {
 }
 
 function loadRunlistProvider(spawnImplementation, messages, moduleOverrides = {}) {
-  const extensionPath = path.join(__dirname, '..', 'extension.js');
-  const source = fs.readFileSync(extensionPath, 'utf8')
-    .replace('module.exports = { activate, deactivate };',
-      'module.exports = { activate, deactivate, RunlistViewProvider };');
-  const extensionModule = new Module(extensionPath, module);
-  extensionModule.filename = extensionPath;
-  extensionModule.paths = Module._nodeModulePaths(path.dirname(extensionPath));
+  const providerPath = path.join(__dirname, '..', 'src', 'host', 'runlist-view-provider.js');
+  const source = fs.readFileSync(providerPath, 'utf8');
+  const providerModule = new Module(providerPath, module);
+  providerModule.filename = providerPath;
+  providerModule.paths = Module._nodeModulePaths(path.dirname(providerPath));
   const vscode = {
     window: {
       showErrorMessage(message) {
@@ -47,14 +46,14 @@ function loadRunlistProvider(spawnImplementation, messages, moduleOverrides = {}
       return vscode;
     }
     const loaded = originalLoad.call(this, request, parent, isMain);
-    return moduleOverrides[request]
-      ? { ...loaded, ...moduleOverrides[request] }
-      : loaded;
+    const override = moduleOverrides[request]
+      || moduleOverrides[request.replace(/^\.\.\//, './src/')];
+    return override ? { ...loaded, ...override } : loaded;
   };
   childProcess.spawn = spawnImplementation;
   try {
-    extensionModule._compile(source, extensionPath);
-    return extensionModule.exports.RunlistViewProvider;
+    providerModule._compile(source, providerPath);
+    return providerModule.exports.RunlistViewProvider;
   } finally {
     childProcess.spawn = originalSpawn;
     Module._load = originalLoad;
@@ -914,7 +913,7 @@ test('waits for a safe Stop to complete before starting again', async () => {
 });
 
 test('joins an in-flight Stop instead of rejecting concurrent Restart', async () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const source = readShippedHostSource();
   const lifecycle = fs.readFileSync(path.join(__dirname, '..', 'src', 'lifecycle', 'project-lifecycle.js'), 'utf8');
   assert.match(source, /this\.stoppingOperations = new Map\(\)/);
   assert.match(source, /const existing = this\.stoppingOperations\.get\(id\)/);
@@ -1085,7 +1084,7 @@ test('preserves temporary service ports through a whole-project Restart', async 
 });
 
 test('holds process ownership while deleting a saved project', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const source = readShippedHostSource();
   const refreshOwnership = source.indexOf('const latestProcessRuntime = this.processOwnership.snapshot()');
   const verifyPortOwnership = source.indexOf('hasUnownedPortReservation(id', refreshOwnership);
   const latestOwnership = source.indexOf('const latestSharedOwnership = latestProcessRuntime.get(id)', verifyPortOwnership);
@@ -1105,7 +1104,7 @@ test('holds process ownership while deleting a saved project', () => {
 });
 
 test('prevents service metadata changes while a project is running', () => {
-  const extensionSource = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const extensionSource = readShippedHostSource();
   const webviewSource = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
 
   assert.match(extensionSource, /const servicesLocked = existingProject && this\.projectSetupLocked\(projectId\)/);
@@ -1120,7 +1119,7 @@ test('prevents service metadata changes while a project is running', () => {
 });
 
 test('re-reads the saved project after Start acquires process ownership', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const source = readShippedHostSource();
   const startProject = source.indexOf('async startProject(id, options = {})');
   const reserveOwnership = source.indexOf('this.processOwnership.reserve(id)', startProject);
   const rereadProjects = source.indexOf('projects = this.projects', reserveOwnership);
@@ -1133,7 +1132,7 @@ test('re-reads the saved project after Start acquires process ownership', () => 
 });
 
 test('does not escalate a custom stop into port or process cleanup', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const source = readShippedHostSource();
   const stopProject = source.indexOf('async stopProject(id, projectSnapshot, options = {})');
   const customStop = source.indexOf('if (stopProject.stopCommand)', stopProject);
   const confirmCommand = source.indexOf('await this.confirmCustomStopCommand(stopProject)', customStop);
@@ -1288,7 +1287,7 @@ test('revalidates custom Stop ownership after confirmation before running the co
 });
 
 test('verifies the custom stop shell identity before timeout cleanup', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const source = readShippedHostSource();
   assert.match(
     source,
     /const stopProcessIdentity = Promise\.resolve\(readProcessIdentity\(stopProcess\.pid\)\)[\s\S]*releaseSupervisorIdentityHold\(stopProcess\)/
@@ -1297,7 +1296,7 @@ test('verifies the custom stop shell identity before timeout cleanup', () => {
 });
 
 test('uses the saved custom stop during awaited shutdown without opening a deactivation modal', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const source = readShippedHostSource();
 
   assert.match(
     source,
@@ -1310,7 +1309,7 @@ test('uses the saved custom stop during awaited shutdown without opening a deact
 });
 
 test('routes remote custom stops through the launching VS Code window', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const source = readShippedHostSource();
   const consumeRequests = source.indexOf('this.processOwnership.consumeStopRequests()');
   const dispatchToOwner = source.indexOf('void Promise.resolve(this.stopProject(id, project', consumeRequests);
   const completeRequest = source.indexOf('this.processOwnership.completeStopRequest(id)', dispatchToOwner);
@@ -1328,7 +1327,7 @@ test('routes remote custom stops through the launching VS Code window', () => {
 });
 
 test('recovers a locally owned process when its in-memory handle is missing', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const source = readShippedHostSource();
   const localRequest = source.indexOf("if (request.kind === 'local')");
   const recoverOwnedProcess = source.indexOf('this.processOwnership.terminateOwnedProcess(id)', localRequest);
   const finishRecoveredStop = source.indexOf('this.finishStopping(id, true, portGeneration)', recoverOwnedProcess);
@@ -1339,7 +1338,7 @@ test('recovers a locally owned process when its in-memory handle is missing', ()
 });
 
 test('reports a lost detached Stop claim without executing the custom command', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const source = readShippedHostSource();
   const claim = source.indexOf('this.processOwnership.claimDetachedStop(id, sharedOwnership.token)');
   const command = source.indexOf('customStopResult = await this.runCustomStopCommand(stopProject, {', claim);
   const claimLost = source.slice(claim, command);
@@ -1351,7 +1350,7 @@ test('reports a lost detached Stop claim without executing the custom command', 
 });
 
 test('binds detached Stop success cleanup to the captured ownership and port generations', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const source = readShippedHostSource();
   const finish = source.indexOf('finishStopping(id, succeeded, portGeneration, detachedStopClaim)');
   const detachedSuccess = source.indexOf('if (detachedStopClaim)', finish);
   const processRelease = source.indexOf('detachedStopClaim.token', detachedSuccess);
@@ -1365,7 +1364,7 @@ test('binds detached Stop success cleanup to the captured ownership and port gen
 });
 
 test('rolls back detached Stop claims across command and completion probes', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const source = readShippedHostSource();
   const customStop = source.indexOf('if (stopProject.stopCommand)');
   const command = source.indexOf('customStopResult = await this.runCustomStopCommand(stopProject, {', customStop);
   const completion = source.indexOf('this.waitForProjectStopCompletion(id, CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS)', command);
@@ -1560,7 +1559,7 @@ test('reconciles an exact detached generation after success cleanup throws', asy
 });
 
 test('captures force-close ownership before recovery and threads it to cleanup', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const source = readShippedHostSource();
   const forceClose = source.indexOf('async forceCloseProjectPorts(');
   const recovery = source.indexOf('const result = await recoverProjectPorts', forceClose);
   const ownershipCapture = source.indexOf('const detachedOwnership = processRuntime.get(id)?.detached', forceClose);
@@ -1573,7 +1572,7 @@ test('captures force-close ownership before recovery and threads it to cleanup',
 });
 
 test('rolls back ownership and start state when port reservation throws', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const source = readShippedHostSource();
   const reserve = source.indexOf('this.portReservations.reserve(launchProject)');
   const reserveTry = source.lastIndexOf('try {', reserve);
   const startAttempt = source.indexOf('this.startAttempts.set(id, attempt)', reserve);
@@ -1591,7 +1590,7 @@ test('rolls back ownership and start state when port reservation throws', () => 
 });
 
 test('keeps start rollback and the original reservation error primary when cleanup throws', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const source = readShippedHostSource();
   const reserve = source.indexOf('this.portReservations.reserve(launchProject)');
   const startAttempt = source.indexOf('this.startAttempts.set(id, attempt)', reserve);
   const rollback = source.slice(source.lastIndexOf('try {', reserve), startAttempt);
@@ -1604,7 +1603,7 @@ test('keeps start rollback and the original reservation error primary when clean
 });
 
 test('guards synchronous custom Stop launch failures after beginStopping', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const source = readShippedHostSource();
   const runCustomStop = source.indexOf('runCustomStopCommand(project, options = {})');
   const beginStopping = source.indexOf('this.beginStopping(project.id, options)', runCustomStop);
   const spawn = source.indexOf('spawnProjectCommand(project.stopCommand', beginStopping);
@@ -1620,7 +1619,7 @@ test('guards synchronous custom Stop launch failures after beginStopping', () =>
 });
 
 test('does not report an intentional custom-stop exit as a start failure', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const source = readShippedHostSource();
 
   assert.match(source, /const stoppedIntentionally = this\.stoppingProjectIds\.has\(id\)/);
   assert.match(source, /const exitDetails = \{[\s\S]*hasCustomStop: Boolean\(launchProject\.stopCommand\)[\s\S]*stoppedIntentionally[\s\S]*\};/);
@@ -1629,7 +1628,7 @@ test('does not report an intentional custom-stop exit as a start failure', () =>
 });
 
 test('allows remote custom stops enough time for owner polling', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const source = readShippedHostSource();
 
   assert.match(source, /const STATUS_POLL_INTERVAL_MS = 2000;/);
   assert.match(source, /const CUSTOM_STOP_TIMEOUT_MS = 15000;/);

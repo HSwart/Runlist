@@ -30,6 +30,7 @@ const {
   servicePortHosts,
   stoppableProjectIds
 } = require('../src/lifecycle/project-status');
+const { readShippedHostSource } = require('./helpers/extension-source');
 
 test('treats health loss after detached readiness as timed out', () => {
   assert.equal(managedServiceReadinessTimedOut({
@@ -768,7 +769,7 @@ test('opens the primary service only when its own port is ready', () => {
 });
 
 test('uses VS Code URI forwarding for service health and browser opening', () => {
-  const extension = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const extension = readShippedHostSource();
   assert.match(extension, /vscode\.env\.asExternalUri\(vscode\.Uri\.parse\(url\)\)/);
   assert.match(extension, /serviceHttpStatus\([\s\S]*resolveUrl: \(url\) => this\.externalServiceUrl\(url\)/);
 });
@@ -776,10 +777,11 @@ test('uses VS Code URI forwarding for service health and browser opening', () =>
 test('shows a clear nonresponding state without changing stop safety', () => {
   const root = path.join(__dirname, '..');
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
+  const statusDisplay = fs.readFileSync(path.join(root, 'media', 'project-status-display.js'), 'utf8');
   const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
 
-  assert.match(webview, /'not-responding': 'Web service not responding'/);
-  assert.match(webview, /project\.httpUnresponsive \? 'Detected, web service not responding' : 'Detected running'/);
+  assert.match(statusDisplay, /'not-responding': 'Web service not responding'/);
+  assert.match(statusDisplay, /project\.httpUnresponsive \? 'Detected, web service not responding' : 'Detected running'/);
   assert.match(webview, /const statusClass = projectStatus === 'active' && project\.httpUnresponsive[\s\S]*\? 'not-responding'[\s\S]*: displayStatus/);
   assert.match(webview, /project-status status-\$\{statusClass\}/);
   assert.match(webview, /\['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active'\]\.includes\(projectStatus\)/);
@@ -790,11 +792,13 @@ test('shows a clear nonresponding state without changing stop safety', () => {
 
 test('shows slow startup as ongoing service checks rather than a failure', () => {
   const root = path.join(__dirname, '..');
-  const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const extension = readShippedHostSource(root);
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
+  const statusDisplay = fs.readFileSync(path.join(root, 'media', 'project-status-display.js'), 'utf8');
   const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
 
-  assert.match(webview, /'not-ready': 'Taking longer…'/);
+  assert.match(statusDisplay, /'not-ready': 'Taking longer…'/);
+  assert.match(statusDisplay, /if \(code === 'not-ready'\) \{[\s\S]*return 'starting'/);
   assert.match(webview, /notReadyCount[\s\S]*taking longer/);
   assert.match(webview, /<strong>Ready:<\/strong>/);
   assert.match(webview, /<strong>Still checking:<\/strong>/);

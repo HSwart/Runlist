@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const { readShippedHostSource } = require('./helpers/extension-source');
 
 test('renders an accessible copy action only for a reachable service URL', () => {
   const root = path.join(__dirname, '..');
@@ -15,7 +16,7 @@ test('renders an accessible copy action only for a reachable service URL', () =>
 
 test('rechecks reachability and copies the forwarded safe URL in the extension host', () => {
   const root = path.join(__dirname, '..');
-  const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const extension = readShippedHostSource(root);
   const router = fs.readFileSync(path.join(root, 'src', 'webview', 'webview-message-router.js'), 'utf8');
 
   assert.match(router, /copyServiceUrl: \(message\) => host\.copyServiceUrl\(message\.id, Number\(message\.port\)\)/);

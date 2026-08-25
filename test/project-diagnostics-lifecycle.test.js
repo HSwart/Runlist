@@ -20,13 +20,11 @@ const {
 const { ProcessOwnershipStore } = require('../src/lifecycle/project-process');
 
 function loadRunlistProvider(messages) {
-  const extensionPath = path.join(__dirname, '..', 'extension.js');
-  const source = fs.readFileSync(extensionPath, 'utf8')
-    .replace('module.exports = { activate, deactivate };',
-      'module.exports = { activate, deactivate, RunlistViewProvider };');
-  const extensionModule = new Module(extensionPath, module);
-  extensionModule.filename = extensionPath;
-  extensionModule.paths = Module._nodeModulePaths(path.dirname(extensionPath));
+  const providerPath = path.join(__dirname, '..', 'src', 'host', 'runlist-view-provider.js');
+  const source = fs.readFileSync(providerPath, 'utf8');
+  const providerModule = new Module(providerPath, module);
+  providerModule.filename = providerPath;
+  providerModule.paths = Module._nodeModulePaths(path.dirname(providerPath));
   const vscode = {
     env: { remoteName: undefined },
     extensions: { getExtension: () => undefined },
@@ -50,8 +48,8 @@ function loadRunlistProvider(messages) {
     return request === 'vscode' ? vscode : originalLoad.call(this, request, parent, isMain);
   };
   try {
-    extensionModule._compile(source, extensionPath);
-    return extensionModule.exports.RunlistViewProvider;
+    providerModule._compile(source, providerPath);
+    return providerModule.exports.RunlistViewProvider;
   } finally {
     Module._load = originalLoad;
   }
