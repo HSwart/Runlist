@@ -1,0 +1,36 @@
+name: Same-repo authors only
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  same-repo-authors:
+    name: Same-repo authors only
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require same-repo HSwart author
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          echo "Base repository: ${BASE_REPO}"
+          echo "PR head repository: ${HEAD_REPO}"
+          echo "PR author: ${AUTHOR}"
+
+          if [ -z "${HEAD_REPO}" ] || [ "${HEAD_REPO}" != "${BASE_REPO}" ]; then
+            echo "::error::Fork pull request rejected: head repo is '${HEAD_REPO}', expected '${BASE_REPO}'."
+            exit 1
+          fi
+
+          if [ "${AUTHOR}" != "HSwart" ]; then
+            echo "::error::Wrong author rejected: pull request author is '${AUTHOR}', expected HSwart."
+            exit 1
+          fi
+
+          echo "Same-repository pull request from HSwart. Check passed."
