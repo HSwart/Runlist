@@ -38,7 +38,7 @@ test('leads with Design gallery shots and four short product bullets', () => {
   assert.doesNotMatch(fold, /runlist-preview\.png/);
 });
 
-test('ships the three gallery PNGs and keeps images on relative media/ paths', () => {
+test('keeps listing images on relative media/ paths and does not use the preview screenshot as the hero', () => {
   const sources = imageSources(readme);
 
   assert.deepEqual(
@@ -54,7 +54,9 @@ test('ships the three gallery PNGs and keeps images on relative media/ paths', (
   assert.doesNotMatch(readme, /raw\.githubusercontent\.com/);
   assert.ok(!sources.includes('media/runlist-preview.png'));
   assert.equal(require('../package.json').icon, 'media/runlist.png');
+});
 
+test('ships the three Design gallery PNGs', () => {
   for (const file of galleryFiles) {
     const image = fs.readFileSync(path.join(root, file));
     assert.equal(image.subarray(1, 4).toString('ascii'), 'PNG', file);
