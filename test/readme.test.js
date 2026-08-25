@@ -18,7 +18,9 @@ test('leads with the generated current Runlist preview', () => {
 });
 
 test('keeps README positioning and installation claims accurate', () => {
+  assert.match(readme, /Runlist: Local Development Control Panel/);
   assert.match(readme, /Every local app, across every repository/);
+  assert.match(readme, /Start, stop, monitor, and group dev servers, workers, and project commands/);
   assert.match(readme, /optionally let a supported coding agent propose the setup for your approval/);
   assert.match(readme, /asks before closing an external process to free one/);
   assert.match(readme, /revalidates each process identity before termination/);
