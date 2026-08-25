@@ -428,7 +428,7 @@ test('builds a bounded Windows descendant query without a system-wide process re
   assert.deepEqual(parseWindowsProcessOutput(JSON.stringify({
     pid: 55,
     parentPid: 1,
-    startedAt: 638912345678901234,
+    startedAt: Number('638912345678901234'),
     cpuSeconds: 1.25,
     memoryBytes: 4096
   })), []);
