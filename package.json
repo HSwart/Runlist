@@ -143,13 +143,17 @@
     }
   },
   "scripts": {
+    "lint": "eslint . --max-warnings=0",
     "test": "node --test",
+    "test:critical-coverage": "node scripts/test-critical-coverage.js",
     "test:smoke": "node smoke/run.js",
     "test:webview": "node scripts/webview-e2e.js",
     "update:webview-screenshot": "node scripts/webview-e2e.js --update-screenshot",
     "validate:marketplace": "node scripts/validate-marketplace.js --preparation",
     "validate:marketplace:publish": "node scripts/validate-marketplace.js",
     "validate:marketplace:vsix": "node scripts/validate-vsix.js",
+    "validate:sbom": "node scripts/validate-sbom.js",
+    "quality": "npm run lint && npm run test:critical-coverage && npm run validate:sbom && npm run validate:marketplace:vsix",
     "package": "npm run validate:marketplace:publish && node scripts/package-vsix.js",
     "publish:marketplace": "npm run validate:marketplace:publish && npm run validate:marketplace:vsix && vsce publish --azure-credential --packagePath releases/runlist.vsix"
   },
@@ -157,6 +161,7 @@
     "@vscode/test-electron": "3.1.0",
     "@vscode/vsce": "3.9.2",
     "axe-core": "4.13.0",
+    "eslint": "10.9.1",
     "playwright-core": "1.62.1"
   }
 }
