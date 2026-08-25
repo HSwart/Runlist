@@ -914,14 +914,19 @@ function renderList() {
     saveWebviewState();
   }
   if (state.projects.length === 0) {
+    const workspaceFolder = String(state.currentWorkspaceFolder || '');
+    const addLabel = workspaceFolder ? 'Add this folder' : 'Add project';
+    const emptyCopy = workspaceFolder
+      ? 'Save a start command for the folder open in this window, then start it from here.'
+      : 'Save a project folder and its start command once, then start it from here.';
     app.innerHTML = `
       ${runGroupsHtml()}
       <section class="empty-state">
         ${icon('folder', 'empty-icon')}
         <h2>No projects yet</h2>
-        <p>Save a project folder and its commands once, then start it from here.</p>
+        <p>${escapeHtml(emptyCopy)}</p>
         ${state.lifecycleWindowSupported === false ? `<p>Start and Stop work for apps on this computer. You can still save projects here. Remote SSH, Dev Containers, GitHub Codespaces, VS Code Tunnels, and Windows WSL network paths will not start or stop processes in this release.</p>` : ''}
-        <button class="primary-button" data-action="show-add">Add project</button>
+        <button class="primary-button" data-action="show-add">${addLabel}</button>
       </section>`;
     firstListRender = false;
     return;
@@ -1054,10 +1059,11 @@ function renderList() {
             <div class="project-topline">
               <div class="project-heading">
                 <div class="project-title-line">
-                  <h2 id="project-${projectId}" title="${project.pinned ? `Pinned: ${projectName}` : projectName}" aria-label="${project.pinned ? `Pinned project: ${projectName}` : projectName}">
+                  <h2 id="project-${projectId}" title="${project.pinned ? `Pinned: ${projectName}` : projectName}" aria-label="${project.pinned ? `Pinned project: ${projectName}` : projectName}${project.currentWorkspace ? ', this window' : ''}">
                     ${project.pinned ? icon('pinned', 'pinned-icon') : ''}
                     <span class="auto-scroll"><span class="auto-scroll-content">${projectName}</span></span>
                   </h2>
+                  ${project.currentWorkspace ? '<span class="current-window-label">This window</span>' : ''}
                 </div>
                 <div class="project-status status-${statusClass}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : ''}<span class="auto-scroll"><span class="auto-scroll-content">${escapeHtml(displayedStatus)}</span></span></div>
                 ${!reviewRequired ? readinessDetailsHtml(project, projectStatus) : ''}
@@ -1459,6 +1465,7 @@ function renderProjectForm(mode) {
     ? `<p id="${field}-error" class="field-error" role="alert">${escapeHtml(errors[field])}</p>`
     : '';
   const profileOptions = draftLaunchProfileOptions(state.draft);
+  const showLaunchProfileEditor = profileOptions.length > 1 || (editing && !reviewing);
   const editingProfileId = String(
     state.draft.editingLaunchProfileId
     || state.draft.selectedLaunchProfileId
@@ -1587,6 +1594,7 @@ function renderProjectForm(mode) {
         ${state.canUseCurrentWorkspace ? '<button class="workspace-button" type="button" data-action="use-current-workspace">Use current workspace</button>' : ''}
         ${fieldError('folder')}
 
+        ${showLaunchProfileEditor ? `
         <fieldset class="launch-profile-editor" ${state.servicesLocked ? 'disabled' : ''}>
           <legend>Launch profile</legend>
           <div class="launch-profile-toolbar">
@@ -1602,7 +1610,7 @@ function renderProjectForm(mode) {
             <input id="launch-profile-name" name="launchProfileName" value="${escapeHtml(activeProfile.name)}" maxlength="100" ${errorAttributes('launch-profile-name')}>
             ${fieldError('launch-profile-name')}`}
           <p id="launch-profile-hint" class="field-hint">${state.servicesLocked ? 'Stop this project before choosing another profile.' : 'Choose which saved commands and services Start will use.'}</p>
-        </fieldset>
+        </fieldset>` : ''}
 
         <label for="start-command">Start command</label>
         <input id="start-command" name="startCommand" value="${escapeHtml(activeProfile.startCommand || '')}" placeholder="npm run dev" ${errorAttributes('start-command')}>

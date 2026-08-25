@@ -115,7 +115,8 @@ test('activate registers Runlist commands and the projects webview', async (t) =
     'runlist.showAgentSetup',
     'runlist.transferProjects',
     'runlist.manageGroups',
-    'runlist.copySupportDiagnostics'
+    'runlist.copySupportDiagnostics',
+    'runlist.startThisFolder'
   ]);
   assert.equal(views.length, 1);
   assert.equal(views[0].id, 'runlist.projects');

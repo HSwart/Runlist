@@ -119,9 +119,9 @@ async function runWebviewJourneys(browser, webview, ready, root, extensionDevelo
   let page = webview.page();
   await assertVisible(webview.getByRole('heading', { name: 'No projects yet' }));
 
-  const addButton = webview.getByRole('button', { name: 'Add project' });
+  const addButton = webview.getByRole('button', { name: 'Add this folder' });
   await addButton.focus();
-  assert.equal(await webview.evaluate(() => document.activeElement?.textContent?.trim()), 'Add project');
+  assert.equal(await webview.evaluate(() => document.activeElement?.textContent?.trim()), 'Add this folder');
   await page.keyboard.press('Enter');
   webview = await currentRunlistFrame(browser, (frame) => (
     frame.getByRole('heading', { name: 'Add project' }).isVisible()

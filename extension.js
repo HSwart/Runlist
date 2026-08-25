@@ -116,6 +116,7 @@ function activate(context) {
       'runlist.copySupportDiagnostics',
       () => provider.copySupportDiagnostics()
     ),
+    vscode.commands.registerCommand('runlist.startThisFolder', () => provider.startThisFolder()),
     vscode.lm.registerMcpServerDefinitionProvider('runlist.projects', {
       provideMcpServerDefinitions: () => [mcpDefinition],
       resolveMcpServerDefinition: (server) => server

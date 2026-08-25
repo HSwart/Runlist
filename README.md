@@ -51,13 +51,13 @@ Runlist is tested on Windows, macOS, and Linux. Start, Stop, and preview apply t
 3. Confirm that the publisher is **Hanko Swart** and the extension ID is `hankoswart.runlist`.
 4. Select **Install**.
 
-After installation, select the Runlist icon in the VS Code Activity Bar.
+After installation, select the Runlist icon in the VS Code Activity Bar. **Runlist: Add Project** in the Command Palette also opens the sidebar.
 
 ## Add your first project
 
-1. Select the **+** button in the Runlist sidebar.
+1. Select the **+** button in the Runlist sidebar, or **Add this folder** when the sidebar is empty and a local folder is already open.
 2. Optionally enter a friendly project name. If you leave it blank, Runlist uses the folder name.
-3. If a local folder is already open in VS Code, choose **Use current workspace**, or select **Browse**. In a multi-root workspace, Runlist asks which local workspace folder to use.
+3. If a local folder is already open in VS Code, Runlist fills that folder for you. Choose **Use current workspace** if you need a different workspace root, or select **Browse**. In a multi-root workspace, Runlist asks which local workspace folder to use.
 4. Enter the command that starts the project.
 5. If the project needs a special shutdown workflow, optionally enter a custom stop command. Most projects should leave this blank.
 6. If you know them, add each service name and port so Runlist can verify its status. In **Options**, you can add an HTTP or HTTPS Open URL and optionally choose a port-only or configurable HTTP health check.
@@ -73,7 +73,7 @@ Service health checks stay under **Options**. **Default** preserves the behavior
 
 Project cards keep services in one compact summary. Open **Services** to inspect each saved service, its current readiness and address, then reveal only the service whose Open, Copy URL, or Resolve Port control you need. Project Start, Stop, and Restart remain ownership-scoped to the exact project process Runlist launched.
 
-For projects with more than one way to run, add alternate launch profiles in **Edit project**. Each profile keeps its own start command, optional custom stop command, and services. A compact selector appears beside Start only when alternatives exist. Choosing a profile never starts it, and Runlist locks profile switching while the project is running so the launch-time setup remains unambiguous.
+For projects with more than one way to run, add alternate launch profiles in **Edit project**. The add-project form hides launch profiles until a project has more than the default profile. Each profile keeps its own start command, optional custom stop command, and services. A compact selector appears beside Start only when alternatives exist. Choosing a profile never starts it, and Runlist locks profile switching while the project is running so the launch-time setup remains unambiguous.
 
 If Runlist is open in more than one VS Code window, starting or stopping a project in one window updates its status in the others automatically.
 
@@ -121,6 +121,8 @@ Runlist keeps the everyday controls simple:
 | --- | --- |
 | **Search** | Filters your saved projects by project name, folder, or tag. |
 | **Running app navigator** | When multiple running project cards do not fit in the visible sidebar, a compact navigator lets you move between them and shows one live thumbnail for the selected web app. It stays hidden for short lists. Use the Open button—or double-click the thumbnail—to open that responding app in your browser. |
+| **This window** | Marks the saved project whose folder is open in this VS Code window and keeps it above other unpinned projects. |
+| **Start This Folder** | From the Command Palette, starts that saved project with the same Start safety checks. If none is saved for this window, Runlist says so. |
 | **Pin to top** | In a project's More actions menu, keeps that project above unpinned projects until you unpin it. |
 | **Project status** | Shows the written state in a clear status capsule, including running, stopped, transitions, a slow-starting service, a web service that is not responding, and port conflicts. When startup takes longer, Runlist names the services that are ready and the ones it is still checking. Long names, status details, and folder paths scroll automatically when they do not fit. |
 | **Start icon** | Runs the saved start command inside the project folder. If an external process blocks a configured port, asks before closing the exact listener and continuing Start. |

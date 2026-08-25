@@ -56,7 +56,8 @@
     "onCommand:runlist.showAgentSetup",
     "onCommand:runlist.transferProjects",
     "onCommand:runlist.manageGroups",
-    "onCommand:runlist.copySupportDiagnostics"
+    "onCommand:runlist.copySupportDiagnostics",
+    "onCommand:runlist.startThisFolder"
   ],
   "main": "./extension.js",
   "extensionKind": [
@@ -68,26 +69,36 @@
       {
         "command": "runlist.addProject",
         "title": "Add Project",
+        "category": "Runlist",
         "icon": "$(add)"
       },
       {
         "command": "runlist.showAgentSetup",
         "title": "Set Up Agent Connections",
+        "category": "Runlist",
         "icon": "$(plug)"
       },
       {
         "command": "runlist.transferProjects",
         "title": "Import or Export Projects",
+        "category": "Runlist",
         "icon": "$(files)"
       },
       {
         "command": "runlist.manageGroups",
         "title": "Manage Run Groups",
+        "category": "Runlist",
         "icon": "$(run-all)"
       },
       {
         "command": "runlist.copySupportDiagnostics",
-        "title": "Copy Runlist Support Diagnostics"
+        "title": "Copy Runlist Support Diagnostics",
+        "category": "Runlist"
+      },
+      {
+        "command": "runlist.startThisFolder",
+        "title": "Start This Folder",
+        "category": "Runlist"
       }
     ],
     "configuration": {
