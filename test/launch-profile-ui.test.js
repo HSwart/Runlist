@@ -37,6 +37,7 @@ test('restores rerendered menu focus to a visible trigger', () => {
 
 test('edits launch profiles in the existing form without adding a project-card row', () => {
   assert.match(main, /class="launch-profile-editor"/);
+  assert.match(main, /showLaunchProfileEditor = profileOptions\.length > 1 \|\| \(editing && !reviewing\)/);
   assert.match(main, /data-action="add-launch-profile"/);
   assert.match(main, /data-action="delete-launch-profile"/);
   assert.doesNotMatch(main, /class="project-profile-row"/);

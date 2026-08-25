@@ -510,6 +510,21 @@ button:active:not(:disabled) {
 
 .project-title-line h2 {
   flex: 1 1 auto;
+  min-width: 0;
+}
+
+.current-window-label {
+  flex: 0 0 auto;
+  margin-left: 6px;
+  padding: 1px 6px;
+  color: var(--vscode-badge-foreground, var(--vscode-descriptionForeground));
+  background: var(--vscode-badge-background, var(--vscode-list-inactiveSelectionBackground));
+  border: 1px solid var(--vscode-contrastBorder, var(--vscode-widget-border, transparent));
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
 }
 
 .preview-toggle {
@@ -2634,6 +2649,7 @@ select[aria-invalid='true'] {
 .empty-state p {
   max-width: 250px;
   margin: 0 0 4px;
+  white-space: normal;
 }
 
 .empty-icon {

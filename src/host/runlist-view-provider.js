@@ -63,7 +63,12 @@ const {
 } = require('../lifecycle/startup-history');
 const {
   canUseCurrentWorkspace,
-  selectCurrentWorkspaceFolder
+  currentWorkspaceFolderPath,
+  orderSidebarProjects,
+  selectCurrentWorkspaceFolder,
+  startThisFolderDecision,
+  starterDraftForCurrentWorkspace,
+  workspaceFolderMatchesProject
 } = require('../projects/project-workspace');
 const {
   cleanupTrackedProcessForDeletion,
@@ -333,6 +338,16 @@ class RunlistViewProvider {
     this.render();
   }
 
+  async revealRunlistView() {
+    if (this.view) {
+      this.view.show(true);
+      return;
+    }
+    await vscode.commands.executeCommand('workbench.view.extension.runlist');
+    await vscode.commands.executeCommand('runlist.projects.focus');
+    this.view?.show?.(true);
+  }
+
   async showAddProject(returnFocus) {
     if (!await this.confirmDiscardProjectChanges()) {
       return;
@@ -340,14 +355,16 @@ class RunlistViewProvider {
     this.mode = 'add';
     this.routeNotice = undefined;
     this.diagnosisProjectIncarnation = undefined;
-    this.draft = {};
-    this.formBaseline = projectFormValues({});
+    this.draft = starterDraftForCurrentWorkspace(vscode.workspace.workspaceFolders);
+    this.formBaseline = projectFormValues(this.draft);
     this.formProjectSnapshot = undefined;
     this.formErrors = {};
-    this.focusTarget = { type: 'field', id: 'project-name' };
+    this.focusTarget = this.draft.folder
+      ? { type: 'field', id: 'start-command' }
+      : { type: 'field', id: 'project-name' };
     this.returnFocus = returnFocus || this.defaultListFocusTarget();
     this.selectedProjectId = undefined;
-    this.view?.show?.(true);
+    await this.revealRunlistView();
     this.render();
   }
 
@@ -362,8 +379,20 @@ class RunlistViewProvider {
     this.focusTarget = { type: 'action', action: 'close-screen' };
     this.returnFocus = this.defaultListFocusTarget();
     this.selectedProjectId = undefined;
-    this.view?.show?.(true);
+    await this.revealRunlistView();
     this.render();
+  }
+
+  async startThisFolder() {
+    const decision = startThisFolderDecision(
+      this.projects,
+      vscode.workspace.workspaceFolders
+    );
+    if (decision.status !== 'start') {
+      vscode.window.showWarningMessage(decision.message);
+      return false;
+    }
+    return this.startProject(decision.projectId);
   }
 
   async showProjectTransfer() {
@@ -3943,7 +3972,7 @@ class RunlistViewProvider {
       ? readProjectDiagnostics(this.projectsFile, outputProject.id)
       : undefined;
     const cleanProjectOutput = sanitizeProjectOutput(rawProjectOutput);
-    const stateProjects = projects.map((project) => {
+    const stateProjects = orderSidebarProjects(projects.map((project) => {
       const openPorts = this.projectOpenPorts.get(project.id) || [];
       const respondingPorts = this.projectRespondingPorts.get(project.id) || [];
       const serviceUrls = this.projectServiceUrls.get(project.id) || [];
@@ -4022,6 +4051,10 @@ class RunlistViewProvider {
           ? runtime.stopCommand
           : project.stopCommand,
         pinned: project.pinned === true,
+        currentWorkspace: workspaceFolderMatchesProject(
+          project.folder,
+          vscode.workspace.workspaceFolders
+        ),
         openPorts,
         portConflict: this.projectPortConflicts.get(project.id),
         respondingPorts,
@@ -4069,7 +4102,7 @@ class RunlistViewProvider {
           && !respondingPorts.includes(port)),
         searchText: projectSearchText(project)
       };
-    });
+    }));
     if (this.expandedPreviewProjectId
       && !stateProjects.some((project) => project.detailsExpanded)) {
       const previousId = this.expandedPreviewProjectId;
@@ -4110,6 +4143,7 @@ class RunlistViewProvider {
       draft: this.draft,
       canUseCurrentWorkspace: this.mode === 'add'
         && canUseCurrentWorkspace(vscode.workspace.workspaceFolders),
+      currentWorkspaceFolder: currentWorkspaceFolderPath(vscode.workspace.workspaceFolders) || '',
       focusTarget: this.focusTarget || this.lastFocusTarget,
       formErrors: this.formErrors,
       groups,

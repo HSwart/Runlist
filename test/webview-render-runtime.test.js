@@ -1066,3 +1066,112 @@ test('matches Turkish-sensitive tags with locale-independent identity and filter
   assert.match(result.app.innerHTML, /class="active-tag-chip"[^>]*data-tag="I"/);
   assert.match(result.projectCount.innerHTML, /<strong>1<\/strong> of 2 projects/);
 });
+
+test('empty state offers Add this folder when a workspace folder is present', () => {
+  const result = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      currentWorkspaceFolder: '/Users/example/app'
+    }
+  });
+
+  assert.match(result.app.innerHTML, /No projects yet/);
+  assert.match(result.app.innerHTML, /Add this folder/);
+  assert.match(result.app.innerHTML, /folder open in this window/);
+  assert.doesNotMatch(result.app.innerHTML, />Add project</);
+});
+
+test('empty state keeps Add project when no workspace folder is open', () => {
+  const result = renderNonEmptyProjectList([]);
+
+  assert.match(result.app.innerHTML, />Add project</);
+  assert.match(result.app.innerHTML, /Save a project folder and its start command once/);
+  assert.doesNotMatch(result.app.innerHTML, /Add this folder/);
+});
+
+test('marks the current-window project without replacing its name', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    currentWorkspace: true,
+    detailsExpanded: false,
+    folder: 'C:\\Projects\\Example',
+    id: 'example',
+    launchProfiles: [],
+    name: 'Example',
+    openPorts: [],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [],
+    status: 'stopped',
+    tags: []
+  }]);
+
+  assert.match(result.app.innerHTML, /class="current-window-label">This window</);
+  assert.match(result.app.innerHTML, /aria-label="Example, this window"/);
+});
+
+function projectFormDraft(overrides = {}) {
+  return {
+    name: '',
+    folder: '/Users/example/app',
+    startCommand: 'npm run dev',
+    stopCommand: '',
+    services: [],
+    launchProfiles: [],
+    selectedLaunchProfileId: 'default',
+    ...overrides
+  };
+}
+
+test('hides launch profiles on first add when only Default exists', () => {
+  const result = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      mode: 'add',
+      draft: projectFormDraft(),
+      formErrors: {}
+    }
+  });
+
+  assert.match(result.app.innerHTML, /<h2>Add project<\/h2>/);
+  assert.doesNotMatch(result.app.innerHTML, /class="launch-profile-editor"/);
+});
+
+test('shows launch profiles when editing or when alternatives already exist', () => {
+  const editDefault = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      mode: 'edit',
+      reviewRequired: false,
+      draft: projectFormDraft({ id: 'example', name: 'Example' }),
+      formErrors: {}
+    }
+  });
+  assert.match(editDefault.app.innerHTML, /class="launch-profile-editor"/);
+
+  const reviewDefault = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      mode: 'edit',
+      reviewRequired: true,
+      draft: projectFormDraft({ id: 'example', name: 'Example' }),
+      formErrors: {}
+    }
+  });
+  assert.doesNotMatch(reviewDefault.app.innerHTML, /class="launch-profile-editor"/);
+
+  const addWithProfiles = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      mode: 'add',
+      draft: projectFormDraft({
+        launchProfiles: [{
+          id: 'tests',
+          name: 'Tests',
+          startCommand: 'npm test',
+          stopCommand: '',
+          services: []
+        }]
+      }),
+      formErrors: {}
+    }
+  });
+  assert.match(addWithProfiles.app.innerHTML, /class="launch-profile-editor"/);
+});

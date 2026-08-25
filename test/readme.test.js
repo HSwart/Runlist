@@ -33,4 +33,9 @@ test('keeps README positioning and installation claims accurate', () => {
   );
   assert.match(readme, /run groups.*saved order.*reverse/is);
   assert.match(readme, /repair proposal.*current.*proposed.*Retry start/is);
+  assert.match(readme, /Runlist: Add Project.*Command Palette also opens the sidebar/s);
+  assert.match(readme, /Add this folder/);
+  assert.match(readme, /This window.*folder is open in this VS Code window/is);
+  assert.match(readme, /Start This Folder.*Command Palette/is);
+  assert.match(readme, /add-project form hides launch profiles/i);
 });
