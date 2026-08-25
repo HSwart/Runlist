@@ -4,7 +4,9 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 const [smokeRoot, portText, childPidPath, grandchildPidPath, delayText, rootPidPath] = process.argv.slice(2);
-const port = Number(portText);
+const port = Number(portText?.startsWith('env:')
+  ? process.env[portText.slice('env:'.length)]
+  : portText);
 const delayMs = delayText ? Number(delayText) : 0;
 if (!smokeRoot || !Number.isInteger(port) || !Number.isInteger(delayMs) || delayMs < 0) {
   throw new Error('Expected a smoke root and port.');

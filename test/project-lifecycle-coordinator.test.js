@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { ProjectLifecycleCoordinator } = require('../project-lifecycle');
+const { ProjectLifecycleCoordinator } = require('../src/lifecycle/project-lifecycle');
 
 test('delegates start and stop mechanics through one lifecycle boundary', async () => {
   const calls = [];
@@ -170,4 +170,46 @@ test('rejects a temporary service port that never opens', async () => {
   });
 
   assert.equal(await lifecycle.waitUntilServiceReady({ port: 4311 }, 200), false);
+});
+
+test('requires the full configured readiness check for a temporary service port', async () => {
+  let now = 0;
+  let checks = 0;
+  const service = {
+    port: 4311,
+    healthCheck: { mode: 'http', method: 'GET', expectedStatus: 204 }
+  };
+  const lifecycle = new ProjectLifecycleCoordinator({}, {
+    delay: async () => { now += 50; },
+    isServiceReady: async (candidate) => {
+      assert.equal(candidate, service);
+      checks += 1;
+      return checks >= 3;
+    },
+    now: () => now,
+    servicePortStatus: async () => ({ allOpen: true, anyOpen: true })
+  });
+
+  assert.equal(await lifecycle.waitUntilServiceReady(service, 200), true);
+  assert.equal(checks, 3);
+});
+
+test('cancels temporary service verification when its exact launch changes', async () => {
+  let current = true;
+  let checks = 0;
+  const lifecycle = new ProjectLifecycleCoordinator({}, {
+    isServiceReady: async () => {
+      checks += 1;
+      current = false;
+      return true;
+    },
+    servicePortStatus: async () => ({ allOpen: true, anyOpen: true })
+  });
+
+  assert.equal(await lifecycle.waitUntilServiceReady(
+    { port: 4311 },
+    100,
+    () => current
+  ), false);
+  assert.equal(checks, 1);
 });

@@ -96,6 +96,37 @@ button:active:not(:disabled) {
   padding: 4px 0;
 }
 
+.run-group-item + .run-group-item {
+  border-top: 1px solid var(--vscode-widget-border, transparent);
+}
+
+.run-group-toggle {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 2px;
+  color: var(--vscode-foreground);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+}
+
+.run-group-toggle > svg {
+  flex: 0 0 auto;
+  transition: transform 100ms ease;
+}
+
+.run-group-toggle[aria-expanded="false"] > svg {
+  transform: rotate(-90deg);
+}
+
+.run-group-toggle:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
 .run-group-details {
   min-width: 0;
   display: grid;
@@ -108,6 +139,13 @@ button:active:not(:disabled) {
 .run-group-details small {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.run-group-details strong,
+.run-group-details span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .run-group-details span,
@@ -142,6 +180,43 @@ button:active:not(:disabled) {
 .run-group-actions button:disabled {
   cursor: default;
   color: var(--vscode-disabledForeground);
+}
+
+.run-group-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 4px 34px 8px 23px;
+}
+
+.run-group-members {
+  grid-column: 1 / -1;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.run-group-settings label {
+  font-size: 11px;
+}
+
+.run-group-settings select {
+  min-width: 0;
+  max-width: 120px;
+  padding: 3px 20px 3px 6px;
+  color: var(--vscode-dropdown-foreground);
+  background: var(--vscode-dropdown-background);
+  border: 1px solid var(--vscode-dropdown-border, var(--vscode-widget-border));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .run-group-toggle > svg,
+  .tag-filter-toggle svg,
+  .project-services-summary > svg,
+  .service-detail-toggle > svg {
+    transition: none;
+  }
 }
 
 .bulk-actions {
@@ -724,6 +799,145 @@ button:active:not(:disabled) {
   gap: 4px;
 }
 
+.project-tag-filter {
+  padding: 0 12px 8px;
+  border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-widget-border));
+}
+
+.project-tag-filter-bar {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tag-filter-toggle,
+.active-tag-chip,
+.project-tag-choices button {
+  min-height: 26px;
+  color: var(--vscode-foreground);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+}
+
+.tag-filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px 2px 2px;
+}
+
+.tag-filter-toggle svg {
+  transition: transform 100ms ease;
+}
+
+.tag-filter-toggle[aria-expanded="false"] svg {
+  transform: rotate(-90deg);
+}
+
+.active-tag-chip {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  overflow: hidden;
+  color: var(--vscode-badge-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--vscode-badge-background);
+}
+
+.active-tag-chip svg {
+  flex: 0 0 auto;
+}
+
+.project-tag-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-height: 144px;
+  padding-top: 6px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.project-tag-choices button {
+  max-width: 100%;
+  padding: 2px 7px;
+  overflow: hidden;
+  color: var(--vscode-descriptionForeground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-color: var(--vscode-widget-border, transparent);
+}
+
+.project-tag-choices button[aria-pressed="true"] {
+  color: var(--vscode-badge-foreground);
+  background: var(--vscode-badge-background);
+  border-color: var(--vscode-focusBorder);
+}
+
+.tag-filter-toggle:hover,
+.active-tag-chip:hover,
+.project-tag-choices button:hover {
+  background-color: var(--vscode-list-hoverBackground);
+}
+
+.launch-profile-picker {
+  position: relative;
+  min-width: 0;
+}
+
+.launch-profile-trigger {
+  max-width: 78px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px 0 7px;
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+  border: 1px solid transparent;
+  border-radius: 3px;
+  font-size: 10px;
+}
+
+.launch-profile-trigger > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.launch-profile-trigger:hover:not(:disabled),
+.launch-profile-trigger[aria-expanded='true'] {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.launch-profile-trigger:disabled {
+  color: var(--vscode-disabledForeground);
+  cursor: default;
+}
+
+.launch-profile-menu {
+  right: auto;
+  left: 0;
+  width: min(174px, calc(100vw - 20px));
+}
+
+.launch-profile-menu.open-left {
+  right: 0;
+  left: auto;
+}
+
+.profile-check {
+  width: 12px;
+  flex: 0 0 12px;
+  text-align: center;
+}
+
 .run-button {
   width: 28px;
   height: 28px;
@@ -792,7 +1006,7 @@ button:active:not(:disabled) {
   z-index: 20;
   top: 33px;
   right: 0;
-  width: 174px;
+  width: min(174px, calc(100vw - 20px));
   padding: 4px;
   color: var(--vscode-menu-foreground, var(--vscode-foreground));
   background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
@@ -901,92 +1115,160 @@ button:active:not(:disabled) {
   animation-play-state: paused;
 }
 
-.project-services {
-  display: flex;
-  flex: 1 1 auto;
-  flex-wrap: wrap;
-  gap: 5px;
-  min-width: 0;
-}
-
-.project-services-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  margin-top: 8px;
-}
-
 .project-details-toggle-row {
   display: flex;
   justify-content: flex-end;
   margin-top: 8px;
 }
 
-.project-services > .service-chip {
+.project-services-summary {
   width: 100%;
-  max-width: 100%;
-  min-height: 22px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 28px;
+  display: flex;
   align-items: center;
-  gap: 2px 6px;
-  padding: 2px 7px;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 3px 6px;
   color: var(--vscode-foreground);
-  background: var(
-    --vscode-list-inactiveSelectionBackground,
-    var(--vscode-sideBarSectionHeader-background)
-  );
+  text-align: left;
+  background: transparent;
   border: 1px solid var(--vscode-widget-border, transparent);
   border-radius: 3px;
-  font-family: var(--vscode-editor-font-family);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
 }
 
-.service-main {
+.project-services-summary:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.project-services-summary > span {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 7px;
 }
 
-.service-separator {
-  flex: 0 0 auto;
+.project-services-summary strong {
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
-.service-name {
+.project-services-summary small {
   min-width: 0;
-  max-width: 35%;
   overflow: hidden;
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.service-separator {
-  color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
-}
-
-.service-address {
-  flex: 1 1 auto;
-  color: var(--vscode-descriptionForeground);
-}
-
-.service-temporary-badge {
+.project-services-summary > svg,
+.service-detail-toggle > svg {
   flex: 0 0 auto;
-  padding: 0 3px;
-  color: var(--vscode-badge-foreground);
-  background: var(--vscode-badge-background);
-  border-radius: 2px;
-  font-family: var(--vscode-font-family);
-  font-size: 9px;
-  line-height: 14px;
+  transition: transform 100ms ease;
+}
+
+.project-services-summary[aria-expanded="false"] > svg,
+.service-detail-toggle[aria-expanded="false"] > svg {
+  transform: rotate(-90deg);
+}
+
+.service-detail-list {
+  display: grid;
+  gap: 5px;
+}
+
+.service-detail-item {
+  min-width: 0;
+  border: 1px solid var(--vscode-widget-border, transparent);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.service-detail-toggle {
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  color: var(--vscode-foreground);
+  text-align: left;
+  background: var(--vscode-sideBarSectionHeader-background, transparent);
+  border: 0;
+}
+
+.service-detail-toggle:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.service-detail-name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.service-actions {
+.service-detail-port,
+.service-detail-state {
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.service-detail-body {
+  display: grid;
+  gap: 7px;
+  padding: 7px;
+}
+
+.service-detail-body code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.service-detail-body p {
+  margin: 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.service-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.service-detail-actions button {
+  min-height: 26px;
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 5px;
+  padding: 3px 7px;
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+  border: 1px solid transparent;
+  border-radius: 3px;
+}
+
+.service-detail-actions button:hover:not(:disabled) {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.service-detail-actions button:disabled {
+  color: var(--vscode-disabledForeground);
+  background: transparent;
+  border-color: var(--vscode-widget-border, transparent);
 }
 
 .project-live-details {
@@ -1199,40 +1481,6 @@ button:active:not(:disabled) {
   color: var(--vscode-descriptionForeground);
   font-size: 10px;
   line-height: 1.45;
-}
-
-.project-services strong {
-  color: inherit;
-  font-weight: 600;
-}
-
-.copy-url-button,
-.resolve-port-button {
-  width: 18px;
-  height: 18px;
-  display: inline-grid;
-  place-items: center;
-  margin: -1px -4px -1px 0;
-  padding: 2px;
-  color: var(--vscode-icon-foreground);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 3px;
-}
-
-.copy-url-button:hover,
-.resolve-port-button:hover {
-  background: var(--vscode-toolbar-hoverBackground);
-}
-
-.copy-url-button .icon,
-.resolve-port-button .icon {
-  width: 12px;
-  height: 12px;
-}
-
-.resolve-port-button {
-  color: var(--vscode-editorWarning-foreground, var(--vscode-icon-foreground));
 }
 
 .service-indicator {
@@ -1620,7 +1868,68 @@ input {
   font-size: 11px;
 }
 
-input[aria-invalid='true'] {
+select {
+  width: 100%;
+  height: 34px;
+  padding: 0 8px;
+  color: var(--vscode-dropdown-foreground, var(--vscode-input-foreground));
+  background: var(--vscode-dropdown-background, var(--vscode-input-background));
+  border: 1px solid var(--vscode-dropdown-border, var(--vscode-input-border, var(--vscode-widget-border)));
+  border-radius: 2px;
+  font-family: var(--vscode-font-family);
+  font-size: 11px;
+}
+
+.launch-profile-editor {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  margin: 8px 0 2px;
+  padding: 0;
+  border: 0;
+}
+
+.launch-profile-editor legend {
+  padding: 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.launch-profile-toolbar {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 5px;
+}
+
+.profile-tool-button {
+  min-height: 34px;
+  padding: 0 8px;
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+  border: 1px solid transparent;
+  border-radius: 2px;
+  font-size: 10px;
+}
+
+.profile-tool-button:hover:not(:disabled) {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.profile-tool-button:disabled {
+  color: var(--vscode-disabledForeground);
+  cursor: default;
+}
+
+@media (max-width: 260px) {
+  .launch-profile-trigger {
+    max-width: 56px;
+  }
+}
+
+input[aria-invalid='true'],
+select[aria-invalid='true'] {
   color: var(--vscode-inputValidation-errorForeground, var(--vscode-input-foreground));
   background: var(--vscode-inputValidation-errorBackground, var(--vscode-input-background));
   border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
@@ -1706,6 +2015,45 @@ input[aria-invalid='true'] {
   display: grid;
   gap: 6px;
   padding-top: 5px;
+}
+
+.service-health-fields {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.service-health-wide {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 280px) {
+  .service-health-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .service-health-wide {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 200px) {
+  .service-list-header {
+    display: none;
+  }
+
+  .service-row {
+    grid-template-columns: minmax(0, 1fr) 28px;
+  }
+
+  .service-row > .service-field:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .service-options {
+    grid-column: 1 / -1;
+  }
 }
 
 .service-url-label {
@@ -2039,8 +2387,12 @@ input[aria-invalid='true'] {
   white-space: pre-wrap;
 }
 
-.repair-change {
+.repair-change-cell {
   grid-column: 1 / -1;
+}
+
+.repair-change {
+  display: inline-block;
   width: fit-content;
   padding: 1px 4px;
   color: var(--vscode-descriptionForeground);
@@ -2312,11 +2664,10 @@ input[aria-invalid='true'] {
   .primary-button,
   .stop-all-button,
   .output-jump-button,
-  .output-copy-button {
-    min-height: 44px;
-  }
-
-  .resolve-port-button {
+  .output-copy-button,
+  .project-services-summary,
+  .service-detail-toggle,
+  .service-detail-actions button {
     min-height: 44px;
   }
 
@@ -2329,6 +2680,21 @@ input[aria-invalid='true'] {
   .more-button,
   .icon-button {
     width: 44px;
+  }
+
+  .running-app-current {
+    min-height: 44px;
+  }
+
+  .running-app-navigation button,
+  .running-app-open {
+    width: 44px;
+    min-height: 44px;
+  }
+
+  .running-app-open {
+    top: 0;
+    right: 0;
   }
 }
 

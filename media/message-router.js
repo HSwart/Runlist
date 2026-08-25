@@ -30,6 +30,7 @@
     'manageRunGroups',
     'openOutputUrl',
     'openProject',
+    'openServiceUrl',
     'openProjectFolder',
     'openProjectTerminal',
     'pickFolder',
@@ -42,6 +43,9 @@
     'saveProject',
     'setFocusTarget',
     'setSearchQuery',
+    'setRunGroupStartMode',
+    'selectLaunchProfile',
+    'setTagFilter',
     'showAdd',
     'showAgentSetup',
     'showDiagnosis',
@@ -54,6 +58,7 @@
     'stopRunGroup',
     'toggleProjectPin',
     'toggleProjectPreview',
+    'toggleProjectServices',
     'updateDraft',
     'useCurrentWorkspace'
   ]);
@@ -71,12 +76,14 @@
     'showDiagnosis',
     'showEdit',
     'showOutput',
+    'setRunGroupStartMode',
     'startProject',
     'startRunGroup',
     'stopProject',
     'stopRunGroup',
     'toggleProjectPin',
-    'toggleProjectPreview'
+    'toggleProjectPreview',
+    'toggleProjectServices'
   ]);
 
   function validateWebviewCommand(value) {
@@ -109,11 +116,23 @@
       && (typeof value.query !== 'string' || value.query.length > 1000)) {
       return undefined;
     }
+    if (value.type === 'selectLaunchProfile'
+      && (!validId(value.id) || !validId(value.profileId))) {
+      return undefined;
+    }
+    if (value.type === 'setRunGroupStartMode'
+      && (!validId(value.id) || !['sequential', 'parallel'].includes(value.startMode))) {
+      return undefined;
+    }
+    if (value.type === 'setTagFilter'
+      && (typeof value.tag !== 'string' || value.tag.length > 32)) {
+      return undefined;
+    }
     if (value.type === 'registerAgent'
       && !['claude', 'codex', 'copilot'].includes(value.agent)) {
       return undefined;
     }
-    if (value.type === 'copyServiceUrl'
+    if (['copyServiceUrl', 'openServiceUrl'].includes(value.type)
       && (!validId(value.id)
         || !Number.isInteger(Number(value.port))
         || Number(value.port) < 1
@@ -159,11 +178,11 @@
       .includes(value.type) && !validId(value.id)) {
       return undefined;
     }
-    if (value.type === 'projectOutputPeek' && !Array.isArray(value.entries)) {
+    if (value.type === 'projectOutputPeek' && !validOutputEntries(value.entries)) {
       return undefined;
     }
     if (value.type === 'projectOutput'
-      && (!Array.isArray(value.entries) || typeof value.output !== 'string')) {
+      && (!validOutputEntries(value.entries) || typeof value.output !== 'string')) {
       return undefined;
     }
     if (value.type === 'projectMetrics'
@@ -205,6 +224,25 @@
 
   function optionalArray(value) {
     return value === undefined || value === null || Array.isArray(value);
+  }
+
+  function validOutputEntries(value) {
+    return Array.isArray(value) && value.length <= 2000 && value.every((entry) => {
+      if (!isRecord(entry) || !['blank', 'raw', 'structured'].includes(entry.kind)) {
+        return false;
+      }
+      if (typeof entry.message !== 'string' || entry.message.length > 20000) {
+        return false;
+      }
+      if (entry.kind !== 'structured') {
+        return true;
+      }
+      return (entry.level === undefined
+          || (typeof entry.level === 'string'
+            && ['log', 'info', 'warning', 'error'].includes(entry.level)))
+        && (entry.time === undefined
+          || (typeof entry.time === 'string' && entry.time.length <= 100));
+    });
   }
 
   function isRecord(value) {

@@ -10,7 +10,7 @@ const {
   processInvocation,
   registerWithClaude,
   registerWithCodex
-} = require('../agent-registration');
+} = require('../src/integrations/agent-registration');
 
 const options = {
   platform: 'linux',
@@ -160,6 +160,7 @@ test('uses the Codex executable bundled with the VS Code extension on Windows', 
   await registerWithCodex({
     ...options,
     bundledCliPath,
+    candidateName: 'runlist-candidate',
     environment: {},
     platform: 'win32'
   }, run);
@@ -167,9 +168,14 @@ test('uses the Codex executable bundled with the VS Code extension on Windows', 
   assert.deepEqual(calls.slice(0, 3), [
     ['codex.exe', ['--version']],
     [bundledCliPath, ['--version']],
-    [bundledCliPath, ['mcp', 'remove', 'runlist']]
+    [bundledCliPath, ['mcp', 'get', 'runlist', '--json']]
   ]);
-  assert.deepEqual(calls[3], [bundledCliPath, buildCodexAddArguments(options)]);
+  assert.deepEqual(calls.slice(3), [
+    [bundledCliPath, buildCodexAddArguments(options, 'runlist-candidate')],
+    [bundledCliPath, ['mcp', 'remove', 'runlist']],
+    [bundledCliPath, buildCodexAddArguments(options)],
+    [bundledCliPath, ['mcp', 'remove', 'runlist-candidate']]
+  ]);
 });
 
 test('uses the Claude executable bundled with the VS Code extension on Windows', async () => {
@@ -188,15 +194,19 @@ test('uses the Claude executable bundled with the VS Code extension on Windows',
   await registerWithClaude({
     ...options,
     bundledCliPaths: [bundledCliPath],
+    candidateName: 'runlist-candidate',
     environment: {},
     platform: 'win32'
   }, run);
 
-  assert.deepEqual(calls.slice(0, 4), [
+  assert.deepEqual(calls, [
     ['claude.exe', ['--version']],
     [bundledCliPath, ['--version']],
+    [bundledCliPath, ['mcp', 'get', 'runlist']],
+    [bundledCliPath, buildClaudeAddArguments(options, 'runlist-candidate')],
     [bundledCliPath, ['mcp', 'remove', '--scope', 'user', 'runlist']],
-    [bundledCliPath, buildClaudeAddArguments(options)]
+    [bundledCliPath, buildClaudeAddArguments(options)],
+    [bundledCliPath, ['mcp', 'remove', '--scope', 'user', 'runlist-candidate']]
   ]);
 });
 
@@ -207,12 +217,15 @@ test('refreshes Codex registration before adding the current extension path', as
     return { stdout: '', stderr: '' };
   };
 
-  await registerWithCodex(options, run);
+  await registerWithCodex({ ...options, candidateName: 'runlist-candidate' }, run);
 
   assert.deepEqual(calls, [
     ['codex', ['--version']],
+    ['codex', ['mcp', 'get', 'runlist', '--json']],
+    ['codex', buildCodexAddArguments(options, 'runlist-candidate')],
     ['codex', ['mcp', 'remove', 'runlist']],
-    ['codex', buildCodexAddArguments(options)]
+    ['codex', buildCodexAddArguments(options)],
+    ['codex', ['mcp', 'remove', 'runlist-candidate']]
   ]);
 });
 
@@ -223,12 +236,19 @@ test('refreshes the user-scoped Claude Code registration', async () => {
     return { stdout: '', stderr: '' };
   };
 
-  await registerWithClaude({ ...options, environment: {} }, run);
+  await registerWithClaude({
+    ...options,
+    candidateName: 'runlist-candidate',
+    environment: {}
+  }, run);
 
   assert.deepEqual(calls, [
     ['claude', ['--version']],
+    ['claude', ['mcp', 'get', 'runlist']],
+    ['claude', buildClaudeAddArguments(options, 'runlist-candidate')],
     ['claude', ['mcp', 'remove', '--scope', 'user', 'runlist']],
-    ['claude', buildClaudeAddArguments(options)]
+    ['claude', buildClaudeAddArguments(options)],
+    ['claude', ['mcp', 'remove', '--scope', 'user', 'runlist-candidate']]
   ]);
 });
 
@@ -236,7 +256,7 @@ test('allows first-time registration when no prior server exists', async () => {
   const calls = [];
   const run = async (command, args) => {
     calls.push([command, args]);
-    if (args[0] === 'mcp' && args[1] === 'remove') {
+    if (args[0] === 'mcp' && args[1] === 'get') {
       throw new Error("Error: No MCP server named 'runlist' found.");
     }
     return { stdout: '', stderr: '' };
@@ -244,5 +264,86 @@ test('allows first-time registration when no prior server exists', async () => {
 
   await registerWithCodex(options, run);
   assert.equal(calls.length, 3);
+  assert.deepEqual(calls[1], ['codex', ['mcp', 'get', 'runlist', '--json']]);
   assert.deepEqual(calls[2][1], buildCodexAddArguments(options));
+});
+
+test('keeps an existing Codex registration when replacement preflight fails', async () => {
+  const calls = [];
+  const run = async (command, args) => {
+    calls.push([command, args]);
+    if (args[0] === 'mcp' && args[1] === 'add') {
+      throw new Error('configuration write failed');
+    }
+    return { stdout: '{}', stderr: '' };
+  };
+
+  await assert.rejects(registerWithCodex({
+    ...options,
+    candidateName: 'runlist-candidate'
+  }, run), /configuration write failed/);
+  assert.equal(calls.some(([, args]) => (
+    args[0] === 'mcp' && args[1] === 'remove' && args.at(-1) === 'runlist'
+  )), false);
+});
+
+test('rolls back a failed Codex replacement and preserves the primary error', async () => {
+  const calls = [];
+  const replacementError = new Error('replacement failed');
+  let canonicalAdds = 0;
+  const run = async (command, args) => {
+    calls.push([command, args]);
+    if (args[0] === 'mcp' && args[1] === 'add' && args[2] === 'runlist') {
+      canonicalAdds += 1;
+      if (canonicalAdds === 1) {
+        throw replacementError;
+      }
+    }
+    return { stdout: '{}', stderr: '' };
+  };
+
+  await assert.rejects(registerWithCodex({
+    ...options,
+    candidateName: 'runlist-candidate'
+  }, run), (error) => {
+    assert.equal(error, replacementError);
+    return true;
+  });
+  assert.deepEqual(calls.slice(-2), [
+    ['codex', ['mcp', 'remove', 'runlist-candidate']],
+    ['codex', buildCodexAddArguments(options)]
+  ]);
+});
+
+test('attaches Codex rollback and cleanup failures to the primary error', async () => {
+  const calls = [];
+  const replacementError = new Error('replacement failed');
+  const cleanupError = new Error('candidate cleanup failed');
+  const rollbackError = new Error('canonical restore failed');
+  let canonicalAdds = 0;
+  const run = async (command, args) => {
+    calls.push([command, args]);
+    if (args[0] === 'mcp' && args[1] === 'add' && args[2] === 'runlist') {
+      canonicalAdds += 1;
+      throw canonicalAdds === 1 ? replacementError : rollbackError;
+    }
+    if (args[0] === 'mcp' && args[1] === 'remove' && args[2] === 'runlist-candidate') {
+      throw cleanupError;
+    }
+    return { stdout: '{}', stderr: '' };
+  };
+
+  await assert.rejects(registerWithCodex({
+    ...options,
+    candidateName: 'runlist-candidate'
+  }, run), (error) => {
+    assert.equal(error, replacementError);
+    assert.equal(error.cleanupFailures[0].error, cleanupError);
+    assert.equal(error.rollbackFailures[0].error, rollbackError);
+    return true;
+  });
+  assert.deepEqual(calls.slice(-2), [
+    ['codex', ['mcp', 'remove', 'runlist-candidate']],
+    ['codex', buildCodexAddArguments(options)]
+  ]);
 });

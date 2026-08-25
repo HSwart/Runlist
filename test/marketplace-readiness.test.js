@@ -11,7 +11,15 @@ test('validates Marketplace metadata for the selected publisher and release', ()
   const result = validateMarketplace(root, { preparation: true });
 
   assert.equal(manifest.name, 'runlist');
-  assert.equal(manifest.displayName, 'Runlist');
+  assert.equal(manifest.displayName, 'Runlist: Local Development Control Panel');
+  assert.equal(
+    manifest.description,
+    'Start, stop, monitor, and group dev servers, workers, and project commands across repositories from one VS Code sidebar.'
+  );
+  assert.ok(manifest.keywords.includes('dev server'));
+  assert.ok(manifest.keywords.includes('process manager'));
+  assert.ok(manifest.keywords.includes('npm scripts'));
+  assert.ok(!manifest.keywords.includes('project manager'));
   assert.equal(manifest.publisher, 'hankoswart');
   assert.equal(manifest.repository.url, 'https://github.com/HSwart/Runlist.git');
   assert.equal(
@@ -28,18 +36,18 @@ test('does not ship stale product branding', () => {
     'CHANGELOG.md',
     'SECURITY.md',
     'THIRD_PARTY_NOTICES.md',
-    'agent-registration.js',
+    'src/integrations/agent-registration.js',
     'extension.js',
     'mcp/server.js',
     'media/main.js',
     'media/runlist-readme.svg',
     'package.json',
-    'project-diagnostics.js',
-    'project-output.js',
-    'project-process.js',
-    'project-store.js',
-    'service-port-overrides.js',
-    'skill-installation.js',
+    'src/projects/project-diagnostics.js',
+    'src/projects/project-output.js',
+    'src/lifecycle/project-process.js',
+    'src/projects/project-store.js',
+    'src/ports/service-port-overrides.js',
+    'src/integrations/skill-installation.js',
     'skills/runlist/SKILL.md',
     'skills/runlist/agents/openai.yaml'
   ];
@@ -49,6 +57,29 @@ test('does not ship stale product branding', () => {
     assert.doesNotMatch(contents, /\bswitchboard\b/i, file);
     assert.doesNotMatch(contents, /\bporter\b/i, file);
   }
+});
+
+test('documents temporary candidate validation and tracked publication artifact', () => {
+  const releaseGuide = fs.readFileSync(path.join(root, 'docs', 'marketplace-release.md'), 'utf8');
+
+  assert.match(releaseGuide, /temporary candidate from (?:the )?current source/i);
+  assert.match(releaseGuide, /compares the candidate's .* with the tracked artifact/i);
+  assert.match(releaseGuide, /publishes the tracked `releases\/runlist\.vsix` artifact/i);
+  assert.doesNotMatch(releaseGuide, /does not repackage the source/i);
+});
+
+test('requires extension-host smoke with the supported CI session commands', () => {
+  const releaseGuide = fs.readFileSync(path.join(root, 'docs', 'marketplace-release.md'), 'utf8');
+  const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'test.yml'), 'utf8');
+
+  assert.match(releaseGuide, /On Windows and macOS, run `npm run test:smoke` in a supported native desktop session\./i);
+  assert.match(releaseGuide, /On Linux, run `xvfb-run -a npm run test:smoke` with an Xvfb display\./i);
+  assert.match(releaseGuide, /passes only when the command exits successfully and reports `Runlist extension-host smoke suite passed\.`/i);
+  assert.match(workflow, /fail-fast:\s*false/);
+  assert.match(workflow, /os:\s*\[ubuntu-latest, macos-latest\]/);
+  assert.match(workflow, /runs-on:\s*windows-latest/);
+  assert.equal((workflow.match(/timeout-minutes:\s*20/g) || []).length, 2);
+  assert.doesNotMatch(workflow, /continue-on-error:\s*true/);
 });
 
 test('passes strict Marketplace publication validation', () => {

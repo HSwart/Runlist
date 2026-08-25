@@ -8,7 +8,7 @@ const {
   agentSkillPath,
   agentSkillStatus,
   installAgentSkill
-} = require('../skill-installation');
+} = require('../src/integrations/skill-installation');
 
 function temporaryDirectory(t) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-skill-'));

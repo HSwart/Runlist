@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { safeHttpUrl, safeServiceUrl } = require('../external-url');
+const { safeHttpUrl, safeServiceUrl } = require('../src/services/external-url');
 
 test('allows only valid HTTP and HTTPS output links', () => {
   assert.equal(safeHttpUrl('http://127.0.0.1:3000'), 'http://127.0.0.1:3000/');
@@ -8,6 +8,17 @@ test('allows only valid HTTP and HTTPS output links', () => {
   assert.equal(safeHttpUrl('file:///tmp/project'), undefined);
   assert.equal(safeHttpUrl('javascript:alert(1)'), undefined);
   assert.equal(safeHttpUrl('not a url'), undefined);
+});
+
+test('rejects credential-bearing output links', () => {
+  assert.equal(safeHttpUrl('https://user:secret@example.com'), undefined);
+  assert.equal(safeHttpUrl('https://user%40name:secret%40word@example.com'), undefined);
+});
+
+test('rejects control characters in output links', () => {
+  assert.equal(safeHttpUrl(`https://example.com/path${String.fromCharCode(10)}next`), undefined);
+  assert.equal(safeHttpUrl(`https://example.com/path${String.fromCharCode(0)}next`), undefined);
+  assert.equal(safeHttpUrl(`https://example.com/path${String.fromCharCode(127)}next`), undefined);
 });
 
 test('allows only safe HTTP and HTTPS service URL overrides', () => {

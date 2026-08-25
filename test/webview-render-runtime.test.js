@@ -1,0 +1,1063 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+
+const webviewSource = fs.readFileSync(
+  path.join(__dirname, '..', 'media', 'main.js'),
+  'utf8'
+);
+
+function renderNonEmptyProjectList(projects = [{
+  activeLaunchProfileId: 'default',
+  activeLaunchProfileName: 'Default',
+  detailsExpanded: false,
+  folder: 'C:\\Projects\\Example',
+  id: 'example',
+  launchProfiles: [],
+  name: 'Example',
+  openPorts: [],
+  pinned: false,
+  previewExpanded: false,
+  reviewRequired: false,
+  services: [],
+  status: 'stopped',
+  tags: []
+}], { stateOverrides = {}, persistedWebviewState = {}, turkishLocale = false } = {}) {
+  const listeners = [];
+  const messageListeners = [];
+  const scheduledFrames = [];
+  const savedStates = [];
+  const postedMessages = [];
+  const elements = new Map();
+  const previewListeners = new Map();
+  const timeoutCallbacks = new Map();
+  let nextTimeoutId = 0;
+  const inertElement = () => ({
+    innerHTML: '',
+    textContent: '',
+    addEventListener(type) {
+      listeners.push(type);
+    },
+    classList: { add() {}, remove() {}, contains() { return false; } },
+    dataset: {},
+    focusCount: 0,
+    focus() {
+      this.focusCount += 1;
+    },
+    selectionStart: 0,
+    selectionEnd: 0,
+    setSelectionRange(start, end) {
+      this.selectionStart = start;
+      this.selectionEnd = end;
+    },
+    remove() {},
+    removeAttribute() {},
+    setAttribute() {},
+    style: { removeProperty() {}, setProperty() {} }
+  });
+  const app = inertElement();
+  app.innerHTML = '';
+  elements.set('app', app);
+  elements.set('project-search', inertElement());
+  elements.set('project-count', inertElement());
+  elements.set('summary-status', inertElement());
+  elements.set('project-search-status', inertElement());
+  elements.set('project-lifecycle-status', inertElement());
+  const previewProject = (projects || []).find((project) => project.previewExpanded && project.detailsExpanded);
+  let visibleProjects = projects || [];
+  const previewRow = inertElement();
+  previewRow.dataset = { projectId: String(previewProject?.id || '') };
+  const previewLoading = inertElement();
+  previewLoading.hidden = true;
+  const previewFallback = inertElement();
+  previewFallback.hidden = true;
+  const previewWrapper = inertElement();
+  let previewLoaded = false;
+  previewWrapper.classList = {
+    add(name) { if (name === 'loaded') previewLoaded = true; },
+    remove(name) { if (name === 'loaded') previewLoaded = false; },
+    contains(name) { return name === 'loaded' && previewLoaded; }
+  };
+  previewWrapper.querySelector = (selector) => (
+    selector === '[data-preview-loading]' ? previewLoading
+      : selector === '[data-preview-fallback]' ? previewFallback
+        : undefined
+  );
+  const previewFrame = inertElement();
+  previewFrame.isConnected = true;
+  previewFrame.dataset = {
+    src: String(previewProject?.previewUrl || ''),
+    previewIncarnation: String(previewProject?.projectIncarnation || '')
+  };
+  previewFrame.closest = (selector) => (
+    selector === '.preview-frame-wrap' ? previewWrapper
+      : selector === '.project-row' ? previewRow
+        : undefined
+  );
+  previewFrame.addEventListener = (type, handler, options) => {
+    const listenersForType = previewListeners.get(type) || [];
+    listenersForType.push({ handler, once: options?.once === true });
+    previewListeners.set(type, listenersForType);
+  };
+  previewFrame.removeEventListener = (type, handler) => {
+    previewListeners.set(
+      type,
+      (previewListeners.get(type) || []).filter((listener) => listener.handler !== handler)
+    );
+  };
+  const previewVisible = () => Boolean(
+    visibleProjects.some((project) => project.previewExpanded && project.detailsExpanded)
+  );
+  const outputSlot = inertElement();
+  outputSlot.dataset = {
+    projectId: String(projects?.[0]?.id || 'example'),
+    projectName: String(projects?.[0]?.name || 'Example')
+  };
+  let outputInteractionActive = false;
+  outputSlot.contains = () => outputInteractionActive;
+  outputSlot.innerHTML = 'initial output';
+  let outputSlotVisible = true;
+
+  const document = {
+    activeElement: undefined,
+    addEventListener() {},
+    getElementById(id) {
+      return elements.get(id);
+    },
+    querySelector(selector) {
+      if (outputSlotVisible && selector.startsWith('[data-output-peek-slot]')) {
+        const projectId = selector.match(/data-project-id="([^"]*)"/)?.[1];
+        if (!projectId || projectId === outputSlot.dataset.projectId) {
+          return outputSlot;
+        }
+      }
+      if (selector.includes('[data-preview-frame]')) {
+        return previewVisible() ? previewFrame : undefined;
+      }
+      return undefined;
+    },
+    querySelectorAll(selector) {
+      if (selector?.includes('[data-preview-frame]')) {
+        return previewVisible() ? [previewFrame] : [];
+      }
+      return [];
+    }
+  };
+  const window = {
+    RunlistMessageRouter: {
+      createWebviewMessageRouter({ handlers, messageToken }) {
+        return (event) => {
+          if (event?.data?.messageToken !== messageToken) {
+            return false;
+          }
+          const handler = handlers?.[event.data.type];
+          if (typeof handler !== 'function') {
+            return false;
+          }
+          handler(event.data);
+          return true;
+        };
+      }
+    },
+    RunlistProjectActions: {
+      projectPrimaryAction() {
+        return { action: 'start', disabled: false, label: 'Start Example', mode: 'start' };
+      }
+    },
+    previewFrame,
+    addEventListener(type, handler) {
+      if (type === 'message') {
+        messageListeners.push(handler);
+      }
+    },
+    getSelection() {
+      return undefined;
+    },
+    runlistState: {
+      focusTarget: undefined,
+      mode: 'list',
+      projects,
+      runGroups: [],
+      runningAppIds: [],
+      searchQuery: '',
+      stopAllCount: 0,
+      tagFilter: '',
+      ...stateOverrides
+    }
+  };
+  const context = {
+    CSS: { escape: String },
+    Map,
+    Set,
+    URL,
+    acquireVsCodeApi() {
+      return {
+        getState() { return persistedWebviewState; },
+        postMessage(message) {
+          postedMessages.push(message);
+        },
+        setState(nextState) {
+          savedStates.push(JSON.parse(JSON.stringify(nextState)));
+        }
+      };
+    },
+    cancelAnimationFrame() {},
+    clearInterval() {},
+    clearTimeout(id) {
+      const timeout = timeoutCallbacks.get(id);
+      if (timeout) {
+        timeout.cleared = true;
+      }
+    },
+    document,
+    previewFrame,
+    requestAnimationFrame(callback) {
+      scheduledFrames.push(callback);
+      return scheduledFrames.length;
+    },
+    setInterval() { return 1; },
+    setTimeout(callback) {
+      nextTimeoutId += 1;
+      timeoutCallbacks.set(nextTimeoutId, { callback, cleared: false });
+      return nextTimeoutId;
+    },
+    window
+  };
+
+  if (turkishLocale) {
+    vm.runInNewContext(`
+      String.prototype.toLocaleLowerCase = function toTurkishLocaleLowerCase() {
+        return this.toString().replaceAll('I', 'ı').replaceAll('İ', 'i').toLowerCase();
+      };
+    `, context);
+  }
+
+  vm.runInNewContext(webviewSource, context, { filename: 'media/main.js' });
+  return {
+    app,
+    document,
+    lifecycleStatus: elements.get('project-lifecycle-status'),
+    projectCount: elements.get('project-count'),
+    listeners,
+    rerender() {
+      visibleProjects = context.window.runlistState.projects || [];
+      const project = visibleProjects.find((item) => item.previewExpanded && item.detailsExpanded);
+      previewRow.dataset.projectId = String(project?.id || '');
+      previewFrame.dataset.src = String(project?.previewUrl || '');
+      previewFrame.dataset.previewIncarnation = project
+        ? String(project.projectIncarnation
+          || vm.runInNewContext(`projectIncarnations.get(${JSON.stringify(String(project.id))}) || ''`, context))
+        : '';
+      previewFrame.isConnected = Boolean(project?.previewExpanded && project?.detailsExpanded);
+      vm.runInNewContext('renderList()', context);
+    },
+    deliver(message) {
+      for (const listener of messageListeners) {
+        listener({ data: message });
+      }
+    },
+    evaluate(source) {
+      return vm.runInNewContext(source, context);
+    },
+    outputSlot,
+    previewFrame,
+    previewLoading,
+    previewFallback,
+    previewHandler(type) {
+      return (previewListeners.get(type) || [])[0]?.handler;
+    },
+    timeoutCallback(id) {
+      return timeoutCallbacks.get(id)?.callback;
+    },
+    triggerPreview(type) {
+      const listenersForType = previewListeners.get(type) || [];
+      previewListeners.set(type, listenersForType.filter((listener) => !listener.once));
+      for (const listener of listenersForType) {
+        listener.handler({ type });
+      }
+    },
+    postedMessages,
+    scheduledFrames,
+    savedStates,
+    searchInput: elements.get('project-search'),
+    setOutputSlot(project) {
+      outputSlotVisible = Boolean(project);
+      if (project) {
+        outputSlot.dataset.projectId = String(project.id);
+        outputSlot.dataset.projectName = String(project.name);
+      }
+    },
+    setOutputInteractionActive(active) {
+      outputInteractionActive = Boolean(active);
+    },
+    state: window.runlistState
+  };
+}
+
+test('a non-empty project list finishes webview interaction setup', () => {
+  const result = renderNonEmptyProjectList();
+
+  assert.match(result.app.innerHTML, /data-project-id="example"/);
+  assert.ok(result.listeners.includes('input'), 'search input listener was installed');
+  assert.ok(result.scheduledFrames.length >= 3, 'render follow-up work was scheduled');
+});
+
+test('renders an escaped accessible diagnosis-closed notice without stale diagnosis controls', () => {
+  const result = renderNonEmptyProjectList(undefined, {
+    stateOverrides: {
+      routeNotice: 'Project <gone> & its diagnosis were closed.'
+    }
+  });
+
+  assert.match(
+    result.app.innerHTML,
+    /id="route-notice" class="diagnosis-notice" role="status" aria-live="polite" aria-atomic="true"/
+  );
+  assert.match(result.app.innerHTML, /Project &lt;gone&gt; &amp; its diagnosis were closed\./);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="copy-diagnosis-request"|data-action="refresh-repair"/);
+});
+
+test('prunes deleted project and service state while preserving state for present projects', () => {
+  const gone = {
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    defaultDetailTab: 'output',
+    detailTabs: ['overview', 'services', 'output'],
+    detailsExpanded: true,
+    folder: 'C:\\Projects\\Gone',
+    id: 'gone',
+    launchProfiles: [],
+    name: 'Gone',
+    openPorts: [],
+    phoneHandoff: { qrSvg: '<svg></svg>', url: 'http://localhost:3000' },
+    pinned: false,
+    previewExpanded: true,
+    reviewRequired: false,
+    services: [{ name: 'Web', port: 3000 }],
+    startupHistory: [{ completedAt: 1000, durationMs: 100, failureSummary: 'gone failure', outcome: 'failed' }],
+    status: 'stopped',
+    tags: ['keep']
+  };
+  const kept = {
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    defaultDetailTab: 'preview',
+    detailTabs: ['overview', 'services', 'output', 'preview'],
+    detailsExpanded: true,
+    folder: 'C:\\Projects\\Kept',
+    id: 'kept',
+    launchProfiles: [],
+    name: 'Kept',
+    openPorts: [],
+    phoneHandoff: { qrSvg: '<svg></svg>', url: 'http://localhost:4000' },
+    pinned: false,
+    previewExpanded: true,
+    reviewRequired: false,
+    services: [{ name: 'Web', port: 4000 }],
+    startupHistory: [{ completedAt: 2000, durationMs: 200, failureSummary: 'kept failure', outcome: 'failed' }],
+    status: 'stopped',
+    tags: ['keep']
+  };
+  const result = renderNonEmptyProjectList([gone, kept], {
+    stateOverrides: { tags: ['keep'] },
+    persistedWebviewState: {
+      detailTabs: { gone: 'output', kept: 'output' },
+      expandedServices: { gone: '3000', kept: '4000', stale: '9999' },
+      phoneHandoffs: { gone: true, kept: true },
+      startupFailures: { gone: '1000-100-0', kept: '2000-200-0' },
+      filterRevision: 1,
+      searchQuery: 'keep',
+      searchSelectionStart: 1,
+      searchSelectionEnd: 3,
+      searchFocused: true,
+      tagFilter: 'keep',
+      tagsExpanded: true
+    }
+  });
+
+  result.state.projects = [kept];
+  result.rerender();
+  const afterRemoval = result.savedStates.at(-1);
+  assert.deepEqual(afterRemoval.detailTabs, { kept: 'output' });
+  assert.deepEqual(afterRemoval.expandedServices, { kept: '4000' });
+  assert.deepEqual(afterRemoval.phoneHandoffs, { kept: true });
+  assert.deepEqual(afterRemoval.startupFailures, { kept: '2000-200-0' });
+  assert.equal(afterRemoval.searchQuery, 'keep');
+  assert.equal(afterRemoval.tagFilter, 'keep');
+  assert.equal(afterRemoval.searchSelectionStart, 1);
+  assert.equal(afterRemoval.searchSelectionEnd, 3);
+  assert.equal(afterRemoval.tagsExpanded, true);
+
+  const recreated = {
+    ...gone,
+    defaultDetailTab: 'preview',
+    detailTabs: ['overview', 'services', 'output', 'preview'],
+    name: 'Recreated'
+  };
+  result.state.projects = [recreated, kept];
+  result.rerender();
+  result.evaluate('saveWebviewState()');
+  const afterRecreation = result.savedStates.at(-1);
+  assert.equal(afterRecreation.detailTabs.gone, 'preview');
+  assert.equal(afterRecreation.expandedServices.gone, undefined);
+  assert.equal(afterRecreation.phoneHandoffs.gone, undefined);
+  assert.equal(afterRecreation.startupFailures.gone, undefined);
+  assert.match(result.app.innerHTML, /data-action="toggle-service-detail" data-id="gone" data-port="3000" aria-expanded="false"/);
+  assert.equal(afterRecreation.detailTabs.kept, 'output');
+  assert.equal(afterRecreation.expandedServices.kept, '4000');
+  assert.equal(afterRecreation.phoneHandoffs.kept, true);
+  assert.equal(afterRecreation.startupFailures.kept, '2000-200-0');
+});
+
+test('ignores output peek responses from a removed project incarnation', () => {
+  const project = {
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: true,
+    folder: 'C:\\Projects\\Example',
+    id: 'example',
+    launchProfiles: [],
+    name: 'Example',
+    openPorts: [],
+    outputPeek: [],
+    pinned: false,
+    previewExpanded: true,
+    reviewRequired: false,
+    services: [{ name: 'Web', port: 3000 }],
+    status: 'running',
+    tags: []
+  };
+  const result = renderNonEmptyProjectList([project], {
+    stateOverrides: { messageToken: 'webview-token' }
+  });
+  const incarnationA = result.evaluate("typeof projectIncarnations === 'undefined' ? undefined : projectIncarnations.get('example')");
+  assert.equal(typeof incarnationA, 'string');
+  assert.deepEqual(JSON.parse(JSON.stringify(result.postedMessages.find((message) => message.type === 'showOutput'))), {
+    type: 'showOutput',
+    id: 'example',
+    projectIncarnation: incarnationA
+  });
+
+  result.state.projects = [];
+  result.setOutputSlot(undefined);
+  result.rerender();
+  assert.equal(result.evaluate("projectIncarnations.has('example')"), false);
+  const recreated = { ...project, name: 'Recreated' };
+  result.state.projects = [recreated];
+  result.setOutputSlot(recreated);
+  result.outputSlot.innerHTML = 'current incarnation';
+  result.rerender();
+  const incarnationB = result.evaluate("typeof projectIncarnations === 'undefined' ? undefined : projectIncarnations.get('example')");
+  assert.notEqual(incarnationB, incarnationA);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.postedMessages.at(-1))), {
+    type: 'showOutput',
+    id: 'example',
+    projectIncarnation: incarnationB
+  });
+
+  result.deliver({
+    type: 'projectOutputPeek',
+    messageToken: 'webview-token',
+    id: 'example',
+    entries: [{ kind: 'raw', message: 'missing token' }]
+  });
+  assert.equal(result.outputSlot.innerHTML, 'current incarnation');
+
+  result.deliver({
+    type: 'projectOutputPeek',
+    messageToken: 'webview-token',
+    id: 'example',
+    projectIncarnation: incarnationA,
+    entries: [{ kind: 'raw', message: 'stale output' }]
+  });
+  assert.equal(result.outputSlot.innerHTML, 'current incarnation');
+  assert.equal(result.evaluate("typeof pendingOutputPeeks === 'undefined' ? 0 : pendingOutputPeeks.size"), 0);
+
+  result.deliver({
+    type: 'projectOutputPeek',
+    messageToken: 'webview-token',
+    id: 'example',
+    projectIncarnation: incarnationB,
+    entries: [{ kind: 'raw', message: 'current output' }]
+  });
+  assert.match(result.outputSlot.innerHTML, /current output/);
+});
+
+test('accepts a current output peek after an ordinary status rerender', () => {
+  const project = {
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: true,
+    folder: 'C:\\Projects\\Example',
+    id: 'example',
+    launchProfiles: [],
+    name: 'Example',
+    openPorts: [],
+    outputPeek: [],
+    pinned: false,
+    previewExpanded: true,
+    reviewRequired: false,
+    services: [{ name: 'Web', port: 3000 }],
+    status: 'running',
+    tags: []
+  };
+  const result = renderNonEmptyProjectList([project], {
+    stateOverrides: { messageToken: 'webview-token' }
+  });
+  const incarnation = result.evaluate("typeof projectIncarnations === 'undefined' ? undefined : projectIncarnations.get('example')");
+  assert.deepEqual(JSON.parse(JSON.stringify(result.postedMessages.find((message) => message.type === 'showOutput'))), {
+    type: 'showOutput',
+    id: 'example',
+    projectIncarnation: incarnation
+  });
+  result.state.projects[0].status = 'not-ready';
+  result.rerender();
+  assert.deepEqual(JSON.parse(JSON.stringify(result.postedMessages.at(-1))), {
+    type: 'showOutput',
+    id: 'example',
+    projectIncarnation: incarnation
+  });
+  result.outputSlot.innerHTML = 'before current response';
+  result.deliver({
+    type: 'projectOutputPeek',
+    messageToken: 'webview-token',
+    id: 'example',
+    projectIncarnation: incarnation,
+    entries: [{ kind: 'raw', message: 'still current' }]
+  });
+  assert.match(result.outputSlot.innerHTML, /still current/);
+});
+
+test('rejects an old output peek after a fresh webview document recreates the project', () => {
+  const project = {
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: true,
+    folder: 'C:\\Projects\\Example',
+    id: 'example',
+    launchProfiles: [],
+    name: 'Example',
+    openPorts: [],
+    outputPeek: [],
+    pinned: false,
+    previewExpanded: true,
+    projectIncarnation: 'host:1',
+    reviewRequired: false,
+    services: [{ name: 'Web', port: 3000 }],
+    status: 'running',
+    tags: []
+  };
+  const firstDocument = renderNonEmptyProjectList([project], {
+    stateOverrides: { messageToken: 'webview-token' }
+  });
+  const incarnationA = firstDocument.evaluate("projectIncarnations.get('example')");
+  firstDocument.state.projects = [];
+  firstDocument.setOutputSlot(undefined);
+  firstDocument.rerender();
+
+  const recreated = { ...project, name: 'Recreated', projectIncarnation: 'host:2' };
+  const freshDocument = renderNonEmptyProjectList([recreated], {
+    stateOverrides: { messageToken: 'webview-token' }
+  });
+  const incarnationB = freshDocument.evaluate("projectIncarnations.get('example')");
+  assert.notEqual(incarnationB, incarnationA);
+  freshDocument.outputSlot.innerHTML = 'current incarnation';
+
+  freshDocument.deliver({
+    type: 'projectOutputPeek',
+    messageToken: 'webview-token',
+    id: 'example',
+    projectIncarnation: incarnationA,
+    entries: [{ kind: 'raw', message: 'stale output' }]
+  });
+  assert.equal(freshDocument.outputSlot.innerHTML, 'current incarnation');
+  assert.equal(freshDocument.evaluate('pendingOutputPeeks.size'), 0);
+
+  freshDocument.deliver({
+    type: 'projectOutputPeek',
+    messageToken: 'webview-token',
+    id: 'example',
+    projectIncarnation: incarnationB,
+    entries: [{ kind: 'raw', message: 'current output' }]
+  });
+  assert.match(freshDocument.outputSlot.innerHTML, /current output/);
+});
+
+test('drops queued output from an old incarnation before flushing a recreated project', () => {
+  const project = {
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: true,
+    folder: 'C:\\Projects\\Example',
+    id: 'example',
+    launchProfiles: [],
+    name: 'Example',
+    openPorts: [],
+    outputPeek: [],
+    pinned: false,
+    previewExpanded: true,
+    projectIncarnation: 'host:1',
+    reviewRequired: false,
+    services: [{ name: 'Web', port: 3000 }],
+    status: 'running',
+    tags: []
+  };
+  const result = renderNonEmptyProjectList([project], {
+    stateOverrides: { messageToken: 'webview-token' }
+  });
+  const incarnationA = result.evaluate("projectIncarnations.get('example')");
+  result.setOutputInteractionActive(true);
+  result.deliver({
+    type: 'projectOutputPeek',
+    messageToken: 'webview-token',
+    id: 'example',
+    projectIncarnation: incarnationA,
+    entries: [{ kind: 'raw', message: 'stale output' }]
+  });
+  assert.equal(result.evaluate('pendingOutputPeeks.size'), 1);
+  assert.equal(result.evaluate("pendingOutputPeeks.get('example').projectIncarnation"), incarnationA);
+
+  result.state.projects = [];
+  result.setOutputSlot(undefined);
+  result.evaluate("projectIncarnations.delete('example')");
+  const recreated = { ...project, name: 'Recreated', projectIncarnation: 'host:2' };
+  result.state.projects = [recreated];
+  result.setOutputSlot(recreated);
+  result.rerender();
+  const incarnationB = result.evaluate("projectIncarnations.get('example')");
+  assert.notEqual(incarnationB, incarnationA);
+
+  result.setOutputInteractionActive(false);
+  result.outputSlot.innerHTML = 'current incarnation';
+  result.evaluate('flushPendingOutputPeeks()');
+  assert.equal(result.outputSlot.innerHTML, 'current incarnation');
+  assert.equal(result.evaluate('pendingOutputPeeks.size'), 0);
+
+  result.deliver({
+    type: 'projectOutputPeek',
+    messageToken: 'webview-token',
+    id: 'example',
+    projectIncarnation: incarnationB,
+    entries: [{ kind: 'raw', message: 'current output' }]
+  });
+  assert.match(result.outputSlot.innerHTML, /current output/);
+});
+
+test('keeps conflict-owner HTML escaped while announcing its raw name', () => {
+  const ownerName = 'A&B <team>';
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: 'C:\\Projects\\Example',
+    id: 'example',
+    launchProfiles: [],
+    name: 'Example',
+    openPorts: [3000],
+    pinned: false,
+    portConflict: { ownerName, port: 3000 },
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [{ name: 'Web', port: 3000 }],
+    status: 'stopped',
+    tags: []
+  }]);
+
+  result.state.projects[0].status = 'port-in-use';
+  result.rerender();
+
+  assert.match(result.app.innerHTML, /1 service blocked by A&amp;B &lt;team&gt;/);
+  assert.equal(result.lifecycleStatus.textContent, 'Example: 1 service blocked by A&B <team>');
+  assert.doesNotMatch(result.lifecycleStatus.textContent, /&amp;|&lt;|&gt;/);
+});
+
+test('announces contextual project and service status changes once without noisy repeats', () => {
+  const result = renderNonEmptyProjectList([
+    {
+      activeLaunchProfileId: 'default',
+      activeLaunchProfileName: 'Default',
+      detailsExpanded: false,
+      folder: 'C:\\Projects\\Example',
+      id: 'example',
+      launchProfiles: [],
+      name: 'Example',
+      openPorts: [],
+      pinned: false,
+      reviewRequired: false,
+      services: [
+        { name: 'Web', port: 3000 },
+        { name: 'API', port: 4000 }
+      ],
+      serviceReadiness: {
+        ready: [],
+        waiting: [{ name: 'Web', port: 3000 }, { name: 'API', port: 4000 }],
+        notResponding: []
+      },
+      status: 'not-ready',
+      tags: []
+    }
+  ]);
+
+  result.state.projects[0].serviceReadiness = {
+    ready: [{ name: 'Web', port: 3000 }],
+    waiting: [{ name: 'API', port: 4000 }],
+    notResponding: []
+  };
+  result.rerender();
+
+  assert.equal(
+    result.lifecycleStatus.textContent,
+    'Example: Taking longer… Ready: Web :3000. Still checking: API :4000'
+  );
+
+  const unchangedAnnouncement = result.lifecycleStatus.textContent;
+  result.rerender();
+  assert.equal(result.lifecycleStatus.textContent, unchangedAnnouncement);
+
+  result.state.projects[0].status = 'running';
+  result.state.projects[0].serviceReadiness = undefined;
+  result.rerender();
+  assert.equal(result.lifecycleStatus.textContent, 'Example: Running');
+});
+
+test('announces simultaneous service contexts with raw special-character names', () => {
+  const result = renderNonEmptyProjectList([
+    {
+      activeLaunchProfileId: 'default',
+      activeLaunchProfileName: 'Default',
+      detailsExpanded: false,
+      folder: 'C:\\Projects\\One',
+      id: 'one',
+      launchProfiles: [],
+      name: 'A&B <team>',
+      openPorts: [],
+      pinned: false,
+      reviewRequired: false,
+      services: [{ name: 'Web & <blue>', port: 3000 }],
+      serviceReadiness: {
+        ready: [],
+        waiting: [{ name: 'Web & <blue>', port: 3000 }],
+        notResponding: []
+      },
+      status: 'stopped',
+      tags: []
+    },
+    {
+      activeLaunchProfileId: 'default',
+      activeLaunchProfileName: 'Default',
+      detailsExpanded: false,
+      folder: 'C:\\Projects\\Two',
+      id: 'two',
+      launchProfiles: [],
+      name: 'Two',
+      openPorts: [],
+      pinned: false,
+      reviewRequired: false,
+      services: [{ name: 'Worker', port: 5000 }],
+      serviceReadiness: {
+        ready: [],
+        waiting: [{ name: 'Worker', port: 5000 }],
+        notResponding: []
+      },
+      status: 'stopped',
+      tags: []
+    }
+  ]);
+
+  result.state.projects[0].status = 'not-ready';
+  result.state.projects[1].status = 'not-ready';
+  result.rerender();
+
+  assert.equal(
+    result.lifecycleStatus.textContent,
+    'A&B <team>: Taking longer… Still checking: Web & <blue> :3000. Two: Taking longer… Still checking: Worker :5000'
+  );
+  assert.doesNotMatch(result.lifecycleStatus.textContent, /&amp;|&lt;|&gt;/);
+});
+
+function previewFailureProject(overrides = {}) {
+  return {
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: true,
+    folder: 'C:\\Projects\\Preview',
+    id: 'preview',
+    launchProfiles: [],
+    name: 'Preview & <team>',
+    openPorts: [3000],
+    pinned: false,
+    previewExpanded: true,
+    previewUrl: 'http://localhost:3000',
+    projectIncarnation: 'host:preview-1',
+    reviewRequired: false,
+    services: [{ name: 'Web', port: 3000 }],
+    status: 'running',
+    tags: [],
+    ...overrides
+  };
+}
+
+test('announces one contextual preview failure without leaking raw error data', () => {
+  const result = renderNonEmptyProjectList([previewFailureProject()]);
+
+  result.triggerPreview('error');
+
+  assert.equal(
+    result.lifecycleStatus.textContent,
+    'Preview & <team>: Preview unavailable. Open it in a browser to view it.'
+  );
+  assert.equal(result.previewLoading.hidden, true);
+  assert.equal(result.previewFallback.hidden, false);
+  assert.doesNotMatch(result.lifecycleStatus.textContent, /<script>|error|localhost:3000/);
+
+  const firstAnnouncement = result.lifecycleStatus.textContent;
+  result.triggerPreview('error');
+  assert.equal(result.lifecycleStatus.textContent, firstAnnouncement);
+});
+
+test('ignores preview failure events with a stale or missing project incarnation', () => {
+  const stale = renderNonEmptyProjectList([previewFailureProject()]);
+  stale.previewFrame.dataset.previewIncarnation = 'host:preview-2';
+  stale.triggerPreview('error');
+  assert.equal(stale.lifecycleStatus.textContent, '');
+
+  const missing = renderNonEmptyProjectList([previewFailureProject()]);
+  missing.previewFrame.dataset.previewIncarnation = '';
+  missing.triggerPreview('error');
+  assert.equal(missing.lifecycleStatus.textContent, '');
+});
+
+test('detached preview callbacks cannot announce or clear after collapse and same-incarnation rerender', () => {
+  const result = renderNonEmptyProjectList([previewFailureProject()]);
+  const oldError = result.previewHandler('error');
+  const oldLoad = result.previewHandler('load');
+  const oldTimeout = result.timeoutCallback(result.evaluate('activePreviewLoad.timer'));
+
+  result.state.projects[0].detailsExpanded = false;
+  result.state.projects[0].previewExpanded = false;
+  result.rerender();
+  assert.equal(result.previewFrame.isConnected, false);
+  assert.equal(result.evaluate('activePreviewLoad'), undefined);
+
+  result.lifecycleStatus.textContent = 'Current lifecycle status';
+  const loadingBefore = result.previewLoading.hidden;
+  const fallbackBefore = result.previewFallback.hidden;
+  oldError();
+  oldTimeout();
+  oldLoad();
+  assert.equal(result.lifecycleStatus.textContent, 'Current lifecycle status');
+  assert.equal(result.previewLoading.hidden, loadingBefore);
+  assert.equal(result.previewFallback.hidden, fallbackBefore);
+
+  result.state.projects[0].detailsExpanded = true;
+  result.state.projects[0].previewExpanded = true;
+  delete result.previewFrame.dataset.loadedSource;
+  result.rerender();
+  assert.equal(result.previewFrame.isConnected, true);
+  result.lifecycleStatus.textContent = '';
+
+  oldError();
+  oldTimeout();
+  oldLoad();
+  assert.equal(result.lifecycleStatus.textContent, '');
+
+  result.triggerPreview('error');
+  assert.equal(
+    result.lifecycleStatus.textContent,
+    'Preview & <team>: Preview unavailable. Open it in a browser to view it.'
+  );
+
+  result.evaluate("delete previewFrame.dataset.loadedSource; loadProjectPreview(previewFrame)");
+  result.triggerPreview('load');
+  assert.equal(result.lifecycleStatus.textContent, '');
+});
+
+test('clears a preview failure after success and announces a later retry once', () => {
+  const result = renderNonEmptyProjectList([previewFailureProject()]);
+  result.triggerPreview('error');
+  assert.match(result.lifecycleStatus.textContent, /Preview unavailable/);
+
+  result.evaluate("delete previewFrame.dataset.loadedSource; loadProjectPreview(previewFrame)");
+  result.triggerPreview('load');
+  assert.equal(result.lifecycleStatus.textContent, '');
+  assert.equal(result.previewFallback.hidden, true);
+
+  result.evaluate("delete previewFrame.dataset.loadedSource; loadProjectPreview(previewFrame)");
+  result.triggerPreview('error');
+  assert.equal(
+    result.lifecycleStatus.textContent,
+    'Preview & <team>: Preview unavailable. Open it in a browser to view it.'
+  );
+});
+
+test('does not announce an empty preview source', () => {
+  const result = renderNonEmptyProjectList([previewFailureProject({
+    previewExpanded: false,
+    previewUrl: ''
+  })]);
+  result.triggerPreview('error');
+  assert.equal(result.lifecycleStatus.textContent, '');
+});
+
+test('restores the latest search and tag filters after a host rerender', () => {
+  const result = renderNonEmptyProjectList([
+    {
+      activeLaunchProfileId: 'default',
+      activeLaunchProfileName: 'Default',
+      detailsExpanded: false,
+      folder: 'C:\\Projects\\Frontend',
+      id: 'frontend',
+      launchProfiles: [],
+      name: 'Frontend app',
+      openPorts: [],
+      pinned: false,
+      previewExpanded: false,
+      reviewRequired: false,
+      services: [],
+      status: 'stopped',
+      tags: ['frontend']
+    },
+    {
+      activeLaunchProfileId: 'default',
+      activeLaunchProfileName: 'Default',
+      detailsExpanded: false,
+      folder: 'C:\\Projects\\Docs',
+      id: 'docs',
+      launchProfiles: [],
+      name: 'Docs',
+      openPorts: [],
+      pinned: false,
+      previewExpanded: false,
+      reviewRequired: false,
+      services: [],
+      status: 'stopped',
+      tags: ['docs']
+    }
+  ], {
+    stateOverrides: { tags: ['docs', 'frontend'] },
+    persistedWebviewState: {
+      filterRevision: 1,
+      searchQuery: 'frontend',
+      tagFilter: 'frontend'
+    }
+  });
+
+  assert.match(result.app.innerHTML, /id="project-search"[^>]*value="frontend"/);
+  assert.match(result.app.innerHTML, /class="active-tag-chip"[^>]*data-tag="frontend"/);
+  assert.doesNotMatch(result.app.innerHTML, /value=""/);
+});
+
+test('keeps search focus and caret through a rerender and preserves empty state', () => {
+  const result = renderNonEmptyProjectList();
+  const searchInput = result.searchInput;
+  let focusCount = 0;
+  let restoredSelection;
+  searchInput.id = 'project-search';
+  searchInput.selectionStart = 2;
+  searchInput.selectionEnd = 4;
+  searchInput.focus = () => {
+    focusCount += 1;
+  };
+  searchInput.setSelectionRange = (start, end) => {
+    restoredSelection = [start, end];
+  };
+  result.document.activeElement = searchInput;
+
+  result.rerender();
+
+  assert.equal(focusCount, 1);
+  assert.deepEqual(restoredSelection, [2, 4]);
+
+  result.state.projects = [];
+  result.rerender();
+  assert.match(result.app.innerHTML, /No projects yet/);
+});
+
+test('restores selection only for search focus in a fresh webview document', () => {
+  const persistedWebviewState = {
+    filterRevision: 4,
+    searchQuery: 'frontend',
+    tagFilter: 'frontend',
+    searchSelectionStart: 2,
+    searchSelectionEnd: 4,
+    searchFocused: true
+  };
+  const first = renderNonEmptyProjectList(undefined, {
+    stateOverrides: { tags: ['frontend'] },
+    persistedWebviewState
+  });
+  const second = renderNonEmptyProjectList(undefined, {
+    stateOverrides: { tags: ['frontend'] },
+    persistedWebviewState
+  });
+
+  assert.notEqual(first.searchInput, second.searchInput);
+  assert.equal(second.searchInput.focusCount, 1);
+  assert.equal(second.searchInput.selectionStart, 2);
+  assert.equal(second.searchInput.selectionEnd, 4);
+});
+
+test('does not steal search focus when the accepted filter state says it was elsewhere', () => {
+  const result = renderNonEmptyProjectList(undefined, {
+    stateOverrides: {
+      filterRevision: 4,
+      filterRevisionSeen: true,
+      focusTarget: { type: 'field', id: 'project-search' },
+      searchFocused: false,
+      searchQuery: 'frontend',
+      tags: ['frontend']
+    }
+  });
+
+  assert.equal(result.searchInput.focusCount, 0);
+});
+
+test('matches Turkish-sensitive tags with locale-independent identity and filters the right subset', () => {
+  const result = renderNonEmptyProjectList([
+    {
+      activeLaunchProfileId: 'default',
+      activeLaunchProfileName: 'Default',
+      detailsExpanded: false,
+      folder: 'C:\\Projects\\I-tag',
+      id: 'i-tag',
+      launchProfiles: [],
+      name: 'I tag',
+      openPorts: [],
+      pinned: false,
+      previewExpanded: false,
+      reviewRequired: false,
+      services: [],
+      status: 'stopped',
+      tags: ['I']
+    },
+    {
+      activeLaunchProfileId: 'default',
+      activeLaunchProfileName: 'Default',
+      detailsExpanded: false,
+      folder: 'C:\\Projects\\Other',
+      id: 'other',
+      launchProfiles: [],
+      name: 'Other',
+      openPorts: [],
+      pinned: false,
+      previewExpanded: false,
+      reviewRequired: false,
+      services: [],
+      status: 'stopped',
+      tags: ['Other']
+    }
+  ], {
+    stateOverrides: { tags: ['I', 'Other'] },
+    persistedWebviewState: {
+      filterRevision: 1,
+      searchQuery: '',
+      tagFilter: 'i'
+    },
+    turkishLocale: true
+  });
+
+  assert.match(result.app.innerHTML, /class="active-tag-chip"[^>]*data-tag="I"/);
+  assert.match(result.projectCount.innerHTML, /<strong>1<\/strong> of 2 projects/);
+});

@@ -9,7 +9,7 @@ const {
   registerWithClaude,
   registerWithCodex,
   runProcess
-} = require('../agent-registration');
+} = require('../src/integrations/agent-registration');
 
 const windowsTest = process.platform === 'win32' ? test : test.skip;
 
@@ -46,6 +46,7 @@ function createWindowsCliFixture(t) {
   };
   delete environment.PATH;
   const options = {
+    candidateName: 'runlist-candidate',
     environment,
     platform: 'win32',
     projectsFile: path.join(root, 'VS Code Data & Projects', 'projects.json'),
@@ -76,8 +77,11 @@ windowsTest('registers Codex through a Windows npm cmd shim', async (t) => {
 
   assert.deepEqual(fixture.readCalls(), [
     ['--version'],
+    ['mcp', 'get', 'runlist', '--json'],
+    buildCodexAddArguments(fixture.options, 'runlist-candidate'),
     ['mcp', 'remove', 'runlist'],
-    buildCodexAddArguments(fixture.options)
+    buildCodexAddArguments(fixture.options),
+    ['mcp', 'remove', 'runlist-candidate']
   ]);
 });
 
@@ -88,8 +92,11 @@ windowsTest('registers Claude Code through a Windows npm cmd shim', async (t) =>
 
   assert.deepEqual(fixture.readCalls(), [
     ['--version'],
+    ['mcp', 'get', 'runlist'],
+    buildClaudeAddArguments(fixture.options, 'runlist-candidate'),
     ['mcp', 'remove', '--scope', 'user', 'runlist'],
-    buildClaudeAddArguments(fixture.options)
+    buildClaudeAddArguments(fixture.options),
+    ['mcp', 'remove', '--scope', 'user', 'runlist-candidate']
   ]);
 });
 

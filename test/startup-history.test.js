@@ -15,7 +15,7 @@ const {
   replaceTimedOutStartupHistory,
   startupHistoryDirectory,
   startupHistoryEntry
-} = require('../startup-history');
+} = require('../src/lifecycle/startup-history');
 
 test('averages only valid ready durations with deterministic rounding', () => {
   assert.equal(averageReadyDuration([
@@ -127,7 +127,7 @@ test('upgrades a timed-out attempt to one inspectable failed entry', () => {
 test('keeps concurrent extension-host writers bounded without lost-file corruption', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-history-concurrent-'));
   const projectsFile = path.join(root, 'projects.json');
-  const modulePath = path.join(__dirname, '..', 'startup-history.js');
+  const modulePath = path.join(__dirname, '..', 'src', 'lifecycle', 'startup-history.js');
   const worker = `
     const { appendStartupHistory } = require(process.argv[1]);
     const projectsFile = process.argv[2];

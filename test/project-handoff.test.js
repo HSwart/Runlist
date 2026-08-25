@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
-const { handoffProjectSafely } = require('../project-process');
+const { handoffProjectSafely } = require('../src/lifecycle/project-process');
 
 function actions(calls, overrides = {}) {
   return {
@@ -112,7 +112,7 @@ test('rejects duplicate handoffs for the same requested project', async () => {
 
 test('wires one accessible contextual control through guarded handoff and port recovery', () => {
   const extension = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
-  const lifecycle = fs.readFileSync(path.join(__dirname, '..', 'project-lifecycle.js'), 'utf8');
+  const lifecycle = fs.readFileSync(path.join(__dirname, '..', 'src', 'lifecycle', 'project-lifecycle.js'), 'utf8');
   const webview = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
 
   assert.match(webview, /const primaryAction = projectPrimaryAction\(project\)/);
@@ -123,7 +123,7 @@ test('wires one accessible contextual control through guarded handoff and port r
   assert.match(extension, /handoffProject\(id\)[\s\S]*this\.lifecycle\.handoff\(id\)/);
   assert.match(extension, /async forceCloseProjectPorts\(id, intent, options = \{\}\)[\s\S]*recoverProjectPorts\(recoveryProject, intent/);
   assert.match(extension, /relatedPortProjectIds\([\s\S]*this\.portReservations\.conflicts\(recoveryProject\)[\s\S]*effectiveProjects/);
-  assert.match(extension, /managedPortBlockers\(relatedProjectIds, processRuntime, effectiveProjects\)/);
+  assert.match(extension, /managedPortBlockers\([\s\S]*relatedProjectIds,[\s\S]*processRuntime,[\s\S]*effectiveProjects,[\s\S]*this\.detachedProjectIds[\s\S]*\)/);
   assert.match(extension, /name: owner \? `\$\{owner\.name\} Runlist process`[\s\S]*ports: \[\],[\s\S]*terminateTree: true/);
   assert.match(extension, /protectedPids: new Set\(\[[\s\S]*process\.pid,[\s\S]*process\.ppid/);
   assert.match(extension, /showWarningMessage\([\s\S]*\{ modal: true, detail: confirmation\.detail \}/);

@@ -34,3 +34,22 @@ test('contributes one native project transfer command to the Runlist view', () =
   });
   assert.ok(manifest.activationEvents.includes('onCommand:runlist.transferProjects'));
 });
+
+test('contributes local redacted support diagnostics', () => {
+  const root = path.join(__dirname, '..');
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const command = manifest.contributes.commands.find((item) => (
+    item.command === 'runlist.copySupportDiagnostics'
+  ));
+
+  assert.deepEqual(command, {
+    command: 'runlist.copySupportDiagnostics',
+    title: 'Copy Runlist Support Diagnostics'
+  });
+  assert.ok(manifest.activationEvents.includes('onCommand:runlist.copySupportDiagnostics'));
+  assert.deepEqual(manifest.contributes.configuration.properties['runlist.diagnostics.trace'], {
+    type: 'boolean',
+    default: false,
+    description: 'Include bounded, redacted error details in the local Runlist output and copied support diagnostics.'
+  });
+});

@@ -21,9 +21,9 @@ Runlist is a focused VS Code sidebar for saving, starting, stopping, and opening
 ## Process and port safety
 
 - Support Windows, macOS, and Linux.
-- Treat configured ports as lightweight service metadata, not as a port-management system.
-- Never terminate a process merely because it owns a configured port.
-- Stop only the exact process tree Runlist launched, unless the user supplied an explicit custom stop command.
+- Treat configured ports as lightweight service metadata and an explicit recovery boundary, not as proof that Runlist owns a process.
+- Close an external listener only after showing its exact port and PID in a clear modal warning, receiving explicit confirmation, and revalidating its process identity.
+- Stop the exact process tree Runlist launched by default. Keep confirmed external-listener recovery and explicit custom stop commands as separate user actions.
 - Preserve safe coordination across multiple VS Code windows.
 - Be conservative when ownership or state is uncertain and explain failures clearly.
 
@@ -32,7 +32,7 @@ Runlist is a focused VS Code sidebar for saving, starting, stopping, and opening
 - Work on one issue at a time.
 - Read the complete issue before editing.
 - Add focused regression coverage for changed behavior.
-- Run `npm test`.
+- Run `npm run verify` before pushing (quality gates, unit tests, and extension-host smoke). On Linux hosts use `xvfb-run -a npm run verify` when the smoke suite needs a display.
 - Run `npm run package` before finishing.
 - Review the complete diff for scope creep, regressions, accessibility, and cross-platform behavior.
 - Do not change the extension version, GitHub release, changelog, or VSIX artifact unless the issue explicitly requires it.

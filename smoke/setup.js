@@ -3,7 +3,8 @@ const fs = require('fs');
 const net = require('net');
 const path = require('path');
 const vscode = require('vscode');
-const { readRootProcess } = require('../process-metrics');
+const { readRootProcess } = require('../src/lifecycle/process-metrics');
+const { markSmokeProcessExited, registerSmokeProcess } = require('./run');
 
 async function run() {
   const smokeRoot = requiredEnvironment('RUNLIST_SMOKE_ROOT');
@@ -30,6 +31,8 @@ async function run() {
   const delayedPort = await availableDistinctPort(usedPorts);
   const externalPort = await availableDistinctPort(usedPorts);
   const handoffPort = await availableDistinctPort(usedPorts);
+  const temporarySavedPort = await availableDistinctPort(usedPorts);
+  const temporaryLaunchPort = await availableDistinctPort(usedPorts);
   const readyChildPidPath = path.join(smokeRoot, 'ready-child.pid');
   const readyGrandchildPidPath = path.join(smokeRoot, 'ready-grandchild.pid');
   const customStopPidPath = path.join(smokeRoot, 'custom-stop.pid');
@@ -126,8 +129,29 @@ async function run() {
     folder: projectFolder(workspacePath, 'failure'),
     startCommand: command(nodePath, failurePath, path.join(smokeRoot, 'failure.pid'))
   });
+  await saveProject(api.provider, {
+    name: 'Temporary port smoke project',
+    folder: projectFolder(workspacePath, 'temporary-port'),
+    startCommand: command(
+      nodePath,
+      fixturePath,
+      smokeRoot,
+      'env:RUNLIST_SMOKE_TEMP_PORT',
+      '',
+      '',
+      '0',
+      path.join(smokeRoot, 'temporary-project.pid')
+    ),
+    services: [{
+      name: 'temporary web',
+      port: String(temporarySavedPort),
+      portVariable: 'RUNLIST_SMOKE_TEMP_PORT',
+      url: ''
+    }]
+  });
+  fs.writeFileSync(path.join(smokeRoot, 'temporary-launch-port'), String(temporaryLaunchPort));
 
-  const { upsertProject } = require(path.join(extension.extensionPath, 'project-store'));
+  const { upsertProject } = require(path.join(extension.extensionPath, 'src', 'projects', 'project-store'));
   const untrustedFolder = projectFolder(workspacePath, 'untrusted');
   fs.mkdirSync(untrustedFolder, { recursive: true });
   const untrusted = upsertProject(api.projectsFile, {
@@ -148,7 +172,7 @@ async function run() {
     'Reviewing the complete setup did not approve it.'
   );
 
-  assert.equal(api.provider.projects.length, 9, 'The setup phase did not retain every saved project.');
+  assert.equal(api.provider.projects.length, 10, 'The setup phase did not retain every saved project.');
   const readyStarted = await api.provider.startProject(ready.id);
   assert.equal(readyStarted, true, `The setup host did not start the reload fixture: ${JSON.stringify({
     status: api.provider.getProjectStatus(ready.id),
@@ -173,14 +197,35 @@ async function run() {
     true,
     'The reload fixture did not report its process id.'
   );
+  const readyPid = Number(fs.readFileSync(path.join(smokeRoot, 'ready.pid'), 'utf8'));
+  const readyProcess = await registerSmokeProcess(smokeRoot, readyPid, {
+    kind: 'setup-ready-root',
+    ports: [port],
+    terminateTree: true
+  });
   await waitFor(
     () => fs.existsSync(path.join(smokeRoot, 'ready-child.pid'))
       && fs.existsSync(path.join(smokeRoot, 'ready-grandchild.pid')),
     'The reload fixture did not report its descendant process ids.'
   );
+  const readyChildProcess = await registerSmokeProcess(
+    smokeRoot,
+    Number(fs.readFileSync(readyChildPidPath, 'utf8')),
+    { kind: 'setup-ready-child', terminateTree: false }
+  );
+  const readyGrandchildProcess = await registerSmokeProcess(
+    smokeRoot,
+    Number(fs.readFileSync(readyGrandchildPidPath, 'utf8')),
+    { kind: 'setup-ready-grandchild', terminateTree: false }
+  );
   await waitFor(
     () => fs.existsSync(customStopPidPath),
     'The custom Stop fixture did not report its process id.'
+  );
+  const customStopProcess = await registerSmokeProcess(
+    smokeRoot,
+    Number(fs.readFileSync(customStopPidPath, 'utf8')),
+    { kind: 'setup-custom-stop', terminateTree: true }
   );
   try {
     await waitFor(
@@ -201,21 +246,12 @@ async function run() {
     }));
     assert.fail(`The setup host did not persist exact process identities: ${JSON.stringify({ ownership, probes })}`);
   }
-  const fixturePids = [
-    path.join(smokeRoot, 'ready.pid'),
-    readyChildPidPath,
-    readyGrandchildPidPath,
-    customStopPidPath
-  ].map((pidPath) => Number(fs.readFileSync(pidPath, 'utf8')));
-  const fixtureProcesses = await Promise.all(fixturePids.map(async (pid) => {
-    const identity = (await readRootProcess(pid, process.platform))?.identity;
-    assert.ok(identity, `The setup host could not capture fixture process identity for PID ${pid}.`);
-    return { pid, identity };
-  }));
-  fs.writeFileSync(
-    path.join(smokeRoot, 'fixture-identities.json'),
-    JSON.stringify(fixtureProcesses)
-  );
+  const fixtureProcesses = [
+    readyProcess,
+    readyChildProcess,
+    readyGrandchildProcess,
+    customStopProcess
+  ];
   const shutdownResults = await api.provider.dispose();
   await waitForExactProcessesStopped(
     fixtureProcesses,
@@ -225,6 +261,7 @@ async function run() {
         : result)
     })}`
   );
+  await Promise.all(fixtureProcesses.map((processRecord) => markSmokeProcessExited(smokeRoot, processRecord)));
   process.stdout.write('Smoke setup, isolated storage, view opening, untrusted review, and awaited reload shutdown passed.\n');
 }
 

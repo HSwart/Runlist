@@ -6,18 +6,21 @@ const test = require('node:test');
 const root = path.join(__dirname, '..');
 const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
 
-test('leads with the stylized Runlist preview', () => {
+test('leads with the generated current Runlist preview', () => {
   const screenshotPath = 'media/runlist-preview.png';
   const screenshot = fs.readFileSync(path.join(root, screenshotPath));
 
   assert.ok(readme.indexOf(screenshotPath) < readme.indexOf('## A control panel'));
-  assert.match(readme, /runlist-preview\.png" width="900" alt="Stylized preview/);
+  assert.match(readme, /runlist-preview\.png" width="900" alt="Current Runlist/);
   assert.equal(screenshot.subarray(1, 4).toString('ascii'), 'PNG');
-  assert.ok(screenshot.readUInt32BE(16) >= 1900);
+  assert.ok(screenshot.readUInt32BE(16) >= 1000);
+  assert.ok(screenshot.readUInt32BE(20) >= 700);
 });
 
 test('keeps README positioning and installation claims accurate', () => {
+  assert.match(readme, /Runlist: Local Development Control Panel/);
   assert.match(readme, /Every local app, across every repository/);
+  assert.match(readme, /Start, stop, monitor, and group dev servers, workers, and project commands/);
   assert.match(readme, /optionally let a supported coding agent propose the setup for your approval/);
   assert.match(readme, /asks before closing an external process to free one/);
   assert.match(readme, /revalidates each process identity before termination/);

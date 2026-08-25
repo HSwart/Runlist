@@ -1,8 +1,8 @@
 {
   "name": "runlist",
-  "displayName": "Runlist",
-  "description": "Control local projects across repositories from one focused sidebar.",
-  "version": "0.0.7",
+  "displayName": "Runlist: Local Development Control Panel",
+  "description": "Start, stop, monitor, and group dev servers, workers, and project commands across repositories from one VS Code sidebar.",
+  "version": "0.0.8",
   "publisher": "hankoswart",
   "license": "SEE LICENSE IN LICENSE",
   "icon": "media/runlist.png",
@@ -22,14 +22,26 @@
   },
   "keywords": [
     "local development",
-    "project manager",
+    "development control panel",
+    "dev server",
+    "local dev server",
+    "dev server manager",
+    "local apps",
     "task runner",
-    "developer tools",
-    "projects",
+    "command runner",
+    "script runner",
+    "npm scripts",
+    "project commands",
+    "process manager",
+    "port manager",
     "ports",
+    "localhost",
+    "multi-project",
+    "monorepo",
+    "microservices",
+    "run groups",
+    "developer tools",
     "coding agents",
-    "start",
-    "stop",
     "mcp"
   ],
   "engines": {
@@ -43,7 +55,8 @@
     "onCommand:runlist.addProject",
     "onCommand:runlist.showAgentSetup",
     "onCommand:runlist.transferProjects",
-    "onCommand:runlist.manageGroups"
+    "onCommand:runlist.manageGroups",
+    "onCommand:runlist.copySupportDiagnostics"
   ],
   "main": "./extension.js",
   "extensionKind": [
@@ -70,8 +83,22 @@
         "command": "runlist.manageGroups",
         "title": "Manage Run Groups",
         "icon": "$(run-all)"
+      },
+      {
+        "command": "runlist.copySupportDiagnostics",
+        "title": "Copy Runlist Support Diagnostics"
       }
     ],
+    "configuration": {
+      "title": "Runlist",
+      "properties": {
+        "runlist.diagnostics.trace": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include bounded, redacted error details in the local Runlist output and copied support diagnostics."
+        }
+      }
+    },
     "mcpServerDefinitionProviders": [
       {
         "id": "runlist.projects",
@@ -128,16 +155,27 @@
     }
   },
   "scripts": {
+    "lint": "eslint . --max-warnings=0",
+    "scan:secrets": "node scripts/scan-secrets.js",
     "test": "node --test",
+    "test:critical-coverage": "node scripts/test-critical-coverage.js",
     "test:smoke": "node smoke/run.js",
+    "test:webview": "node scripts/webview-e2e.js",
+    "update:webview-screenshot": "node scripts/webview-e2e.js --update-screenshot",
     "validate:marketplace": "node scripts/validate-marketplace.js --preparation",
     "validate:marketplace:publish": "node scripts/validate-marketplace.js",
     "validate:marketplace:vsix": "node scripts/validate-vsix.js",
-    "package": "npm run validate:marketplace:publish && vsce package --no-dependencies --out releases/runlist.vsix",
+    "validate:sbom": "node scripts/validate-sbom.js",
+    "quality": "npm run lint && npm run scan:secrets && npm run test:critical-coverage && npm run validate:sbom && npm run validate:marketplace:vsix",
+    "verify": "npm run quality && npm test && npm run test:smoke",
+    "package": "npm run validate:marketplace:publish && node scripts/package-vsix.js",
     "publish:marketplace": "npm run validate:marketplace:publish && npm run validate:marketplace:vsix && vsce publish --azure-credential --packagePath releases/runlist.vsix"
   },
   "devDependencies": {
     "@vscode/test-electron": "3.1.0",
-    "@vscode/vsce": "3.9.2"
+    "@vscode/vsce": "3.9.2",
+    "axe-core": "4.13.0",
+    "eslint": "10.9.1",
+    "playwright-core": "1.62.1"
   }
 }

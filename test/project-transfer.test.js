@@ -3,14 +3,14 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { readProjects, writeProjects } = require('../project-store');
+const { readProjects, writeProjects } = require('../src/projects/project-store');
 const {
   applyProjectImport,
   exportProjectDocument,
   parseImportDocument,
   previewProjectImport,
   ProjectTransferError
-} = require('../project-transfer');
+} = require('../src/projects/project-transfer');
 
 function transferFixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-transfer-'));
@@ -40,13 +40,13 @@ function project(id, name, folder, overrides = {}) {
   };
 }
 
-test('exports selected or complete project lists as version-one documents', (t) => {
+test('exports selected or complete project lists as current documents', (t) => {
   const fixture = transferFixture(t);
   const first = project('first', 'First', fixture.folder('first'));
   const second = project('second', 'Second', fixture.folder('second'), { pinned: true });
 
   assert.deepEqual(JSON.parse(exportProjectDocument([first])), {
-    schemaVersion: 1,
+    schemaVersion: 5,
     projects: [first]
   });
   assert.deepEqual(parseImportDocument(exportProjectDocument([first, second])), [first, second]);
@@ -58,7 +58,7 @@ test('rejects legacy, future, and oversized import documents', () => {
     (error) => error instanceof ProjectTransferError && error.code === 'UNSUPPORTED_IMPORT_FORMAT'
   );
   assert.throws(
-    () => parseImportDocument('{"schemaVersion":2,"projects":[]}'),
+    () => parseImportDocument('{"schemaVersion":6,"projects":[]}'),
     (error) => error instanceof ProjectTransferError && error.code === 'UNSUPPORTED_IMPORT_VERSION'
   );
   assert.throws(
@@ -163,6 +163,33 @@ test('applies a confirmed preview with one versioned store replacement', (t) => 
   assert.equal(result[1].reviewRequired, true);
   assert.equal(fs.readFileSync(`${fixture.projectsFile}.bak`, 'utf8'), before);
   assert.deepEqual(readProjects(fixture.projectsFile), result);
+});
+
+test('current exports clear optional project metadata omitted by the source', (t) => {
+  const fixture = transferFixture(t);
+  const folder = fixture.folder('replace-metadata');
+  const existing = {
+    ...project('existing-id', 'Existing', folder),
+    pinned: true,
+    tags: ['frontend'],
+    launchProfiles: [{
+      id: 'tests',
+      name: 'Tests',
+      startCommand: 'npm test',
+      services: []
+    }],
+    selectedLaunchProfileId: 'tests'
+  };
+  const imported = parseImportDocument(exportProjectDocument([
+    project('incoming-id', 'Existing', folder)
+  ]));
+
+  const preview = previewProjectImport([existing], imported);
+  assert.equal(preview.entries[0].status, 'update');
+  assert.equal(preview.entries[0].project.pinned, undefined);
+  assert.equal(preview.entries[0].project.tags, undefined);
+  assert.equal(preview.entries[0].project.launchProfiles, undefined);
+  assert.equal(preview.entries[0].project.selectedLaunchProfileId, undefined);
 });
 
 test('rejects a stale preview without replacing newer project data', (t) => {
