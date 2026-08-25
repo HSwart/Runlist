@@ -1,9 +1,11 @@
 const { execFile } = require('child_process');
 const {
   processIdentityDecision,
-  readProcessIdentity
+  readProcessIdentity,
+  windowsProcessIdentity
 } = require('../lifecycle/process-identity');
 const { terminateProcessTree } = require('../lifecycle/project-process');
+const { windowsStartedAtPowerShellExpression } = require('../lifecycle/process-metrics');
 
 const COMMAND_TIMEOUT_MS = 10000;
 const TERMINATION_GRACE_MS = 3000;
@@ -247,7 +249,7 @@ function windowsProcessDetailsScript(pids) {
     '  $ownerProcess=Get-Process -Id ([int]$ownerProcessId) -ErrorAction SilentlyContinue',
     '  if($null -eq $ownerProcess){continue}',
     '  try {',
-    '    $startedAt=$ownerProcess.StartTime.ToUniversalTime().Ticks.ToString()',
+    `    $startedAt=${windowsStartedAtPowerShellExpression('$ownerProcess')}`,
     '    $rows += [pscustomobject]@{pid=[int]$ownerProcess.Id;name=[string]$ownerProcess.ProcessName;startedAt=$startedAt}',
     '  } catch { continue }',
     '}',
@@ -268,9 +270,9 @@ function parseWindowsProcessDetails(output) {
   const rows = Array.isArray(parsed) ? parsed : [parsed];
   return new Map(rows.map((row) => {
     const pid = Number(row?.pid);
-    const startedAt = String(row?.startedAt || '');
-    return validPid(pid) && startedAt
-      ? [pid, { name: processName(row?.name), identity: `${pid}:${startedAt}` }]
+    const identity = windowsProcessIdentity(pid, row?.startedAt);
+    return validPid(pid) && identity
+      ? [pid, { name: processName(row?.name), identity }]
       : undefined;
   }).filter(Boolean));
 }

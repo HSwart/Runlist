@@ -26,6 +26,31 @@ test('uses one canonical Linux identity for synchronous and asynchronous capture
   assert.equal(asynchronous, synchronous);
 });
 
+test('uses one canonical Windows identity for synchronous and asynchronous capture', async () => {
+  const ticks = '638912345678901234';
+  const synchronous = readProcessIdentitySync(303, 'win32', {
+    execFileSync: () => `T${ticks}`
+  });
+  const asynchronous = await readProcessIdentity(303, 'win32', {
+    runFile: async () => JSON.stringify({
+      pid: 303,
+      parentPid: 1,
+      startedAt: `T${ticks}`,
+      cpuSeconds: 0.5,
+      memoryBytes: 1024
+    })
+  });
+
+  assert.equal(synchronous, `303:${ticks}`);
+  assert.equal(asynchronous, synchronous);
+  assert.equal(
+    readProcessIdentitySync(303, 'win32', {
+      execFileSync: () => ticks
+    }),
+    `303:${ticks}`
+  );
+});
+
 test('compares canonical identities while remaining safe during persisted-format upgrades', () => {
   assert.equal(
     processIdentityDecision('303:987654', '303:linux:987654', 'linux', 303),

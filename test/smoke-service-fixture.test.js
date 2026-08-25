@@ -330,6 +330,103 @@ test('outer cleanup leaves a replacement helper running when identity changes at
   );
 });
 
+test('smoke termination retries transient unavailable Windows identities before signaling', async (t) => {
+  const smokeRunner = loadSmokeRunnerForTest();
+  const helper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    stdio: 'ignore',
+    ...projectProcessSpawnOptions()
+  });
+  const identity = '404:638912345678901234';
+  const record = {
+    pid: helper.pid,
+    identity,
+    kind: 'unavailable-retry',
+    ports: [],
+    terminateTree: false,
+    state: 'running'
+  };
+  let reads = 0;
+  const signals = [];
+  const originalKill = process.kill;
+  process.kill = (pid, signal) => {
+    if (pid === helper.pid) {
+      if (signal === 0) {
+        return true;
+      }
+      signals.push([pid, signal]);
+      return;
+    }
+    return originalKill(pid, signal);
+  };
+  t.after(() => {
+    process.kill = originalKill;
+    try {
+      originalKill(helper.pid, 'SIGTERM');
+    } catch {
+      // Helper may already be gone after a successful exact stop.
+    }
+  });
+
+  await smokeRunner.terminateSmokeProcess(record, {
+    platform: 'win32',
+    identityRetryDelayMs: 0,
+    readProcessIdentity: async () => {
+      reads += 1;
+      return reads < 3 ? undefined : identity;
+    },
+    kill: (pid) => {
+      signals.push([pid, 'kill']);
+      originalKill(helper.pid, 'SIGTERM');
+    }
+  });
+
+  assert.equal(reads, 4, 'expected three verification reads plus one pre-kill read');
+  assert.deepEqual(signals, [[helper.pid, 'kill']]);
+});
+
+test('smoke termination reports unavailable helper identity without signaling', async (t) => {
+  const smokeRunner = loadSmokeRunnerForTest();
+  const helper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    stdio: 'ignore',
+    ...projectProcessSpawnOptions()
+  });
+  const record = {
+    pid: helper.pid,
+    identity: '404:638912345678901234',
+    kind: 'unavailable-identity',
+    ports: [],
+    terminateTree: false,
+    state: 'running'
+  };
+  const signals = [];
+  const originalKill = process.kill;
+  process.kill = (pid, signal) => {
+    if (pid === helper.pid && signal !== 0) {
+      signals.push([pid, signal]);
+    }
+    return originalKill(pid, signal);
+  };
+  t.after(() => {
+    process.kill = originalKill;
+    try {
+      originalKill(helper.pid, 'SIGTERM');
+    } catch {
+      // Helper may already be gone.
+    }
+  });
+
+  await assert.rejects(
+    () => smokeRunner.terminateSmokeProcess(record, {
+      platform: 'win32',
+      identityAttempts: 2,
+      identityRetryDelayMs: 0,
+      readProcessIdentity: async () => undefined
+    }),
+    /could not re-verify helper identity/i
+  );
+  assert.deepEqual(signals, []);
+});
+
 test('outer cleanup recovers a valid backup without overwriting corrupt manifest evidence', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-smoke-manifest-recovery-'));
   const smokeRunner = loadSmokeRunnerForTest();

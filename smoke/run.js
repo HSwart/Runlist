@@ -160,15 +160,12 @@ async function terminateSmokeProcess(processRecord, options = {}) {
   const readIdentity = options.readProcessIdentity || (async (pid, targetPlatform = platform) => (
     await readRootProcess(pid, targetPlatform)
   )?.identity);
-  const currentIdentity = await readIdentity(processRecord.pid, platform);
-  if (currentIdentity !== processRecord.identity) {
-    throw new Error('Smoke cleanup refused a changed helper identity.');
-  }
+  await assertSmokeProcessIdentity(processRecord, readIdentity, platform, options);
   if (platform === 'win32' && processRecord.terminateTree === false) {
-    const terminationIdentity = await readIdentity(processRecord.pid, platform);
-    if (terminationIdentity !== processRecord.identity) {
-      throw new Error('Smoke cleanup refused a changed helper identity.');
-    }
+    await assertSmokeProcessIdentity(processRecord, readIdentity, platform, {
+      ...options,
+      identityAttempts: 1
+    });
     const kill = options.kill || process.kill;
     try {
       kill(processRecord.pid);
@@ -187,6 +184,29 @@ async function terminateSmokeProcess(processRecord, options = {}) {
     readProcessIdentity: readIdentity,
     terminateTree: processRecord.terminateTree !== false
   });
+}
+
+async function assertSmokeProcessIdentity(processRecord, readIdentity, platform, options = {}) {
+  const attempts = Math.max(1, options.identityAttempts ?? (platform === 'win32' ? 3 : 1));
+  const delayMs = options.identityRetryDelayMs ?? 25;
+  let observed;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    observed = await readIdentity(processRecord.pid, platform);
+    if (typeof observed === 'string' && observed === processRecord.identity) {
+      return observed;
+    }
+    if (typeof observed === 'string' && observed !== processRecord.identity) {
+      throw new Error(
+        `Smoke cleanup refused a changed helper identity (pid ${processRecord.pid}; expected ${processRecord.identity}; observed ${observed}).`
+      );
+    }
+    if (attempt + 1 < attempts) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw new Error(
+    `Smoke cleanup could not re-verify helper identity for PID ${processRecord.pid} (expected ${processRecord.identity}; observed ${observed ?? 'unavailable'}).`
+  );
 }
 
 async function waitForSmokeProcessStopped(processRecord, timeoutMs = SMOKE_PROCESS_IDENTITY_TIMEOUT_MS) {
