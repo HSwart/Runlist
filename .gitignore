@@ -59,3 +59,6 @@ Thumbs.db
 
 # Local deferred product ideas
 /FUTURE_FEATURE_IDEAS.local.md
+
+# Local Graphify files
+graphify-out/
