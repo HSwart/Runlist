@@ -114,6 +114,13 @@ function validateMarketplace(root, options = {}) {
   if (readme.includes('github.com/HSwart/Runlist/releases/download/')) {
     errors.push('README.md must use Marketplace installation instead of a direct VSIX download');
   }
+  const readmeImageSources = [...readme.matchAll(/<img\b[^>]*\bsrc="([^"]+)"/gi)].map((match) => match[1]);
+  if (readmeImageSources.some((src) => /^(?:https?:)?\/\//i.test(src) || src.includes('github.com/'))) {
+    errors.push('README.md images must use relative media/ paths');
+  }
+  if (readme.includes('github.com/HSwart/Runlist/raw/') || readme.includes('raw.githubusercontent.com')) {
+    errors.push('README.md must not hotlink GitHub raw/HEAD image URLs');
+  }
   const marketplaceUrl = `https://marketplace.visualstudio.com/items?itemName=${manifest.publisher}.${manifest.name}`;
   if (!readme.includes('### Install from the VS Code Marketplace')) {
     errors.push('README.md must explain how to install from the VS Code Marketplace');

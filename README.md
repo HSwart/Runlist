@@ -1,18 +1,28 @@
 <div align="center">
   <img src="media/runlist.png" width="80" height="80" alt="Runlist logo">
   <h1>Runlist: Local Development Control Panel</h1>
-  <p><strong>Every local app, across every repository, in one focused VS Code control panel.</strong></p>
-  <p>Start, stop, monitor, and group dev servers, workers, and project commands across repositories from one sidebar.</p>
-  <p>Set projects up yourself—or optionally let a supported coding agent propose the setup for your approval. Runlist checks configured ports before start and asks before closing an external process to free one.</p>
 </div>
 
----
+<p align="center">
+  <img src="media/gallery-01-hero.png" alt="Runlist sidebar in VS Code with running and stopped local projects">
+</p>
+
+- One sidebar for every local app.
+- Start and stop from the card.
+- Ports you can act on.
+- Run groups.
 
 <p align="center">
-  <img src="media/runlist-preview.png" width="900" alt="Current Runlist project and group controls inside VS Code">
+  <img src="media/gallery-02-status.png" alt="Running and stopped project cards with ports and start or stop controls">
+</p>
+
+<p align="center">
+  <img src="media/gallery-03-features.png" alt="Start and stop, ports, and run groups">
 </p>
 
 ## A control panel for local projects
+
+Every local app, across every repository, in one focused VS Code control panel. Start, stop, monitor, and group dev servers, workers, and project commands across repositories from one sidebar. Set projects up yourself—or optionally let a supported coding agent propose the setup for your approval. Runlist checks configured ports before start and asks before closing an external process to free one.
 
 Runlist keeps a reusable list of local projects from different repositories inside VS Code. It combines saved commands with project status, cautious port checks, quick links, and recent output, so it is more than a list of tasks to run.
 
@@ -95,13 +105,7 @@ Runlist can also give a supported coding agent a guided setup skill. The agent i
 2. Select **Set up** beside the agent you use.
 3. Restart Codex after setup. If an already-open Claude Code session does not find the new skill, restart it too.
 
-Then open the project with your agent and use its Runlist skill:
-
-| Agent | What to use |
-| --- | --- |
-| **GitHub Copilot** | `/runlist` in Copilot CLI, or ask Copilot agent mode to set up the project in Runlist. |
-| **Codex** | `$runlist` |
-| **Claude Code** | `/runlist` |
+Then open the project with your agent and use its Runlist skill. The Copilot, Codex, and Claude Code commands are listed under [Reference](#reference).
 
 You can also describe what you want naturally. For example:
 
@@ -115,7 +119,15 @@ After updating Runlist, return to **Agent connections** and select **Refresh set
 
 ## Day-to-day use
 
-Runlist keeps the everyday controls simple:
+Runlist keeps the everyday controls simple. The full control list is under [Reference](#reference).
+
+Removing a project from Runlist does **not** delete the project or any of its files.
+
+If Runlist finds a configured service already running but did not start it itself, the project is labelled **Detected running**. Without a custom stop command, its Stop control asks for confirmation before closing the exact processes listening on that project's configured ports. The same confirmed action remains directly available under **Close configured ports…** when a custom stop command exists.
+
+## Reference
+
+### Control
 
 | Control | What it does |
 | --- | --- |
@@ -145,9 +157,13 @@ Runlist keeps the everyday controls simple:
 | **Import or export** | Uses a JSON file to move one or all saved setups. Runlist previews additions, updates, skipped entries, and invalid entries before import; changed commands require review before they can run. Exported files include saved command text, so store and share them carefully. |
 | **…** | Opens the app or project folder, opens a terminal in that folder, copies the saved project path, and provides recent output, edit, or remove actions. |
 
-Removing a project from Runlist does **not** delete the project or any of its files.
+### Agent
 
-If Runlist finds a configured service already running but did not start it itself, the project is labelled **Detected running**. Without a custom stop command, its Stop control asks for confirmation before closing the exact processes listening on that project's configured ports. The same confirmed action remains directly available under **Close configured ports…** when a custom stop command exists.
+| Agent | What to use |
+| --- | --- |
+| **GitHub Copilot** | `/runlist` in Copilot CLI, or ask Copilot agent mode to set up the project in Runlist. |
+| **Codex** | `$runlist` |
+| **Claude Code** | `/runlist` |
 
 ## Contributing
 
