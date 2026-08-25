@@ -1,8 +1,8 @@
 <div align="center">
   <img src="media/runlist.png" width="80" height="80" alt="Runlist logo">
-  <h1>Runlist</h1>
+  <h1>Runlist: Local Development Control Panel</h1>
   <p><strong>Every local app, across every repository, in one focused VS Code control panel.</strong></p>
-  <p>Save each project's folder and commands once, then start, stop, inspect, and open it from the sidebar.</p>
+  <p>Start, stop, monitor, and group dev servers, workers, and project commands across repositories from one sidebar.</p>
   <p>Set projects up yourself—or optionally let a supported coding agent propose the setup for your approval. Runlist checks configured ports before start and asks before closing an external process to free one.</p>
 </div>
 
