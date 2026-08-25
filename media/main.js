@@ -2,6 +2,11 @@ const vscode = acquireVsCodeApi();
 const state = window.runlistState;
 const { createWebviewMessageRouter } = window.RunlistMessageRouter;
 const { projectPrimaryAction } = window.RunlistProjectActions;
+const {
+  projectDisplayedStatus,
+  projectStatusAnnouncement,
+  projectStatusFullLabels
+} = window.RunlistProjectStatus;
 const app = document.getElementById('app');
 const persistedWebviewState = vscode.getState() || {};
 const detailTabState = { ...(persistedWebviewState.detailTabs || {}) };
@@ -285,12 +290,6 @@ function readinessServiceList(services) {
     .join(', ');
 }
 
-function readinessServiceListText(services) {
-  return (services || [])
-    .map((service) => `${String(service.name)} :${String(service.port)}`)
-    .join(', ');
-}
-
 function serviceLocalAddress(service) {
   const fullUrl = service.url || `http://localhost:${service.port}`;
   try {
@@ -310,41 +309,28 @@ function serviceLocalAddress(service) {
 }
 
 function readinessDetailsHtml(project, status) {
-  if (!['not-ready', 'not-responding'].includes(status)) {
-    return '';
-  }
-
-  const details = project.serviceReadiness || {};
   const rows = [];
-  if (details.ready?.length) {
-    rows.push(`<span><strong>Ready:</strong> ${readinessServiceList(details.ready)}</span>`);
+  const code = project.reviewRequired ? 'review-required' : (status || 'stopped');
+  if (!project.forceClosing && !project.handoffInProgress) {
+    const full = projectStatusFullLabels(project)[code];
+    const primary = projectDisplayedStatus(project);
+    if (full && full !== primary) {
+      rows.push(`<span><strong>${escapeHtml(full)}</strong></span>`);
+    }
   }
-  if (details.waiting?.length) {
-    rows.push(`<span><strong>Still checking:</strong> ${readinessServiceList(details.waiting)}</span>`);
-  }
-  if (details.notResponding?.length) {
-    rows.push(`<span><strong>Waiting for web response:</strong> ${readinessServiceList(details.notResponding)}</span>`);
+  if (['not-ready', 'not-responding'].includes(status)) {
+    const details = project.serviceReadiness || {};
+    if (details.ready?.length) {
+      rows.push(`<span><strong>Ready:</strong> ${readinessServiceList(details.ready)}</span>`);
+    }
+    if (details.waiting?.length) {
+      rows.push(`<span><strong>Still checking:</strong> ${readinessServiceList(details.waiting)}</span>`);
+    }
+    if (details.notResponding?.length) {
+      rows.push(`<span><strong>Waiting for web response:</strong> ${readinessServiceList(details.notResponding)}</span>`);
+    }
   }
   return rows.length ? `<div class="project-readiness-detail">${rows.join('')}</div>` : '';
-}
-
-function readinessDetailsText(project, status) {
-  if (!['not-ready', 'not-responding'].includes(status)) {
-    return '';
-  }
-
-  const details = project.serviceReadiness || {};
-  const rows = [];
-  if (details.ready?.length) {
-    rows.push(`Ready: ${readinessServiceListText(details.ready)}`);
-  }
-  if (details.waiting?.length) {
-    rows.push(`Still checking: ${readinessServiceListText(details.waiting)}`);
-  }
-  if (details.notResponding?.length) {
-    rows.push(`Waiting for web response: ${readinessServiceListText(details.notResponding)}`);
-  }
-  return rows.join('. ');
 }
 
 function formatElapsed(milliseconds) {
@@ -873,47 +859,6 @@ function tagFilterHtml() {
     </section>`;
 }
 
-function projectStatusLabels(project) {
-  const conflict = project.portConflict;
-  const conflictOwnerName = conflict?.ownerName || 'Another app';
-  const blockedServiceCount = (project.services || [])
-    .filter((service) => project.openPorts?.includes(service.port)).length;
-  const blockedServiceLabel = `${blockedServiceCount || 1} ${blockedServiceCount === 1 ? 'service' : 'services'} blocked`;
-  return {
-    running: 'Running',
-    starting: 'Starting…',
-    'not-ready': 'Taking longer…',
-    'not-responding': 'Web service not responding',
-    'ownership-lost': 'Running — control unavailable',
-    stopping: 'Stopping…',
-    active: project.httpUnresponsive ? 'Detected, web service not responding' : 'Detected running',
-    'port-in-use': conflict?.ownerName ? `${blockedServiceLabel} by ${conflictOwnerName}` : blockedServiceLabel,
-    'port-in-use-unknown': blockedServiceLabel,
-    'review-required': 'Review setup',
-    unsupported: 'Local lifecycle only',
-    stopped: 'Stopped'
-  };
-}
-
-function projectDisplayedStatus(project) {
-  const projectStatus = project.status || 'stopped';
-  const displayStatus = project.reviewRequired ? 'review-required' : projectStatus;
-  const statusLabels = projectStatusLabels(project);
-  const conflictOwnerName = project.portConflict?.ownerName || 'Another app';
-  return project.forceClosing
-    ? 'Closing processes…'
-    : project.handoffInProgress
-      ? `Switching from ${conflictOwnerName}…`
-      : statusLabels[displayStatus];
-}
-
-function projectStatusAnnouncement(project) {
-  const projectStatus = project.status || 'stopped';
-  const displayedStatus = projectDisplayedStatus(project) || 'Stopped';
-  const details = readinessDetailsText(project, projectStatus);
-  return `${project.name}: ${displayedStatus}${details ? ` ${details}` : ''}`;
-}
-
 function invalidateProjectPreviewLoad() {
   previewLoadGeneration += 1;
   clearTimeout(previewLoadTimer);
@@ -975,6 +920,7 @@ function renderList() {
         ${icon('folder', 'empty-icon')}
         <h2>No projects yet</h2>
         <p>Save a project folder and its commands once, then start it from here.</p>
+        ${state.lifecycleWindowSupported === false ? `<p>Start and Stop work for apps on this computer. You can still save projects here. Remote SSH, WSL, Dev Containers, GitHub Codespaces, VS Code Tunnels, and Windows WSL network paths will not start or stop processes in this release.</p>` : ''}
         <button class="primary-button" data-action="show-add">Add project</button>
       </section>`;
     firstListRender = false;
@@ -994,6 +940,10 @@ function renderList() {
       <section id="route-notice" class="diagnosis-notice" role="status" aria-live="polite" aria-atomic="true">
         <strong>Diagnosis closed</strong>
         <p>${escapeHtml(state.routeNotice)}</p>
+      </section>` : ''}
+    ${state.lifecycleWindowSupported === false ? `
+      <section class="diagnosis-notice" role="status" aria-live="polite">
+        <p>Start and Stop work for apps on this computer. Remote SSH, WSL, Dev Containers, GitHub Codespaces, VS Code Tunnels, and Windows WSL network paths can save and list projects only.</p>
       </section>` : ''}
     ${runGroupsHtml()}
     ${state.stopAllCount > 1 ? `

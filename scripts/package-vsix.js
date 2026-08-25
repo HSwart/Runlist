@@ -19,6 +19,7 @@ const REVIEWED_PACKAGE_FILES = Object.freeze([
   'media/main.js',
   'media/message-router.js',
   'media/project-actions.js',
+  'media/project-status-display.js',
   'media/runlist-preview.png',
   'media/runlist.png',
   'media/runlist.svg',

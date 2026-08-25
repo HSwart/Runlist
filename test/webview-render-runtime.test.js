@@ -166,6 +166,7 @@ function renderNonEmptyProjectList(projects = [{
         return { action: 'start', disabled: false, label: 'Start Example', mode: 'start' };
       }
     },
+    RunlistProjectStatus: require('../media/project-status-display'),
     previewFrame,
     addEventListener(type, handler) {
       if (type === 'message') {
@@ -973,6 +974,10 @@ test('keeps search focus and caret through a rerender and preserves empty state'
   result.state.projects = [];
   result.rerender();
   assert.match(result.app.innerHTML, /No projects yet/);
+
+  result.state.lifecycleWindowSupported = false;
+  result.rerender();
+  assert.match(result.app.innerHTML, /Remote SSH, WSL, Dev Containers/);
 });
 
 test('restores selection only for search focus in a fresh webview document', () => {

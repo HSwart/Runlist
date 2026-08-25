@@ -777,10 +777,11 @@ test('uses VS Code URI forwarding for service health and browser opening', () =>
 test('shows a clear nonresponding state without changing stop safety', () => {
   const root = path.join(__dirname, '..');
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
+  const statusDisplay = fs.readFileSync(path.join(root, 'media', 'project-status-display.js'), 'utf8');
   const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
 
-  assert.match(webview, /'not-responding': 'Web service not responding'/);
-  assert.match(webview, /project\.httpUnresponsive \? 'Detected, web service not responding' : 'Detected running'/);
+  assert.match(statusDisplay, /'not-responding': 'Web service not responding'/);
+  assert.match(statusDisplay, /project\.httpUnresponsive \? 'Detected, web service not responding' : 'Detected running'/);
   assert.match(webview, /const statusClass = projectStatus === 'active' && project\.httpUnresponsive[\s\S]*\? 'not-responding'[\s\S]*: displayStatus/);
   assert.match(webview, /project-status status-\$\{statusClass\}/);
   assert.match(webview, /\['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active'\]\.includes\(projectStatus\)/);
@@ -793,9 +794,11 @@ test('shows slow startup as ongoing service checks rather than a failure', () =>
   const root = path.join(__dirname, '..');
   const extension = readShippedHostSource(root);
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
+  const statusDisplay = fs.readFileSync(path.join(root, 'media', 'project-status-display.js'), 'utf8');
   const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
 
-  assert.match(webview, /'not-ready': 'Taking longer…'/);
+  assert.match(statusDisplay, /'not-ready': 'Taking longer…'/);
+  assert.match(statusDisplay, /if \(code === 'not-ready'\) \{[\s\S]*return 'starting'/);
   assert.match(webview, /notReadyCount[\s\S]*taking longer/);
   assert.match(webview, /<strong>Ready:<\/strong>/);
   assert.match(webview, /<strong>Still checking:<\/strong>/);

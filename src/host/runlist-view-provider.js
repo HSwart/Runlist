@@ -3886,6 +3886,9 @@ class RunlistViewProvider {
     const projectActionsUri = this.view.webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'media', 'project-actions.js')
     );
+    const projectStatusUri = this.view.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, 'media', 'project-status-display.js')
+    );
     const nonce = crypto.randomBytes(16).toString('base64');
     this.webviewMessageToken = nonce;
     const projects = this.projects;
@@ -4138,7 +4141,9 @@ class RunlistViewProvider {
       } : undefined,
       projects: stateProjects,
       runningAppIds: runningAppProjectIds(stateProjects),
-      stopAllCount: stoppableProjectIds(stateProjects).length
+      stopAllCount: stoppableProjectIds(stateProjects).length,
+      lifecycleWindowSupported: this.lifecycleCapability.supported !== false,
+      lifecycleWindowReason: this.lifecycleCapability.reason || ''
     };
     const expandedPreview = stateProjects.find((project) => project.previewExpanded);
     const runningAppIdSet = new Set(state.runningAppIds.map(String));
@@ -4162,6 +4167,7 @@ class RunlistViewProvider {
           <main id="app"></main>
           <script nonce="${nonce}" src="${messageRouterUri}"></script>
           <script nonce="${nonce}" src="${projectActionsUri}"></script>
+          <script nonce="${nonce}" src="${projectStatusUri}"></script>
           <script nonce="${nonce}">window.runlistState = ${safeJson(state)};</script>
           <script nonce="${nonce}" src="${scriptUri}"></script>
         </body>

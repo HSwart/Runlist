@@ -298,7 +298,10 @@ test('loads the router before the webview entry point and uses one message liste
   const extension = readShippedHostSource(root);
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
 
-  assert.match(extension, /message-router\.js[\s\S]*src="\$\{messageRouterUri\}"[\s\S]*src="\$\{scriptUri\}"/);
+  assert.match(
+    extension,
+    /message-router\.js[\s\S]*src="\$\{messageRouterUri\}"[\s\S]*src="\$\{projectActionsUri\}"[\s\S]*src="\$\{projectStatusUri\}"[\s\S]*src="\$\{scriptUri\}"/
+  );
   assert.match(webview, /createWebviewMessageRouter\(\{[\s\S]*hostMessageHandlers/);
   assert.equal((webview.match(/window\.addEventListener\('message'/g) || []).length, 1);
 });

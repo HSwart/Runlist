@@ -14,7 +14,7 @@ test('validates Marketplace metadata for the selected publisher and release', ()
   assert.equal(manifest.displayName, 'Runlist: Local Development Control Panel');
   assert.equal(
     manifest.description,
-    'Start, stop, monitor, and group dev servers, workers, and project commands across repositories from one VS Code sidebar.'
+    'Start, stop, monitor, and group local apps on the same computer as this VS Code window.'
   );
   assert.ok(manifest.keywords.includes('dev server'));
   assert.ok(manifest.keywords.includes('process manager'));
@@ -81,6 +81,23 @@ test('requires extension-host smoke with the supported CI session commands', () 
   assert.match(workflow, /runs-on:\s*windows-latest/);
   assert.equal((workflow.match(/timeout-minutes:\s*20/g) || []).length, 2);
   assert.doesNotMatch(workflow, /continue-on-error:\s*true/);
+});
+
+test('names where Start and Stop work before Local lifecycle only', () => {
+  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+  const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
+  const manifest = require('../package.json');
+
+  assert.match(manifest.description, /same computer as this VS Code window/i);
+  assert.match(readme, /same computer/i);
+  assert.match(readme, /Remote SSH/);
+  assert.match(readme, /WSL/);
+  assert.match(readme, /Dev Containers/);
+  assert.match(readme, /Codespaces/);
+  assert.match(readme, /Tunnels/);
+  assert.match(readme, /WSL network path/);
+  assert.match(webview, /lifecycleWindowSupported === false/);
+  assert.match(webview, /Windows WSL network paths will not start or stop processes/);
 });
 
 test('passes strict Marketplace publication validation', () => {
