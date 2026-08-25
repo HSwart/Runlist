@@ -154,6 +154,8 @@ function withProjectStoreLock(filePath, operation, options = {}) {
       token
     }),
     diagnose: (event, details) => emitProjectStoreDiagnostic(filePath, event, details),
+    diagnoseImmediate: options.diagnoseImmediate,
+    diagnoseTimeout: options.diagnoseTimeout,
     heldLocks: HELD_STORE_LOCKS,
     lockKind: 'project-store',
     lockPath,
@@ -183,6 +185,51 @@ function withProjectStoreLock(filePath, operation, options = {}) {
     ),
     wait: options.wait
   }, operation);
+}
+
+async function withProjectStoreLockAsync(filePath, operation, options = {}) {
+  const retryMs = options.retryMs ?? STORE_LOCK_RETRY_MS;
+  const timeoutMs = options.timeoutMs ?? STORE_LOCK_MAX_ATTEMPTS * STORE_LOCK_RETRY_MS;
+  const now = options.now || Date.now;
+  const delay = options.delay || ((milliseconds) => new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  }));
+  const startedAt = now();
+  let attemptCount = 0;
+
+  while (true) {
+    attemptCount += 1;
+    try {
+      const result = withProjectStoreLock(filePath, operation, {
+        maxAttempts: 1,
+        retryMs: 0,
+        wait: () => undefined,
+        diagnoseImmediate: attemptCount === 1,
+        diagnoseTimeout: false
+      });
+      if (attemptCount > 1) {
+        emitProjectStoreDiagnostic(filePath, 'lock.acquired', {
+          reasonCode: 'after-contention',
+          attemptCount,
+          lockKind: 'project-store'
+        });
+      }
+      return result;
+    } catch (error) {
+      if (!(error instanceof ProjectStoreError) || error.code !== 'STORE_BUSY') {
+        throw error;
+      }
+      if (now() - startedAt >= timeoutMs) {
+        emitProjectStoreDiagnostic(filePath, 'lock.timeout', {
+          reasonCode: 'owner-active-or-uncertain',
+          attemptCount,
+          lockKind: 'project-store'
+        });
+        throw error;
+      }
+      await delay(retryMs);
+    }
+  }
 }
 
 function projectStoreLockRecordIsAbandoned(record, options = {}) {
@@ -1256,6 +1303,7 @@ module.exports = {
   toggleProjectPinned,
   upsertProject,
   upsertRunGroup,
+  withProjectStoreLockAsync,
   withProjectStoreLock,
   writeFileAtomically,
   writeProjects

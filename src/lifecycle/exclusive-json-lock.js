@@ -78,10 +78,12 @@ function withExclusiveJsonLock(options, operation) {
 
   const current = acquired ? options.observe() : undefined;
   if (!acquired || options.recordFromObservation(current)?.token !== token) {
-    diagnose(options, options.events?.timeout || 'lock.timeout', {
-      reasonCode: 'owner-active-or-uncertain',
-      attemptCount
-    });
+    if (options.diagnoseTimeout !== false) {
+      diagnose(options, options.events?.timeout || 'lock.timeout', {
+        reasonCode: 'owner-active-or-uncertain',
+        attemptCount
+      });
+    }
     throw options.timeoutError();
   }
 

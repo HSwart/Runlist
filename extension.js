@@ -161,7 +161,8 @@ const {
   selectProjectLaunchProfile,
   subscribeProjectStoreDiagnostics,
   toggleProjectPinned,
-  upsertRunGroup
+  upsertRunGroup,
+  withProjectStoreLockAsync
 } = require('./src/projects/project-store');
 
 const STORAGE_KEY = 'runlist.projects';
@@ -368,6 +369,10 @@ class RunlistViewProvider {
     let lockSnapshot;
     return runProjectTransferWorkflow({
       projectsFile: this.projectsFile,
+      withProjectStoreLock: (operation) => withProjectStoreLockAsync(
+        this.projectsFile,
+        operation
+      ),
       window: vscode.window,
       workspace: vscode.workspace,
       isProjectActive: (project) => {
@@ -427,11 +432,15 @@ class RunlistViewProvider {
       projects: this.projects,
       window: vscode.window,
       saveGroup: async (group, expectedGroup) => {
-        upsertRunGroup(this.projectsFile, group, { expectedGroup });
+        await withProjectStoreLockAsync(this.projectsFile, () => {
+          upsertRunGroup(this.projectsFile, group, { expectedGroup });
+        });
         this.renderProjectList();
       },
       removeGroup: async (id, expectedGroup) => {
-        removeRunGroup(this.projectsFile, id, { expectedGroup });
+        await withProjectStoreLockAsync(this.projectsFile, () => {
+          removeRunGroup(this.projectsFile, id, { expectedGroup });
+        });
         this.runGroupStates.delete(id);
         this.renderProjectList();
       },
@@ -478,7 +487,9 @@ class RunlistViewProvider {
       if (!group || this.runGroupStates.get(id)?.busy) {
         return false;
       }
-      upsertRunGroup(this.projectsFile, { ...group, startMode }, { expectedGroup: group });
+      await withProjectStoreLockAsync(this.projectsFile, () => {
+        upsertRunGroup(this.projectsFile, { ...group, startMode }, { expectedGroup: group });
+      });
       this.renderProjectList();
       return true;
     } catch (error) {
@@ -826,6 +837,7 @@ class RunlistViewProvider {
     }
 
     this.statusRefreshInFlight = true;
+    const eventLoopDelay = this.diagnostics.measureEventLoopDelay?.();
     let finishRefresh;
     const refreshPromise = new Promise((resolve) => { finishRefresh = resolve; });
     this.statusRefreshPromise = refreshPromise;
@@ -1137,6 +1149,12 @@ class RunlistViewProvider {
       }
       this.statusRefreshRetryAt = Date.now() + STATUS_REFRESH_FAILURE_BACKOFF_MS;
     } finally {
+      if (eventLoopDelay) {
+        await this.diagnostics.recordEventLoopDelay(
+          'status.refresh-event-loop-delay',
+          eventLoopDelay
+        );
+      }
       this.statusRefreshInFlight = false;
       if (this.statusRefreshPending
         && !this.disposed
@@ -1617,7 +1635,9 @@ class RunlistViewProvider {
       return false;
     }
     try {
-      approveProjectRepairProposal(this.projectsFile, project.id, proposalId);
+      await withProjectStoreLockAsync(this.projectsFile, () => {
+        approveProjectRepairProposal(this.projectsFile, project.id, proposalId);
+      });
       this.invalidateProjectFailureState(project.id, repairProposal.projectRevision);
       this.approvedRepairProjectId = project.id;
       this.render();
@@ -2069,9 +2089,12 @@ class RunlistViewProvider {
     }
   }
 
-  toggleProjectPin(id) {
+  async toggleProjectPin(id) {
     try {
-      const project = toggleProjectPinned(this.projectsFile, id);
+      const project = await withProjectStoreLockAsync(
+        this.projectsFile,
+        () => toggleProjectPinned(this.projectsFile, id)
+      );
       if (!project) {
         return;
       }
@@ -2082,7 +2105,7 @@ class RunlistViewProvider {
     }
   }
 
-  selectLaunchProfile(id, profileId) {
+  async selectLaunchProfile(id, profileId) {
     const project = this.projects.find((item) => item.id === id);
     if (!project) {
       return false;
@@ -2101,7 +2124,9 @@ class RunlistViewProvider {
       return false;
     }
     try {
-      selectProjectLaunchProfile(this.projectsFile, id, profileId);
+      await withProjectStoreLockAsync(this.projectsFile, () => {
+        selectProjectLaunchProfile(this.projectsFile, id, profileId);
+      });
       this.statusRevision += 1;
       this.focusTarget = { type: 'action', action: 'toggle-profile-menu', id };
       this.renderProjectList();
@@ -2191,15 +2216,17 @@ class RunlistViewProvider {
     }
 
     try {
-      const saved = saveProjectSnapshot(this.projectsFile, {
-        id: projectId,
-        name,
-        folder,
-        ...setup
-      }, {
-        existingProject,
-        expectedProject: this.formProjectSnapshot
-      });
+      const saved = await withProjectStoreLockAsync(this.projectsFile, () => (
+        saveProjectSnapshot(this.projectsFile, {
+          id: projectId,
+          name,
+          folder,
+          ...setup
+        }, {
+          existingProject,
+          expectedProject: this.formProjectSnapshot
+        })
+      ));
       projectId = saved.project.id;
       this.invalidateProjectFailureState(projectId, supersededRevision);
     } catch (error) {
@@ -2325,7 +2352,9 @@ class RunlistViewProvider {
     }
 
     try {
-      removeProject(this.projectsFile, id, { expectedProject: project });
+      await withProjectStoreLockAsync(this.projectsFile, () => {
+        removeProject(this.projectsFile, id, { expectedProject: project });
+      });
       const remainingProjects = projects.filter((item) => item.id !== id);
       const adjacentProject = remainingProjects[projectIndex] || remainingProjects[projectIndex - 1];
       this.managedProjectIds.delete(id);

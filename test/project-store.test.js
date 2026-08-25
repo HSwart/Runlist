@@ -17,6 +17,7 @@ const {
   subscribeProjectStoreDiagnostics,
   toggleProjectPinned,
   upsertProject,
+  withProjectStoreLockAsync,
   withProjectStoreLock,
   writeProjects
 } = require('../src/projects/project-store');
@@ -94,6 +95,29 @@ test('reports project-store lock acquisition, stale recovery, and timeout decisi
       attemptCount: 1
     }
   ]);
+});
+
+test('waits for project-store contention without blocking the event loop', async (t) => {
+  const { projectsFile } = projectStoreFixture(t);
+  const lockPath = `${projectsFile}.write-lock`;
+  let liveLock;
+  withProjectStoreLock(projectsFile, () => {
+    liveLock = fs.readFileSync(lockPath, 'utf8');
+  });
+  fs.writeFileSync(lockPath, liveLock);
+
+  let eventLoopYielded = false;
+  setImmediate(() => { eventLoopYielded = true; });
+  setTimeout(() => fs.rmSync(lockPath, { force: true }), 20);
+
+  const result = await withProjectStoreLockAsync(
+    projectsFile,
+    () => 'updated',
+    { retryMs: 5, timeoutMs: 200 }
+  );
+
+  assert.equal(result, 'updated');
+  assert.equal(eventLoopYielded, true);
 });
 
 test('recovers an old partial project-store lock without deleting a fresh write', (t) => {

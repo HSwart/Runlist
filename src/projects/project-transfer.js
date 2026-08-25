@@ -331,9 +331,12 @@ async function importProjects(options) {
     return { status: 'cancelled', preview };
   }
 
-  const projects = applyProjectImport(options.projectsFile, preview, {
+  const applyImport = () => applyProjectImport(options.projectsFile, preview, {
     reserveUpdatedProjects: options.reserveUpdatedProjects
   });
+  const projects = options.withProjectStoreLock
+    ? await options.withProjectStoreLock(applyImport)
+    : applyImport();
   await options.onImported?.(projects);
   await options.window.showInformationMessage(
     `Imported ${label}. Review each changed setup before running its commands.`

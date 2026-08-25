@@ -165,6 +165,21 @@ test('rejected lifecycle completion keeps its exact transition reason', async ()
   assert.equal(event.reasonCode, 'operation-rejected');
 });
 
+test('records lifecycle work that exceeds the event-loop delay budget', async () => {
+  const monotonicTimes = [0, 175];
+  const diagnostics = createDiagnostics({
+    monotonicNow: () => monotonicTimes.shift(),
+    scheduleImmediate: (callback) => callback()
+  });
+
+  await diagnostics.run('start', 'project-1', async () => true);
+
+  const events = JSON.parse(diagnostics.supportReport()).recentEvents;
+  const delay = events.find((event) => event.event === 'start.event-loop-delay');
+  assert.equal(delay.eventLoopDelayMs, 175);
+  assert.equal(delay.reasonCode, 'budget-exceeded');
+});
+
 test('diagnostic history remains bounded in memory', () => {
   const diagnostics = createDiagnostics();
 

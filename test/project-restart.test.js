@@ -692,6 +692,37 @@ test('reports one background refresh error per failure episode and records recov
   assert.deepEqual(diagnosticEvents.at(-1), ['status.refresh-failed', 'EPROBE']);
 });
 
+test('measures event-loop delay during status refreshes', async () => {
+  const Provider = loadRunlistProvider(() => ({ on() {}, once() {} }), []);
+  const owner = {
+    reconcileProcessIdentities: async () => {},
+    consumeStopRequests: () => [],
+    consumeStopRequestFailures: () => [],
+    snapshot: () => new Map(),
+    release: () => {},
+    setState: () => {}
+  };
+  const provider = createStatusMonitorProvider(Provider, owner, {
+    reconcileProcessIdentities: async () => {},
+    snapshot: () => new Map(),
+    release: () => {},
+    setState: () => {},
+    conflicts: () => []
+  });
+  const measurements = [];
+  provider.diagnostics = {
+    measureEventLoopDelay: () => Promise.resolve(125),
+    record: () => {},
+    recordEventLoopDelay: async (event, measurement) => {
+      measurements.push([event, await measurement]);
+    }
+  };
+
+  await provider.refreshProjectStatuses();
+
+  assert.deepEqual(measurements, [['status.refresh-event-loop-delay', 125]]);
+});
+
 test('backs off scheduled refreshes after a failed status probe', async () => {
   let now = 1000;
   let calls = 0;

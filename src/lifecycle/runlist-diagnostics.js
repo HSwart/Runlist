@@ -5,6 +5,7 @@ const { redactSensitiveText } = require('../projects/project-diagnostics');
 const MAX_EVENTS = 200;
 const MAX_PROJECTS = 1000;
 const MAX_DETAIL_CHARS = 500;
+const EVENT_LOOP_DELAY_BUDGET_MS = 100;
 const SAFE_LABEL = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
 
 class RunlistDiagnostics {
@@ -12,6 +13,8 @@ class RunlistDiagnostics {
     this.outputChannel = options.outputChannel;
     this.traceEnabled = options.traceEnabled || (() => false);
     this.now = options.now || Date.now;
+    this.monotonicNow = options.monotonicNow || (() => performance.now());
+    this.scheduleImmediate = options.scheduleImmediate || setImmediate;
     this.randomUUID = options.randomUUID || crypto.randomUUID;
     this.projectSalt = options.projectSalt || this.randomUUID();
     this.environment = normalizeEnvironment(options.environment);
@@ -25,10 +28,12 @@ class RunlistDiagnostics {
     const parent = this.operationContext.getStore();
     const operationId = parent?.operationId || this.randomUUID();
     const execute = async () => {
+      const eventLoopDelay = this.measureEventLoopDelay();
       const previous = safeSnapshot(snapshot);
       this.record(`${safeKind}.begin`, { projectId, ...previous });
       try {
         const result = await operation();
+        await this.recordEventLoopDelay(`${safeKind}.event-loop-delay`, eventLoopDelay, { projectId });
         const resulting = safeSnapshot(snapshot);
         this.record(`${safeKind}.complete`, {
           projectId,
@@ -40,6 +45,7 @@ class RunlistDiagnostics {
         });
         return result;
       } catch (error) {
+        await this.recordEventLoopDelay(`${safeKind}.event-loop-delay`, eventLoopDelay, { projectId });
         const resulting = safeSnapshot(snapshot);
         this.record(`${safeKind}.failed`, {
           projectId,
@@ -54,6 +60,27 @@ class RunlistDiagnostics {
       }
     };
     return this.operationContext.run({ operationId }, execute);
+  }
+
+  measureEventLoopDelay() {
+    const startedAt = this.monotonicNow();
+    return new Promise((resolve) => {
+      this.scheduleImmediate(() => {
+        resolve(Math.max(0, Math.round(this.monotonicNow() - startedAt)));
+      });
+    });
+  }
+
+  async recordEventLoopDelay(event, measurement, details = {}) {
+    const eventLoopDelayMs = await measurement;
+    if (eventLoopDelayMs > EVENT_LOOP_DELAY_BUDGET_MS) {
+      this.record(event, {
+        ...details,
+        eventLoopDelayMs,
+        reasonCode: 'budget-exceeded'
+      });
+    }
+    return eventLoopDelayMs;
   }
 
   record(event, details = {}) {
@@ -151,7 +178,7 @@ function copySafeDetails(target, details, traceEnabled) {
       target[key] = safeLabel(details[key], 'unknown');
     }
   }
-  for (const key of ['exitCode', 'serviceCount', 'processCount', 'attemptCount']) {
+  for (const key of ['exitCode', 'serviceCount', 'processCount', 'attemptCount', 'eventLoopDelayMs']) {
     if (Number.isInteger(details[key])) {
       target[key] = details[key];
     }
@@ -211,6 +238,7 @@ function safeCount(value) {
 }
 
 module.exports = {
+  EVENT_LOOP_DELAY_BUDGET_MS,
   MAX_EVENTS,
   RunlistDiagnostics,
   redactDiagnosticDetail
