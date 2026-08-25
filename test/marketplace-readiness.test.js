@@ -101,6 +101,32 @@ test('names where Start and Stop work before Local lifecycle only', () => {
   assert.doesNotMatch(webview, /Remote SSH, WSL, Dev Containers/);
 });
 
+test('documents GitHub Actions Marketplace publication from the marketplace environment', () => {
+  const releaseGuide = fs.readFileSync(path.join(root, 'docs', 'marketplace-release.md'), 'utf8');
+  const workflow = fs.readFileSync(
+    path.join(root, '.github', 'workflows', 'publish-marketplace.yml'),
+    'utf8'
+  );
+
+  assert.match(releaseGuide, /Actions → \*\*Publish Marketplace\*\* → \*\*Run workflow\*\*/);
+  assert.match(releaseGuide, /workflow_dispatch/);
+  assert.match(releaseGuide, /tag matching `v\*`/);
+  assert.match(releaseGuide, /environment: marketplace/);
+  assert.match(releaseGuide, /limited to protected branches/);
+  assert.doesNotMatch(workflow, /pull_request/);
+  assert.doesNotMatch(workflow, /--azure-credential/);
+  assert.doesNotMatch(workflow, /publish:marketplace/);
+  assert.doesNotMatch(workflow, /ovsx|open-vsx|OVSX/i);
+  assert.doesNotMatch(workflow, /-p\s| --pat\s/);
+  assert.doesNotMatch(workflow, /echo\s+["']?\$\{?VSCE_PAT|printenv|printf\s+.*\$\{?VSCE_PAT/);
+  assert.match(workflow, /environment:\s*marketplace/);
+  assert.match(workflow, /VSCE_PAT:\s*\$\{\{\s*secrets\.VSCE_PAT\s*\}\}/);
+  assert.match(workflow, /npm run package/);
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /tags:\s*\n\s+-\s+'v\*'/);
+  assert.match(workflow, /vsce publish --packagePath releases\/runlist\.vsix/);
+});
+
 test('passes strict Marketplace publication validation', () => {
   const result = validateMarketplace(root);
 

@@ -30,6 +30,10 @@ test('runs pinned secret scanning and SBOM gates without duplicating CodeQL defa
     path.join(root, '.github', 'workflows', 'security.yml'),
     'utf8'
   );
+  const publishWorkflow = fs.readFileSync(
+    path.join(root, '.github', 'workflows', 'publish-marketplace.yml'),
+    'utf8'
+  );
   const unpinnedAction = /uses:\s+[^\s@]+@(?![a-f0-9]{40}(?:\s|$))/i;
 
   assert.match(testWorkflow, /name: Engineering gates[\s\S]*npm run quality/);
@@ -39,6 +43,8 @@ test('runs pinned secret scanning and SBOM gates without duplicating CodeQL defa
   assert.match(securityWorkflow, /name: Secret scan/);
   assert.match(securityWorkflow, /run: npm run scan:secrets/);
   assert.doesNotMatch(securityWorkflow, unpinnedAction);
+  assert.match(publishWorkflow, /environment:\s*marketplace/);
+  assert.doesNotMatch(publishWorkflow, unpinnedAction);
 });
 
 test('detects high-confidence secrets without reproducing their values', () => {

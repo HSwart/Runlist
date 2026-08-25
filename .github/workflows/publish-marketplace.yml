@@ -1,0 +1,39 @@
+name: Publish Marketplace
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish to Marketplace
+    # The marketplace environment currently allows protected branches only (main).
+    # Tag pushes still trigger this workflow, but GitHub may block the environment.
+    # Use workflow_dispatch on main if a tag run cannot access VSCE_PAT.
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: marketplace
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Package the extension
+        run: npm run package
+      - name: Publish to Visual Studio Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [ -z "${VSCE_PAT}" ]; then
+            echo "The marketplace environment did not provide the publish token."
+            exit 1
+          fi
+          ./node_modules/.bin/vsce publish --packagePath releases/runlist.vsix
