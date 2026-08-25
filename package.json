@@ -155,6 +155,7 @@
     "validate:marketplace:vsix": "node scripts/validate-vsix.js",
     "validate:sbom": "node scripts/validate-sbom.js",
     "quality": "npm run lint && npm run scan:secrets && npm run test:critical-coverage && npm run validate:sbom && npm run validate:marketplace:vsix",
+    "verify": "npm run quality && npm test && npm run test:smoke",
     "package": "npm run validate:marketplace:publish && node scripts/package-vsix.js",
     "publish:marketplace": "npm run validate:marketplace:publish && npm run validate:marketplace:vsix && vsce publish --azure-credential --packagePath releases/runlist.vsix"
   },

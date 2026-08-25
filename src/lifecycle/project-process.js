@@ -28,7 +28,7 @@ const { projectWithPortOverrides } = require('../ports/service-port-overrides');
 
 const OWNER_HEARTBEAT_TIMEOUT_MS = 10000;
 const HOST_IDENTITY_CACHE_TTL_MS = 250;
-const EXITED_WINDOWS_IDENTITY_WAIT_MS = 250;
+const EXITED_IDENTITY_WAIT_MS = 250;
 const WINDOWS_PROCESS_TREE_SETTLE_MS = 500;
 const INVALID_RECORD_GRACE_MS = 2000;
 const CURRENT_PROCESS_IDENTITY = currentProcessIdentity({ allowRuntimeFallback: true });
@@ -161,21 +161,21 @@ async function terminateTrackedProcess(processes, id, options = {}) {
   const readIdentity = options.readProcessIdentity || readProcessIdentity;
   const identityRequired = Object.prototype.hasOwnProperty.call(child, 'runlistIdentity');
   const rootExited = child.exitCode != null || child.signalCode != null;
-  const expectedIdentity = rootExited && platform === 'win32'
+  const expectedIdentity = rootExited
     ? await promisedIdentityWithin(
       child.runlistIdentity,
-      options.exitedIdentityWaitMs ?? EXITED_WINDOWS_IDENTITY_WAIT_MS
+      options.exitedIdentityWaitMs ?? EXITED_IDENTITY_WAIT_MS
     )
     : await promisedIdentity(child.runlistIdentity);
   const expectedIdentityIsValid = stableProcessIdentity(expectedIdentity);
   if (identityRequired && !expectedIdentityIsValid) {
-    if (!rootExited || platform !== 'win32') {
+    if (!rootExited) {
       throw new Error('Runlist could not verify the launched process identity.');
     }
-    const readTree = options.readOwnedProcessTree || readOwnedProcessTree;
-    const remaining = await readTree(child.pid, 'win32', options);
-    if (!Array.isArray(remaining) || remaining.length > 0) {
-      throw new Error('Runlist could not verify the launched process tree after its root exited.');
+    if (!await exitedRootHasNoRemainingProcesses(child.pid, platform, options)) {
+      throw new Error(platform === 'win32'
+        ? 'Runlist could not verify the launched process tree after its root exited.'
+        : 'Runlist could not verify the launched process group after its root exited.');
     }
     processes.delete(id);
     return true;
@@ -230,6 +230,16 @@ async function terminateTrackedProcess(processes, id, options = {}) {
     throw error;
   }
   return true;
+}
+
+async function exitedRootHasNoRemainingProcesses(pid, platform, options = {}) {
+  if (platform === 'win32') {
+    const readTree = options.readOwnedProcessTree || readOwnedProcessTree;
+    const remaining = await readTree(pid, 'win32', options);
+    return Array.isArray(remaining) && remaining.length === 0;
+  }
+  const liveness = await trackedProcessLiveness(pid, platform, options);
+  return liveness === false;
 }
 
 async function terminateExitedWindowsTree(rootPid, rootIdentity, options = {}) {
