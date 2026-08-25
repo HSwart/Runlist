@@ -16,10 +16,17 @@ test('validates Marketplace metadata for the selected publisher and release', ()
     manifest.description,
     'Start, stop, monitor, and group local apps on the same computer as this VS Code window.'
   );
+  assert.deepEqual(manifest.keywords.slice(0, 4), [
+    'npm scripts',
+    'task runner',
+    'dev server',
+    'process manager'
+  ]);
   assert.ok(manifest.keywords.includes('dev server'));
   assert.ok(manifest.keywords.includes('process manager'));
   assert.ok(manifest.keywords.includes('npm scripts'));
   assert.ok(!manifest.keywords.includes('project manager'));
+  assert.deepEqual(manifest.categories, ['Other']);
   assert.equal(manifest.publisher, 'hankoswart');
   assert.equal(manifest.repository.url, 'https://github.com/HSwart/Runlist.git');
   assert.equal(
