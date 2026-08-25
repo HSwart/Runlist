@@ -2067,6 +2067,89 @@ test('reconciles an exited Windows child with no identity only after proving its
   assert.equal(processes.has('project'), false);
 });
 
+test('reconciles an exited POSIX child with no identity only after proving its process group is gone', async () => {
+  for (const platform of ['linux', 'darwin']) {
+    const child = {
+      pid: 624,
+      exitCode: 7,
+      signalCode: null,
+      runlistIdentity: Promise.resolve(undefined)
+    };
+    const processes = new Map([['project', child]]);
+    let terminationCalls = 0;
+
+    assert.equal(await terminateTrackedProcess(processes, 'project', {
+      platform,
+      isProcessAlive: () => false,
+      kill: (pid, signal) => {
+        if (signal === 0) {
+          const error = new Error('gone');
+          error.code = 'ESRCH';
+          throw error;
+        }
+        terminationCalls += 1;
+        return undefined;
+      }
+    }), true);
+    assert.equal(terminationCalls, 0, `${platform} signaled after empty-group reconciliation`);
+    assert.equal(processes.has('project'), false, `${platform} retained the exited handle`);
+  }
+});
+
+test('does not let a pending POSIX identity probe delay empty-group reconciliation', async () => {
+  const child = {
+    pid: 625,
+    exitCode: 7,
+    signalCode: null,
+    runlistIdentity: new Promise(() => {})
+  };
+  const processes = new Map([['project', child]]);
+  const result = await Promise.race([
+    terminateTrackedProcess(processes, 'project', {
+      exitedIdentityWaitMs: 5,
+      platform: 'linux',
+      isProcessAlive: () => false,
+      kill: (pid, signal) => {
+        if (pid === -625 && signal === 0) {
+          const error = new Error('gone');
+          error.code = 'ESRCH';
+          throw error;
+        }
+        throw new Error(`unexpected signal ${pid} ${signal}`);
+      }
+    }),
+    new Promise((resolve) => setTimeout(() => resolve('timed-out'), 100))
+  ]);
+
+  assert.equal(result, true);
+  assert.equal(processes.has('project'), false);
+});
+
+test('keeps an exited POSIX child with no identity when its process group remains live', async () => {
+  const child = {
+    pid: 626,
+    exitCode: 7,
+    signalCode: null,
+    runlistIdentity: Promise.resolve(undefined)
+  };
+  const processes = new Map([['project', child]]);
+  let terminationCalls = 0;
+
+  await assert.rejects(terminateTrackedProcess(processes, 'project', {
+    platform: 'linux',
+    isProcessAlive: () => false,
+    kill: (pid, signal) => {
+      if (pid === -626 && signal === 0) {
+        return true;
+      }
+      terminationCalls += 1;
+      return undefined;
+    }
+  }), /could not verify.*process group/i);
+  assert.equal(terminationCalls, 0);
+  assert.equal(processes.get('project'), child);
+});
+
 test('does not let a pending Windows identity probe delay empty-tree reconciliation', async () => {
   const child = {
     pid: 623,

@@ -32,7 +32,7 @@ Runlist is a focused VS Code sidebar for saving, starting, stopping, and opening
 - Work on one issue at a time.
 - Read the complete issue before editing.
 - Add focused regression coverage for changed behavior.
-- Run `npm test`.
+- Run `npm run verify` before pushing (quality gates, unit tests, and extension-host smoke). On Linux hosts use `xvfb-run -a npm run verify` when the smoke suite needs a display.
 - Run `npm run package` before finishing.
 - Review the complete diff for scope creep, regressions, accessibility, and cross-platform behavior.
 - Do not change the extension version, GitHub release, changelog, or VSIX artifact unless the issue explicitly requires it.

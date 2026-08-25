@@ -327,10 +327,10 @@ class ProjectLifecycleCoordinator {
         const status = this.host.getProjectStatus(id);
         const sharedState = this.host.processOwnership.snapshot().get(id)?.state
           || this.host.portReservations.snapshot().get(id);
-        return ['running', 'not-ready', 'not-responding', 'ownership-lost', 'active']
+        return ['running', 'not-ready', 'not-responding', 'ownership-lost', 'active', 'stopping']
           .includes(status)
           && (!['active', 'ownership-lost'].includes(status) || Boolean(runtimeProject.stopCommand))
-          && !['starting', 'stopping'].includes(sharedState);
+          && sharedState !== 'starting';
       },
       stop: () => this.host.stopProject(id, runtimeProject),
       waitForStop: () => this.host.waitForProjectStopCompletion(id),

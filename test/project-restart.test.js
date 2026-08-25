@@ -913,6 +913,45 @@ test('waits for a safe Stop to complete before starting again', async () => {
   assert.deepEqual(calls, ['stop', 'wait', 'start']);
 });
 
+test('joins an in-flight Stop instead of rejecting concurrent Restart', async () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const lifecycle = fs.readFileSync(path.join(__dirname, '..', 'src', 'lifecycle', 'project-lifecycle.js'), 'utf8');
+  assert.match(source, /this\.stoppingOperations = new Map\(\)/);
+  assert.match(source, /const existing = this\.stoppingOperations\.get\(id\)/);
+  assert.match(source, /async executeStopProjectProcess\(/);
+  assert.match(
+    lifecycle,
+    /\['running', 'not-ready', 'not-responding', 'ownership-lost', 'active', 'stopping'\]/
+  );
+  assert.doesNotMatch(
+    lifecycle,
+    /!\['starting', 'stopping'\]\.includes\(sharedState\)/
+  );
+
+  let stopCalls = 0;
+  let releaseStop;
+  const stopGate = new Promise((resolve) => {
+    releaseStop = resolve;
+  });
+  const stop = async () => {
+    stopCalls += 1;
+    await stopGate;
+    return true;
+  };
+  const restarting = new Set();
+  const restartPromise = restartProjectSafely(restarting, 'project-1', {
+    canRestart: () => true,
+    stop,
+    waitForStop: async () => true,
+    start: async () => true
+  });
+  const joinedStop = stop();
+  releaseStop();
+  assert.equal(await restartPromise, true);
+  assert.equal(await joinedStop, true);
+  assert.equal(stopCalls, 2);
+});
+
 test('does not Start when Stop fails', async () => {
   const calls = [];
   const result = await restartProjectSafely(new Set(), 'project-1', {
