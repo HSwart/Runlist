@@ -27,12 +27,11 @@ The **Publish Marketplace** workflow uses the `marketplace` GitHub Environment a
 
 How to publish after the reviewed release is on `main` and its tests have passed:
 
-1. **Reliable path:** GitHub → Actions → **Publish Marketplace** → **Run workflow**, with the `main` branch selected (`workflow_dispatch`).
-2. **Tag path:** push a tag matching `v*` (for example `v0.0.9`) from that `main` commit.
+GitHub → Actions → **Publish Marketplace** → **Run workflow**, with the `main` branch selected (`workflow_dispatch`). That is the only publish path.
 
 The workflow runs `npm ci`, then `npm run package` (strict Marketplace validation and a fresh `releases/runlist.vsix`), then `@vscode/vsce publish --packagePath releases/runlist.vsix` with `VSCE_PAT` from the environment. It does not run `npm run publish:marketplace` and does not pass `--azure-credential`.
 
-The `marketplace` environment is limited to protected branches. `main` is protected, so `workflow_dispatch` on `main` can use the environment. A `v*` tag push still starts the workflow, but GitHub may refuse the environment because a tag is not a protected branch. Use **Run workflow** on `main` in that case. Do not change environment protection rules from this repository.
+The `marketplace` environment is limited to protected branches. `main` is protected, so `workflow_dispatch` on `main` can use the environment. Publishing from a tag is not supported until that environment also allows tags. Do not change environment protection rules from this repository.
 
 Open VSX is not part of this workflow.
 
