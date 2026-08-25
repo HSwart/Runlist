@@ -285,6 +285,7 @@ class RunlistViewProvider {
     this.handoffProjectIds = new Set();
     this.forceClosingProjectIds = new Set();
     this.stoppingProjectIds = new Set();
+    this.stoppingOperations = new Map();
     this.remoteStopRequests = new Map();
     this.statusRefreshInFlight = false;
     this.statusRefreshPending = false;
@@ -3324,6 +3325,33 @@ class RunlistViewProvider {
   }
 
   async stopProjectProcess(id, projectSnapshot, options = {}) {
+    if (!(this.stoppingOperations instanceof Map)) {
+      this.stoppingOperations = new Map();
+    }
+    const existing = this.stoppingOperations.get(id);
+    if (existing) {
+      return existing;
+    }
+    let settle;
+    const operation = new Promise((resolve, reject) => {
+      settle = { resolve, reject };
+    });
+    this.stoppingOperations.set(id, operation);
+    try {
+      const result = await this.executeStopProjectProcess(id, projectSnapshot, options);
+      settle.resolve(result);
+      return result;
+    } catch (error) {
+      settle.reject(error);
+      throw error;
+    } finally {
+      if (this.stoppingOperations.get(id) === operation) {
+        this.stoppingOperations.delete(id);
+      }
+    }
+  }
+
+  async executeStopProjectProcess(id, projectSnapshot, options = {}) {
     const project = projectSnapshot || this.projects.find((item) => item.id === id);
     if (!project) {
       return false;
@@ -3344,10 +3372,6 @@ class RunlistViewProvider {
       this.projectStatuses.set(id, 'stopped');
       this.renderProjectList();
       return true;
-    }
-
-    if (this.stoppingProjectIds.has(id)) {
-      return false;
     }
 
     const sharedOwnership = this.processOwnership.snapshot().get(id);

@@ -311,7 +311,15 @@ async function concurrentStopRestartScenario(context) {
     api.provider.restartProject(project.id),
     api.provider.stopProject(project.id)
   ]);
-  assert.equal(restartResult || stopResult, true, 'Concurrent Restart and Stop both rejected without settling.');
+  assert.equal(
+    restartResult || stopResult,
+    true,
+    `Concurrent Restart and Stop both rejected without settling: ${JSON.stringify({
+      restartResult,
+      stopResult,
+      ...lifecycleEvidence(api.provider, project.id)
+    })}`
+  );
   await waitFor(async () => {
     await api.provider.refreshProjectStatuses();
     return ['running', 'stopped'].includes(api.provider.getProjectStatus(project.id));
