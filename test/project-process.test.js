@@ -2716,7 +2716,7 @@ test('captures native process identities with safe platform-specific arguments',
   assert.equal(readProcessIdentitySync(303, 'win32', {
     execFileSync: (command, args) => {
       calls.push(['exec', command, args]);
-      return '123456789';
+      return 'T123456789';
     }
   }), '303:123456789');
   assert.equal(readProcessIdentitySync(303, 'darwin', {
@@ -2737,7 +2737,7 @@ test('captures native process identities with safe platform-specific arguments',
     ['read', '/proc/303/stat', 'utf8'],
     ['exec', 'powershell.exe', [
       '-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
-      '(Get-Process -Id 303 -ErrorAction Stop).StartTime.ToUniversalTime().Ticks'
+      "('T' + (Get-Process -Id 303 -ErrorAction Stop).StartTime.ToUniversalTime().Ticks.ToString())"
     ]],
     ['exec', 'ps', [
       '-ww', '-p', '303', '-o', 'lstart=', '-o', 'uid=', '-o', 'pgid=',

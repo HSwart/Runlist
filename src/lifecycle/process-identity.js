@@ -2,8 +2,11 @@ const fs = require('fs');
 const { execFileSync } = require('child_process');
 const {
   darwinProcessIdentityFormat,
+  normalizeWindowsStartedAt,
   parseDarwinProcessIdentity,
-  readRootProcess
+  readRootProcess,
+  windowsProcessIdentity,
+  windowsStartedAtPowerShellExpression
 } = require('./process-metrics');
 
 const DARWIN_IDENTITY_PS_ARGS = [
@@ -116,9 +119,9 @@ function readProcessIdentitySync(pid, platform = process.platform, options = {})
     if (platform === 'win32') {
       const startedAt = String(runFile('powershell.exe', [
         '-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
-        `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().Ticks`
+        windowsStartedAtPowerShellExpression(`(Get-Process -Id ${pid} -ErrorAction Stop)`)
       ], { encoding: 'utf8', windowsHide: true, timeout: 1000 })).trim();
-      return startedAt ? `${pid}:${startedAt}` : undefined;
+      return windowsProcessIdentity(pid, startedAt);
     }
     if (platform === 'darwin') {
       return parseDarwinProcessIdentity(
@@ -192,9 +195,11 @@ function darwinIdentityCommandOptions() {
 module.exports = {
   currentProcessIdentity,
   darwinProcessIdentityFormat,
+  normalizeWindowsStartedAt,
   processIdentityDecision,
   processIdentityMismatch,
   readProcessIdentity,
   readProcessIdentitySync,
-  stableProcessIdentity
+  stableProcessIdentity,
+  windowsProcessIdentity
 };

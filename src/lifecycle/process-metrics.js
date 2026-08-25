@@ -388,15 +388,58 @@ async function readWindowsRootProcess(pid, options = {}) {
   return parseWindowsProcessOutput(output).find((row) => row.pid === pid);
 }
 
+// Prefix tick strings so Windows PowerShell ConvertTo-Json cannot emit them as
+// unsafe JSON numbers (DateTime.Ticks exceeds Number.MAX_SAFE_INTEGER).
+const WINDOWS_STARTED_AT_TICK_PREFIX = 'T';
+
+function normalizeWindowsStartedAt(startedAt) {
+  if (typeof startedAt === 'number') {
+    // Numberified ticks have already lost Int64 precision.
+    return undefined;
+  }
+  const raw = String(startedAt || '').trim();
+  const match = raw.match(new RegExp(`^${WINDOWS_STARTED_AT_TICK_PREFIX}?(\\d+)$`, 'i'));
+  if (!match) {
+    return undefined;
+  }
+  try {
+    if (BigInt(match[1]) <= 0n) {
+      return undefined;
+    }
+  } catch {
+    return undefined;
+  }
+  return match[1];
+}
+
+function windowsProcessIdentity(pid, startedAt) {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return undefined;
+  }
+  const ticks = normalizeWindowsStartedAt(startedAt);
+  return ticks ? `${pid}:${ticks}` : undefined;
+}
+
+function windowsStartedAtPowerShellExpression(processExpression) {
+  return `('${WINDOWS_STARTED_AT_TICK_PREFIX}' + ${processExpression}.StartTime.ToUniversalTime().Ticks.ToString())`;
+}
+
 function parseWindowsProcessOutput(output) {
   const parsed = JSON.parse(output);
-  return (Array.isArray(parsed) ? parsed : [parsed]).map((row) => ({
-    pid: Number(row.pid),
-    parentPid: Number(row.parentPid),
-    identity: `${Number(row.pid)}:${String(row.startedAt)}`,
-    cpuSeconds: Number(row.cpuSeconds),
-    memoryBytes: Number(row.memoryBytes)
-  })).filter(validMetricRow);
+  return (Array.isArray(parsed) ? parsed : [parsed]).map((row) => {
+    const pid = Number(row.pid);
+    const identity = windowsProcessIdentity(pid, row.startedAt);
+    if (!identity) {
+      return undefined;
+    }
+    return {
+      pid,
+      parentPid: Number(row.parentPid),
+      identity,
+      cpuSeconds: Number(row.cpuSeconds),
+      memoryBytes: Number(row.memoryBytes)
+    };
+  }).filter((row) => row && validMetricRow(row));
 }
 
 function windowsProcessScript(pid, includeTree) {
@@ -419,7 +462,7 @@ function windowsProcessScript(pid, includeTree) {
     '  if($null -ne $item.parent -and [int]$process.ParentProcessId -ne [int]$item.parent){continue}',
     '  $live=Get-Process -Id $process.ProcessId -ErrorAction SilentlyContinue',
     '  if($null -eq $live){continue}',
-    '  $rows += [pscustomobject]@{pid=[int]$process.ProcessId;parentPid=[int]$process.ParentProcessId;startedAt=$live.StartTime.ToUniversalTime().Ticks.ToString();cpuSeconds=[double]$live.TotalProcessorTime.TotalSeconds;memoryBytes=[double]$live.WorkingSet64}',
+    `  $rows += [pscustomobject]@{pid=[int]$process.ProcessId;parentPid=[int]$process.ParentProcessId;startedAt=${windowsStartedAtPowerShellExpression('$live')};cpuSeconds=[double]$live.TotalProcessorTime.TotalSeconds;memoryBytes=[double]$live.WorkingSet64}`,
     '  if($includeTree){',
     '    $children=@(Get-CimInstance Win32_Process -Filter ("ParentProcessId = " + [int]$process.ProcessId))',
     '    foreach($child in $children){$queue.Enqueue([pscustomobject]@{id=[int]$child.ProcessId;parent=[int]$process.ProcessId})}',
@@ -435,7 +478,7 @@ function windowsRootProcessScript(pid) {
     "$ErrorActionPreference='Stop'",
     `$rootPid=${pid}`,
     '$process=Get-Process -Id $rootPid -ErrorAction Stop',
-    '$row=[pscustomobject]@{pid=[int]$process.Id;parentPid=0;startedAt=$process.StartTime.ToUniversalTime().Ticks.ToString();cpuSeconds=[double]$process.TotalProcessorTime.TotalSeconds;memoryBytes=[double]$process.WorkingSet64}',
+    `$row=[pscustomobject]@{pid=[int]$process.Id;parentPid=0;startedAt=${windowsStartedAtPowerShellExpression('$process')};cpuSeconds=[double]$process.TotalProcessorTime.TotalSeconds;memoryBytes=[double]$process.WorkingSet64}`,
     '$row | ConvertTo-Json -Compress'
   ].join(';');
 }
@@ -484,11 +527,14 @@ module.exports = {
   darwinProcessIdentityFormat,
   darwinProcessIdentity,
   OwnedProcessMetrics,
+  normalizeWindowsStartedAt,
   parseCpuTime,
   parseDarwinProcessIdentity,
   parsePosixProcess,
   parseWindowsProcessOutput,
   readRootProcess,
   readOwnedProcessTree,
-  windowsProcessScript
+  windowsProcessIdentity,
+  windowsProcessScript,
+  windowsStartedAtPowerShellExpression
 };

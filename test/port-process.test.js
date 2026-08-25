@@ -87,6 +87,7 @@ test('isolates inaccessible Windows process identities per listener', () => {
   assert.match(script, /foreach\(\$ownerProcessId/);
   assert.match(script, /try \{/);
   assert.match(script, /catch \{ continue \}/);
+  assert.match(script, /'T' \+ \$ownerProcess\.StartTime\.ToUniversalTime\(\)\.Ticks\.ToString\(\)/);
 });
 
 test('falls back to Linux ss and independently identifies each listener process', async () => {

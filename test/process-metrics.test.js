@@ -397,8 +397,21 @@ test('builds a bounded Windows descendant query without a system-wide process re
   assert.doesNotMatch(script, /};elseif/);
   assert.match(script, /if\(\$null -eq \$root -and \$includeTree\)/);
   assert.match(script, /Get-Process -Id \$process\.ProcessId/);
-  assert.match(script, /\$live\.StartTime\.ToUniversalTime\(\)\.Ticks/);
+  assert.match(script, /'T' \+ \$live\.StartTime\.ToUniversalTime\(\)\.Ticks\.ToString\(\)/);
 
+  assert.deepEqual(parseWindowsProcessOutput(JSON.stringify({
+    pid: 55,
+    parentPid: 1,
+    startedAt: 'T638909280000000000',
+    cpuSeconds: 1.25,
+    memoryBytes: 4096
+  })), [{
+    pid: 55,
+    parentPid: 1,
+    identity: '55:638909280000000000',
+    cpuSeconds: 1.25,
+    memoryBytes: 4096
+  }]);
   assert.deepEqual(parseWindowsProcessOutput(JSON.stringify({
     pid: 55,
     parentPid: 1,
@@ -412,6 +425,31 @@ test('builds a bounded Windows descendant query without a system-wide process re
     cpuSeconds: 1.25,
     memoryBytes: 4096
   }]);
+  assert.deepEqual(parseWindowsProcessOutput(JSON.stringify({
+    pid: 55,
+    parentPid: 1,
+    startedAt: Number('638912345678901234'),
+    cpuSeconds: 1.25,
+    memoryBytes: 4096
+  })), []);
+});
+
+test('preserves full Windows tick precision across prefixed JSON and sync capture', () => {
+  const {
+    normalizeWindowsStartedAt,
+    windowsProcessIdentity,
+    windowsStartedAtPowerShellExpression
+  } = require('../src/lifecycle/process-metrics');
+  const ticks = '638912345678901234';
+  assert.equal(normalizeWindowsStartedAt(`T${ticks}`), ticks);
+  assert.equal(normalizeWindowsStartedAt(ticks), ticks);
+  assert.equal(normalizeWindowsStartedAt(Number(ticks)), undefined);
+  assert.equal(windowsProcessIdentity(55, `T${ticks}`), `55:${ticks}`);
+  assert.equal(windowsProcessIdentity(55, Number(ticks)), undefined);
+  assert.match(
+    windowsStartedAtPowerShellExpression('$process'),
+    /'T' \+ \$process\.StartTime\.ToUniversalTime\(\)\.Ticks\.ToString\(\)/
+  );
 });
 
 test('allows the bounded Windows tree query enough time for cold CI process inspection', async () => {
