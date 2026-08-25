@@ -135,6 +135,7 @@ const {
 } = require('./src/projects/launch-profile');
 const { ProjectLifecycleCoordinator } = require('./src/lifecycle/project-lifecycle');
 const { RunlistDiagnostics } = require('./src/lifecycle/runlist-diagnostics');
+const { mapWithConcurrency } = require('./src/lifecycle/bounded-work');
 const { createRunlistWebviewRouter } = require('./src/webview/webview-message-router');
 const {
   approveProjectRepairProposal,
@@ -166,6 +167,8 @@ const {
 const STORAGE_KEY = 'runlist.projects';
 const START_READINESS_TIMEOUT_MS = 30000;
 const STATUS_POLL_INTERVAL_MS = 2000;
+const STATUS_REFRESH_FAILURE_BACKOFF_MS = 10000;
+const STATUS_CHECK_CONCURRENCY = 8;
 const OWNER_HEARTBEAT_INTERVAL_MS = 2000;
 const RESOURCE_SAMPLE_INTERVAL_MS = 5000;
 const CUSTOM_STOP_TIMEOUT_MS = 15000;
@@ -286,6 +289,7 @@ class RunlistViewProvider {
     this.statusRefreshPending = false;
     this.statusRefreshPromise = undefined;
     this.statusRefreshFailureNotified = false;
+    this.statusRefreshRetryAt = 0;
     this.disposed = false;
     this.statusRevision = 0;
     this.lifecycle = new ProjectLifecycleCoordinator(this, {
@@ -578,7 +582,11 @@ class RunlistViewProvider {
 
   startStatusMonitoring() {
     this.refreshProjectStatuses();
-    const timer = setInterval(() => this.refreshProjectStatuses(), STATUS_POLL_INTERVAL_MS);
+    const timer = setInterval(() => {
+      if (Date.now() >= (this.statusRefreshRetryAt || 0)) {
+        this.refreshProjectStatuses();
+      }
+    }, STATUS_POLL_INTERVAL_MS);
     const heartbeatTimer = setInterval(() => this.processOwnership.touchOwned(), OWNER_HEARTBEAT_INTERVAL_MS);
     const disposable = {
       dispose: () => {
@@ -906,7 +914,7 @@ class RunlistViewProvider {
         project,
         processRuntime.get(project.id)
       ));
-      const checks = await Promise.all(effectiveProjects.map(async (project) => {
+      const checkProject = async (project) => {
         if (project.reviewRequired) {
           return [project.id, 'stopped', undefined, [], [], [], [], []];
         }
@@ -989,13 +997,20 @@ class RunlistViewProvider {
             httpStatus.webPorts
           )
         ];
-      }));
+      };
+      const checks = await mapWithConcurrency(
+        effectiveProjects,
+        STATUS_CHECK_CONCURRENCY,
+        checkProject,
+        { cancelled: () => this.disposed }
+      );
 
       if (this.disposed) {
         return;
       }
       if (this.statusRefreshFailureNotified) {
         this.statusRefreshFailureNotified = false;
+        this.statusRefreshRetryAt = 0;
         this.diagnostics.record('status.refresh-recovered');
       }
       if (revision !== this.statusRevision) {
@@ -1120,9 +1135,12 @@ class RunlistViewProvider {
         this.diagnostics.record('status.refresh-failed', { error });
         vscode.window.showErrorMessage(`Could not refresh Runlist status: ${error.message}`);
       }
+      this.statusRefreshRetryAt = Date.now() + STATUS_REFRESH_FAILURE_BACKOFF_MS;
     } finally {
       this.statusRefreshInFlight = false;
-      if (this.statusRefreshPending && !this.disposed) {
+      if (this.statusRefreshPending
+        && !this.disposed
+        && Date.now() >= (this.statusRefreshRetryAt || 0)) {
         this.statusRefreshPending = false;
         await this.refreshProjectStatuses();
       } else {

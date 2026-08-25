@@ -692,6 +692,69 @@ test('reports one background refresh error per failure episode and records recov
   assert.deepEqual(diagnosticEvents.at(-1), ['status.refresh-failed', 'EPROBE']);
 });
 
+test('backs off scheduled refreshes after a failed status probe', async () => {
+  let now = 1000;
+  let calls = 0;
+  let shouldFail = true;
+  const originalDateNow = Date.now;
+  Date.now = () => now;
+  const intervals = createIntervalHarness();
+  const Provider = loadRunlistProvider(
+    () => ({ on() {}, once() {} }),
+    [],
+    {
+      './src/lifecycle/project-status': {
+        servicePortStatus: async () => {
+          calls += 1;
+          if (shouldFail) {
+            throw new Error('probe unavailable');
+          }
+          return { allOpen: false, anyOpen: false, openPorts: [] };
+        }
+      }
+    }
+  );
+  const owner = {
+    reconcileProcessIdentities: async () => {},
+    consumeStopRequests: () => [],
+    consumeStopRequestFailures: () => [],
+    snapshot: () => new Map(),
+    release: () => {},
+    setState: () => {},
+    touchOwned: () => {}
+  };
+  const provider = createStatusMonitorProvider(Provider, owner, {
+    reconcileProcessIdentities: async () => {},
+    snapshot: () => new Map(),
+    release: () => {},
+    setState: () => {},
+    conflicts: () => []
+  });
+
+  try {
+    const monitoring = provider.startStatusMonitoring();
+    await provider.statusRefreshPromise;
+    assert.equal(calls, 1);
+    assert.equal(provider.statusRefreshRetryAt, 11000);
+
+    now = 5000;
+    intervals.tick(2000, 0);
+    await Promise.resolve();
+    assert.equal(calls, 1);
+
+    shouldFail = false;
+    now = 11000;
+    intervals.tick(2000, 0);
+    await provider.statusRefreshPromise;
+    assert.equal(calls, 2);
+    assert.equal(provider.statusRefreshRetryAt, 0);
+    monitoring.dispose();
+  } finally {
+    intervals.restore();
+    Date.now = originalDateNow;
+  }
+});
+
 test('waits for an in-flight status refresh before shutdown cleanup', async () => {
   let releaseProbe;
   let probeStarted;

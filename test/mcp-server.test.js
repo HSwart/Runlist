@@ -665,5 +665,6 @@ test('keeps MCP port variables launch-only and rejects stale setup fields', () =
 
 test('does not probe review-required projects before approval', () => {
   const extensionSource = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
-  assert.match(extensionSource, /effectiveProjects\.map\(async \(project\) => \{[\s\S]*if \(project\.reviewRequired\) \{[\s\S]*return \[project\.id, 'stopped'/);
+  assert.match(extensionSource, /const checkProject = async \(project\) => \{[\s\S]*if \(project\.reviewRequired\) \{[\s\S]*return \[project\.id, 'stopped'/);
+  assert.match(extensionSource, /mapWithConcurrency\([\s\S]*effectiveProjects,[\s\S]*STATUS_CHECK_CONCURRENCY,[\s\S]*checkProject/);
 });
