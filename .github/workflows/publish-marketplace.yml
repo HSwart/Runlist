@@ -1,9 +1,6 @@
 name: Publish Marketplace
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
 
 permissions:
@@ -12,10 +9,9 @@ permissions:
 jobs:
   publish:
     name: Publish to Marketplace
-    # The marketplace environment currently allows protected branches only (main).
-    # Tag pushes still trigger this workflow, but GitHub may block the environment.
-    # Use workflow_dispatch on main if a tag run cannot access VSCE_PAT.
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    # The marketplace environment allows protected branches only. Do not add a
+    # tag push trigger until that environment also allows tags.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: marketplace
     timeout-minutes: 15

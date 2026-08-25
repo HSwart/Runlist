@@ -110,20 +110,24 @@ test('documents GitHub Actions Marketplace publication from the marketplace envi
 
   assert.match(releaseGuide, /Actions → \*\*Publish Marketplace\*\* → \*\*Run workflow\*\*/);
   assert.match(releaseGuide, /workflow_dispatch/);
-  assert.match(releaseGuide, /tag matching `v\*`/);
+  assert.match(releaseGuide, /only publish path/);
   assert.match(releaseGuide, /environment: marketplace/);
   assert.match(releaseGuide, /limited to protected branches/);
+  assert.match(releaseGuide, /Publishing from a tag is not supported/);
+  assert.doesNotMatch(releaseGuide, /Tag path|tag matching `v\*`|push a tag/);
   assert.doesNotMatch(workflow, /pull_request/);
   assert.doesNotMatch(workflow, /--azure-credential/);
   assert.doesNotMatch(workflow, /publish:marketplace/);
   assert.doesNotMatch(workflow, /ovsx|open-vsx|OVSX/i);
   assert.doesNotMatch(workflow, /-p\s| --pat\s/);
   assert.doesNotMatch(workflow, /echo\s+["']?\$\{?VSCE_PAT|printenv|printf\s+.*\$\{?VSCE_PAT/);
+  assert.doesNotMatch(workflow, /tags:|refs\/tags|v\*/);
+  assert.doesNotMatch(workflow, /^\s*push:\s*$/m);
   assert.match(workflow, /environment:\s*marketplace/);
   assert.match(workflow, /VSCE_PAT:\s*\$\{\{\s*secrets\.VSCE_PAT\s*\}\}/);
   assert.match(workflow, /npm run package/);
-  assert.match(workflow, /workflow_dispatch:/);
-  assert.match(workflow, /tags:\s*\n\s+-\s+'v\*'/);
+  assert.match(workflow, /^\s*workflow_dispatch:\s*$/m);
+  assert.match(workflow, /github\.ref == 'refs\/heads\/main'/);
   assert.match(workflow, /vsce publish --packagePath releases\/runlist\.vsix/);
 });
 
