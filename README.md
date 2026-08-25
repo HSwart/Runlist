@@ -40,7 +40,7 @@ Runlist keeps a reusable list of local projects from different repositories insi
 
 ## Install
 
-Runlist is tested on Windows, macOS, and Linux. Start, Stop, and preview apply to apps on the **same computer** as this VS Code window. You can still save and list projects in Remote SSH, WSL, Dev Containers, GitHub Codespaces, VS Code Tunnels, or a Windows WSL network path; those windows will not start or stop processes in this release.
+Runlist is tested on Windows, macOS, and Linux. Start, Stop, and preview apply to apps on the **same computer** as this VS Code window, including folders opened through **Remote - WSL**. You can still save and list projects in Remote SSH, Dev Containers, GitHub Codespaces, VS Code Tunnels, or a Windows WSL network path; those windows will not start or stop processes in this release.
 
 ### Install from the VS Code Marketplace
 
@@ -83,7 +83,7 @@ Configured service ports remain lightweight service metadata. Projects may save 
 
 If another live Runlist project owns every occupied port, Runlist names it and uses the normal safe handoff. Mixed conflicts or ports owned by several Runlist projects must be stopped in Runlist before external listeners can be closed. For an external or ownership-lost process, Start or Stop resolves the exact current listeners and shows their service ports, process names, and PIDs in a native confirmation. The warning states that Runlist may not have started those processes, that closing them can stop another app or discard unsaved work, and asks for explicit confirmation. After confirmation, Runlist revalidates each process identity before termination; if the owner changed, nothing is stopped. Runlist never changes a saved port or closes a process automatically.
 
-Lifecycle controls are supported for projects running on the same local host as Runlist on Windows, macOS, and Linux. In Remote SSH, WSL, Dev Containers, Codespaces, VS Code Tunnels, or a Windows WSL network path, Runlist does not probe or act on the local machine's unrelated ports; the project shows **Local lifecycle only** instead.
+Lifecycle controls are supported for projects running on the same local host as Runlist on Windows, macOS, and Linux, and for project folders in a **Remote - WSL** window. In Remote SSH, Dev Containers, Codespaces, VS Code Tunnels, or a Windows WSL network path, Runlist does not probe or act on the local machine's unrelated ports; the project shows **Local lifecycle only** instead.
 
 You can set up every project yourself. If you prefer, the optional coding-agent setup below can inspect a project and propose its commands, service ports, and explicitly documented browser URLs for your approval.
 

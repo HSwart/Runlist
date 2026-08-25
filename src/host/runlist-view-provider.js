@@ -197,8 +197,9 @@ class RunlistViewProvider {
     this.serverPath = serverPath;
     this.diagnostics = diagnostics || new RunlistDiagnostics();
     this.lifecycleCapability = detectLifecycleCapability({
-      remoteName: vscode.env.remoteName,
-      platform: process.platform
+      remoteName: vscode.env?.remoteName,
+      platform: process.platform,
+      extensionKind: context.extension?.extensionKind
     });
     this.view = undefined;
     this.mode = 'list';

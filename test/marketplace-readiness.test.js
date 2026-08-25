@@ -90,14 +90,15 @@ test('names where Start and Stop work before Local lifecycle only', () => {
 
   assert.match(manifest.description, /same computer as this VS Code window/i);
   assert.match(readme, /same computer/i);
+  assert.match(readme, /Remote - WSL/);
   assert.match(readme, /Remote SSH/);
-  assert.match(readme, /WSL/);
   assert.match(readme, /Dev Containers/);
   assert.match(readme, /Codespaces/);
   assert.match(readme, /Tunnels/);
   assert.match(readme, /WSL network path/);
   assert.match(webview, /lifecycleWindowSupported === false/);
   assert.match(webview, /Windows WSL network paths will not start or stop processes/);
+  assert.doesNotMatch(webview, /Remote SSH, WSL, Dev Containers/);
 });
 
 test('passes strict Marketplace publication validation', () => {

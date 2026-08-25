@@ -977,7 +977,7 @@ test('keeps search focus and caret through a rerender and preserves empty state'
 
   result.state.lifecycleWindowSupported = false;
   result.rerender();
-  assert.match(result.app.innerHTML, /Remote SSH, WSL, Dev Containers/);
+  assert.match(result.app.innerHTML, /Remote SSH, Dev Containers/);
 });
 
 test('restores selection only for search focus in a fresh webview document', () => {

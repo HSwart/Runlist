@@ -920,7 +920,7 @@ function renderList() {
         ${icon('folder', 'empty-icon')}
         <h2>No projects yet</h2>
         <p>Save a project folder and its commands once, then start it from here.</p>
-        ${state.lifecycleWindowSupported === false ? `<p>Start and Stop work for apps on this computer. You can still save projects here. Remote SSH, WSL, Dev Containers, GitHub Codespaces, VS Code Tunnels, and Windows WSL network paths will not start or stop processes in this release.</p>` : ''}
+        ${state.lifecycleWindowSupported === false ? `<p>Start and Stop work for apps on this computer. You can still save projects here. Remote SSH, Dev Containers, GitHub Codespaces, VS Code Tunnels, and Windows WSL network paths will not start or stop processes in this release.</p>` : ''}
         <button class="primary-button" data-action="show-add">Add project</button>
       </section>`;
     firstListRender = false;
@@ -943,7 +943,7 @@ function renderList() {
       </section>` : ''}
     ${state.lifecycleWindowSupported === false ? `
       <section class="diagnosis-notice" role="status" aria-live="polite">
-        <p>Start and Stop work for apps on this computer. Remote SSH, WSL, Dev Containers, GitHub Codespaces, VS Code Tunnels, and Windows WSL network paths can save and list projects only.</p>
+        <p>Start and Stop work for apps on this computer. Remote SSH, Dev Containers, GitHub Codespaces, VS Code Tunnels, and Windows WSL network paths can save and list projects only.</p>
       </section>` : ''}
     ${runGroupsHtml()}
     ${state.stopAllCount > 1 ? `
