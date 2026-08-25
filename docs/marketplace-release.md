@@ -1,5 +1,18 @@
 # Marketplace release checklist
 
+## Publish from the terminal
+
+1. Be on the reviewed release commit on `main` (or the release branch after CI is green).
+2. Install Azure CLI if needed: https://learn.microsoft.com/cli/azure/install-azure-cli
+3. `az login --allow-no-subscriptions` (same Microsoft account that owns publisher `hankoswart`). An Azure subscription is not required.
+4. `az account show` to confirm the account.
+5. `npm ci`
+6. `npm run publish:marketplace`
+
+This command validates, then publishes the tracked VSIX at `releases/runlist.vsix` via `vsce publish --azure-credential --packagePath releases/runlist.vsix`.
+
+GitHub Actions publishing is a separate Ops path and uses a repo secret; it is not how you publish from your laptop.
+
 Do not describe a Runlist release as available in the Marketplace until that exact version can be installed from VS Code.
 
 ## Permanent publisher
