@@ -60,6 +60,20 @@ test('does not ship stale product branding', () => {
   }
 });
 
+test('leads the Marketplace release guide with terminal publish commands', () => {
+  const releaseGuide = fs.readFileSync(path.join(root, 'docs', 'marketplace-release.md'), 'utf8');
+  const terminalHeading = releaseGuide.indexOf('## Publish from the terminal');
+  const publisherHeading = releaseGuide.indexOf('## Permanent publisher');
+
+  assert.match(releaseGuide, /^# Marketplace release checklist\n\n## Publish from the terminal\n/);
+  assert.ok(terminalHeading > 0 && terminalHeading < publisherHeading);
+  assert.match(releaseGuide, /az login --allow-no-subscriptions/);
+  assert.match(releaseGuide, /az account show/);
+  assert.match(releaseGuide, /npm run publish:marketplace/);
+  assert.match(releaseGuide, /vsce publish --azure-credential --packagePath releases\/runlist\.vsix/);
+  assert.doesNotMatch(releaseGuide, /vsce publish -p\b/);
+});
+
 test('documents temporary candidate validation and tracked publication artifact', () => {
   const releaseGuide = fs.readFileSync(path.join(root, 'docs', 'marketplace-release.md'), 'utf8');
 
