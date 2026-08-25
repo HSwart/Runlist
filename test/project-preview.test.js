@@ -8,6 +8,7 @@ const {
   projectPreviewService,
   projectPreviewUrl
 } = require('../src/webview/preview-security');
+const { readShippedHostSource } = require('./helpers/extension-source');
 
 const project = {
   id: 'app',
@@ -85,7 +86,7 @@ test('allows only unique safe origins needed by visible preview frames', () => {
 
 test('renders one lazy, sandboxed, accessible expandable preview', () => {
   const root = path.join(__dirname, '..');
-  const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const extension = readShippedHostSource(root);
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
   const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
 
@@ -117,7 +118,7 @@ test('renders one lazy, sandboxed, accessible expandable preview', () => {
 
 test('uses the selected preview service for copy and browser actions', () => {
   const root = path.join(__dirname, '..');
-  const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const extension = readShippedHostSource(root);
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
 
   assert.match(extension, /async openProject\(id\)[\s\S]*projectPreviewService\([\s\S]*servicePortStatus\(\[service\]\)[\s\S]*reachableServiceUrls\(\[service\][\s\S]*openExternal\(vscode\.Uri\.parse\(reachable\.url\)\)/);
@@ -130,7 +131,7 @@ test('uses the selected preview service for copy and browser actions', () => {
 
 test('keeps the app preview focused on one responsive desktop view', () => {
   const root = path.join(__dirname, '..');
-  const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const extension = readShippedHostSource(root);
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
   const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
 

@@ -8,6 +8,7 @@ const {
   openProjectTerminal,
   projectFolderIsAccessible
 } = require('../src/webview/project-navigation');
+const { readShippedHostSource } = require('./helpers/extension-source');
 
 test('opens a saved project folder in a new VS Code window', async () => {
   const calls = [];
@@ -88,7 +89,7 @@ test('recognizes accessible directories and rejects missing or inaccessible fold
 
 test('wires an accessible terminal action and restores or redirects focus after folder errors', () => {
   const root = path.join(__dirname, '..');
-  const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const extension = readShippedHostSource(root);
   const router = fs.readFileSync(path.join(root, 'src', 'webview', 'webview-message-router.js'), 'utf8');
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
 
@@ -132,7 +133,7 @@ test('copies exact persisted paths without normalization, quoting, or escaping',
 
 test('wires an accessible project-path action with confirmation and focus restoration', () => {
   const root = path.join(__dirname, '..');
-  const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const extension = readShippedHostSource(root);
   const router = fs.readFileSync(path.join(root, 'src', 'webview', 'webview-message-router.js'), 'utf8');
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
 

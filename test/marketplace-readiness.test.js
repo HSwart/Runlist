@@ -38,6 +38,7 @@ test('does not ship stale product branding', () => {
     'THIRD_PARTY_NOTICES.md',
     'src/integrations/agent-registration.js',
     'extension.js',
+    'src/host/runlist-view-provider.js',
     'mcp/server.js',
     'media/main.js',
     'media/runlist-readme.svg',

@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const { readShippedHostSource } = require('./helpers/extension-source');
 
 test('offers an accessible Resolve action only for an affected service', () => {
   const root = path.join(__dirname, '..');
@@ -42,7 +43,7 @@ test('keeps optional service configuration collapsed in narrow forms', () => {
 });
 
 test('collects temporary port settings on the fly without editing the project', () => {
-  const extension = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const extension = readShippedHostSource();
 
   assert.match(extension, /label: managed \? 'Restart with a temporary port' : 'Use a temporary port'/);
   assert.doesNotMatch(extension, /Configure temporary ports/);
@@ -53,7 +54,7 @@ test('collects temporary port settings on the fly without editing the project', 
 });
 
 test('threads temporary ports through reservation, environment, ownership, and exact recovery', () => {
-  const extension = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const extension = readShippedHostSource();
   const webview = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
 
   assert.match(extension, /this\.portReservations\.reserve\(launchProject\)/);

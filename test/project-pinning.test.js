@@ -10,6 +10,7 @@ const {
   toggleProjectPinned,
   upsertProject
 } = require('../src/projects/project-store');
+const { readShippedHostSource } = require('./helpers/extension-source');
 
 test('persists pinning without changing the saved project order', (t) => {
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-pinning-'));
@@ -81,7 +82,7 @@ test('preserves pinning when an existing project is updated', (t) => {
 test('renders accessible pin controls and restores focus after a row moves', () => {
   const root = path.join(__dirname, '..');
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
-  const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const extension = readShippedHostSource(root);
 
   assert.match(webview, /data-action="toggle-pin"[^>]*role="menuitem"[^>]*aria-label=/);
   assert.match(webview, /Pinned project: \$\{projectName\}/);

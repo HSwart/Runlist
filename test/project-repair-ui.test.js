@@ -3,9 +3,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
+const { readShippedHostSource } = require('./helpers/extension-source');
 
 const root = path.join(__dirname, '..');
-const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+const extension = readShippedHostSource(root);
 const router = fs.readFileSync(path.join(root, 'src', 'webview', 'webview-message-router.js'), 'utf8');
 const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
 

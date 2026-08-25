@@ -30,6 +30,7 @@ const {
   servicePortHosts,
   stoppableProjectIds
 } = require('../src/lifecycle/project-status');
+const { readShippedHostSource } = require('./helpers/extension-source');
 
 test('treats health loss after detached readiness as timed out', () => {
   assert.equal(managedServiceReadinessTimedOut({
@@ -768,7 +769,7 @@ test('opens the primary service only when its own port is ready', () => {
 });
 
 test('uses VS Code URI forwarding for service health and browser opening', () => {
-  const extension = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const extension = readShippedHostSource();
   assert.match(extension, /vscode\.env\.asExternalUri\(vscode\.Uri\.parse\(url\)\)/);
   assert.match(extension, /serviceHttpStatus\([\s\S]*resolveUrl: \(url\) => this\.externalServiceUrl\(url\)/);
 });
@@ -790,7 +791,7 @@ test('shows a clear nonresponding state without changing stop safety', () => {
 
 test('shows slow startup as ongoing service checks rather than a failure', () => {
   const root = path.join(__dirname, '..');
-  const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const extension = readShippedHostSource(root);
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
   const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
 

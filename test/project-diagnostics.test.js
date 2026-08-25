@@ -12,6 +12,7 @@ const {
   redactSensitiveText,
   writeProjectDiagnostics
 } = require('../src/projects/project-diagnostics');
+const { readShippedHostSource } = require('./helpers/extension-source');
 
 test('sanitizes terminal controls and redacts credential-like diagnostic text', () => {
   const clean = boundedDiagnosticOutput([
@@ -105,7 +106,7 @@ test('redacts sensitive values from saved commands and summaries', () => {
 
 test('wires retained-failure diagnosis into the sidebar without sending to an agent', () => {
   const root = path.join(__dirname, '..');
-  const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const extension = readShippedHostSource(root);
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
   const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
 

@@ -12,6 +12,7 @@ const {
   sanitizeProjectOutput,
   startFailureSummary
 } = require('../src/projects/project-output');
+const { readShippedHostSource } = require('./helpers/extension-source');
 
 test('combines project output and removes terminal color codes', () => {
   const output = appendProjectOutput('Ready\n', '\u001b[31mFailed\u001b[0m\n');
@@ -333,7 +334,7 @@ test('renders an escaped accessible failure summary with a supported Latest icon
 });
 
 test('renders an accessible bounded live peek without replacing active selection or focus', () => {
-  const extension = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const extension = readShippedHostSource();
   const webview = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
   const styles = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.css'), 'utf8');
 

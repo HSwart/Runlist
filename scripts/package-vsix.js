@@ -27,6 +27,7 @@ const REVIEWED_PACKAGE_FILES = Object.freeze([
   'skills/runlist/SKILL.md',
   'skills/runlist/agents/openai.yaml',
   'src/groups/run-groups.js',
+  'src/host/runlist-view-provider.js',
   'src/integrations/agent-registration.js',
   'src/integrations/skill-installation.js',
   'src/lifecycle/atomic-json-record.js',

@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const { readShippedHostSource } = require('./helpers/extension-source');
 
 function declarationsFor(source, selector) {
   const declarations = {};
@@ -28,7 +29,7 @@ function pixels(value) {
 
 test('renders one accessible running-app navigator only for overflowing running projects', () => {
   const root = path.join(__dirname, '..');
-  const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const extension = readShippedHostSource(root);
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
   const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
 
@@ -49,7 +50,7 @@ test('renders one accessible running-app navigator only for overflowing running 
 
 test('loads one safe thumbnail only while the overflow navigator is visible', () => {
   const root = path.join(__dirname, '..');
-  const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const extension = readShippedHostSource(root);
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
 
   assert.match(extension, /previewFrameSources\(\[[\s\S]*expandedPreview\?\.previewUrl[\s\S]*runningAppIdSet/);

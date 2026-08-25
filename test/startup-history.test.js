@@ -16,6 +16,7 @@ const {
   startupHistoryDirectory,
   startupHistoryEntry
 } = require('../src/lifecycle/startup-history');
+const { readShippedHostSource } = require('./helpers/extension-source');
 
 test('averages only valid ready durations with deterministic rounding', () => {
   assert.equal(averageReadyDuration([
@@ -175,7 +176,7 @@ test('deleting startup history removes only that project history', () => {
 
 test('wires bounded outcomes and an accessible non-color-only ribbon into the lifecycle', () => {
   const root = path.join(__dirname, '..');
-  const extension = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  const extension = readShippedHostSource(root);
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
   const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
 
