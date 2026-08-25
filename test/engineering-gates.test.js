@@ -24,7 +24,7 @@ test('enforces focused static analysis, critical coverage, SBOM, and package ide
   assert.match(sbom, /pkg:npm\/\$\{manifest\.name\}@\$\{manifest\.version\}/);
 });
 
-test('runs pinned CodeQL, secret scanning, and SBOM artifact gates in CI', () => {
+test('runs pinned secret scanning and SBOM gates without duplicating CodeQL default setup', () => {
   const testWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'test.yml'), 'utf8');
   const securityWorkflow = fs.readFileSync(
     path.join(root, '.github', 'workflows', 'security.yml'),
@@ -35,7 +35,7 @@ test('runs pinned CodeQL, secret scanning, and SBOM artifact gates in CI', () =>
   assert.match(testWorkflow, /name: Engineering gates[\s\S]*npm run quality/);
   assert.match(testWorkflow, /name: Upload release SBOM/);
   assert.doesNotMatch(testWorkflow, unpinnedAction);
-  assert.match(securityWorkflow, /languages: javascript-typescript/);
+  assert.doesNotMatch(securityWorkflow, /github\/codeql-action/);
   assert.match(securityWorkflow, /name: Secret scan/);
   assert.match(securityWorkflow, /run: npm run scan:secrets/);
   assert.doesNotMatch(securityWorkflow, unpinnedAction);
