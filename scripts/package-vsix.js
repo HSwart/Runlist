@@ -74,6 +74,7 @@ const REVIEWED_PACKAGE_FILES = Object.freeze([
   'src/projects/stack-contract.js',
   'src/projects/project-workspace.js',
   'src/services/external-url.js',
+  'src/services/local-hostname.js',
   'src/webview/phone-handoff.js',
   'src/webview/preview-security.js',
   'src/webview/project-detail-tabs.js',

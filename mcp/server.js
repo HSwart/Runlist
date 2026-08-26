@@ -78,7 +78,7 @@ const setupTool = {
             url: {
               type: 'string',
               maxLength: 2048,
-              description: 'Optional explicit HTTP or HTTPS URL to open for this service, including any custom hostname or path. Omit it to use the localhost URL derived from the port.'
+              description: 'Optional explicit HTTP or HTTPS URL to open for this service, including any custom hostname or path. Omit it to use the project local hostname as http://{name}.localhost:{port}.'
             }
           },
           required: ['name', 'port'],

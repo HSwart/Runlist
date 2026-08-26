@@ -25,12 +25,13 @@ First-run stays empty until you add a folder. No setup dump.
 
 ## Features
 - Start, stop, and restart from the running row
-- Port chip opens the app at localhost when it’s ready
+- Port chip opens the app at a stable `name.localhost` URL when possible (falls back to `localhost:port`); readiness still tracks the real port
+- Optional local hostname on each project (defaults from the project name); collisions warned at save. Not a local reverse proxy — no Portless/Caddy parity
 - Checks configured ports before a start, and helps you switch when another Runlist app owns the port
 - On a running or conflicted row, shows who owns the port: this app, another Runlist app, or an external process (name and PID)
 - What’s Listening lists configured project ports and their listeners; closing a listener always asks for confirmation with the exact port and PID, then checks identity again before stopping anything
 - Launch profiles, tags, and run groups for the apps you keep coming back to
-- Live preview, recent output, and open-on-phone handoff for local web apps
+- Live preview, recent output, and open-on-phone handoff for local web apps (phone handoff uses your LAN address; named `.localhost` URLs are for this machine)
 - Import or export project setups, then review changes before they can run
 - Optional `runlist.json` (or `.runlist/projects.json`) stack file in a repo: load or export from Import or Export, review before commands can run; keep secrets out of the file
 - Import Docker Compose services after review (Compose file is not started until you Start). Needs Docker Engine + Compose v2; Stop ends only the Compose services that run started

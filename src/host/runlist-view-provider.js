@@ -177,6 +177,11 @@ const {
 const { runProjectTransferWorkflow, runStackContractLoadWorkflow, previewProjectImport } = require('../projects/project-transfer');
 const { detectStackContract, parseStackContract } = require('../projects/stack-contract');
 const {
+  findLocalHostnameCollisions,
+  preferredServiceOpenUrl,
+  slugifyLocalHostname
+} = require('../services/local-hostname');
+const {
   RunGroupCoordinator,
   runGroupManagementWorkflow
 } = require('../groups/run-groups');
@@ -1425,7 +1430,7 @@ class RunlistViewProvider {
           portStatus.openPorts,
           httpStatus.respondingPorts,
           httpStatus.webPorts,
-          reachableUrls,
+          this.namedServiceUrls(project, reachableUrls),
           serviceReadinessDetails(
             project.services,
             portStatus.openPorts,
@@ -2221,6 +2226,22 @@ class RunlistViewProvider {
     }
   }
 
+  namedServiceUrls(project, reachableUrls = []) {
+    return (reachableUrls || []).map((entry) => {
+      const service = (project?.services || []).find((item) => item.port === entry.port)
+        || { port: entry.port };
+      const preferred = preferredServiceOpenUrl({
+        project,
+        service,
+        port: entry.port
+      });
+      return {
+        ...entry,
+        url: preferred || entry.url
+      };
+    });
+  }
+
   async openProject(id) {
     const savedProject = this.projects.find((item) => item.id === id);
     const project = projectStopStrategy(
@@ -2247,9 +2268,12 @@ class RunlistViewProvider {
     }
     const service = project.services.find((item) => item.port === previewService.port);
     const portStatus = await servicePortStatus([service]);
-    const [reachable] = await reachableServiceUrls([service], portStatus.openPorts, {
-      resolveUrl: (url) => this.externalServiceUrl(url)
-    });
+    const [reachable] = this.namedServiceUrls(
+      project,
+      await reachableServiceUrls([service], portStatus.openPorts, {
+        resolveUrl: (url) => this.externalServiceUrl(url)
+      })
+    );
     if (!reachable) {
       vscode.window.showInformationMessage(`${service.name} is not responding as a web service.`);
       await this.refreshProjectStatuses();
@@ -2273,9 +2297,12 @@ class RunlistViewProvider {
     }
 
     const portStatus = await servicePortStatus([service]);
-    const [reachable] = await reachableServiceUrls([service], portStatus.openPorts, {
-      resolveUrl: (url) => this.externalServiceUrl(url)
-    });
+    const [reachable] = this.namedServiceUrls(
+      project,
+      await reachableServiceUrls([service], portStatus.openPorts, {
+        resolveUrl: (url) => this.externalServiceUrl(url)
+      })
+    );
     if (!reachable) {
       vscode.window.showInformationMessage(`${service.name} is not responding as a web service.`);
       await this.refreshProjectStatuses();
@@ -2298,9 +2325,12 @@ class RunlistViewProvider {
     }
 
     const portStatus = await servicePortStatus([service]);
-    const [reachable] = await reachableServiceUrls([service], portStatus.openPorts, {
-      resolveUrl: (url) => this.externalServiceUrl(url)
-    });
+    const [reachable] = this.namedServiceUrls(
+      project,
+      await reachableServiceUrls([service], portStatus.openPorts, {
+        resolveUrl: (url) => this.externalServiceUrl(url)
+      })
+    );
     if (!reachable) {
       vscode.window.showInformationMessage(`${service.name} is not responding as a web service.`);
       await this.refreshProjectStatuses();
@@ -2331,9 +2361,12 @@ class RunlistViewProvider {
     }
 
     const portStatus = await servicePortStatus([service]);
-    const [reachable] = await reachableServiceUrls([service], portStatus.openPorts, {
-      resolveUrl: (url) => this.externalServiceUrl(url)
-    });
+    const [reachable] = this.namedServiceUrls(
+      project,
+      await reachableServiceUrls([service], portStatus.openPorts, {
+        resolveUrl: (url) => this.externalServiceUrl(url)
+      })
+    );
     const phoneHandoff = createPhoneHandoff(reachable?.url);
     if (!phoneHandoff || phoneHandoff.url !== requestedUrl) {
       vscode.window.showInformationMessage('The local network address changed. Reopen Open on phone and try again.');
@@ -2644,6 +2677,28 @@ class RunlistViewProvider {
     const folder = validation.values.folder.trim();
     const setup = projectFormSetup(validation.values);
     const existingProject = this.projects.find((item) => item.id === projectId);
+    const hostnameLabel = setup.localHostname
+      || slugifyLocalHostname(name || path.basename(folder));
+    if (hostnameLabel) {
+      const collisions = findLocalHostnameCollisions(this.projects, hostnameLabel, projectId);
+      if (collisions.length) {
+        const others = collisions.map((item) => item.name).join(', ');
+        const proceed = 'Save anyway';
+        const approved = await vscode.window.showWarningMessage(
+          `Another project already uses local hostname “${hostnameLabel}” (${others}). Continue?`,
+          { modal: true },
+          proceed
+        );
+        if (approved !== proceed) {
+          this.formErrors = {
+            'local-hostname': `“${hostnameLabel}” is already used by ${others}.`
+          };
+          this.focusTarget = { type: 'field', id: 'local-hostname' };
+          this.render();
+          return;
+        }
+      }
+    }
     const supersededRevision = existingProject
       ? projectConfigurationRevision(existingProject)
       : undefined;

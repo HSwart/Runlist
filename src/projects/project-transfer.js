@@ -441,7 +441,8 @@ function projectSetupFingerprint(project) {
     launchProfiles: project.launchProfiles || [],
     selectedLaunchProfileId: project.selectedLaunchProfileId || 'default',
     tags: project.tags || [],
-    pinned: project.pinned === true
+    pinned: project.pinned === true,
+    localHostname: project.localHostname || ''
   });
 }
 

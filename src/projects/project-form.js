@@ -1,8 +1,9 @@
-const FIELD_ORDER = ['project-name', 'folder', 'start-command', 'stop-command'];
+const FIELD_ORDER = ['project-name', 'local-hostname', 'folder', 'start-command', 'stop-command'];
 const MAX_SERVICES = 32;
 const { safeServiceUrl } = require('../services/external-url');
 const { optionalPortVariableValidationMessage } = require('../ports/service-port-overrides');
 const { normalizeProjectTags } = require('./project-tags');
+const { localHostnameValidationMessage } = require('../services/local-hostname');
 const {
   DEFAULT_LAUNCH_PROFILE_ID,
   DEFAULT_LAUNCH_PROFILE_NAME,
@@ -36,6 +37,7 @@ function projectFormValues(input = {}) {
   return {
     id: String(input.id || ''),
     name: String(input.name || ''),
+    localHostname: String(input.localHostname || ''),
     tags: Array.isArray(input.tags) ? input.tags.join(', ') : String(input.tags || ''),
     folder: String(input.folder || ''),
     startCommand: String(input.startCommand || ''),
@@ -175,6 +177,10 @@ function validateProjectForm(input) {
   if (values.name.trim().length > 100) {
     errors['project-name'] = 'Project name cannot contain more than 100 characters.';
   }
+  const hostnameError = localHostnameValidationMessage(values.localHostname);
+  if (hostnameError) {
+    errors['local-hostname'] = hostnameError;
+  }
   try {
     normalizeProjectTags(values.tags);
   } catch (error) {
@@ -247,7 +253,7 @@ function validateProjectForm(input) {
   ]);
   return {
     errors,
-    firstField: ['project-name', 'tags', 'folder', 'launch-profile-name', 'start-command', 'stop-command', 'services', ...serviceFields, 'form']
+    firstField: ['project-name', 'local-hostname', 'tags', 'folder', 'launch-profile-name', 'start-command', 'stop-command', 'services', ...serviceFields, 'form']
       .find((field) => errors[field]),
     errorProfileId: invalidProfile?.id,
     values
@@ -297,6 +303,7 @@ function projectFormSetup(input) {
   const values = projectFormValues(input);
   return {
     tags: normalizeProjectTags(values.tags),
+    localHostname: values.localHostname.trim().toLocaleLowerCase('en-US'),
     startCommand: values.startCommand.trim(),
     stopCommand: values.stopCommand.trim(),
     services: normalizedProfileServices(values.services),
@@ -354,6 +361,9 @@ function projectSaveError(error) {
   }
   if (/tag/i.test(message)) {
     return { field: 'tags', message };
+  }
+  if (/local hostname|hostname/i.test(message)) {
+    return { field: 'local-hostname', message };
   }
   if (/name/i.test(message)) {
     return { field: 'project-name', message };

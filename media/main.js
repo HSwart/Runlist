@@ -291,7 +291,9 @@ function readinessServiceList(services) {
 }
 
 function serviceLocalAddress(service) {
-  const fullUrl = service.url || `http://localhost:${service.port}`;
+  const fullUrl = service.url || (project.localHostname
+    ? `http://${project.localHostname}.localhost:${service.port}`
+    : `http://localhost:${service.port}`);
   try {
     const parsed = new URL(fullUrl);
     const host = parsed.host.replace(/^127\.0\.0\.1(?=:|$)/, 'localhost');
@@ -1148,7 +1150,7 @@ function renderList() {
                   ${Number.isFinite(rowElapsedStartedAt) ? `
                     <span class="project-row-elapsed" data-row-elapsed data-started-at="${rowElapsedStartedAt}" aria-label="Running for ${escapeHtml(rowElapsedLabel)}">${escapeHtml(rowElapsedLabel)}</span>` : ''}
                   ${rowPort ? `
-                    <button class="project-port-chip" data-action="open" data-id="${projectId}" ${canOpen ? '' : 'disabled'} title="${openTitle}" aria-label="${canOpen ? `Open ${projectName} at localhost${escapeHtml(portLabel)}` : openTitle}">
+                    <button class="project-port-chip" data-action="open" data-id="${projectId}" ${canOpen ? '' : 'disabled'} title="${openTitle}" aria-label="${canOpen ? `Open ${projectName} at ${escapeHtml(project.previewUrl || `localhost${portLabel}`)}` : openTitle}">
                       <span>${escapeHtml(portLabel)}</span>
                     </button>` : ''}
                   ${project.services?.length ? `
@@ -1666,6 +1668,11 @@ function renderProjectForm(mode) {
         <input id="project-name" name="name" value="${escapeHtml(state.draft.name || '')}" placeholder="Defaults to folder name" maxlength="100" ${errorAttributes('project-name')}>
         ${fieldError('project-name')}
 
+        <label for="local-hostname">Local hostname <span class="optional-label">Optional</span></label>
+        <input id="local-hostname" name="localHostname" value="${escapeHtml(state.draft.localHostname || '')}" placeholder="Defaults from project name" maxlength="63" autocomplete="off" spellcheck="false" ${errorAttributes('local-hostname')}>
+        <p class="field-hint">Open uses http://name.localhost:port on this machine. Leave blank to derive from the project name.</p>
+        ${fieldError('local-hostname')}
+
         <label for="tags">Tags <span class="optional-label">Optional</span></label>
         <input id="tags" name="tags" value="${escapeHtml(state.draft.tags || '')}" placeholder="frontend, customer portal" maxlength="406" autocomplete="off" spellcheck="false" ${errorAttributes('tags')}>
         ${fieldError('tags')}
@@ -2068,6 +2075,7 @@ function currentDraft(
     ...state.draft,
     id: state.draft.id,
     name: fieldValue('name'),
+    localHostname: fieldValue('localHostname'),
     tags: fieldValue('tags'),
     folder: fieldValue('folder'),
     launchProfiles: (state.draft.launchProfiles || []).map((profile) => ({
