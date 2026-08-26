@@ -14,7 +14,7 @@ test('validates Marketplace metadata for the selected publisher and release', ()
   assert.equal(manifest.displayName, 'Runlist: Local Development Control Panel');
   assert.equal(
     manifest.description,
-    'Start, stop, monitor, and group local apps on the same computer as this VS Code window.'
+    'Start, stop, and switch local apps from one sidebar.'
   );
   assert.deepEqual(manifest.keywords.slice(0, 4), [
     'npm scripts',
@@ -95,7 +95,7 @@ test('names where Start and Stop work before Local lifecycle only', () => {
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
   const manifest = require('../package.json');
 
-  assert.match(manifest.description, /same computer as this VS Code window/i);
+  assert.equal(manifest.description, 'Start, stop, and switch local apps from one sidebar.');
   assert.match(readme, /same computer/i);
   assert.match(readme, /Remote - WSL/);
   assert.match(readme, /Remote SSH/);
