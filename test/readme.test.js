@@ -16,26 +16,28 @@ function imageSources(markdown) {
 }
 
 function firstFold(markdown) {
-  const heading = markdown.indexOf('## A control panel');
-  assert.ok(heading > 0, 'README must keep the control-panel section after the first fold');
+  const heading = markdown.indexOf('## Install');
+  assert.ok(heading > 0, 'README must keep Install after the first fold');
   return markdown.slice(0, heading);
 }
 
-test('leads with Design gallery shots and four short product bullets', () => {
+test('leads with the logo, three gallery shots, and short captions', () => {
   const fold = firstFold(readme);
   const logo = fold.indexOf('media/runlist.png');
   const hero = fold.indexOf('media/gallery-01-hero.png');
-  const bullets = fold.indexOf('- One sidebar for every local app.');
   const status = fold.indexOf('media/gallery-02-status.png');
   const features = fold.indexOf('media/gallery-03-features.png');
 
   assert.ok(logo >= 0 && logo < hero, 'logo stays above the hero shot');
-  assert.ok(hero < bullets, 'hero comes before the four bullets');
-  assert.ok(bullets < status, 'the four bullets come before the status shot');
+  assert.ok(hero < status, 'hero comes before the status shot');
   assert.ok(status < features, 'the features shot follows the status shot');
-  assert.match(fold, /- One sidebar for every local app\.\n- Start and stop from the card\.\n- Ports you can act on\.\n- Run groups\.\n/);
-  assert.equal((fold.match(/^- /gm) || []).length, 4);
+  assert.match(fold, /<h1 align="center">Runlist<\/h1>/);
+  assert.match(fold, /Start, stop, and switch local apps from one sidebar\./);
+  assert.match(fold, /Every local app\. One sidebar\./);
+  assert.match(fold, /See what’s running\. Stop it from here\./);
+  assert.match(fold, /Ports, preview, and a stack you can start as a group\./);
   assert.doesNotMatch(fold, /runlist-preview\.png/);
+  assert.doesNotMatch(fold, /^## /m);
 });
 
 test('keeps listing images on relative media/ paths and does not use the preview screenshot as the hero', () => {
@@ -83,19 +85,16 @@ test('moves the Control and Agent tables under Reference', () => {
 });
 
 test('keeps README positioning and installation claims accurate', () => {
-  assert.match(readme, /Runlist: Local Development Control Panel/);
-  assert.match(readme, /Every local app, across every repository/);
-  assert.match(readme, /Start, stop, monitor, and group dev servers, workers, and project commands/);
-  assert.match(readme, /optionally let a supported coding agent propose the setup for your approval/);
-  assert.match(readme, /asks before closing an external process to free one/);
+  assert.match(readme, /Start, stop, and switch local apps from one sidebar/);
+  assert.match(readme, /Every local app\. One sidebar/);
   assert.match(readme, /revalidates each process identity before termination/);
   assert.doesNotMatch(readme, /github\.com\/HSwart\/Runlist\/releases\/download/);
   assert.match(readme, /Install from the VS Code Marketplace/);
   assert.match(readme, /marketplace\.visualstudio\.com\/items\?itemName=hankoswart\.runlist/);
   assert.match(
     readme,
-    /Export one or all project setups.*import a file after a preview.*review and approve/is
+    /JSON file to move one or all saved setups.*review before they can run/is
   );
-  assert.match(readme, /run groups.*saved order.*reverse/is);
+  assert.match(readme, /Run groups.*reverse order/is);
   assert.match(readme, /repair proposal.*current.*proposed.*Retry start/is);
 });
