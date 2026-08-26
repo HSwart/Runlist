@@ -113,6 +113,38 @@ test('packages only the reviewed allowlist and excludes untracked root inputs', 
   assert.equal(REVIEWED_PACKAGE_FILES.includes(sentinelName), false);
 });
 
+const GALLERY_STILLS = Object.freeze([
+  'media/gallery-01-hero.png',
+  'media/gallery-02-status.png',
+  'media/gallery-03-features.png'
+]);
+
+function assertPngBytes(bytes, label) {
+  assert.ok(bytes, `missing ${label}`);
+  assert.notEqual(bytes.toString('utf8', 0, 32).startsWith('version https://git-lfs.github.com/'), true, `${label} is a Git LFS pointer`);
+  assert.equal(bytes.subarray(1, 4).toString('ascii'), 'PNG', `${label} is not PNG bytes`);
+}
+
+test('ships signed gallery PNGs and keeps relative README image sources in the VSIX', async (t) => {
+  const fixtureRoot = temporaryFixtureRoot(t);
+  const outputPath = temporaryOutput(fixtureRoot);
+  await packageVsix(fixtureRoot, { outputPath, testOnly: true });
+  const archive = await readArchive(outputPath);
+  const readme = archive.get('extension/readme.md').toString('utf8');
+  const packagedManifest = JSON.parse(archive.get('extension/package.json').toString('utf8'));
+
+  assert.deepEqual(
+    packagedManifest.screenshots,
+    GALLERY_STILLS.map((screenshotPath) => ({ path: screenshotPath }))
+  );
+  for (const screenshotPath of GALLERY_STILLS) {
+    assertPngBytes(archive.get(`extension/${screenshotPath}`), screenshotPath);
+    assert.match(readme, new RegExp(`src="${screenshotPath.replaceAll('.', '\\.')}"`));
+  }
+  assert.doesNotMatch(readme, /raw\.githubusercontent\.com/);
+  assert.doesNotMatch(readme, /github\.com\/HSwart\/Runlist\/raw\//);
+});
+
 test('npm run package invokes the reviewed helper in an isolated fixture', async (t) => {
   const fixtureRoot = temporaryFixtureRoot(t);
   addPackageRouteFiles(fixtureRoot);

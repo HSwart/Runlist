@@ -40,6 +40,7 @@ test('leads with the signed Marketplace gallery stills', () => {
   assert.doesNotMatch(firstFold, /runlist-preview\.png/);
   assert.doesNotMatch(readme, /\.svg/i);
   assert.doesNotMatch(readme, /raw\.githubusercontent\.com/);
+  assert.doesNotMatch(readme, /github\.com\/HSwart\/Runlist\/raw\//);
   assert.doesNotMatch(readme, /media\/runlist\.png/);
 });
 

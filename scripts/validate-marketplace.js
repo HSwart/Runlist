@@ -82,6 +82,21 @@ function validateMarketplace(root, options = {}) {
     errors.push('package.json categories must use Marketplace-supported values');
   }
 
+  const galleryScreenshots = [
+    'media/gallery-01-hero.png',
+    'media/gallery-02-status.png',
+    'media/gallery-03-features.png'
+  ];
+  if (!Array.isArray(manifest.screenshots) || manifest.screenshots.length !== galleryScreenshots.length) {
+    errors.push('package.json screenshots must list the three signed gallery stills');
+  } else {
+    galleryScreenshots.forEach((screenshotPath, index) => {
+      if (manifest.screenshots[index]?.path !== screenshotPath) {
+        errors.push(`package.json screenshots[${index}].path must be ${screenshotPath}`);
+      }
+    });
+  }
+
   const requiredUrls = [
     ['repository.url', manifest.repository && manifest.repository.url],
     ['homepage', manifest.homepage],
@@ -140,10 +155,14 @@ function validateMarketplace(root, options = {}) {
     errors.push('Marketplace publish command must validate and publish only the reviewed VSIX with Microsoft Entra ID');
   }
 
+  const vscodeIgnoreLines = vscodeIgnore.split(/\r?\n/);
   for (const pattern of ['.env*', '.agents/**', 'AGENTS.md', 'docs/**', 'scripts/**', 'test/**', 'media/runlist-screenshot.png']) {
-    if (!vscodeIgnore.split(/\r?\n/).includes(pattern)) {
+    if (!vscodeIgnoreLines.includes(pattern)) {
       errors.push(`.vscodeignore must exclude ${pattern}`);
     }
+  }
+  if (vscodeIgnoreLines.some((line) => /(^|\/)gallery-/.test(line) && !line.startsWith('!'))) {
+    errors.push('.vscodeignore must not exclude media/gallery-*.png');
   }
 
   return { errors, warnings };

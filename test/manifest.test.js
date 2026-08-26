@@ -10,6 +10,14 @@ test('ships as a local UI extension with a Marketplace icon', () => {
   assert.deepEqual(manifest.extensionKind, ['workspace', 'ui']);
   assert.equal(manifest.icon, 'media/runlist.png');
   assert.equal(fs.existsSync(path.join(root, manifest.icon)), true);
+  assert.deepEqual(
+    (manifest.screenshots || []).map((item) => item.path),
+    [
+      'media/gallery-01-hero.png',
+      'media/gallery-02-status.png',
+      'media/gallery-03-features.png'
+    ]
+  );
 });
 
 test('contributes one native project transfer command to the Runlist view', () => {

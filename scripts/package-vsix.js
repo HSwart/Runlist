@@ -480,7 +480,9 @@ async function createReviewedCandidate(root, candidatePath, createCandidate = cr
       cwd: stagingDirectory,
       dependencies: false,
       packageManager: PackageManager.None,
-      packagePath: candidatePath
+      packagePath: candidatePath,
+      // vsce otherwise rewrites README img srcs to GitHub raw/HEAD URLs.
+      rewriteRelativeLinks: false
     });
   } finally {
     if (ownsTemporaryDirectory) {

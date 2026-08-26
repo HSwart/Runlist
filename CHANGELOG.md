@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.0.10 — Marketplace gallery packaging
+
+- Declare the three signed listing stills in `package.json` `screenshots` so the Marketplace gallery can show them.
+- Keep README image sources as relative `media/` paths in the packaged VSIX instead of rewriting them to GitHub.
+
 ## 0.0.9 — Native sidebar and Marketplace listing
 
 - Keep everyday sidebar rows to two lines with native VS Code list chrome and the workbench font.
