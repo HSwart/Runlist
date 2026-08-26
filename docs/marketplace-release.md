@@ -21,13 +21,13 @@ Before publication, `npm run validate:marketplace:vsix` checks the tracked `rele
 
 ## Secure publication
 
-Publish from GitHub Actions on `main`. Local `vsce` is not required.
+Ops publishes from GitHub Actions on `main`. That is the only Ops publish path. Local `vsce` is not required for Ops.
 
 The **Publish Marketplace** workflow uses the `marketplace` GitHub Environment and its `VSCE_PAT` secret. The publish job sets `environment: marketplace` so GitHub injects that environment secret. Do not print, echo, or commit the token.
 
-How to publish after the reviewed release is on `main` and its tests have passed:
+How Ops publishes after the reviewed release is on `main` and its tests have passed:
 
-GitHub → Actions → **Publish Marketplace** → **Run workflow**, with the `main` branch selected (`workflow_dispatch`). That is the only publish path.
+GitHub → Actions → **Publish Marketplace** → **Run workflow**, with the `main` branch selected (`workflow_dispatch`).
 
 The workflow runs `npm ci`, then `npm run package` (strict Marketplace validation and a fresh `releases/runlist.vsix`), then `@vscode/vsce publish --packagePath releases/runlist.vsix` with `VSCE_PAT` from the environment. It does not run `npm run publish:marketplace` and does not pass `--azure-credential`.
 
@@ -35,7 +35,9 @@ The `marketplace` environment is limited to protected branches. `main` is protec
 
 Open VSX is not part of this workflow.
 
-### Local Microsoft Entra (optional)
+### Local Microsoft Entra (optional Hanko fallback)
+
+This is not a second Ops route. Keep `npm run publish:marketplace` for Hanko only, when GitHub Actions is unavailable and a local Microsoft Entra sign-in is already in place.
 
 Use your Microsoft Entra identity. Install the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli), run `az login --allow-no-subscriptions` once, and confirm the active account with `az account show`. Azure CLI keeps the local sign-in and refreshes it when possible; repeat the login only when Microsoft requires authentication again. An Azure subscription is not required.
 
