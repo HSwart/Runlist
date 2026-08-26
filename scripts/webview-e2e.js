@@ -146,7 +146,7 @@ async function captureIdeScreenshots(browser, ready, root, extensionDevelopmentP
   assert.ok(fs.statSync(frameAPath).size > 10000, 'Frame A IDE screenshot was unexpectedly small.');
 
   const seeded = await hostCommand(root, 'seed-running-screenshot');
-  await waitFor(async () => await hostCommand(root, 'project-status', { id: seeded.projectId }) === 'running',
+  await waitFor(async () => await hostCommand(root, 'project-status', { projectId: seeded.projectId }) === 'running',
     20000, 'seeded screenshot project to become running');
   await waitFor(async () => await hostCommand(root, 'start-count') >= 1,
     10000, 'seeded screenshot project to write its launch marker');
@@ -164,9 +164,9 @@ async function captureIdeScreenshots(browser, ready, root, extensionDevelopmentP
   assert.ok(fs.statSync(previewPath).size > 10000, 'The generated webview screenshot was unexpectedly small.');
   fs.copyFileSync(previewPath, path.join(artifactDir, 'ide-runlist-preview.png'));
 
-  await hostCommand(root, 'stop-project', { id: seeded.projectId });
+  await hostCommand(root, 'stop-project', { projectId: seeded.projectId });
   await waitFor(async () => {
-    const status = await hostCommand(root, 'project-status', { id: seeded.projectId });
+    const status = await hostCommand(root, 'project-status', { projectId: seeded.projectId });
     return status === 'stopped' || status === 'idle' || status === 'inactive';
   }, 15000, 'seeded screenshot project to stop');
 }

@@ -120,10 +120,10 @@ async function executeBrowserCommand(command, provider, root) {
     return { projectId: seeded.project.id, name: seeded.project.name };
   }
   if (command.action === 'project-status') {
-    return provider.getProjectStatus(command.id);
+    return provider.getProjectStatus(command.projectId);
   }
   if (command.action === 'stop-project') {
-    await provider.stopProject(command.id);
+    await provider.stopProject(command.projectId);
     return { stopped: true };
   }
   if (command.action === 'prepare-screenshot') {
