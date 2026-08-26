@@ -338,7 +338,7 @@ test('renders an accessible bounded live peek without replacing active selection
   const webview = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
   const styles = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.css'), 'utf8');
 
-  assert.match(extension, /type: 'projectOutputPeek'[\s\S]*projectIncarnation[\s\S]*entries: projectOutputPeek\(rawOutput\)/);
+  assert.match(extension, /type: 'projectOutputPeek'[\s\S]*projectIncarnation[\s\S]*entries: projectOutputPeek\(displayOutput\)/);
   assert.match(extension, /this\.projectIncarnations = new Map\(\)/);
   assert.match(extension, /projectIncarnation: this\.projectIncarnations\.get\(project\.id\)/);
   assert.match(webview, /class="project-output-peek" tabindex="0" aria-label="Latest output for/);

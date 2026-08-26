@@ -10,7 +10,8 @@ test('README stack contract claims match shipped review-before-run behavior', ()
   assert.match(readme, /runlist\.json/);
   assert.match(readme, /\.runlist\/projects\.json/);
   assert.match(readme, /review before commands can run/i);
-  assert.match(readme, /keep secrets out of the file/i);
+  assert.match(readme, /keep secret values out of the file/i);
+  assert.match(readme, /envFile/);
   assert.doesNotMatch(readme, /auto-?apply|auto-?start.*stack|starts? on clone/i);
 });
 
@@ -18,5 +19,6 @@ test('agent skill mentions stack load review and no secrets in the file', () => 
   assert.match(skill, /runlist\.json/);
   assert.match(skill, /Load stack from this workspace/);
   assert.match(skill, /review/i);
-  assert.match(skill, /secrets/i);
+  assert.match(skill, /secret values/i);
+  assert.match(skill, /envFile/);
 });
