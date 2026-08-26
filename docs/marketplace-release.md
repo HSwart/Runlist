@@ -2,6 +2,8 @@
 
 ## Publish from the terminal
 
+Optional laptop Microsoft Entra path. Ops publishes only via GitHub Actions (see Secure publication). This is not a second Ops route.
+
 1. Be on the reviewed release commit on `main` (or the release branch after CI is green).
 2. Install Azure CLI if needed: https://learn.microsoft.com/cli/azure/install-azure-cli
 3. `az login --allow-no-subscriptions` (same Microsoft account that owns publisher `hankoswart`). An Azure subscription is not required.
