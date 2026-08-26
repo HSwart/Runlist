@@ -116,11 +116,20 @@ async function executeBrowserCommand(command, provider, root) {
     });
     provider.renderProjectList();
     const started = await provider.startProject(seeded.project.id);
-    assert.equal(started, true, 'Could not start the screenshot project.');
-    return { projectId: seeded.project.id, name: seeded.project.name };
+    const status = provider.getProjectStatus(seeded.project.id);
+    assert.equal(started, true, `Could not start the screenshot project (status=${status}).`);
+    return {
+      projectId: seeded.project.id,
+      name: seeded.project.name,
+      status,
+      hasProcess: provider.processes.has(seeded.project.id)
+    };
   }
   if (command.action === 'project-status') {
-    return provider.getProjectStatus(command.projectId);
+    return {
+      status: provider.getProjectStatus(command.projectId),
+      hasProcess: provider.processes.has(command.projectId)
+    };
   }
   if (command.action === 'stop-project') {
     await provider.stopProject(command.projectId);

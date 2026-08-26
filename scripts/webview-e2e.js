@@ -576,7 +576,7 @@ async function hostCommand(root, action, values = {}) {
   const commandPath = path.join(root, 'browser-command.json');
   const responsePath = path.join(root, 'host-response.json');
   fs.rmSync(responsePath, { force: true });
-  fs.writeFileSync(commandPath, JSON.stringify({ id, action, ...values }));
+  fs.writeFileSync(commandPath, JSON.stringify({ action, ...values, id }));
   let response;
   await waitFor(() => {
     if (!fs.existsSync(responsePath)) {
