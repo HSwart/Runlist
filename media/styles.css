@@ -1173,6 +1173,36 @@ button:active:not(:disabled) {
   white-space: nowrap;
 }
 
+.project-listener-owner {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 42%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  color: var(--vscode-descriptionForeground);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 16px;
+  cursor: default;
+}
+
+button.project-listener-owner {
+  cursor: pointer;
+}
+
+button.project-listener-owner:hover {
+  color: var(--vscode-foreground);
+  text-decoration: underline;
+}
+
 .project-port-chip:hover:not(:disabled) {
   color: var(--vscode-foreground);
   background: var(--vscode-toolbar-hoverBackground);
@@ -2790,6 +2820,7 @@ select[aria-invalid='true'] {
 
   .project-status span,
   .project-row-elapsed,
+  .project-listener-owner,
   .project-port-chip {
     flex-shrink: 1;
   }

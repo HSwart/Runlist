@@ -115,6 +115,10 @@ const {
   formatPortListeningClipboard
 } = require('../ports/port-listening-report');
 const {
+  buildProjectListenerOwners,
+  listenerOwnerMapsDiffer
+} = require('../ports/row-listener-owner');
+const {
   projectFormChanged,
   projectFormSetup,
   projectFormServices,
@@ -294,6 +298,7 @@ class RunlistViewProvider {
     this.projectServiceUrls = new Map();
     this.projectWebPorts = new Map();
     this.projectStatuses = new Map();
+    this.projectListenerOwners = new Map();
     this.projectRuntime = new Map();
     this.projectAttemptMetadata = new Map();
     this.projectTimelineFailures = new Map();
@@ -1274,6 +1279,32 @@ class RunlistViewProvider {
           id,
           serviceUrls.map(({ port, url }) => ({ port, url }))
         ]));
+      const listenerPorts = [...new Set(
+        [...nextOpenPorts.values()]
+          .flat()
+          .concat([...nextConflicts.values()].map((conflict) => conflict?.port))
+          .filter((port) => Number.isInteger(port) && port >= 1 && port <= 65535)
+      )];
+      let listeners = [];
+      if (listenerPorts.length) {
+        try {
+          listeners = await findListeningProcesses(listenerPorts);
+        } catch {
+          listeners = [];
+        }
+      }
+      if (this.disposed || revision !== this.statusRevision) {
+        return;
+      }
+      const nextListenerOwners = buildProjectListenerOwners({
+        projects: effectiveProjects,
+        statuses: nextStatuses,
+        openPorts: nextOpenPorts,
+        conflicts: nextConflicts,
+        listeners,
+        processRuntime,
+        platform: process.platform
+      });
       // Publish the same ownership evidence used to calculate this refresh's statuses.
       // A later identity probe can legitimately become unavailable, especially on Windows;
       // mixing snapshots would make the displayed state contradict the published runtime.
@@ -1289,6 +1320,7 @@ class RunlistViewProvider {
         || [...nextStatuses].some(([id, status]) => this.projectStatuses.get(id) !== status)
         || runtimeChanged
         || portConflictMapsDiffer(nextConflicts, this.projectPortConflicts)
+        || listenerOwnerMapsDiffer(nextListenerOwners, this.projectListenerOwners)
         || [...nextOpenPorts]
           .some(([id, openPorts]) => String(this.projectOpenPorts.get(id)) !== String(openPorts))
         || [...nextRespondingPorts]
@@ -1299,6 +1331,7 @@ class RunlistViewProvider {
           .some(([id, urls]) => JSON.stringify(this.projectServiceUrls.get(id)) !== JSON.stringify(urls));
       this.projectStatuses = nextStatuses;
       this.projectPortConflicts = nextConflicts;
+      this.projectListenerOwners = nextListenerOwners;
       this.projectOpenPorts = nextOpenPorts;
       this.projectRespondingPorts = nextRespondingPorts;
       this.projectServiceUrls = nextServiceUrls;
@@ -4208,6 +4241,7 @@ class RunlistViewProvider {
         ),
         openPorts,
         portConflict: this.projectPortConflicts.get(project.id),
+        listenerOwner: this.projectListenerOwners.get(project.id),
         respondingPorts,
         serviceReadiness: serviceReadinessDetails(
           runtimeProject.services,

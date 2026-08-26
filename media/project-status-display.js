@@ -129,7 +129,11 @@
     const fullLabels = projectStatusFullLabels(project);
     const spokenStatus = fullLabels[projectStatusCode(project)] || projectDisplayedStatus(project) || 'Stopped';
     const readiness = serviceReadinessDetailsText(project, project.status || 'stopped');
-    return `${name}: ${spokenStatus}${readiness ? ` ${readiness}` : ''}`;
+    const ownerAnnouncement = typeof project.listenerOwner?.announcement === 'string'
+      && project.listenerOwner.announcement.trim()
+      ? project.listenerOwner.announcement.trim()
+      : '';
+    return `${name}: ${spokenStatus}${readiness ? ` ${readiness}` : ''}${ownerAnnouncement ? ` ${ownerAnnouncement}` : ''}`;
   }
 
   return {

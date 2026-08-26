@@ -48,5 +48,6 @@ test('port chip opens the app at localhost through openProject', () => {
     webview,
     /class="preview-toggle" data-action="open-services" data-id="\$\{projectId\}" aria-expanded="\$\{project\.detailsExpanded\}"/
   );
-  assert.doesNotMatch(webview, /port-owner|who owns this port/i);
+  assert.match(webview, /class="project-listener-owner"/);
+  assert.doesNotMatch(webview, /who owns this port|data-action="kill-port"/i);
 });

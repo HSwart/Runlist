@@ -663,6 +663,33 @@ function projectRowPort(project) {
   return firstService?.port;
 }
 
+function rowListenerOwnerVisible(owner, portConflict) {
+  if (!owner || !owner.label) {
+    return false;
+  }
+  if (owner.kind === 'other-runlist'
+    && typeof portConflict?.ownerName === 'string'
+    && portConflict.ownerName === owner.label) {
+    return false;
+  }
+  return true;
+}
+
+function projectListenerOwnerHtml(project) {
+  const owner = project.listenerOwner;
+  if (!rowListenerOwnerVisible(owner, project.portConflict)) {
+    return '';
+  }
+  const label = escapeHtml(owner.label);
+  const title = escapeHtml(owner.title || owner.label);
+  if (owner.kind === 'other-runlist' && owner.revealProjectId) {
+    return `
+                    <button type="button" class="project-listener-owner" data-action="reveal-listening-project" data-id="${escapeHtml(String(owner.revealProjectId))}" title="${title}" aria-label="${title}">${label}</button>`;
+  }
+  return `
+                    <span class="project-listener-owner" title="${title}" aria-label="${escapeHtml(owner.announcement || owner.label)}">${label}</span>`;
+}
+
 function projectServicesDetailHtml(project, projectName) {
   const projectId = escapeHtml(String(project.id));
   return `
@@ -1108,6 +1135,7 @@ function renderList() {
                 </div>
                 <div class="project-meta">
                   <div class="project-status status-${statusClass}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : `<span class="status-dot ${statusDotClass}" aria-hidden="true"></span>`}<span>${escapeHtml(displayedStatus)}</span></div>
+                  ${projectListenerOwnerHtml(project)}
                   ${Number.isFinite(rowElapsedStartedAt) ? `
                     <span class="project-row-elapsed" data-row-elapsed data-started-at="${rowElapsedStartedAt}" aria-label="Running for ${escapeHtml(rowElapsedLabel)}">${escapeHtml(rowElapsedLabel)}</span>` : ''}
                   ${rowPort ? `
