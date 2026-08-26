@@ -17,6 +17,7 @@
   ]);
   const WEBVIEW_COMMAND_TYPES = new Set([
     'approveProjectRepair',
+    'approveComposeImport',
     'closeScreen',
     'copyDiagnosisRequest',
     'copyOutput',
@@ -48,11 +49,17 @@
     'setTagFilter',
     'showAdd',
     'showAgentSetup',
+    'showPortListening',
+    'showComposeImport',
+    'refreshPortListening',
+    'copyPortListeningDetails',
+    'revealPortOwnerProject',
     'showDiagnosis',
     'showEdit',
     'showOutput',
     'startProject',
     'startRunGroup',
+    'startWorkspaceScript',
     'stopAllProjects',
     'stopProject',
     'stopRunGroup',
@@ -68,6 +75,7 @@
     'forceCloseProjectPorts',
     'forceCloseProjectPortsAndStart',
     'handoffProject',
+    'revealPortOwnerProject',
     'openProject',
     'openProjectFolder',
     'openProjectTerminal',
@@ -132,6 +140,10 @@
       && !['claude', 'codex', 'copilot'].includes(value.agent)) {
       return undefined;
     }
+    if (value.type === 'startWorkspaceScript'
+      && !['start', 'dev'].includes(value.script)) {
+      return undefined;
+    }
     if (['copyServiceUrl', 'openServiceUrl'].includes(value.type)
       && (!validId(value.id)
         || !Number.isInteger(Number(value.port))
@@ -140,6 +152,20 @@
       return undefined;
     }
     if (value.type === 'resolveServicePort'
+      && (!Number.isInteger(Number(value.port))
+        || Number(value.port) < 1
+        || Number(value.port) > 65535)) {
+      return undefined;
+    }
+    if (value.type === 'forceCloseProjectPorts'
+      && value.port !== undefined
+      && (!Number.isInteger(Number(value.port))
+        || Number(value.port) < 1
+        || Number(value.port) > 65535)) {
+      return undefined;
+    }
+    if (value.type === 'copyPortListeningDetails'
+      && value.port !== undefined
       && (!Number.isInteger(Number(value.port))
         || Number(value.port) < 1
         || Number(value.port) > 65535)) {

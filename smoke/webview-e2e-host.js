@@ -101,6 +101,60 @@ async function executeBrowserCommand(command, provider, root) {
     void vscode.commands.executeCommand(command.command);
     return { command: command.command };
   }
+  if (command.action === 'refresh-list') {
+    provider.renderProjectList();
+    return { refreshed: true };
+  }
+  if (command.action === 'seed-running-screenshot') {
+    const ready = JSON.parse(fs.readFileSync(path.join(root, 'host-ready.json'), 'utf8'));
+    fs.writeFileSync(path.join(ready.lifecyclePath, 'server.js'), [
+      "const fs = require('node:fs');",
+      "const http = require('node:http');",
+      "const path = require('node:path');",
+      "const marker = path.join(__dirname, 'starts.txt');",
+      "fs.appendFileSync(marker, `${process.pid}\\n`);",
+      'http.createServer((request, response) => {',
+      "  response.writeHead(200, { 'Content-Type': 'text/plain' });",
+      "  response.end('ok');",
+      '}).listen(4310, \'127.0.0.1\');',
+      ''
+    ].join('\n'));
+    const seeded = upsertProject(provider.projectsFile, {
+      name: 'Acme Storefront',
+      folder: ready.lifecyclePath,
+      startCommand: 'node server.js',
+      stopCommand: '',
+      services: [{ name: 'web', port: 4310 }]
+    });
+    provider.renderProjectList();
+    const started = await provider.startProject(seeded.project.id);
+    assert.equal(started, true, `Could not start the screenshot project (status=${provider.getProjectStatus(seeded.project.id)}).`);
+    await waitFor(
+      async () => {
+        await provider.refreshProjectStatuses();
+        return ['running', 'active'].includes(provider.getProjectStatus(seeded.project.id));
+      },
+      'Screenshot project did not become running after start.',
+      20000
+    );
+    provider.renderProjectList();
+    return {
+      projectId: seeded.project.id,
+      name: seeded.project.name,
+      status: provider.getProjectStatus(seeded.project.id),
+      hasProcess: provider.processes.has(seeded.project.id)
+    };
+  }
+  if (command.action === 'project-status') {
+    return {
+      status: provider.getProjectStatus(command.projectId),
+      hasProcess: provider.processes.has(command.projectId)
+    };
+  }
+  if (command.action === 'stop-project') {
+    await provider.stopProject(command.projectId);
+    return { stopped: true };
+  }
   if (command.action === 'prepare-screenshot') {
     await vscode.commands.executeCommand('runlist.projects.focus');
     await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');

@@ -6,10 +6,19 @@ const {
   parseProjectDocument,
   ProjectStoreError,
   readProjects,
+  readRunGroups,
   serializeProjectDocument,
+  upsertRunGroup,
   withProjectStoreLock,
   writeProjects
 } = require('./project-store');
+const {
+  StackContractError,
+  detectStackContract,
+  parseStackContract,
+  serializeStackContract,
+  resolveContractFolder
+} = require('./stack-contract');
 
 const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 const MAX_IMPORT_PROJECTS = 1000;
@@ -207,6 +216,11 @@ async function runProjectTransferWorkflow(options) {
         description: 'Review a Runlist JSON file before saving it'
       },
       {
+        action: 'load-stack',
+        label: '$(repo) Load stack from this workspace',
+        description: 'Review runlist.json before saving setups'
+      },
+      {
         action: 'export-all',
         label: '$(export) Export all project setups',
         description: 'Save every project to a Runlist JSON file'
@@ -215,6 +229,11 @@ async function runProjectTransferWorkflow(options) {
         action: 'export-one',
         label: '$(file) Export one project setup',
         description: 'Choose one saved project to export'
+      },
+      {
+        action: 'export-stack',
+        label: '$(repo-push) Export setups to workspace stack file',
+        description: 'Write relative paths to runlist.json'
       }
     ], {
       title: 'Import or Export Projects',
@@ -231,6 +250,24 @@ async function runProjectTransferWorkflow(options) {
         reserveUpdatedProjects,
         window,
         workspace
+      });
+    }
+    if (choice.action === 'load-stack') {
+      return await runStackContractLoadWorkflow({
+        isProjectActive,
+        onImported,
+        projectsFile,
+        reserveUpdatedProjects,
+        window,
+        workspaceRoot: options.workspaceRoot,
+        withProjectStoreLock: options.withProjectStoreLock
+      });
+    }
+    if (choice.action === 'export-stack') {
+      return await runStackContractExportWorkflow({
+        projectsFile,
+        window,
+        workspaceRoot: options.workspaceRoot
       });
     }
     return await exportProjects({
@@ -404,7 +441,10 @@ function projectSetupFingerprint(project) {
     launchProfiles: project.launchProfiles || [],
     selectedLaunchProfileId: project.selectedLaunchProfileId || 'default',
     tags: project.tags || [],
-    pinned: project.pinned === true
+    pinned: project.pinned === true,
+    localHostname: project.localHostname || '',
+    envFile: project.envFile || '',
+    env: project.env || {}
   });
 }
 
@@ -416,6 +456,201 @@ function transferError(code, message, options) {
   return new ProjectTransferError(code, message, options);
 }
 
+async function runStackContractLoadWorkflow(options) {
+  const {
+    isProjectActive,
+    onImported,
+    projectsFile,
+    reserveUpdatedProjects,
+    window,
+    workspaceRoot,
+    withProjectStoreLock
+  } = options;
+  try {
+    if (!workspaceRoot) {
+      await window.showErrorMessage(
+        'Open a folder in VS Code to load a Runlist stack file from this workspace.'
+      );
+      return { status: 'error' };
+    }
+    const contractPath = detectStackContract(workspaceRoot);
+    if (!contractPath) {
+      await window.showInformationMessage(
+        'No Runlist stack file found. Expected runlist.json or .runlist/projects.json in this workspace.'
+      );
+      return { status: 'missing' };
+    }
+    const contents = fs.readFileSync(contractPath);
+    const parsed = parseStackContract(contents, {
+      workspaceRoot,
+      contractPath
+    });
+    const preview = previewProjectImport(readProjects(projectsFile), parsed.projects, {
+      isProjectActive,
+      replaceOptionalMetadata: false
+    });
+    const groupDetail = formatContractGroupPreview(parsed.groups);
+    const detail = [formatProjectImportPreview(preview.entries), groupDetail]
+      .filter(Boolean)
+      .join('\n\n');
+    if (!preview.changeCount) {
+      await window.showInformationMessage(
+        'Nothing new to load from the Runlist stack file.',
+        { modal: true, detail }
+      );
+      return { status: 'unchanged', preview };
+    }
+
+    const label = `${preview.changeCount} project setup${preview.changeCount === 1 ? '' : 's'}`;
+    const confirm = `Load ${label}`;
+    const approved = await window.showWarningMessage(
+      `Load ${label} from the workspace stack file?`,
+      {
+        modal: true,
+        detail: `${detail}\n\nAdded and updated commands remain blocked until you review and approve each setup in Runlist.`
+      },
+      confirm
+    );
+    if (approved !== confirm) {
+      return { status: 'cancelled', preview };
+    }
+
+    const applyImport = () => {
+      const projects = applyProjectImport(projectsFile, preview, {
+        reserveUpdatedProjects
+      });
+      syncRunGroupsFromContract(projectsFile, projects, parsed.groups, workspaceRoot);
+      return projects;
+    };
+    const projects = withProjectStoreLock
+      ? await withProjectStoreLock(applyImport)
+      : applyImport();
+    await onImported?.(projects);
+    await window.showInformationMessage(
+      `Loaded ${label}. Review each changed setup before running its commands.`
+    );
+    return { status: 'imported', count: preview.changeCount, preview };
+  } catch (error) {
+    const message = error instanceof StackContractError || error instanceof ProjectTransferError
+      ? error.message
+      : boundedMessage(error);
+    await window.showErrorMessage(message);
+    return { status: 'error', error };
+  }
+}
+
+async function runStackContractExportWorkflow(options) {
+  const { projectsFile, window, workspaceRoot } = options;
+  try {
+    if (!workspaceRoot) {
+      await window.showErrorMessage(
+        'Open a folder in VS Code to export a Runlist stack file into this workspace.'
+      );
+      return { status: 'error' };
+    }
+    const allProjects = readProjects(projectsFile);
+    const exportable = allProjects.filter((project) => {
+      try {
+        serializeStackContract({ projects: [project], groups: [] }, { workspaceRoot });
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    if (!exportable.length) {
+      await window.showInformationMessage(
+        'No saved setups are inside this workspace folder to export.'
+      );
+      return { status: 'empty' };
+    }
+    const exportableIds = new Set(exportable.map((project) => project.id));
+    const groups = readRunGroups(projectsFile).filter((group) => (
+      group.projectIds.every((id) => exportableIds.has(id))
+    ));
+    const existingPath = detectStackContract(workspaceRoot);
+    const targetPath = existingPath || path.join(workspaceRoot, 'runlist.json');
+    if (fs.existsSync(targetPath)) {
+      const overwrite = 'Overwrite stack file';
+      const approved = await window.showWarningMessage(
+        `Overwrite ${path.basename(targetPath)} with the current reviewed setups?`,
+        {
+          modal: true,
+          detail: 'Relative folders and commands will be written. Secret values are not included.'
+        },
+        overwrite
+      );
+      if (approved !== overwrite) {
+        return { status: 'cancelled' };
+      }
+    }
+    const document = serializeStackContract({
+      projects: exportable,
+      groups
+    }, { workspaceRoot });
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.writeFileSync(targetPath, document, 'utf8');
+    const skipped = allProjects.length - exportable.length;
+    const skipNote = skipped
+      ? ` Skipped ${skipped} setup${skipped === 1 ? '' : 's'} outside this workspace.`
+      : '';
+    await window.showInformationMessage(
+      `Exported ${exportable.length} project setup${exportable.length === 1 ? '' : 's'} to ${path.basename(targetPath)}.${skipNote}`
+    );
+    return { status: 'exported', count: exportable.length, path: targetPath };
+  } catch (error) {
+    const message = error instanceof StackContractError
+      ? error.message
+      : boundedMessage(error);
+    await window.showErrorMessage(`Could not export the Runlist stack file: ${message}`);
+    return { status: 'error', error };
+  }
+}
+
+function syncRunGroupsFromContract(projectsFile, projects, contractGroups, workspaceRoot) {
+  if (!Array.isArray(contractGroups) || !contractGroups.length) {
+    return;
+  }
+  const byFolder = new Map(
+    projects.map((project) => [folderIdentity(project.folder), project.id])
+  );
+  const existing = readRunGroups(projectsFile);
+  for (const group of contractGroups) {
+    const projectIds = [];
+    for (const relativeFolder of group.projectFolders) {
+      const absolute = resolveContractFolder(relativeFolder, workspaceRoot, 'group');
+      const projectId = byFolder.get(folderIdentity(absolute));
+      if (projectId) {
+        projectIds.push(projectId);
+      }
+    }
+    if (!projectIds.length) {
+      continue;
+    }
+    const match = existing.find((entry) => (
+      entry.name.toLocaleLowerCase() === group.name.toLocaleLowerCase()
+    ));
+    upsertRunGroup(projectsFile, {
+      ...(match ? { id: match.id } : {}),
+      name: group.name,
+      projectIds,
+      startMode: group.startMode
+    });
+  }
+}
+
+function formatContractGroupPreview(groups) {
+  if (!groups?.length) {
+    return '';
+  }
+  const lines = groups.slice(0, 25).map((group) => (
+    `• ${group.name} — ${group.projectFolders.join(', ')} (${group.startMode})`
+  ));
+  if (groups.length > lines.length) {
+    lines.push(`• …and ${groups.length - lines.length} more`);
+  }
+  return `Groups (${groups.length})\n${lines.join('\n')}`;
+}
+
 module.exports = {
   applyProjectImport,
   exportProjectDocument,
@@ -424,5 +659,7 @@ module.exports = {
   parseImportDocument,
   previewProjectImport,
   ProjectTransferError,
-  runProjectTransferWorkflow
+  runProjectTransferWorkflow,
+  runStackContractExportWorkflow,
+  runStackContractLoadWorkflow
 };

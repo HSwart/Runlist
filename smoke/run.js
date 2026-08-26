@@ -162,6 +162,9 @@ async function terminateSmokeProcess(processRecord, options = {}) {
   )?.identity);
   await assertSmokeProcessIdentity(processRecord, readIdentity, platform, options);
   if (platform === 'win32' && processRecord.terminateTree === false) {
+    if (!processIsAlive(processRecord.pid)) {
+      return;
+    }
     await assertSmokeProcessIdentity(processRecord, readIdentity, platform, {
       ...options,
       identityAttempts: 1
@@ -203,6 +206,9 @@ async function assertSmokeProcessIdentity(processRecord, readIdentity, platform,
     if (attempt + 1 < attempts) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
+  }
+  if (!processIsAlive(processRecord.pid)) {
+    return undefined;
   }
   throw new Error(
     `Smoke cleanup could not re-verify helper identity for PID ${processRecord.pid} (expected ${processRecord.identity}; observed ${observed ?? 'unavailable'}).`

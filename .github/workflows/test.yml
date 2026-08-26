@@ -45,6 +45,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - name: Docker Compose lifecycle integration
+        if: runner.os == 'Linux'
+        run: npm run test:compose-lifecycle
       - name: Test the extension host
         if: runner.os != 'Linux'
         run: npm run test:smoke

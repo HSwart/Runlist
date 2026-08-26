@@ -123,13 +123,20 @@
 
   function projectStatusAnnouncement(project = {}) {
     const name = project.name || 'Project';
+    const composeLabel = typeof project.composePath === 'string' && project.composePath.trim()
+      ? 'Compose project. '
+      : '';
     if (project.forceClosing || project.handoffInProgress) {
-      return `${name}: ${projectDisplayedStatus(project)}`;
+      return `${composeLabel}${name}: ${projectDisplayedStatus(project)}`;
     }
     const fullLabels = projectStatusFullLabels(project);
     const spokenStatus = fullLabels[projectStatusCode(project)] || projectDisplayedStatus(project) || 'Stopped';
     const readiness = serviceReadinessDetailsText(project, project.status || 'stopped');
-    return `${name}: ${spokenStatus}${readiness ? ` ${readiness}` : ''}`;
+    const ownerAnnouncement = typeof project.listenerOwner?.announcement === 'string'
+      && project.listenerOwner.announcement.trim()
+      ? project.listenerOwner.announcement.trim()
+      : '';
+    return `${composeLabel}${name}: ${spokenStatus}${readiness ? ` ${readiness}` : ''}${ownerAnnouncement ? ` ${ownerAnnouncement}` : ''}`;
   }
 
   return {

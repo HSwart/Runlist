@@ -32,6 +32,32 @@ test('resolves the selected launch profile without mutating stored defaults', ()
   assert.equal(project.startCommand, 'npm run dev');
 });
 
+test('applies profile envFile and env independently of the default project', () => {
+  const withEnv = {
+    ...project,
+    envFile: '.env',
+    env: { FLAG: 'default' },
+    launchProfiles: [{
+      ...project.launchProfiles[0],
+      envFile: '.env.tests',
+      env: { FLAG: 'tests' }
+    }]
+  };
+  const resolved = resolveLaunchProfile(withEnv);
+  assert.equal(resolved.envFile, '.env.tests');
+  assert.deepEqual(resolved.env, { FLAG: 'tests' });
+  assert.equal(resolveLaunchProfile(withEnv, 'default').envFile, '.env');
+  assert.equal(resolveLaunchProfile({
+    ...withEnv,
+    launchProfiles: [{
+      id: 'tests',
+      name: 'Tests',
+      startCommand: 'npm test',
+      services: [{ name: 'test-api', port: 4311 }]
+    }]
+  }).envFile, undefined);
+});
+
 test('falls back to Default when a saved selection no longer exists', () => {
   const stale = { ...project, selectedLaunchProfileId: 'missing' };
 

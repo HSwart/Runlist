@@ -1,3 +1,6 @@
+const fs = require('node:fs');
+const path = require('node:path');
+
 function localWorkspaceFolders(workspaceFolders = []) {
   return workspaceFolders.filter((workspaceFolder) => (
     workspaceFolder?.uri?.scheme === 'file'
@@ -44,11 +47,34 @@ function workspaceFolderMatchesProject(projectFolder, workspaceFolders, platform
 }
 
 function orderSidebarProjects(projects) {
-  return [
-    ...projects.filter((project) => project.pinned === true),
-    ...projects.filter((project) => project.pinned !== true && project.currentWorkspace === true),
-    ...projects.filter((project) => project.pinned !== true && project.currentWorkspace !== true)
-  ];
+  const list = Array.isArray(projects) ? projects : [];
+  const pinned = list.filter((project) => project.pinned === true);
+  const unpinned = list
+    .map((project, index) => ({ project, index }))
+    .filter(({ project }) => project.pinned !== true)
+    .sort((left, right) => {
+      const delta = projectLastStartedAt(right.project) - projectLastStartedAt(left.project);
+      return delta !== 0 ? delta : left.index - right.index;
+    })
+    .map(({ project }) => project);
+  return [...pinned, ...unpinned];
+}
+
+function projectLastStartedAt(project = {}) {
+  let latest = 0;
+  if (Number.isFinite(project.lastStartedAt)) {
+    latest = Math.max(latest, project.lastStartedAt);
+  }
+  if (Number.isFinite(project.timeline?.launchedAt)) {
+    latest = Math.max(latest, project.timeline.launchedAt);
+  }
+  for (const entry of project.startupHistory || []) {
+    if (!Number.isFinite(entry?.completedAt) || !Number.isFinite(entry?.durationMs)) {
+      continue;
+    }
+    latest = Math.max(latest, entry.completedAt - entry.durationMs);
+  }
+  return latest;
 }
 
 function projectForCurrentWindow(projects, workspaceFolders, platform = process.platform) {
@@ -77,6 +103,35 @@ function startThisFolderDecision(projects, workspaceFolders, platform = process.
     status: 'start',
     projectId: project.id
   };
+}
+
+function workspaceStartDevScripts(folder, readFileSync = fs.readFileSync) {
+  if (typeof folder !== 'string' || !folder.trim()) {
+    return [];
+  }
+  let packageJson;
+  try {
+    packageJson = JSON.parse(readFileSync(path.join(folder, 'package.json'), 'utf8'));
+  } catch {
+    return [];
+  }
+  const scripts = packageJson && typeof packageJson === 'object'
+    ? packageJson.scripts
+    : undefined;
+  if (!scripts || typeof scripts !== 'object' || Array.isArray(scripts)) {
+    return [];
+  }
+  const chips = [];
+  for (const name of ['start', 'dev']) {
+    if (typeof scripts[name] !== 'string' || !scripts[name].trim()) {
+      continue;
+    }
+    chips.push({
+      name,
+      startCommand: name === 'start' ? 'npm start' : 'npm run dev'
+    });
+  }
+  return chips;
 }
 
 async function selectCurrentWorkspaceFolder(vscode) {
@@ -110,8 +165,10 @@ module.exports = {
   localWorkspaceFolders,
   orderSidebarProjects,
   projectForCurrentWindow,
+  projectLastStartedAt,
   selectCurrentWorkspaceFolder,
   startThisFolderDecision,
   starterDraftForCurrentWorkspace,
-  workspaceFolderMatchesProject
+  workspaceFolderMatchesProject,
+  workspaceStartDevScripts
 };

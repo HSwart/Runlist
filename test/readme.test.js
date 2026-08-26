@@ -29,7 +29,7 @@ test('leads with the signed Marketplace gallery stills', () => {
   );
   assert.match(
     readme,
-    /gallery-02-status\.png" width="1280" alt="See what’s running and stop it from here"/
+    /gallery-02-status\.png" width="1280" alt="See what’s running, elapsed time, and open from the port"/
   );
   assert.match(
     readme,
@@ -44,19 +44,30 @@ test('leads with the signed Marketplace gallery stills', () => {
   assert.doesNotMatch(readme, /media\/runlist\.png/);
 });
 
-test('keeps the signed listing page only', () => {
+test('keeps a Marketplace listing that sells shipped behavior', () => {
   assert.match(readme, /^# Runlist\n/);
   assert.match(firstFold, /Start, stop, and switch local apps from one sidebar\./);
   assert.match(firstFold, /Every local app, one sidebar/);
+  assert.match(firstFold, /stop or restart from the row/);
+  assert.match(firstFold, /Open the app from its port/);
   assert.match(readme, /## Get started/);
+  assert.match(readme, /Install from the \[VS Code Marketplace\]/);
   assert.match(readme, /Add this folder/);
-  assert.match(readme, /## Features/);
+  assert.match(readme, /`start` \/ `dev` chip/);
+  assert.match(readme, /## Everyday use/);
+  assert.match(readme, /## Power features/);
+  assert.match(readme, /Start, stop, and restart from the running row/);
+  assert.match(readme, /Port chip opens the app at a stable `name\.localhost` URL/);
+  assert.match(readme, /Launch profiles, tags, and run groups/);
+  assert.match(readme, /Live preview, recent output, and open-on-phone/);
+  assert.match(readme, /Import or export project setups/);
   assert.match(readme, /Windows, macOS, and Linux/);
   assert.match(
     readme,
-    /Install from the \[VS Code Marketplace\]\(https:\/\/marketplace\.visualstudio\.com\/items\?itemName=hankoswart\.runlist\)\./
+    /\[VS Code Marketplace\]\(https:\/\/marketplace\.visualstudio\.com\/items\?itemName=hankoswart\.runlist\)/
   );
   assert.match(readme, /Publisher Hanko Swart\. `hankoswart\.runlist`\./);
+  assert.match(firstFold, /A VS Code sidebar for starting, stopping, and opening local dev apps\./);
   assert.doesNotMatch(readme, /<h1 align="center">Runlist<\/h1>/);
   assert.doesNotMatch(readme, /github\.com\/HSwart\/Runlist\/releases\/download/);
   assert.doesNotMatch(readme, /## Install\b/);

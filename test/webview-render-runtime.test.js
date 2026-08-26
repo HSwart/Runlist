@@ -1070,22 +1070,32 @@ test('matches Turkish-sensitive tags with locale-independent identity and filter
 test('empty state offers Add this folder when a workspace folder is present', () => {
   const result = renderNonEmptyProjectList([], {
     stateOverrides: {
-      currentWorkspaceFolder: '/Users/example/app'
+      currentWorkspaceFolder: '/Users/example/app',
+      workspaceStartScripts: [
+        { name: 'start', startCommand: 'npm start' },
+        { name: 'dev', startCommand: 'npm run dev' }
+      ]
     }
   });
 
   assert.match(result.app.innerHTML, /No projects yet/);
   assert.match(result.app.innerHTML, /Add this folder/);
-  assert.match(result.app.innerHTML, /folder open in this window/);
+  assert.match(result.app.innerHTML, /Add the folder open in this window\./);
+  assert.match(result.app.innerHTML, /class="empty-start-chips"/);
+  assert.match(result.app.innerHTML, /data-action="start-workspace-script" data-script="dev"/);
+  assert.match(result.app.innerHTML, />\s*Start\s*</);
+  assert.match(result.app.innerHTML, />\s*Dev\s*</);
+  assert.match(result.app.innerHTML, /aria-label="Run `npm start` for this folder"/);
+  assert.match(result.app.innerHTML, /aria-label="Run `npm run dev` for this folder"/);
   assert.doesNotMatch(result.app.innerHTML, />Add project</);
 });
 
-test('empty state keeps Add project when no workspace folder is open', () => {
+test('empty state hides Add this folder when no workspace folder is open', () => {
   const result = renderNonEmptyProjectList([]);
 
-  assert.match(result.app.innerHTML, />Add project</);
-  assert.match(result.app.innerHTML, /Save a project folder and its start command once/);
+  assert.match(result.app.innerHTML, /Open a folder in this window first\./);
   assert.doesNotMatch(result.app.innerHTML, /Add this folder/);
+  assert.doesNotMatch(result.app.innerHTML, />Add project</);
 });
 
 test('marks the current-window project without replacing its name', () => {
@@ -1199,15 +1209,69 @@ test('renders everyday project rows without a competing folder path', () => {
 
   assert.match(result.app.innerHTML, /<h2 id="project-northstar"[^>]*>[\s\S]*Northstar Dashboard\s*<\/h2>/);
   assert.match(result.app.innerHTML, /class="project-meta"/);
-  assert.match(result.app.innerHTML, /class="project-status status-running"[^>]*>[\s\S]*<span>Running<\/span>[\s\S]*web :4310/);
-  assert.match(result.app.innerHTML, /web :4310/);
+  assert.match(result.app.innerHTML, /class="project-status status-running"[^>]*>[\s\S]*<span>Running<\/span>/);
+  assert.match(result.app.innerHTML, /class="project-port-chip"[^>]*>[\s\S]*:4310/);
+  assert.match(result.app.innerHTML, /class="run-button restart"[^>]*aria-label="Restart Northstar Dashboard"/);
   assert.match(result.app.innerHTML, /class="visually-hidden">\/Users\/shared\/Projects\/northstar-dashboard/);
   assert.match(result.app.innerHTML, /data-action="stop-all"/);
   assert.match(result.app.innerHTML, /Stop all \(2\)/);
   assert.doesNotMatch(result.app.innerHTML, /class="detail-row"/);
   assert.doesNotMatch(result.app.innerHTML, /Services · 1/);
+  assert.doesNotMatch(result.app.innerHTML, /web :4310/);
   assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
   assert.doesNotMatch(result.app.innerHTML, /class="auto-scroll"><span class="auto-scroll-content">Northstar Dashboard/);
+});
+
+test('running row shows elapsed from the live timeline on line 2', () => {
+  const launchedAt = Date.now() - 65_000;
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/northstar-dashboard',
+    id: 'northstar',
+    launchProfiles: [],
+    name: 'Northstar Dashboard',
+    openPorts: [4310],
+    pinned: false,
+    previewExpanded: false,
+    previewUrl: 'http://localhost:4310',
+    previewPort: 4310,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 4310 }],
+    status: 'running',
+    tags: [],
+    timeline: { launchedAt, readyAt: launchedAt + 1200 }
+  }]);
+
+  assert.match(result.app.innerHTML, /class="project-status status-running"[^>]*>[\s\S]*<span>Running<\/span>/);
+  assert.match(result.app.innerHTML, /class="project-row-elapsed" data-row-elapsed data-started-at="/);
+  assert.match(result.app.innerHTML, /aria-label="Running for 1m 0?5s"/);
+  assert.match(result.app.innerHTML, /class="project-port-chip"[^>]*>[\s\S]*:4310/);
+  assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
+});
+
+test('stopped rows do not show elapsed time', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/northstar-dashboard',
+    id: 'northstar',
+    launchProfiles: [],
+    name: 'Northstar Dashboard',
+    openPorts: [],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 4310 }],
+    status: 'stopped',
+    tags: [],
+    timeline: { launchedAt: Date.now() - 10_000, readyAt: Date.now() - 9_000 }
+  }]);
+
+  assert.doesNotMatch(result.app.innerHTML, /data-row-elapsed/);
+  assert.match(result.app.innerHTML, /class="project-port-chip"/);
 });
 
 test('renders Detected on the status line without a second Detected running sentence', () => {
@@ -1230,7 +1294,8 @@ test('renders Detected on the status line without a second Detected running sent
   }]);
 
   assert.match(result.app.innerHTML, /Northstar Dashboard\s*<\/h2>/);
-  assert.match(result.app.innerHTML, /class="project-status status-active"[^>]*>[\s\S]*<span>Detected<\/span>[\s\S]*web :4310/);
+  assert.match(result.app.innerHTML, /class="project-status status-active"[^>]*>[\s\S]*<span>Detected<\/span>/);
+  assert.match(result.app.innerHTML, /class="project-port-chip"[^>]*>[\s\S]*:4310/);
   assert.doesNotMatch(result.app.innerHTML, /Detected running/);
   assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
   assert.doesNotMatch(result.app.innerHTML, /class="current-window-label"/);

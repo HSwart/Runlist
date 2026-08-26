@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "projects": [
+    {
+      "name": "Escape",
+      "folder": "/etc",
+      "startCommand": "echo hi",
+      "services": []
+    }
+  ],
+  "groups": []
+}

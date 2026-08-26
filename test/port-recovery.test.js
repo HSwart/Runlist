@@ -3,6 +3,7 @@ const test = require('node:test');
 const {
   managedPortBlockers,
   portClosureConfirmation,
+  portCloseUserMessage,
   recoverProjectPorts,
   relatedPortProjectIds
 } = require('../src/ports/port-recovery');
@@ -308,6 +309,49 @@ test('aborts without terminating when a listener identity changes during confirm
 
   assert.deepEqual(result, { status: 'changed' });
   assert.deepEqual(terminated, []);
+});
+
+test('aborts and leaves a replacement listener untouched when PID changes after confirm', async () => {
+  let inspection = 0;
+  const terminated = [];
+  const result = await recoverProjectPorts(project, 'stop', {
+    getOpenPorts: async () => [4280],
+    findListeningProcesses: async () => {
+      inspection += 1;
+      return inspection === 1
+        ? [listener(4280, 120, '120:first', 'node')]
+        : [listener(4280, 999, '999:next', 'python')];
+    },
+    confirmPortClosure: async ({ processes }) => {
+      assert.equal(processes[0].pid, 120);
+      return true;
+    },
+    terminateListenerProcess: async (process) => terminated.push(process),
+    waitForPortsClosed: async () => true
+  });
+
+  assert.equal(result.status, 'changed');
+  assert.deepEqual(terminated, []);
+  assert.match(
+    portCloseUserMessage(project.name, result).text,
+    /Nothing was stopped\. Whatever is listening now was left running/
+  );
+});
+
+test('plain-language close copy covers success and failure outcomes', () => {
+  assert.equal(
+    portCloseUserMessage('Acme', { status: 'closed', openPorts: [4310], processCount: 1 }).text,
+    'Closed the process on :4310.'
+  );
+  assert.match(
+    portCloseUserMessage('Acme', { status: 'closed', openPorts: [4310], processCount: 1 }, 'start').text,
+    /Starting Acme/
+  );
+  assert.match(
+    portCloseUserMessage('Acme', { status: 'unresolved', ports: [4310] }).text,
+    /could not identify the exact process/i
+  );
+  assert.equal(portCloseUserMessage('Acme', { status: 'canceled' }), null);
 });
 
 test('refuses an open port when its exact listener or process identity cannot be resolved', async () => {

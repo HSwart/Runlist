@@ -11,7 +11,9 @@ const {
   MAX_STARTUP_FAILURE_SUMMARY_CHARS,
   MAX_STARTUP_HISTORY,
   normalizeFailureSummary,
+  readProjectLastStartedAt,
   readStartupHistory,
+  recordProjectLastStartedAt,
   replaceTimedOutStartupHistory,
   startupHistoryDirectory,
   startupHistoryEntry
@@ -174,6 +176,20 @@ test('deleting startup history removes only that project history', () => {
   assert.equal(readStartupHistory(projectsFile, 'second').length, 1);
 });
 
+test('persists accepted start timestamps independently of completed startup history', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-last-started-'));
+  const projectsFile = path.join(root, 'projects.json');
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  assert.equal(readProjectLastStartedAt(projectsFile, 'service-app'), 0);
+  assert.equal(recordProjectLastStartedAt(projectsFile, 'service-app', 9000), 9000);
+  assert.equal(readProjectLastStartedAt(projectsFile, 'service-app'), 9000);
+  assert.deepEqual(readStartupHistory(projectsFile, 'service-app'), []);
+  assert.equal(recordProjectLastStartedAt(projectsFile, 'service-app', 12000), 12000);
+  assert.equal(readProjectLastStartedAt(projectsFile, 'service-app'), 12000);
+  clearStartupHistory(projectsFile, 'service-app');
+  assert.equal(readProjectLastStartedAt(projectsFile, 'service-app'), 0);
+});
+
 test('wires bounded outcomes and an accessible non-color-only ribbon into the lifecycle', () => {
   const root = path.join(__dirname, '..');
   const extension = readShippedHostSource(root);
@@ -186,6 +202,8 @@ test('wires bounded outcomes and an accessible non-color-only ribbon into the li
   assert.match(extension, /metadata\.historyOutcome !== 'timed-out'[\s\S]*replaceTimedOutStartupHistory/);
   assert.match(extension, /clearStartupHistory\(this\.projectsFile, id\)/);
   assert.match(extension, /averageReadyDurationMs: averageReadyDuration\(startupHistory\)/);
+  assert.match(extension, /recordProjectLastStartedAt\(this\.projectsFile, id, launchedAt\)/);
+  assert.match(extension, /lastStartedAt: lastStartedAt \|\| undefined/);
   assert.match(webview, /class="startup-history" role="group" aria-label=/);
   assert.doesNotMatch(webview, /class="startup-history-ribbon" aria-hidden="true"/);
   assert.match(webview, /code: 'OK'[\s\S]*code: 'FAIL'[\s\S]*code: 'SLOW'/);

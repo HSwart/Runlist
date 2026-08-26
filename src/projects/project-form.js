@@ -1,8 +1,17 @@
-const FIELD_ORDER = ['project-name', 'folder', 'start-command', 'stop-command'];
+const FIELD_ORDER = ['project-name', 'local-hostname', 'folder', 'start-command', 'stop-command', 'env-file', 'env-map'];
 const MAX_SERVICES = 32;
 const { safeServiceUrl } = require('../services/external-url');
 const { optionalPortVariableValidationMessage } = require('../ports/service-port-overrides');
 const { normalizeProjectTags } = require('./project-tags');
+const { localHostnameValidationMessage } = require('../services/local-hostname');
+const {
+  envFileValidationMessage,
+  envMapTextValidationMessage,
+  normalizeEnvFile,
+  normalizeEnvMap,
+  parseEnvMapText,
+  serializeEnvMapText
+} = require('./launch-env');
 const {
   DEFAULT_LAUNCH_PROFILE_ID,
   DEFAULT_LAUNCH_PROFILE_NAME,
@@ -27,6 +36,16 @@ function serviceFormValues(services) {
   }));
 }
 
+function profileEnvText(profile = {}) {
+  if (typeof profile.envText === 'string') {
+    return profile.envText;
+  }
+  if (profile.env && typeof profile.env === 'object' && !Array.isArray(profile.env)) {
+    return serializeEnvMapText(profile.env);
+  }
+  return '';
+}
+
 function projectFormValues(input = {}) {
   const sourceServices = Array.isArray(input.services)
     ? input.services
@@ -36,16 +55,21 @@ function projectFormValues(input = {}) {
   return {
     id: String(input.id || ''),
     name: String(input.name || ''),
+    localHostname: String(input.localHostname || ''),
     tags: Array.isArray(input.tags) ? input.tags.join(', ') : String(input.tags || ''),
     folder: String(input.folder || ''),
     startCommand: String(input.startCommand || ''),
     stopCommand: String(input.stopCommand || ''),
+    envFile: String(input.envFile || ''),
+    envText: profileEnvText(input),
     services: serviceFormValues(sourceServices),
     launchProfiles: (Array.isArray(input.launchProfiles) ? input.launchProfiles : []).map((profile) => ({
       id: String(profile?.id || ''),
       name: String(profile?.name || ''),
       startCommand: String(profile?.startCommand || ''),
       stopCommand: String(profile?.stopCommand || ''),
+      envFile: String(profile?.envFile || ''),
+      envText: profileEnvText(profile),
       services: serviceFormValues(profile?.services)
     })),
     selectedLaunchProfileId: String(input.selectedLaunchProfileId || DEFAULT_LAUNCH_PROFILE_ID),
@@ -64,6 +88,8 @@ function projectFormActiveProfile(values) {
       name: DEFAULT_LAUNCH_PROFILE_NAME,
       startCommand: values.startCommand,
       stopCommand: values.stopCommand,
+      envFile: values.envFile,
+      envText: values.envText,
       services: values.services
     };
   }
@@ -73,6 +99,8 @@ function projectFormActiveProfile(values) {
       name: DEFAULT_LAUNCH_PROFILE_NAME,
       startCommand: values.startCommand,
       stopCommand: values.stopCommand,
+      envFile: values.envFile,
+      envText: values.envText,
       services: values.services
     };
 }
@@ -175,6 +203,10 @@ function validateProjectForm(input) {
   if (values.name.trim().length > 100) {
     errors['project-name'] = 'Project name cannot contain more than 100 characters.';
   }
+  const hostnameError = localHostnameValidationMessage(values.localHostname);
+  if (hostnameError) {
+    errors['local-hostname'] = hostnameError;
+  }
   try {
     normalizeProjectTags(values.tags);
   } catch (error) {
@@ -193,6 +225,8 @@ function validateProjectForm(input) {
       name: DEFAULT_LAUNCH_PROFILE_NAME,
       startCommand: values.startCommand,
       stopCommand: values.stopCommand,
+      envFile: values.envFile,
+      envText: values.envText,
       services: values.services
     },
     ...values.launchProfiles
@@ -216,6 +250,14 @@ function validateProjectForm(input) {
     }
     if (!profile.startCommand.trim()) {
       profileErrors.get(profile.id)['start-command'] = 'Enter a start command.';
+    }
+    const envFileError = envFileValidationMessage(profile.envFile);
+    if (envFileError) {
+      profileErrors.get(profile.id)['env-file'] = envFileError;
+    }
+    const envMapError = envMapTextValidationMessage(profile.envText);
+    if (envMapError) {
+      profileErrors.get(profile.id)['env-map'] = envMapError;
     }
     Object.assign(profileErrors.get(profile.id), validateProfileServices(profile.services));
   }
@@ -247,7 +289,7 @@ function validateProjectForm(input) {
   ]);
   return {
     errors,
-    firstField: ['project-name', 'tags', 'folder', 'launch-profile-name', 'start-command', 'stop-command', 'services', ...serviceFields, 'form']
+    firstField: ['project-name', 'local-hostname', 'tags', 'folder', 'launch-profile-name', 'start-command', 'stop-command', 'env-file', 'env-map', 'services', ...serviceFields, 'form']
       .find((field) => errors[field]),
     errorProfileId: invalidProfile?.id,
     values
@@ -295,18 +337,33 @@ function normalizedProfileServices(services) {
 
 function projectFormSetup(input) {
   const values = projectFormValues(input);
+  const defaultEnvFile = normalizeEnvFile(values.envFile);
+  const defaultEnv = Object.keys(parseEnvMapText(values.envText)).length
+    ? normalizeEnvMap(parseEnvMapText(values.envText))
+    : undefined;
   return {
     tags: normalizeProjectTags(values.tags),
+    localHostname: values.localHostname.trim().toLocaleLowerCase('en-US'),
     startCommand: values.startCommand.trim(),
     stopCommand: values.stopCommand.trim(),
+    ...(defaultEnvFile ? { envFile: defaultEnvFile } : { envFile: '' }),
+    ...(defaultEnv ? { env: defaultEnv } : { env: {} }),
     services: normalizedProfileServices(values.services),
-    launchProfiles: values.launchProfiles.map((profile) => ({
-      id: profile.id,
-      name: profile.name.trim(),
-      startCommand: profile.startCommand.trim(),
-      ...(profile.stopCommand.trim() ? { stopCommand: profile.stopCommand.trim() } : {}),
-      services: normalizedProfileServices(profile.services)
-    })),
+    launchProfiles: values.launchProfiles.map((profile) => {
+      const envFile = normalizeEnvFile(profile.envFile);
+      const env = Object.keys(parseEnvMapText(profile.envText)).length
+        ? normalizeEnvMap(parseEnvMapText(profile.envText))
+        : undefined;
+      return {
+        id: profile.id,
+        name: profile.name.trim(),
+        startCommand: profile.startCommand.trim(),
+        ...(profile.stopCommand.trim() ? { stopCommand: profile.stopCommand.trim() } : {}),
+        ...(envFile ? { envFile } : {}),
+        ...(env ? { env } : {}),
+        services: normalizedProfileServices(profile.services)
+      };
+    }),
     selectedLaunchProfileId: values.selectedLaunchProfileId
   };
 }
@@ -354,6 +411,9 @@ function projectSaveError(error) {
   }
   if (/tag/i.test(message)) {
     return { field: 'tags', message };
+  }
+  if (/local hostname|hostname/i.test(message)) {
+    return { field: 'local-hostname', message };
   }
   if (/name/i.test(message)) {
     return { field: 'project-name', message };

@@ -88,6 +88,7 @@ function createRunlistWebviewRouter(host, adapters = {}) {
   const route = createWebviewCommandRouter({
     handlers: {
       approveProjectRepair: (message) => host.approveProjectRepair(message.proposalId),
+      approveComposeImport: () => host.approveComposeImport(),
       closeScreen: (message) => host.closeScreen(message.draft),
       copyDiagnosisRequest: () => host.copyDiagnosisRequest(),
       copyOutput: () => host.copyProjectOutput(),
@@ -95,7 +96,13 @@ function createRunlistWebviewRouter(host, adapters = {}) {
       copyProjectPath: (message) => host.copyProjectPath(message.id),
       copyServiceUrl: (message) => host.copyServiceUrl(message.id, Number(message.port)),
       deleteProject: (message) => host.deleteProject(message.id),
-      forceCloseProjectPorts: (message) => host.forceCloseProjectPorts(message.id, 'stop'),
+      forceCloseProjectPorts: (message) => {
+        const port = Number(message.port);
+        const options = Number.isInteger(port) && port >= 1 && port <= 65535
+          ? { servicePort: port }
+          : {};
+        return host.forceCloseProjectPorts(message.id, 'stop', options);
+      },
       forceCloseProjectPortsAndStart: (message) => host.forceCloseProjectPorts(message.id, 'start'),
       handoffProject: (message) => host.handoffProject(message.id),
       manageRunGroups: (message) => host.showRunGroupManager(message.id),
@@ -106,9 +113,12 @@ function createRunlistWebviewRouter(host, adapters = {}) {
       openProjectTerminal: (message) => host.openProjectTerminal(message.id),
       pickFolder: (message) => host.pickFolder(message.draft),
       refreshProjectRepair: () => host.refreshProjectRepair(),
+      refreshPortListening: () => host.refreshPortListeningDiagnosis(),
       registerAgent: (message) => host.registerAgent(message.agent),
       rejectProjectRepair: () => host.rejectProjectRepair(),
       resolveServicePort: (message) => host.resolveServicePort(message.id, Number(message.port)),
+      revealPortOwnerProject: (message) => host.revealPortOwnerProject(message.id),
+      showComposeImport: (message) => host.showComposeImport(message.id),
       restartProject: (message) => host.restartProject(message.id),
       retryProjectRepair: () => host.retryProjectRepair(),
       saveProject: (message) => host.saveProject(message.project),
@@ -131,6 +141,9 @@ function createRunlistWebviewRouter(host, adapters = {}) {
       },
       showAdd: () => host.showAddProject({ type: 'action', action: 'show-add' }),
       showAgentSetup: () => host.showAgentSetup(),
+      showPortListening: () => host.showPortListeningDiagnosis(),
+      copyPortListeningDetails: (message) => host.copyPortListeningDetails(message.port),
+      startWorkspaceScript: (message) => host.startWorkspaceScript(message.script),
       showDiagnosis: (message) => host.showProjectDiagnosis(message.id),
       showEdit: (message) => host.showEditProject(message.id),
       showOutput: (message) => {

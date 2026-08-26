@@ -11,13 +11,15 @@ const { withExclusiveJsonLock } = require('../lifecycle/exclusive-json-lock');
 const { safeServiceUrl } = require('../services/external-url');
 const { optionalPortVariableValidationMessage } = require('../ports/service-port-overrides');
 const { normalizeProjectTags } = require('./project-tags');
+const { normalizeLocalHostname } = require('../services/local-hostname');
+const { normalizeEnvFile, normalizeEnvMap } = require('./launch-env');
 const {
   DEFAULT_LAUNCH_PROFILE_ID,
   DEFAULT_LAUNCH_PROFILE_NAME,
   MAX_ALTERNATE_LAUNCH_PROFILES
 } = require('./launch-profile');
 
-const PROJECT_STORE_SCHEMA_VERSION = 5;
+const PROJECT_STORE_SCHEMA_VERSION = 8;
 const ATOMIC_RENAME_MAX_ATTEMPTS = 5;
 const ATOMIC_RENAME_RETRY_DELAY_MS = 10;
 const ATOMIC_RENAME_WAIT = new Int32Array(new SharedArrayBuffer(4));
@@ -379,7 +381,7 @@ function parseProjectDocument(contents) {
   if (!Object.hasOwn(value, 'schemaVersion')) {
     throw projectStoreError('INVALID_STORAGE', 'Runlist project storage does not have a schema version.');
   }
-  if (![1, 2, 3, 4, PROJECT_STORE_SCHEMA_VERSION].includes(value.schemaVersion)) {
+  if (![1, 2, 3, 4, 5, 6, 7, PROJECT_STORE_SCHEMA_VERSION].includes(value.schemaVersion)) {
     throw projectStoreError(
       'UNSUPPORTED_VERSION',
       `Runlist project storage version ${value.schemaVersion} is not supported.`
@@ -456,6 +458,9 @@ function validateStoredProjects(value, options = {}) {
   const supportsHealthChecks = options.schemaVersion === undefined
     || options.schemaVersion >= 3;
   const supportsTags = options.schemaVersion === undefined || options.schemaVersion >= 5;
+  const supportsComposePath = options.schemaVersion === undefined || options.schemaVersion >= 6;
+  const supportsLocalHostname = options.schemaVersion === undefined || options.schemaVersion >= 7;
+  const supportsLaunchEnv = options.schemaVersion === undefined || options.schemaVersion >= 8;
   if (!Array.isArray(value)) {
     throw projectStoreError('INVALID_STORAGE', 'Runlist project storage does not contain a valid project list.');
   }
@@ -475,6 +480,9 @@ function validateStoredProjects(value, options = {}) {
       'services',
       ...(supportsLaunchProfiles ? ['launchProfiles', 'selectedLaunchProfileId'] : []),
       ...(supportsTags ? ['tags'] : []),
+      ...(supportsComposePath ? ['composePath'] : []),
+      ...(supportsLocalHostname ? ['localHostname'] : []),
+      ...(supportsLaunchEnv ? ['envFile', 'env'] : []),
       'pinned',
       'reviewRequired'
     ]);
@@ -502,7 +510,10 @@ function validateStoredProjects(value, options = {}) {
       ? []
       : validateStoredServices(project.services, index, { supportsHealthChecks });
     const launchProfiles = supportsLaunchProfiles
-      ? validateStoredLaunchProfiles(project.launchProfiles, index, { supportsHealthChecks })
+      ? validateStoredLaunchProfiles(project.launchProfiles, index, {
+          supportsHealthChecks,
+          supportsLaunchEnv
+        })
       : [];
     if (supportsLaunchProfiles && project.selectedLaunchProfileId !== undefined) {
       validateStoredText(
@@ -538,6 +549,44 @@ function validateStoredProjects(value, options = {}) {
         throw projectStoreError('INVALID_STORAGE', `Runlist project ${index + 1} has invalid tags.`);
       }
     }
+    if (supportsComposePath && project.composePath !== undefined) {
+      validateStoredComposePath(project.composePath, index);
+    }
+    let localHostname;
+    if (supportsLocalHostname && project.localHostname !== undefined) {
+      try {
+        localHostname = normalizeLocalHostname(project.localHostname);
+      } catch {
+        throw projectStoreError('INVALID_STORAGE', `Runlist project ${index + 1} has an invalid local hostname.`);
+      }
+      if (!localHostname || localHostname !== project.localHostname) {
+        throw projectStoreError('INVALID_STORAGE', `Runlist project ${index + 1} has an invalid local hostname.`);
+      }
+    }
+    let envFile;
+    let env;
+    if (supportsLaunchEnv) {
+      if (project.envFile !== undefined) {
+        try {
+          envFile = normalizeEnvFile(project.envFile);
+        } catch {
+          throw projectStoreError('INVALID_STORAGE', `Runlist project ${index + 1} has an invalid env file path.`);
+        }
+        if (!envFile || envFile !== project.envFile) {
+          throw projectStoreError('INVALID_STORAGE', `Runlist project ${index + 1} has an invalid env file path.`);
+        }
+      }
+      if (project.env !== undefined) {
+        try {
+          env = normalizeEnvMap(project.env);
+        } catch {
+          throw projectStoreError('INVALID_STORAGE', `Runlist project ${index + 1} has an invalid env map.`);
+        }
+        if (!env || JSON.stringify(env) !== JSON.stringify(project.env)) {
+          throw projectStoreError('INVALID_STORAGE', `Runlist project ${index + 1} has an invalid env map.`);
+        }
+      }
+    }
 
     const projectWithoutTags = { ...project };
     delete projectWithoutTags.tags;
@@ -546,6 +595,9 @@ function validateStoredProjects(value, options = {}) {
       services,
       ...(launchProfiles.length ? { launchProfiles } : {}),
       ...(tags.length ? { tags } : {}),
+      ...(localHostname ? { localHostname } : {}),
+      ...(envFile ? { envFile } : {}),
+      ...(env ? { env } : {}),
       reviewRequired
     };
   });
@@ -564,7 +616,15 @@ function validateStoredLaunchProfiles(value, projectIndex, options = {}) {
     if (!profile || typeof profile !== 'object' || Array.isArray(profile)) {
       throw projectStoreError('INVALID_STORAGE', `Runlist launch profile ${profileIndex + 1} is not valid.`);
     }
-    if (Object.keys(profile).some((key) => !['id', 'name', 'startCommand', 'stopCommand', 'services'].includes(key))) {
+    const allowedProfileKeys = [
+      'id',
+      'name',
+      'startCommand',
+      'stopCommand',
+      'services',
+      ...(options.supportsLaunchEnv ? ['envFile', 'env'] : [])
+    ];
+    if (Object.keys(profile).some((key) => !allowedProfileKeys.includes(key))) {
       throw projectStoreError('INVALID_STORAGE', `Runlist launch profile ${profileIndex + 1} contains unsupported data.`);
     }
     validateStoredText(profile.id, `launch profile ${profileIndex + 1} id`, 256);
@@ -573,16 +633,63 @@ function validateStoredLaunchProfiles(value, projectIndex, options = {}) {
     if (profile.stopCommand !== undefined) {
       validateStoredCommand(profile.stopCommand, `launch profile ${profileIndex + 1} stop command`, 4096);
     }
+    let envFile;
+    let env;
+    if (options.supportsLaunchEnv) {
+      if (profile.envFile !== undefined) {
+        try {
+          envFile = normalizeEnvFile(profile.envFile);
+        } catch {
+          throw projectStoreError(
+            'INVALID_STORAGE',
+            `Runlist launch profile ${profileIndex + 1} has an invalid env file path.`
+          );
+        }
+        if (!envFile || envFile !== profile.envFile) {
+          throw projectStoreError(
+            'INVALID_STORAGE',
+            `Runlist launch profile ${profileIndex + 1} has an invalid env file path.`
+          );
+        }
+      }
+      if (profile.env !== undefined) {
+        try {
+          env = normalizeEnvMap(profile.env);
+        } catch {
+          throw projectStoreError(
+            'INVALID_STORAGE',
+            `Runlist launch profile ${profileIndex + 1} has an invalid env map.`
+          );
+        }
+        if (!env || JSON.stringify(env) !== JSON.stringify(profile.env)) {
+          throw projectStoreError(
+            'INVALID_STORAGE',
+            `Runlist launch profile ${profileIndex + 1} has an invalid env map.`
+          );
+        }
+      }
+    }
     const normalizedName = profile.name.toLocaleLowerCase();
     if (ids.has(profile.id) || names.has(normalizedName)) {
       throw projectStoreError('INVALID_STORAGE', 'Runlist launch profiles must have unique names and identifiers.');
     }
     ids.add(profile.id);
     names.add(normalizedName);
-    return {
+    const next = {
       ...profile,
       services: validateStoredServices(profile.services, projectIndex, options)
     };
+    if (envFile) {
+      next.envFile = envFile;
+    } else {
+      delete next.envFile;
+    }
+    if (env) {
+      next.env = env;
+    } else {
+      delete next.env;
+    }
+    return next;
   });
 }
 
@@ -606,6 +713,16 @@ function validateStoredFolder(value, projectIndex) {
   validateStoredText(value, `project ${projectIndex + 1} folder`, 4096);
   if (!path.isAbsolute(value)) {
     throw projectStoreError('INVALID_STORAGE', `Runlist project ${projectIndex + 1} folder is not an absolute path.`);
+  }
+}
+
+function validateStoredComposePath(value, projectIndex) {
+  validateStoredText(value, `project ${projectIndex + 1} Compose path`, 4096);
+  if (!path.isAbsolute(value)) {
+    throw projectStoreError(
+      'INVALID_STORAGE',
+      `Runlist project ${projectIndex + 1} Compose path is not an absolute path.`
+    );
   }
 }
 
@@ -708,6 +825,18 @@ function normalizeProjectInput(input, options = {}) {
   const tags = input.tags === undefined
     ? normalizeProjectTags(existing?.tags)
     : normalizeProjectTags(input.tags);
+  const composePath = normalizeOptionalComposePath(
+    input.composePath === undefined ? existing?.composePath : input.composePath
+  );
+  const localHostname = input.localHostname === undefined
+    ? existing?.localHostname
+    : normalizeLocalHostname(input.localHostname);
+  const envFile = input.envFile === undefined
+    ? existing?.envFile
+    : normalizeEnvFile(input.envFile);
+  const env = input.env === undefined
+    ? existing?.env
+    : normalizeEnvMap(input.env);
 
   const selectedProfile = input.selectedLaunchProfileId === undefined
     ? existing?.selectedLaunchProfileId
@@ -731,6 +860,10 @@ function normalizeProjectInput(input, options = {}) {
       : {}),
     ...(pinned ? { pinned: true } : {}),
     ...(tags.length ? { tags } : {}),
+    ...(composePath ? { composePath } : {}),
+    ...(localHostname ? { localHostname } : {}),
+    ...(envFile ? { envFile } : {}),
+    ...(env ? { env } : {}),
     reviewRequired: options.reviewRequired === undefined
       ? Boolean(existing?.reviewRequired)
       : Boolean(options.reviewRequired)
@@ -748,7 +881,7 @@ function normalizeLaunchProfiles(value) {
       throw new Error(`launchProfiles[${index}] must be an object.`);
     }
     const unsupported = Object.keys(profile)
-      .filter((key) => !['id', 'name', 'startCommand', 'stopCommand', 'services'].includes(key));
+      .filter((key) => !['id', 'name', 'startCommand', 'stopCommand', 'services', 'envFile', 'env'].includes(key));
     if (unsupported.length) {
       throw new Error(`launchProfiles[${index}] has unsupported field: ${unsupported.join(', ')}`);
     }
@@ -766,11 +899,15 @@ function normalizeLaunchProfiles(value) {
     names.add(normalizedName);
     const startCommand = normalizeCommand(profile.startCommand, `launchProfiles[${index}].startCommand`);
     const stopCommand = normalizeOptionalCommand(profile.stopCommand, `launchProfiles[${index}].stopCommand`);
+    const envFile = normalizeEnvFile(profile.envFile);
+    const env = normalizeEnvMap(profile.env);
     return {
       id,
       name,
       startCommand,
       ...(stopCommand ? { stopCommand } : {}),
+      ...(envFile ? { envFile } : {}),
+      ...(env ? { env } : {}),
       services: normalizeServices(profile.services || [])
     };
   });
@@ -1124,6 +1261,23 @@ function normalizeFolder(value) {
     throw new Error(`folder does not exist or is not a directory: ${expanded}`);
   }
   return fs.realpathSync(expanded);
+}
+
+function normalizeOptionalComposePath(value) {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error('composePath must be an absolute Compose file path.');
+  }
+  if (value.length > 4096) {
+    throw new Error('composePath is too long.');
+  }
+  const expanded = value.trim().replace(/^~(?=$|[\\/])/, os.homedir());
+  if (!path.isAbsolute(expanded)) {
+    throw new Error('composePath must be an absolute path.');
+  }
+  return expanded;
 }
 
 function normalizeCommand(value, fieldName) {

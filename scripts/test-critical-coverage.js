@@ -10,6 +10,7 @@ const criticalSources = [
   'src/lifecycle/runtime-process-owner.js',
   'src/ports/port-gate.js',
   'src/ports/port-recovery.js',
+  'src/ports/listener-identity.js',
   'src/projects/project-store.js'
 ];
 
@@ -24,6 +25,7 @@ const criticalTests = [
   'test/runtime-process-owner.test.js',
   'test/port-gate.test.js',
   'test/port-recovery.test.js',
+  'test/listener-identity.test.js',
   'test/project-store.test.js'
 ];
 

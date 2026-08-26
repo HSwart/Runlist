@@ -79,4 +79,29 @@ test('moves uncommon lifecycle phrases off the capsule without renaming them as 
     projectStatusAnnouncement({ name: 'App', status: 'unsupported' }),
     'App: Local lifecycle only'
   );
+
+  assert.equal(
+    projectStatusAnnouncement({
+      name: 'App',
+      status: 'running',
+      listenerOwner: {
+        kind: 'this-app',
+        announcement: 'Port owned by this app'
+      }
+    }),
+    'App: Running Port owned by this app'
+  );
+  assert.match(
+    projectStatusAnnouncement({
+      name: 'App',
+      status: 'port-in-use-unknown',
+      services: [{ name: 'Web', port: 3000 }],
+      openPorts: [3000],
+      listenerOwner: {
+        kind: 'external',
+        announcement: 'Port owned by external process python · PID 88'
+      }
+    }),
+    /external process python · PID 88/
+  );
 });

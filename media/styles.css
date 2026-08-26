@@ -222,7 +222,6 @@ button:active:not(:disabled) {
 @media (prefers-reduced-motion: reduce) {
   .run-group-toggle > svg,
   .tag-filter-toggle svg,
-  .project-services-summary > svg,
   .service-detail-toggle > svg {
     transition: none;
   }
@@ -253,10 +252,16 @@ button:active:not(:disabled) {
 }
 
 .bulk-stop-icon,
-.jump-icon,
-.status-progress {
+.jump-icon {
   width: 16px;
   height: 16px;
+  display: block;
+  flex: 0 0 auto;
+}
+
+.status-progress {
+  width: 14px;
+  height: 14px;
   display: block;
   flex: 0 0 auto;
 }
@@ -532,6 +537,13 @@ button:active:not(:disabled) {
   border: 0;
 }
 
+.project-meta .preview-toggle {
+  width: 16px;
+  height: 16px;
+  margin-left: 0;
+  padding: 0;
+}
+
 .preview-toggle:hover {
   color: var(--vscode-foreground);
 }
@@ -558,13 +570,22 @@ button:active:not(:disabled) {
   overflow-wrap: break-word;
 }
 
-.pinned-icon {
-  width: 12px;
-  height: 12px;
+.project-kind-icon {
+  width: 14px;
+  height: 14px;
   display: inline-block;
-  vertical-align: -1px;
+  vertical-align: -2px;
   margin-right: 4px;
   color: var(--vscode-icon-foreground);
+  flex: 0 0 auto;
+}
+
+.pinned-icon {
+  color: var(--vscode-icon-foreground);
+}
+
+.compose-kind-icon {
+  color: var(--vscode-descriptionForeground);
 }
 
 .screen-header h2,
@@ -618,11 +639,6 @@ button:active:not(:disabled) {
 .project-status.status-review-required {
   color: var(--vscode-editorWarning-foreground, #cca700);
   font-weight: 600;
-}
-
-.status-progress {
-  width: 12px;
-  height: 12px;
 }
 
 .project-readiness-detail {
@@ -808,7 +824,7 @@ button:active:not(:disabled) {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 
 .project-tag-filter {
@@ -863,6 +879,8 @@ button:active:not(:disabled) {
 
 .active-tag-chip svg {
   flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
 }
 
 .project-tag-choices {
@@ -923,6 +941,23 @@ button:active:not(:disabled) {
   white-space: nowrap;
 }
 
+.launch-profile-trigger .icon {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+}
+
+.compose-kind-marker {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4px;
+  vertical-align: -2px;
+}
+
+.compose-kind-marker .project-kind-icon {
+  margin-right: 0;
+}
+
 .launch-profile-trigger:hover:not(:disabled),
 .launch-profile-trigger[aria-expanded='true'] {
   background: var(--vscode-button-secondaryHoverBackground);
@@ -951,8 +986,10 @@ button:active:not(:disabled) {
 }
 
 .run-button {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -996,8 +1033,10 @@ button:active:not(:disabled) {
 
 .more-button,
 .icon-button {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
   display: grid;
   place-items: center;
   padding: 0;
@@ -1133,7 +1172,7 @@ button:active:not(:disabled) {
   margin-top: 2px;
 }
 
-.project-services-summary {
+.project-port-chip {
   width: auto;
   max-width: 100%;
   min-width: 0;
@@ -1141,50 +1180,80 @@ button:active:not(:disabled) {
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
-  justify-content: flex-start;
-  gap: 4px;
   margin: 0;
-  padding: 0;
+  padding: 0 4px;
   color: var(--vscode-descriptionForeground);
   text-align: left;
   background: transparent;
   border: 0;
   border-radius: 3px;
-}
-
-.project-services-summary:hover {
-  background: var(--vscode-list-hoverBackground);
-}
-
-.project-services-summary > span {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.project-services-summary strong {
   font-size: 11px;
   font-weight: 400;
+  line-height: 16px;
   white-space: nowrap;
 }
 
-.project-services-summary small {
-  min-width: 0;
-  overflow: hidden;
+.project-row-elapsed {
+  flex: 0 0 auto;
   color: var(--vscode-descriptionForeground);
   font-size: 11px;
+  font-weight: 400;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.project-listener-owner {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 42%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  color: var(--vscode-descriptionForeground);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 16px;
+  cursor: default;
+}
+
+button.project-listener-owner {
+  cursor: pointer;
+}
+
+button.project-listener-owner:hover {
+  color: var(--vscode-foreground);
+  text-decoration: underline;
+}
+
+.project-port-chip:hover:not(:disabled) {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.project-port-chip:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.project-port-chip > span {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.project-services-summary > svg,
 .service-detail-toggle > svg {
   flex: 0 0 auto;
   transition: transform 100ms ease;
 }
 
-.project-services-summary[aria-expanded="false"] > svg,
 .service-detail-toggle[aria-expanded="false"] > svg {
   transform: rotate(-90deg);
 }
@@ -1795,8 +1864,110 @@ button:active:not(:disabled) {
 .add-screen,
 .agent-screen,
 .diagnosis-screen,
-.output-screen {
+.output-screen,
+.port-listening-screen {
   padding: 10px 12px;
+}
+
+.port-listening-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.port-listening-row {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-widget-border));
+  border-radius: 3px;
+}
+
+.port-listening-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.port-listening-port {
+  color: var(--vscode-foreground);
+  font-size: 12px;
+}
+
+.port-listening-kind {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.port-listening-kind.kind-owned {
+  color: var(--vscode-testing-iconPassed, var(--vscode-charts-green, #89d185));
+}
+
+.port-listening-kind.kind-external,
+.port-listening-kind.kind-unknown,
+.port-listening-kind.kind-ambiguous {
+  color: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow, #cca700));
+}
+
+.port-listening-process,
+.port-listening-owner,
+.port-listening-reason {
+  margin: 4px 0 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.port-listening-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.compose-import-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.compose-import-row {
+  min-width: 0;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-widget-border));
+}
+
+.compose-import-topline {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.compose-import-ports,
+.compose-import-profiles,
+.compose-import-note {
+  margin: 2px 0 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.compose-import-warnings {
+  margin: 8px 0;
+  padding-left: 18px;
+  color: var(--vscode-editorWarning-foreground, #cca700);
+  font-size: 12px;
+}
+
+@media (max-width: 300px) {
+  .port-listening-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
 
 .screen-header {
@@ -2621,6 +2792,35 @@ select[aria-invalid='true'] {
   padding: 16px 12px;
 }
 
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.empty-start-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.empty-start-chip {
+  min-height: 22px;
+  padding: 0 8px;
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  background: var(--vscode-button-secondaryBackground, transparent);
+  border: 1px solid var(--vscode-button-border, var(--vscode-widget-border, transparent));
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.empty-start-chip:hover {
+  background: var(--vscode-button-secondaryHoverBackground, var(--vscode-toolbar-hoverBackground));
+}
+
 .search-empty {
   padding: 16px 12px;
 }
@@ -2670,6 +2870,40 @@ select[aria-invalid='true'] {
   .project-row {
     padding: 5px 8px 6px;
   }
+
+  .project-topline {
+    gap: 6px;
+  }
+
+  .project-actions {
+    gap: 4px;
+  }
+
+  .project-meta {
+    gap: 6px;
+  }
+
+  .project-status span,
+  .project-row-elapsed,
+  .project-listener-owner,
+  .project-port-chip {
+    flex-shrink: 1;
+  }
+
+  .project-status {
+    min-width: 0;
+  }
+
+  .project-status span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .run-button,
+  .more-button {
+    flex: 0 0 auto;
+  }
 }
 
 @media (pointer: coarse) {
@@ -2683,7 +2917,7 @@ select[aria-invalid='true'] {
   .stop-all-button,
   .output-jump-button,
   .output-copy-button,
-  .project-services-summary,
+  .project-port-chip,
   .service-detail-toggle,
   .service-detail-actions button {
     min-height: 44px;

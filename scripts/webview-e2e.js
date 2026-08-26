@@ -77,20 +77,24 @@ async function main() {
     const ready = JSON.parse(fs.readFileSync(path.join(root, 'host-ready.json'), 'utf8'));
     await waitForDebugEndpoint(debugPort, WEBVIEW_DEBUG_ENDPOINT_TIMEOUT_MS);
     browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`);
-    let webview;
-    try {
-      await waitFor(async () => {
-        const frames = browser.contexts()
-          .flatMap((context) => context.pages())
-          .flatMap((page) => page.frames());
-        webview = await findRunlistFrame(frames);
-        return Boolean(webview);
-      }, WEBVIEW_FRAME_TIMEOUT_MS, 'the Runlist webview frame');
-    } catch (error) {
-      throw new Error(`${error.message} ${await browserFrameEvidence(browser)}`, { cause: error });
+    if (UPDATE_SCREENSHOT) {
+      await captureIdeScreenshots(browser, ready, root, extensionDevelopmentPath);
+    } else {
+      let webview;
+      try {
+        await waitFor(async () => {
+          await attachVsCodeWebviewTargets(browser);
+          const frames = browser.contexts()
+            .flatMap((context) => context.pages())
+            .flatMap((page) => page.frames());
+          webview = await findRunlistFrame(frames);
+          return Boolean(webview);
+        }, WEBVIEW_FRAME_TIMEOUT_MS, 'the Runlist webview frame');
+      } catch (error) {
+        throw new Error(`${error.message} ${await browserFrameEvidence(browser)}`, { cause: error });
+      }
+      await runWebviewJourneys(browser, webview, ready, root, extensionDevelopmentPath);
     }
-
-    await runWebviewJourneys(browser, webview, ready, root, extensionDevelopmentPath);
     fs.writeFileSync(path.join(root, 'browser-complete'), 'ok\n');
     await hostRun;
     if (hostFailure) {
@@ -115,9 +119,113 @@ async function main() {
   }
 }
 
+async function captureIdeScreenshots(browser, ready, root, extensionDevelopmentPath) {
+  const page = await waitForWorkbenchPage(browser);
+  const artifactDir = path.join('/opt/cursor/artifacts/screenshots');
+  fs.mkdirSync(artifactDir, { recursive: true });
+
+  await hostCommand(root, 'set-theme', { theme: 'Default Dark Modern' });
+  await hostCommand(root, 'prepare-screenshot');
+  await widenSidebar(page, 420);
+  await hideWorkbenchChrome(page);
+
+  fs.writeFileSync(path.join(ready.workspacePath, 'package.json'), JSON.stringify({
+    name: 'acme-storefront',
+    scripts: {
+      start: 'node server.js',
+      dev: 'node server.js',
+      test: 'node --test'
+    }
+  }, null, 2));
+  await hostCommand(root, 'refresh-list');
+  // Give the empty-state chips a moment to paint after re-render.
+  await new Promise((resolve) => setTimeout(resolve, 800));
+  await hideWorkbenchChrome(page);
+  const frameAPath = path.join(artifactDir, 'ide-frame-a-empty.png');
+  await page.screenshot({ path: frameAPath });
+  assert.ok(fs.statSync(frameAPath).size > 10000, 'Frame A IDE screenshot was unexpectedly small.');
+
+  const seeded = await hostCommand(root, 'seed-running-screenshot', {}, 30000);
+  assert.ok(['running', 'active'].includes(seeded.status), `Expected running project, got ${seeded.status}`);
+  await waitFor(async () => await hostCommand(root, 'start-count') >= 1,
+    10000, 'seeded screenshot project to write its launch marker');
+  // Let the elapsed clock tick so Frame B looks alive.
+  await new Promise((resolve) => setTimeout(resolve, 1400));
+  await hostCommand(root, 'refresh-list');
+  await hostCommand(root, 'prepare-screenshot');
+  await widenSidebar(page, 420);
+  await hideWorkbenchChrome(page);
+  const frameBPath = path.join(artifactDir, 'ide-frame-b-running-row.png');
+  await page.screenshot({ path: frameBPath });
+  assert.ok(fs.statSync(frameBPath).size > 10000, 'Frame B IDE screenshot was unexpectedly small.');
+
+  await shrinkSidebar(page, 300);
+  await hideWorkbenchChrome(page);
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  const frameBNarrowPath = path.join(artifactDir, 'ide-frame-b-running-narrow.png');
+  await page.screenshot({ path: frameBNarrowPath });
+  assert.ok(fs.statSync(frameBNarrowPath).size > 10000, 'Narrow Frame B IDE screenshot was unexpectedly small.');
+  await widenSidebar(page, 420);
+
+  const previewPath = path.join(extensionDevelopmentPath, 'media', 'runlist-preview.png');
+  await page.screenshot({ path: previewPath });
+  assert.ok(fs.statSync(previewPath).size > 10000, 'The generated webview screenshot was unexpectedly small.');
+  fs.copyFileSync(previewPath, path.join(artifactDir, 'ide-runlist-preview.png'));
+
+  await hostCommand(root, 'stop-project', { projectId: seeded.projectId });
+  await waitFor(async () => {
+    const snapshot = await hostCommand(root, 'project-status', { projectId: seeded.projectId });
+    return !snapshot.hasProcess
+      && ['stopped', 'idle', 'inactive'].includes(snapshot.status);
+  }, 15000, 'seeded screenshot project to stop');
+}
+
+async function waitForWorkbenchPage(browser) {
+  let page;
+  await waitFor(() => {
+    page = browser.contexts().flatMap((context) => context.pages())[0];
+    return Boolean(page);
+  }, 15000, 'the VS Code workbench page');
+  return page;
+}
+
+async function hideWorkbenchChrome(page) {
+  await page.locator('.notifications-toasts').evaluate((element) => {
+    element.style.display = 'none';
+  }).catch(() => undefined);
+  await page.locator('.monaco-workbench .notifications-center, .notification-toast-container')
+    .evaluateAll((elements) => {
+      for (const element of elements) {
+        element.style.display = 'none';
+      }
+    }).catch(() => undefined);
+}
+
 async function runWebviewJourneys(browser, webview, ready, root, extensionDevelopmentPath) {
   let page = webview.page();
   await assertVisible(webview.getByRole('heading', { name: 'No projects yet' }));
+
+  const artifactDir = path.join('/opt/cursor/artifacts/screenshots');
+  fs.mkdirSync(artifactDir, { recursive: true });
+  fs.writeFileSync(path.join(ready.workspacePath, 'package.json'), JSON.stringify({
+    name: 'acme-storefront',
+    scripts: {
+      start: 'node server.js',
+      dev: 'node server.js',
+      test: 'node --test'
+    }
+  }, null, 2));
+  await hostCommand(root, 'refresh-list');
+  webview = await currentRunlistFrame(browser, (frame) => (
+    frame.getByRole('button', { name: 'Run `npm start` for this folder' }).isVisible()
+      .catch(() => false)
+    || frame.getByRole('button', { name: 'Start', exact: true }).isVisible()
+  ));
+  await widenSidebar(page, 420);
+  await page.locator('.notifications-toasts').evaluate((element) => {
+    element.style.display = 'none';
+  }).catch(() => undefined);
+  await page.screenshot({ path: path.join(artifactDir, 'ide-frame-a-empty.png') });
 
   const addButton = webview.getByRole('button', { name: 'Add this folder' });
   await addButton.focus();
@@ -131,6 +239,9 @@ async function runWebviewJourneys(browser, webview, ready, root, extensionDevelo
   await webview.locator('#project-name').fill('Lifecycle project');
   await webview.locator('#folder').fill(ready.lifecyclePath);
   await webview.locator('#start-command').fill('node server.js');
+  await webview.getByRole('button', { name: 'Add service' }).click();
+  await webview.locator('#service-name-0').fill('web');
+  await webview.locator('#service-port-0').fill('4310');
   const saveButton = webview.getByRole('button', { name: 'Save project' });
   await saveButton.focus();
   await page.keyboard.press('Enter');
@@ -141,7 +252,7 @@ async function runWebviewJourneys(browser, webview, ready, root, extensionDevelo
 
   await verifyMenuKeyboardAndFocus(webview, page, 'Lifecycle project');
   webview = await editProject(browser, webview, 'Lifecycle project', 'Lifecycle project edited');
-  webview = await exerciseProjectLifecycle(browser, webview, root, 'Lifecycle project edited');
+  webview = await exerciseProjectLifecycle(browser, webview, root, 'Lifecycle project edited', artifactDir);
 
   await openAndCancelImportThroughVsCode(page, root);
   const seeded = await hostCommand(root, 'seed-review');
@@ -176,6 +287,9 @@ async function runWebviewJourneys(browser, webview, ready, root, extensionDevelo
   await page.screenshot({ path: screenshotPath });
   assert.ok(fs.statSync(screenshotPath).size > 10000,
     'The generated webview screenshot was unexpectedly small.');
+  if (UPDATE_SCREENSHOT) {
+    fs.copyFileSync(screenshotPath, path.join(artifactDir, 'ide-runlist-preview.png'));
+  }
 
   webview = await deleteProject(browser, webview, root, 'Imported dashboard', false);
   webview = await deleteProject(browser, webview, root, 'Lifecycle project edited', true);
@@ -216,15 +330,28 @@ async function editProject(browser, webview, before, after) {
   return webview;
 }
 
-async function exerciseProjectLifecycle(browser, webview, root, projectName) {
+async function exerciseProjectLifecycle(browser, webview, root, projectName, artifactDir = '') {
   await webview.getByRole('button', { name: `Start ${projectName}` }).click();
   await waitForProjectStatus(browser, projectName, 'Running');
   webview = await currentRunlistFrame(browser);
   await waitFor(async () => await hostCommand(root, 'start-count') >= 1,
     5000, 'the start command to write its launch marker');
+  await assertVisible(webview.getByRole('button', { name: `Stop ${projectName}` }));
+  await assertVisible(webview.getByRole('button', { name: `Restart ${projectName}` }));
+  await assertVisible(webview.locator('.project-port-chip'));
+  await assertVisible(webview.locator('[data-row-elapsed]'));
+  // Let the elapsed clock tick so Frame B looks alive in IDE screenshots.
+  await new Promise((resolve) => setTimeout(resolve, 1200));
+  if (artifactDir) {
+    const page = webview.page();
+    await widenSidebar(page, 420);
+    await page.locator('.notifications-toasts').evaluate((element) => {
+      element.style.display = 'none';
+    }).catch(() => undefined);
+    await page.screenshot({ path: path.join(artifactDir, 'ide-frame-b-running-row.png') });
+  }
 
-  await webview.getByRole('button', { name: `More actions for ${projectName}` }).click();
-  await webview.getByRole('menuitem', { name: `Restart ${projectName}` }).click();
+  await webview.getByRole('button', { name: `Restart ${projectName}` }).click();
   await waitFor(async () => await hostCommand(root, 'start-count') >= 2,
     15000, 'restart to launch a new process');
   await waitForProjectStatus(browser, projectName, 'Running');
@@ -380,6 +507,31 @@ async function widenSidebar(page, targetWidth) {
   throw new Error('Could not find the VS Code sidebar resize handle.');
 }
 
+async function shrinkSidebar(page, targetWidth) {
+  const sidebar = page.locator('.part.sidebar');
+  const bounds = await sidebar.boundingBox();
+  if (!bounds || bounds.width <= targetWidth) {
+    return;
+  }
+  const sashes = page.locator('.monaco-sash.vertical');
+  for (let index = 0; index < await sashes.count(); index += 1) {
+    const sashBounds = await sashes.nth(index).boundingBox();
+    if (!sashBounds || Math.abs(sashBounds.x - (bounds.x + bounds.width)) > 8) {
+      continue;
+    }
+    const x = sashBounds.x + Math.max(1, sashBounds.width / 2);
+    const y = bounds.y + Math.min(120, bounds.height / 2);
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x - (bounds.width - targetWidth), y, { steps: 10 });
+    await page.mouse.up();
+    await waitFor(async () => (await sidebar.boundingBox())?.width <= targetWidth + 12,
+      3000, 'the Runlist sidebar to shrink for the narrow screenshot');
+    return;
+  }
+  throw new Error('Could not find the VS Code sidebar resize handle to shrink.');
+}
+
 async function assertAxeClean(browser, extensionDevelopmentPath, label) {
   const axePath = require.resolve('axe-core/axe.min.js', { paths: [extensionDevelopmentPath] });
   const axeSource = fs.readFileSync(axePath, 'utf8');
@@ -426,6 +578,7 @@ async function waitForProjectStatus(browser, projectName, expected) {
 async function currentRunlistFrame(browser, predicate = () => true) {
   let webview;
   await waitFor(async () => {
+    await attachVsCodeWebviewTargets(browser);
     const frames = browser.contexts()
       .flatMap((context) => context.pages())
       .flatMap((page) => page.frames());
@@ -452,15 +605,24 @@ async function clickCurrentWebview(browser, locatorForFrame) {
   throw lastError;
 }
 
-async function hostCommand(root, action, values = {}) {
+async function hostCommand(root, action, values = {}, timeoutMs = 10000) {
   const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const commandPath = path.join(root, 'browser-command.json');
   const responsePath = path.join(root, 'host-response.json');
   fs.rmSync(responsePath, { force: true });
-  fs.writeFileSync(commandPath, JSON.stringify({ id, action, ...values }));
-  await waitFor(() => fs.existsSync(responsePath), 10000, `host command ${action}`);
-  const response = JSON.parse(fs.readFileSync(responsePath, 'utf8'));
-  assert.equal(response.id, id, `Host response did not match ${action}.`);
+  fs.writeFileSync(commandPath, JSON.stringify({ action, ...values, id }));
+  let response;
+  await waitFor(() => {
+    if (!fs.existsSync(responsePath)) {
+      return false;
+    }
+    try {
+      response = JSON.parse(fs.readFileSync(responsePath, 'utf8'));
+    } catch {
+      return false;
+    }
+    return response.id === id;
+  }, timeoutMs, `host command ${action}`);
   if (response.error) {
     throw new Error(response.error);
   }
@@ -472,14 +634,73 @@ async function assertVisible(locator, timeoutMs = 5000) {
   assert.equal(await locator.isVisible(), true);
 }
 
-async function findRunlistFrame(frames, predicate = () => true) {
-  for (const frame of frames) {
+const attachedWebviewTargetIds = new Set();
+
+async function attachVsCodeWebviewTargets(browser) {
+  const pages = browser.contexts().flatMap((context) => context.pages());
+  for (const page of pages) {
     try {
-      if (await frame.locator('#app').count()
-        && await frame.evaluate(() => Boolean(window.runlistState))
-        && await predicate(frame)) {
+      const session = await page.context().newCDPSession(page);
+      const { targetInfos } = await session.send('Target.getTargets');
+      for (const info of targetInfos) {
+        if (info.type !== 'iframe' || !/vscode-webview:/i.test(info.url || '')) {
+          continue;
+        }
+        if (attachedWebviewTargetIds.has(info.targetId)) {
+          continue;
+        }
+        try {
+          await session.send('Target.attachToTarget', {
+            targetId: info.targetId,
+            flatten: true
+          });
+          attachedWebviewTargetIds.add(info.targetId);
+        } catch {
+          // Target may already be attached from a previous poll.
+        }
+      }
+    } catch {
+      // The workbench page can reload while the extension host finishes booting.
+    }
+  }
+}
+
+async function frameLooksLikeRunlist(frame, predicate = () => true) {
+  return Boolean(await frame.locator('#app').count()
+    && await frame.evaluate(() => Boolean(window.runlistState))
+    && await predicate(frame));
+}
+
+async function nestedContentFrames(frame) {
+  const nested = [...frame.childFrames()];
+  try {
+    const handles = await frame.locator('iframe').elementHandles();
+    for (const handle of handles) {
+      const content = await handle.contentFrame();
+      if (content && !nested.includes(content)) {
+        nested.push(content);
+      }
+    }
+  } catch {
+    // Nested iframe handles can disappear while VS Code swaps the webview document.
+  }
+  return nested;
+}
+
+async function findRunlistFrame(frames, predicate = () => true) {
+  const queue = [...frames];
+  const seen = new Set();
+  while (queue.length) {
+    const frame = queue.shift();
+    if (!frame || seen.has(frame)) {
+      continue;
+    }
+    seen.add(frame);
+    try {
+      if (await frameLooksLikeRunlist(frame, predicate)) {
         return frame;
       }
+      queue.push(...await nestedContentFrames(frame));
     } catch {
       // Cross-target frames can disappear while VS Code finishes opening the view.
     }

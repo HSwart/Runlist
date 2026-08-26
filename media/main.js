@@ -265,6 +265,7 @@ function icon(name, className = 'icon') {
     edit: { viewBox: '0 0 16 16', body: '<path d="M14.236 1.76386C13.2123 0.740172 11.5525 0.740171 10.5289 1.76386L2.65722 9.63549C2.28304 10.0097 2.01623 10.4775 1.88467 10.99L1.01571 14.3755C0.971767 14.5467 1.02148 14.7284 1.14646 14.8534C1.27144 14.9783 1.45312 15.028 1.62432 14.9841L5.00978 14.1151C5.52234 13.9836 5.99015 13.7168 6.36433 13.3426L14.236 5.47097C15.2596 4.44728 15.2596 2.78755 14.236 1.76386ZM11.236 2.47097C11.8691 1.8378 12.8957 1.8378 13.5288 2.47097C14.162 3.10413 14.162 4.1307 13.5288 4.76386L12.75 5.54269L10.4571 3.24979L11.236 2.47097ZM9.75002 3.9569L12.0429 6.24979L5.65722 12.6355C5.40969 12.883 5.10023 13.0595 4.76117 13.1465L2.19447 13.8053L2.85327 11.2386C2.9403 10.8996 3.1168 10.5901 3.36433 10.3426L9.75002 3.9569Z"/>' },
     external: { viewBox: '0 0 16 16', body: '<path d="M15 9.5V12.5C15 13.879 13.879 15 12.5 15H3.5C2.121 15 1 13.879 1 12.5V3.5C1 2.121 2.121 1 3.5 1H6.5C6.776 1 7 1.224 7 1.5C7 1.776 6.776 2 6.5 2H3.5C2.673 2 2 2.673 2 3.5V12.5C2 13.327 2.673 14 3.5 14H12.5C13.327 14 14 13.327 14 12.5V9.5C14 9.224 14.224 9 14.5 9C14.776 9 15 9.224 15 9.5ZM14.5 1H9.5C9.224 1 9 1.224 9 1.5C9 1.776 9.224 2 9.5 2H13.293L9.147 6.146C8.952 6.341 8.952 6.658 9.147 6.853C9.245 6.951 9.373 6.999 9.501 6.999C9.629 6.999 9.757 6.95 9.855 6.853L14.001 2.707V6.5C14.001 6.776 14.225 7 14.501 7C14.777 7 15.001 6.776 15.001 6.5V1.5C15.001 1.224 14.777 1 14.501 1H14.5Z"/>' },
     folder: { viewBox: '0 0 16 16', body: '<path d="M2 4.5V6H5.58579C5.71839 6 5.84557 5.94732 5.93934 5.85355L7.29289 4.5L5.93934 3.14645C5.84557 3.05268 5.71839 3 5.58579 3H3.5C2.67157 3 2 3.67157 2 4.5ZM1 4.5C1 3.11929 2.11929 2 3.5 2H5.58579C5.98361 2 6.36514 2.15804 6.64645 2.43934L8.20711 4H12.5C13.8807 4 15 5.11929 15 6.5V11.5C15 12.8807 13.8807 14 12.5 14H3.5C2.11929 14 1 12.8807 1 11.5V4.5ZM2 7V11.5C2 12.3284 2.67157 13 3.5 13H12.5C13.3284 13 14 12.3284 14 11.5V6.5C14 5.67157 13.3284 5 12.5 5H8.20711L6.64645 6.56066C6.36514 6.84197 5.98361 7 5.58579 7H2Z"/>' },
+    layers: { viewBox: '0 0 16 16', body: '<path fill-rule="evenodd" clip-rule="evenodd" d="M7.62706 1.08717L8.18535 1.08325L14.2762 5.1203L14.2727 5.95617L8.1818 9.91912L7.63062 9.91528L1.72152 5.95233L1.71796 5.12422L7.62706 1.08717ZM7.91335 2.10268L2.89198 5.53323L7.91329 8.90079L13.0891 5.5332L7.91335 2.10268ZM1.79257 8.5L7.63059 12.4153L8.18177 12.4191L14.2053 8.5H12.3716L7.91326 11.4008L3.58794 8.5H1.79257ZM7.63059 14.9153L1.79257 11H3.58794L7.91326 13.9008L12.3716 11H14.2053L8.18177 14.9191L7.63059 14.9153Z"/>' },
     loading: { viewBox: '0 0 16 16', body: '<path d="M13.5 8.5C13.224 8.5 13 8.276 13 8C13 5.243 10.757 3 8 3C5.243 3 3 5.243 3 8C3 8.276 2.776 8.5 2.5 8.5C2.224 8.5 2 8.276 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 8.276 13.776 8.5 13.5 8.5Z"/>' },
     more: { viewBox: '0 0 16 16', body: '<path d="M5 8C5 8.55229 4.55228 9 4 9C3.44772 9 3 8.55229 3 8C3 7.44772 3.44772 7 4 7C4.55228 7 5 7.44772 5 8ZM9 8C9 8.55229 8.55229 9 8 9C7.44772 9 7 8.55229 7 8C7 7.44772 7.44772 7 8 7C8.55229 7 9 7.44772 9 8ZM12 9C12.5523 9 13 8.55229 13 8C13 7.44772 12.5523 7 12 7C11.4477 7 11 7.44772 11 8C11 8.55229 11.4477 9 12 9Z"/>' },
     pin: { viewBox: '0 0 16 16', body: '<path d="M14 5v7h-.278c-.406 0-.778-.086-1.117-.258A2.528 2.528 0 0 1 11.73 11H8.87a3.463 3.463 0 0 1-.546.828 3.685 3.685 0 0 1-.735.633c-.27.177-.565.31-.882.398a3.875 3.875 0 0 1-.985.141h-.5V9H2l-1-.5L2 8h3.222V4h.5c.339 0 .664.047.977.14.312.094.607.227.883.4A3.404 3.404 0 0 1 8.87 6h2.859a2.56 2.56 0 0 1 .875-.734c.338-.172.71-.26 1.117-.266H14zm-.778 1.086a1.222 1.222 0 0 0-.32.156 1.491 1.491 0 0 0-.43.461L12.285 7H8.183l-.117-.336a2.457 2.457 0 0 0-.711-1.047C7.027 5.331 6.427 5.09 6 5v7c.427-.088 1.027-.33 1.355-.617.328-.287.565-.636.71-1.047L8.184 10h4.102l.18.297c.057.094.122.177.195.25.073.073.153.143.242.21.088.069.195.12.32.157V6.086z"/>' },
@@ -290,8 +291,19 @@ function readinessServiceList(services) {
     .join(', ');
 }
 
-function serviceLocalAddress(service) {
-  const fullUrl = service.url || `http://localhost:${service.port}`;
+function serviceLocalAddress(service, project = {}) {
+  const hostname = project.localHostname
+    || (typeof project.name === 'string' ? String(project.name) : '');
+  const slug = hostname
+    .trim()
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 63)
+    .replace(/-+$/g, '');
+  const fullUrl = service.url || (slug
+    ? `http://${slug}.localhost:${service.port}`
+    : `http://localhost:${service.port}`);
   try {
     const parsed = new URL(fullUrl);
     const host = parsed.host.replace(/^127\.0\.0\.1(?=:|$)/, 'localhost');
@@ -340,6 +352,21 @@ function formatElapsed(milliseconds) {
   }
   const minutes = Math.floor(seconds / 60);
   return `${minutes}m ${String(seconds % 60).padStart(2, '0')}s`;
+}
+
+function projectRowElapsedStartedAt(project = {}) {
+  const launchedAt = project.timeline?.launchedAt;
+  if (!Number.isFinite(launchedAt)) {
+    return undefined;
+  }
+  if (project.reviewRequired || project.forceClosing || project.handoffInProgress) {
+    return undefined;
+  }
+  const status = project.status || 'stopped';
+  if (!['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active'].includes(status)) {
+    return undefined;
+  }
+  return launchedAt;
 }
 
 function formatStartupDuration(milliseconds) {
@@ -640,13 +667,39 @@ function serviceDisplayDetails(project, service) {
   return { canResolve, canUseUrl, indicator, state };
 }
 
-function servicesSummary(project) {
-  const services = project.services || [];
-  const labels = services.slice(0, 3).map((service) => `${service.name} :${service.port}`);
-  if (services.length > 3) {
-    labels.push(`+${services.length - 3}`);
+function projectRowPort(project) {
+  if (Number.isInteger(project.previewPort) && project.previewPort > 0) {
+    return project.previewPort;
   }
-  return labels.join(' · ');
+  const firstService = (project.services || []).find((service) => Number.isInteger(service.port) && service.port > 0);
+  return firstService?.port;
+}
+
+function rowListenerOwnerVisible(owner, portConflict) {
+  if (!owner || !owner.label) {
+    return false;
+  }
+  if (owner.kind === 'other-runlist'
+    && typeof portConflict?.ownerName === 'string'
+    && portConflict.ownerName === owner.label) {
+    return false;
+  }
+  return true;
+}
+
+function projectListenerOwnerHtml(project) {
+  const owner = project.listenerOwner;
+  if (!rowListenerOwnerVisible(owner, project.portConflict)) {
+    return '';
+  }
+  const label = escapeHtml(owner.label);
+  const title = escapeHtml(owner.title || owner.label);
+  if (owner.kind === 'other-runlist' && owner.revealProjectId) {
+    return `
+                    <button type="button" class="project-listener-owner" data-action="reveal-listening-project" data-id="${escapeHtml(String(owner.revealProjectId))}" title="${title}" aria-label="${title}">${label}</button>`;
+  }
+  return `
+                    <span class="project-listener-owner" title="${title}" aria-label="${escapeHtml(owner.announcement || owner.label)}">${label}</span>`;
 }
 
 function projectServicesDetailHtml(project, projectName) {
@@ -658,7 +711,7 @@ function projectServicesDetailHtml(project, projectName) {
         const panelId = `service-detail-${projectId}-${escapeHtml(port)}`;
         const expanded = String(expandedServiceState[project.id] || '') === port;
         const details = serviceDisplayDetails(project, service);
-        const address = serviceLocalAddress(service);
+        const address = serviceLocalAddress(service, project);
         const savedPort = service.savedPort || service.port;
         const temporaryDetail = service.temporaryPort
           ? `Temporary for this launch. Saved as port ${savedPort} via ${service.portVariable}.`
@@ -914,17 +967,35 @@ function renderList() {
   }
   if (state.projects.length === 0) {
     const workspaceFolder = String(state.currentWorkspaceFolder || '');
-    const addLabel = workspaceFolder ? 'Add this folder' : 'Add project';
+    const addLabel = 'Add this folder';
     const emptyCopy = workspaceFolder
-      ? 'Save a start command for the folder open in this window, then start it from here.'
-      : 'Save a project folder and its start command once, then start it from here.';
+      ? 'Add the folder open in this window.'
+      : 'Open a folder in this window first.';
+    const startScripts = Array.isArray(state.workspaceStartScripts)
+      ? state.workspaceStartScripts.filter((script) => script
+        && ['start', 'dev'].includes(script.name)
+        && typeof script.startCommand === 'string')
+      : [];
     app.innerHTML = `
       ${runGroupsHtml()}
       <section class="empty-state">
         <h2>No projects yet</h2>
         <p>${escapeHtml(emptyCopy)}</p>
         ${state.lifecycleWindowSupported === false ? `<p>Start and Stop work for apps on this computer. You can still save projects here. Remote SSH, Dev Containers, GitHub Codespaces, VS Code Tunnels, and Windows WSL network paths will not start or stop processes in this release.</p>` : ''}
-        <button class="primary-button" data-action="show-add">${addLabel}</button>
+        <div class="empty-actions">
+          ${workspaceFolder ? `<button class="primary-button" data-action="show-add">${addLabel}</button>` : ''}
+          ${workspaceFolder && startScripts.length ? `
+            <div class="empty-start-chips" role="group" aria-label="Start options for this folder">
+              ${startScripts.map((script) => {
+                const chipLabel = script.name === 'dev' ? 'Dev' : 'Start';
+                const chipHint = `Run \`${script.startCommand}\` for this folder`;
+                return `
+                <button class="empty-start-chip" data-action="start-workspace-script" data-script="${escapeHtml(script.name)}" title="${escapeHtml(chipHint)}" aria-label="${escapeHtml(chipHint)}">
+                  ${escapeHtml(chipLabel)}
+                </button>`;
+              }).join('')}
+            </div>` : ''}
+        </div>
       </section>`;
     firstListRender = false;
     return;
@@ -955,11 +1026,16 @@ function renderList() {
       <section class="diagnosis-notice" role="status" aria-live="polite">
         <p>Start and Stop work for apps on this computer. Remote SSH, Dev Containers, GitHub Codespaces, VS Code Tunnels, and Windows WSL network paths can save and list projects only.</p>
       </section>` : ''}
+    ${state.composeNotice ? `
+      <section class="diagnosis-notice" role="status" aria-live="polite" aria-label="Compose availability">
+        <p>${escapeHtml(state.composeNotice)}</p>
+      </section>` : ''}
     ${runGroupsHtml()}
+    ${state.projects.length > 1 ? `
     <div class="project-search">
       ${icon('search', 'search-icon')}
       <input id="project-search" type="search" value="${escapeHtml(searchQuery)}" placeholder="Search projects" aria-label="Search projects" autocomplete="off" spellcheck="false">
-    </div>
+    </div>` : ''}
     ${tagFilterHtml()}
     <span id="project-search-status" class="visually-hidden" aria-live="polite"></span>
     ${runningApps.length > 1 ? `
@@ -1058,27 +1134,42 @@ function renderList() {
           : ['port-in-use', 'port-in-use-unknown', 'not-ready', 'not-responding', 'review-required', 'ownership-lost'].includes(statusClass)
             ? 'conflict'
             : '';
+        const rowPort = projectRowPort(project);
+        const portLabel = rowPort ? `:${rowPort}` : '';
+        const rowElapsedStartedAt = projectRowElapsedStartedAt(project);
+        const rowElapsedLabel = Number.isFinite(rowElapsedStartedAt)
+          ? formatElapsed(Date.now() - rowElapsedStartedAt)
+          : '';
+        const isComposeProject = typeof project.composePath === 'string' && Boolean(project.composePath.trim());
+        const projectKindLabel = isComposeProject ? 'Compose project' : 'project';
+        const titleAriaLabel = project.pinned
+          ? `Pinned ${projectKindLabel}: ${projectName}${project.currentWorkspace ? ', this window' : ''}`
+          : `${isComposeProject ? `${projectKindLabel}: ` : ''}${projectName}${project.currentWorkspace ? ', this window' : ''}`;
         return `
-          <article id="project-row-${projectId}" class="project-row" data-project-id="${projectId}" aria-labelledby="project-${projectId}" aria-describedby="project-folder-${projectId}" tabindex="-1" title="${escapeHtml(project.folder)}">
+          <article id="project-row-${projectId}" class="project-row${isComposeProject ? ' compose-project-row' : ''}" data-project-id="${projectId}"${isComposeProject ? ' data-compose="true"' : ''} aria-labelledby="project-${projectId}" aria-describedby="project-folder-${projectId}" tabindex="-1" title="${escapeHtml(project.folder)}">
             <div class="project-topline">
               <div class="project-heading">
                 <div class="project-title-line">
-                  <h2 id="project-${projectId}" title="${project.pinned ? `Pinned: ${projectName}` : projectName}" aria-label="${project.pinned ? `Pinned project: ${projectName}` : projectName}${project.currentWorkspace ? ', this window' : ''}">
-                    ${project.pinned ? icon('pinned', 'pinned-icon') : ''}
+                  <h2 id="project-${projectId}" title="${project.pinned ? `Pinned: ${projectName}` : projectName}" aria-label="${titleAriaLabel}">
+                    ${project.pinned ? icon('pinned', 'project-kind-icon pinned-icon') : ''}
+                    ${isComposeProject ? `<span class="compose-kind-marker" title="Compose project">${icon('layers', 'project-kind-icon compose-kind-icon')}</span>` : ''}
                     ${projectName}
                   </h2>
                 </div>
                 <div class="project-meta">
                   <div class="project-status status-${statusClass}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : `<span class="status-dot ${statusDotClass}" aria-hidden="true"></span>`}<span>${escapeHtml(displayedStatus)}</span></div>
-                  ${project.services?.length ? `
-                    <button class="project-services-summary" data-action="open-services" data-id="${projectId}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} services for ${projectName}">
-                      <span><small>${escapeHtml(servicesSummary(project))}</small></span>
-                      ${icon('chevron-down')}
+                  ${Number.isFinite(rowElapsedStartedAt) ? `
+                    <span class="project-row-elapsed" data-row-elapsed data-started-at="${rowElapsedStartedAt}" aria-label="Running for ${escapeHtml(rowElapsedLabel)}">${escapeHtml(rowElapsedLabel)}</span>` : ''}
+                  ${rowPort ? `
+                    <button class="project-port-chip" data-action="open" data-id="${projectId}" ${canOpen ? '' : 'disabled'} title="${openTitle}" aria-label="${canOpen ? `Open ${projectName} at ${escapeHtml(project.previewUrl || `localhost${portLabel}`)}` : openTitle}">
+                      <span>${escapeHtml(portLabel)}</span>
                     </button>` : ''}
+                  ${project.services?.length ? `
+                    <button class="preview-toggle" data-action="open-services" data-id="${projectId}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} services for ${projectName}" title="${project.detailsExpanded ? 'Collapse' : 'Expand'} services">${icon('chevron-down')}</button>` : ''}
                   ${!project.services?.length && project.startupHistory?.length ? `
                     <button class="preview-toggle" data-action="toggle-preview" data-id="${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} project details for ${projectName}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" title="${project.detailsExpanded ? 'Collapse' : 'Expand'} project details">${icon('chevron-down')}</button>` : ''}
                 </div>
-                <span id="project-folder-${projectId}" class="visually-hidden">${escapeHtml(project.folder)}</span>
+                <span id="project-folder-${projectId}" class="visually-hidden">${escapeHtml(project.folder)}${isComposeProject ? `. Compose file ${escapeHtml(project.composePath)}` : ''}</span>
               </div>
               <div class="project-actions">
                 ${hasLaunchProfiles ? `
@@ -1093,6 +1184,10 @@ function renderList() {
                 <button class="run-button ${reviewRequired ? 'review' : blocked ? 'blocked' : primaryAction.mode}" data-action="${primaryAction.action}" data-id="${projectId}" aria-label="${actionTitle}" title="${actionTitle}" ${primaryAction.disabled ? 'disabled' : ''}>
                   ${reviewRequired ? icon('edit') : productIcon(primaryAction.mode === 'stop' ? 'stop' : 'play')}
                 </button>
+                ${canRestart ? `
+                <button class="run-button restart" data-action="restart" data-id="${projectId}" aria-label="Restart ${projectName}" title="Restart ${projectName}" ${transitioning ? 'disabled' : ''}>
+                  ${icon('refresh')}
+                </button>` : ''}
                 <button class="more-button menu-trigger" data-action="toggle-menu" data-id="${projectId}" data-menu-target="${projectActionMenuId}" aria-label="More actions for ${projectName}" aria-haspopup="menu" aria-expanded="false">${icon('more')}</button>
                 <div class="action-menu" data-menu-id="${projectActionMenuId}" role="menu" aria-label="Actions for ${projectName}" hidden>
                   <button data-action="open" data-id="${projectId}" role="menuitem" ${canOpen ? '' : 'disabled'} title="${openTitle}">
@@ -1115,6 +1210,9 @@ function renderList() {
                   </button>
                   <button data-action="force-close-ports" data-id="${projectId}" role="menuitem" aria-label="Close configured ports for ${projectName}" ${canCloseConfiguredPorts && !project.lifecycleBlocked ? '' : 'disabled'} title="${project.lifecycleBlocked ? escapeHtml(project.lifecycleBlockedReason) : canCloseConfiguredPorts ? `Review and close the processes using ${projectName}'s configured ports` : 'No configured ports are currently open'}">
                     ${icon('stop', 'menu-icon')}<span>Close configured ports…</span>
+                  </button>
+                  <button data-action="import-compose" data-id="${projectId}" role="menuitem" title="Review Compose services for ${projectName}">
+                    ${icon('layers', 'menu-icon')}<span>Import Compose services…</span>
                   </button>
                   <button data-action="edit" data-id="${projectId}" role="menuitem">
                     ${icon('edit', 'menu-icon')}<span>${reviewRequired ? 'Review setup' : 'Edit project'}</span>
@@ -1581,6 +1679,11 @@ function renderProjectForm(mode) {
         <input id="project-name" name="name" value="${escapeHtml(state.draft.name || '')}" placeholder="Defaults to folder name" maxlength="100" ${errorAttributes('project-name')}>
         ${fieldError('project-name')}
 
+        <label for="local-hostname">Local hostname <span class="optional-label">Optional</span></label>
+        <input id="local-hostname" name="localHostname" value="${escapeHtml(state.draft.localHostname || '')}" placeholder="Defaults from project name" maxlength="63" autocomplete="off" spellcheck="false" ${errorAttributes('local-hostname')}>
+        <p class="field-hint">Open uses http://name.localhost:port on this machine. Leave blank to derive from the project name.</p>
+        ${fieldError('local-hostname')}
+
         <label for="tags">Tags <span class="optional-label">Optional</span></label>
         <input id="tags" name="tags" value="${escapeHtml(state.draft.tags || '')}" placeholder="frontend, customer portal" maxlength="406" autocomplete="off" spellcheck="false" ${errorAttributes('tags')}>
         ${fieldError('tags')}
@@ -1619,6 +1722,16 @@ function renderProjectForm(mode) {
         <input id="stop-command" name="stopCommand" value="${escapeHtml(activeProfile.stopCommand || '')}" placeholder="docker compose down" ${errorAttributes('stop-command')}>
         ${fieldError('stop-command')}
         <p class="field-hint">Leave blank unless this project needs its own stop command.</p>
+
+        <label for="env-file">Env file <span class="optional-label">Optional</span></label>
+        <input id="env-file" name="envFile" value="${escapeHtml(activeProfile.envFile || '')}" placeholder=".env" maxlength="256" autocomplete="off" spellcheck="false" ${errorAttributes('env-file')}>
+        ${fieldError('env-file')}
+        <p class="field-hint">Relative to the project folder. Required at Start if set. Keep secrets in the file, not in Runlist export.</p>
+
+        <label for="env-map">Env overrides <span class="optional-label">Optional</span></label>
+        <textarea id="env-map" name="envText" rows="3" placeholder="FLAG=1" spellcheck="false" ${errorAttributes('env-map')}>${escapeHtml(activeProfile.envText || '')}</textarea>
+        ${fieldError('env-map')}
+        <p class="field-hint">Non-secret KEY=value lines. Applied after the env file. Temporary ports still win.</p>
 
         <fieldset id="services" class="service-editor" ${state.servicesLocked ? 'disabled' : ''} ${errors.services ? 'aria-invalid="true" aria-describedby="services-hint services-error" tabindex="-1"' : 'aria-describedby="services-hint"'}>
           <legend>Services <span class="optional-label">Optional</span></legend>
@@ -1706,6 +1819,111 @@ function renderProjectOutput() {
       outputPanel.addEventListener('scroll', handleOutputScroll, { passive: true });
     }
   });
+}
+
+function renderComposeImport() {
+  const draft = state.composeImport;
+  if (!draft?.proposedProject) {
+    app.innerHTML = '<section class="diagnosis-screen"><p class="screen-copy">This Compose review is no longer available.</p></section>';
+    return;
+  }
+  const services = Array.isArray(draft.parsedServices) ? draft.parsedServices : [];
+  const warnings = Array.isArray(draft.warnings) ? draft.warnings : [];
+  const proposed = draft.proposedProject;
+  const rows = services.map((service) => {
+    const ports = (service.ports || []).map((port) => `:${port}`).join(', ') || 'No published host port';
+    const profiles = (service.profiles || []).length
+      ? `Profiles: ${service.profiles.join(', ')}`
+      : '';
+    return `
+      <article class="compose-import-row">
+        <div class="compose-import-topline">
+          <strong>${escapeHtml(service.name)}</strong>
+          <span class="compose-import-ports">${escapeHtml(ports)}</span>
+        </div>
+        ${profiles ? `<p class="compose-import-profiles">${escapeHtml(profiles)}</p>` : ''}
+        ${service.note ? `<p class="compose-import-note">${escapeHtml(service.note)}</p>` : ''}
+      </article>`;
+  }).join('');
+
+  app.innerHTML = `
+    <section class="diagnosis-screen compose-import-screen" aria-label="Review Compose import">
+      <header class="screen-header">
+        <h2>Review Compose import</h2>
+        <button class="icon-button" data-action="close-screen" aria-label="Close Compose import">${icon('close')}</button>
+      </header>
+      <p class="screen-copy">From <code>${escapeHtml(draft.composePath || 'Compose file')}</code>. Runlist has not started Docker or Compose.</p>
+      <p class="screen-copy">Proposed project <strong>${escapeHtml(proposed.name)}</strong> with start <code>${escapeHtml(proposed.startCommand)}</code>.</p>
+      ${warnings.length ? `<ul class="compose-import-warnings" role="status">${warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join('')}</ul>` : ''}
+      <div class="compose-import-list" role="list">
+        ${rows || '<p class="screen-copy" role="status">No Compose services were found.</p>'}
+      </div>
+      <div class="repair-actions">
+        <button class="primary-button" data-action="approve-compose-import"${proposed.services?.length ? '' : ' disabled'}>Save reviewed services</button>
+        <button class="secondary-button" data-action="close-screen">Cancel</button>
+      </div>
+    </section>`;
+}
+
+function renderPortListening() {
+  const report = state.portListening || { rows: [], empty: true };
+  const rows = Array.isArray(report.rows) ? report.rows : [];
+  const rowHtml = rows.length
+    ? rows.map((row) => {
+      const port = Number(row.port);
+      const kindLabel = row.kind === 'owned'
+        ? 'Runlist'
+        : row.kind === 'external'
+          ? 'External'
+          : row.kind === 'gone'
+            ? 'Idle'
+            : row.kind === 'ambiguous'
+              ? 'Unclear'
+              : 'Unknown';
+      const processLabel = row.kind === 'gone'
+        ? 'Nothing listening'
+        : [
+          row.name || 'Unknown process',
+          Number.isInteger(row.pid) ? `PID ${row.pid}` : null
+        ].filter(Boolean).join(' · ');
+      const ownerLabel = row.kind === 'owned' && row.projectName
+        ? row.projectName
+        : (row.configuredProjects || []).map((project) => project.name).join(', ');
+      return `
+        <article class="port-listening-row" data-port="${port}">
+          <div class="port-listening-topline">
+            <strong class="port-listening-port">:${escapeHtml(String(port))}</strong>
+            <span class="port-listening-kind kind-${escapeHtml(row.kind || 'unknown')}">${escapeHtml(kindLabel)}</span>
+          </div>
+          <p class="port-listening-process">${escapeHtml(processLabel)}</p>
+          ${ownerLabel ? `<p class="port-listening-owner">${escapeHtml(ownerLabel)}</p>` : ''}
+          <p class="port-listening-reason">${escapeHtml(row.plainReason || '')}</p>
+          <div class="port-listening-actions">
+            <button type="button" class="secondary-button" data-action="copy-port-listening" data-port="${port}">Copy</button>
+            ${row.canReveal && row.projectId ? `
+              <button type="button" class="secondary-button" data-action="reveal-listening-project" data-id="${escapeHtml(row.projectId)}">Show project</button>` : ''}
+            ${row.canClose && row.closeProjectId ? `
+              <button type="button" class="secondary-button" data-action="force-close-ports" data-id="${escapeHtml(row.closeProjectId)}" data-port="${port}">Close listener…</button>` : ''}
+          </div>
+        </article>`;
+    }).join('')
+    : `<p class="screen-copy" role="status">No configured project ports yet. Add a project with a service port to diagnose listeners here.</p>`;
+
+  app.innerHTML = `
+    <section class="diagnosis-screen port-listening-screen" aria-label="What's listening">
+      <header class="screen-header">
+        <h2>What's listening</h2>
+        <div class="screen-header-actions">
+          <button type="button" class="secondary-button" data-action="refresh-port-listening">Refresh</button>
+          <button type="button" class="secondary-button" data-action="copy-port-listening">Copy all</button>
+          <button class="icon-button" data-action="close-screen" aria-label="Close what's listening">${icon('close')}</button>
+        </div>
+      </header>
+      <p class="screen-copy">Configured project ports only. Runlist never closes a listener without an exact port and PID confirmation.</p>
+      <div class="port-listening-list" role="list">
+        ${rowHtml}
+      </div>
+    </section>`;
 }
 
 function renderProjectDiagnosis() {
@@ -1832,15 +2050,30 @@ function jumpToLatestOutput() {
 }
 
 function draftLaunchProfileOptions(draft = {}) {
+  const envTextFrom = (value) => {
+    if (typeof value?.envText === 'string') {
+      return value.envText;
+    }
+    if (value?.env && typeof value.env === 'object' && !Array.isArray(value.env)) {
+      return Object.keys(value.env).sort().map((key) => `${key}=${value.env[key]}`).join('\n');
+    }
+    return '';
+  };
   return [
     {
       id: 'default',
       name: 'Default',
       startCommand: String(draft.startCommand || ''),
       stopCommand: String(draft.stopCommand || ''),
+      envFile: String(draft.envFile || ''),
+      envText: envTextFrom(draft),
       services: Array.isArray(draft.services) ? draft.services : []
     },
-    ...(Array.isArray(draft.launchProfiles) ? draft.launchProfiles : [])
+    ...(Array.isArray(draft.launchProfiles) ? draft.launchProfiles : []).map((profile) => ({
+      ...profile,
+      envFile: String(profile.envFile || ''),
+      envText: envTextFrom(profile)
+    }))
   ];
 }
 
@@ -1878,6 +2111,7 @@ function currentDraft(
     ...state.draft,
     id: state.draft.id,
     name: fieldValue('name'),
+    localHostname: fieldValue('localHostname'),
     tags: fieldValue('tags'),
     folder: fieldValue('folder'),
     launchProfiles: (state.draft.launchProfiles || []).map((profile) => ({
@@ -1890,6 +2124,8 @@ function currentDraft(
   const profileValues = {
     startCommand: fieldValue('startCommand'),
     stopCommand: fieldValue('stopCommand'),
+    envFile: fieldValue('envFile'),
+    envText: fieldValue('envText'),
     services
   };
   if (editingProfileId === 'default') {
@@ -2031,6 +2267,10 @@ app.addEventListener('click', (event) => {
 
   const actions = {
     'show-add': () => vscode.postMessage({ type: 'showAdd' }),
+    'start-workspace-script': () => vscode.postMessage({
+      type: 'startWorkspaceScript',
+      script: button.dataset.script
+    }),
     'close-screen': () => vscode.postMessage({
       type: 'closeScreen',
       draft: document.getElementById('project-form') ? currentDraft() : undefined
@@ -2068,6 +2308,8 @@ app.addEventListener('click', (event) => {
         name: nextLaunchProfileName(profiles),
         startCommand: source.startCommand || '',
         stopCommand: source.stopCommand || '',
+        envFile: source.envFile || '',
+        envText: source.envText || '',
         services: (source.services || []).map((service) => ({ ...service }))
       }];
       draft.selectedLaunchProfileId = id;
@@ -2101,6 +2343,18 @@ app.addEventListener('click', (event) => {
     },
     'register-agent': () => vscode.postMessage({ type: 'registerAgent', agent: button.dataset.agent }),
     'show-agent-connections': () => vscode.postMessage({ type: 'showAgentSetup' }),
+    'refresh-port-listening': () => vscode.postMessage({ type: 'refreshPortListening' }),
+    'copy-port-listening': () => {
+      const port = Number(button.dataset.port);
+      vscode.postMessage({
+        type: 'copyPortListeningDetails',
+        ...(Number.isInteger(port) && port >= 1 && port <= 65535 ? { port } : {})
+      });
+    },
+    'reveal-listening-project': () => vscode.postMessage({
+      type: 'revealPortOwnerProject',
+      id: button.dataset.id
+    }),
     'manage-group': () => vscode.postMessage({ type: 'manageRunGroups', id: button.dataset.id }),
     'toggle-tag-filter': () => {
       tagsExpanded = !tagsExpanded;
@@ -2255,11 +2509,24 @@ app.addEventListener('click', (event) => {
     'force-close-ports': () => {
       closeMenus();
       button.disabled = true;
-      vscode.postMessage({ type: 'forceCloseProjectPorts', id: button.dataset.id });
+      const port = Number(button.dataset.port);
+      vscode.postMessage({
+        type: 'forceCloseProjectPorts',
+        id: button.dataset.id,
+        ...(Number.isInteger(port) && port >= 1 && port <= 65535 ? { port } : {})
+      });
     },
     'force-close-ports-and-start': () => {
       button.disabled = true;
       vscode.postMessage({ type: 'forceCloseProjectPortsAndStart', id: button.dataset.id });
+    },
+    'import-compose': () => {
+      closeMenus();
+      vscode.postMessage({ type: 'showComposeImport', id: button.dataset.id });
+    },
+    'approve-compose-import': () => {
+      button.disabled = true;
+      vscode.postMessage({ type: 'approveComposeImport' });
     },
     'start-group': () => vscode.postMessage({ type: 'startRunGroup', id: button.dataset.id }),
     'stop-group': () => vscode.postMessage({ type: 'stopRunGroup', id: button.dataset.id }),
@@ -2421,17 +2688,26 @@ function updateTimelineElapsed() {
       ? `Ready in ${formatElapsed(readyAt - startedAt)}`
       : `Elapsed ${formatElapsed(Date.now() - startedAt)}`;
   });
+  document.querySelectorAll('[data-row-elapsed]').forEach((element) => {
+    const startedAt = Number(element.dataset.startedAt);
+    if (!Number.isFinite(startedAt)) {
+      return;
+    }
+    const label = formatElapsed(Date.now() - startedAt);
+    element.textContent = label;
+    element.setAttribute('aria-label', `Running for ${label}`);
+  });
 }
 
 function initializeTimelineClock() {
   clearInterval(timelineClock);
   timelineClock = undefined;
-  const elapsed = document.querySelector('[data-timeline-elapsed]');
+  const elapsed = document.querySelector('[data-timeline-elapsed], [data-row-elapsed]');
   if (!elapsed) {
     return;
   }
   updateTimelineElapsed();
-  if (document.querySelector('[data-timeline-elapsed][data-ready-at=""]')) {
+  if (document.querySelector('[data-timeline-elapsed][data-ready-at=""], [data-row-elapsed]')) {
     timelineClock = setInterval(updateTimelineElapsed, 1000);
   }
 }
@@ -2860,9 +3136,13 @@ if (state.mode === 'list') {
   renderAgentSetup();
 } else if (state.mode === 'output') {
   renderProjectOutput();
-} else if (state.mode === 'diagnosis') {
+  } else if (state.mode === 'diagnosis') {
   renderProjectDiagnosis();
-} else {
+  } else if (state.mode === 'port-listening') {
+  renderPortListening();
+  } else if (state.mode === 'compose-import') {
+  renderComposeImport();
+  } else {
   renderProjectForm(state.mode);
 }
 

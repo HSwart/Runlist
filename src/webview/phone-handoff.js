@@ -56,6 +56,7 @@ function isLoopbackHostname(hostname) {
   const value = String(hostname || '').toLowerCase();
   const parts = ipv4Parts(value);
   return value === 'localhost'
+    || value.endsWith('.localhost')
     || value === '[::1]'
     || value === '::1'
     || parts?.[0] === 127;

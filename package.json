@@ -2,7 +2,7 @@
   "name": "runlist",
   "displayName": "Runlist",
   "description": "Start, stop, and switch local apps from one sidebar.",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "publisher": "hankoswart",
   "license": "SEE LICENSE IN LICENSE",
   "icon": "media/runlist.png",
@@ -67,6 +67,8 @@
     "onCommand:runlist.showAgentSetup",
     "onCommand:runlist.transferProjects",
     "onCommand:runlist.manageGroups",
+    "onCommand:runlist.showPortListening",
+    "onCommand:runlist.importCompose",
     "onCommand:runlist.copySupportDiagnostics",
     "onCommand:runlist.startThisFolder"
   ],
@@ -85,21 +87,32 @@
       },
       {
         "command": "runlist.showAgentSetup",
-        "title": "Set Up Agent Connections",
+        "title": "Set Up Agents",
         "category": "Runlist",
         "icon": "$(plug)"
       },
       {
         "command": "runlist.transferProjects",
-        "title": "Import or Export Projects",
+        "title": "Import or Export",
         "category": "Runlist",
         "icon": "$(files)"
       },
       {
         "command": "runlist.manageGroups",
-        "title": "Manage Run Groups",
+        "title": "Manage Groups",
         "category": "Runlist",
         "icon": "$(run-all)"
+      },
+      {
+        "command": "runlist.showPortListening",
+        "title": "What's Listening",
+        "category": "Runlist",
+        "icon": "$(server-process)"
+      },
+      {
+        "command": "runlist.importCompose",
+        "title": "Import Compose Services",
+        "category": "Runlist"
       },
       {
         "command": "runlist.copySupportDiagnostics",
@@ -155,23 +168,32 @@
         },
         {
           "command": "runlist.showAgentSetup",
-          "when": "view == runlist.projects",
+          "when": "view == runlist.projects && runlist.showTitlebarExtras",
           "group": "navigation@2"
         },
         {
           "command": "runlist.transferProjects",
-          "when": "view == runlist.projects",
+          "when": "view == runlist.projects && runlist.showTitlebarExtras",
           "group": "navigation@3"
         },
         {
           "command": "runlist.manageGroups",
-          "when": "view == runlist.projects",
+          "when": "view == runlist.projects && runlist.showTitlebarExtras",
           "group": "navigation@4"
+        },
+        {
+          "command": "runlist.showPortListening",
+          "when": "view == runlist.projects && runlist.showTitlebarExtras",
+          "group": "navigation@5"
         }
       ],
       "commandPalette": [
         {
           "command": "runlist.showAgentSetup",
+          "when": "false"
+        },
+        {
+          "command": "runlist.showPortListening",
           "when": "false"
         }
       ]
@@ -181,6 +203,7 @@
     "lint": "eslint . --max-warnings=0",
     "scan:secrets": "node scripts/scan-secrets.js",
     "test": "node --test",
+    "test:compose-lifecycle": "node --test test/compose-lifecycle.integration.js",
     "test:critical-coverage": "node scripts/test-critical-coverage.js",
     "test:smoke": "node smoke/run.js",
     "test:webview": "node scripts/webview-e2e.js",

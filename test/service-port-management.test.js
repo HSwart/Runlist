@@ -59,7 +59,8 @@ test('threads temporary ports through reservation, environment, ownership, and e
 
   assert.match(extension, /this\.portReservations\.reserve\(launchProject\)/);
   assert.match(extension, /servicePortStatus\(launchProject\.services\)/);
-  assert.match(extension, /env: projectLaunchEnvironment\(process\.env, portOverrides\)/);
+  assert.match(extension, /env: launchEnvironment/);
+  assert.match(extension, /resolveProjectLaunchEnvironment\(/);
   assert.match(extension, /recordStartedProcess\([\s\S]*launchProject[\s\S]*portOverrides/);
   assert.match(extension, /const launchToken = this\.processOwnership\.snapshot\(\)\.get\(project\.id\)\?\.token/);
   assert.match(extension, /waitUntilServiceReady\([\s\S]*launchIsCurrent/);

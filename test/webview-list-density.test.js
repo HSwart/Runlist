@@ -16,12 +16,13 @@ const host = readText('src', 'host', 'runlist-view-provider.js');
 test('keeps the everyday list to two lines: wrapping name, then status and port', () => {
   assert.match(webview, /class="project-meta"/);
   assert.match(webview, /class="project-status status-\$\{statusClass\}"/);
+  assert.match(webview, /class="project-port-chip" data-action="open"/);
   assert.match(webview, /class="run-button /);
   assert.match(webview, /aria-label="More actions for \$\{projectName\}"/);
   assert.match(webview, /class="visually-hidden">\$\{escapeHtml\(project\.folder\)\}/);
   assert.doesNotMatch(webview, /class="detail-row"/);
   assert.doesNotMatch(webview, /Services · \$\{project\.services\.length\}/);
-  assert.match(webview, /services\.slice\(0, 3\)\.map\(\(service\) => `\$\{service\.name\} :\$\{service\.port\}`\)/);
+  assert.doesNotMatch(webview, /class="project-services-summary"/);
   assert.doesNotMatch(webview, /class="auto-scroll"><span class="auto-scroll-content">\$\{projectName\}/);
   assert.doesNotMatch(webview, /readinessDetailsHtml\(project, projectStatus\)/);
   assert.doesNotMatch(webview, /class="current-window-label">This window</);
@@ -29,10 +30,11 @@ test('keeps the everyday list to two lines: wrapping name, then status and port'
 
 test('does not explain the product on first-run or everyday screens', () => {
   assert.match(webview, /<h2>No projects yet<\/h2>/);
-  assert.match(webview, /data-action="show-add">\$\{addLabel\}/);
   assert.match(webview, /Add this folder/);
-  assert.match(webview, /Save a start command for the folder open in this window/);
-  assert.match(webview, /Save a project folder and its start command once/);
+  assert.match(webview, /Add the folder open in this window\./);
+  assert.match(webview, /Open a folder in this window first\./);
+  assert.doesNotMatch(webview, /Save a start command for the folder open in this window/);
+  assert.doesNotMatch(webview, /Save a project folder and its start command once/);
   assert.doesNotMatch(webview, /Save a project folder and its commands once/);
   assert.doesNotMatch(webview, /Choose a folder and save its commands and services once/);
   assert.doesNotMatch(webview, /Update \$\{escapeHtml\(state\.draft\.name/);
@@ -45,7 +47,7 @@ test('does not explain the product on first-run or everyday screens', () => {
 test('uses compact native sidebar density instead of padded cards', () => {
   assert.match(styles, /\.project-row \{[\s\S]*padding: 5px 12px 6px;/);
   assert.match(styles, /\.project-status \{[\s\S]*background: transparent;/);
-  assert.match(styles, /\.project-services-summary \{[\s\S]*border: 0;/);
+  assert.match(styles, /\.project-port-chip \{[\s\S]*border: 0;/);
   assert.match(styles, /\.run-button \{[\s\S]*width: 22px;[\s\S]*height: 22px;/);
   assert.match(styles, /\.empty-state \{[\s\S]*padding: 16px 12px;/);
   assert.match(styles, /\.project-heading h2 \{[\s\S]*white-space: normal;/);
@@ -61,4 +63,9 @@ test('uses the workbench font for sidebar chrome and leaves output on the editor
   assert.match(styles, /\.output-peek-line \{\n(?:  .*\n)*  font-family: var\(--vscode-editor-font-family\);\n  font-size: var\(--vscode-editor-font-size, 11px\);/);
   assert.match(styles, /\.output-entry \{\n(?:  .*\n)*  font-family: var\(--vscode-editor-font-family\);\n  font-size: var\(--vscode-editor-font-size, 11px\);/);
   assert.doesNotMatch(styles, /Inter|fonts\.googleapis|@font-face/);
+});
+
+test('hides project search on a one-row list', () => {
+  assert.match(webview, /\$\{state\.projects\.length > 1 \? `/);
+  assert.match(webview, /id="project-search"/);
 });

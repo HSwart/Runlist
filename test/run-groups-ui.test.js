@@ -15,7 +15,7 @@ test('contributes run-group management to the Runlist view title', () => {
   assert.ok(manifest.contributes.commands.some((entry) => entry.command === 'runlist.manageGroups'));
   assert.ok(manifest.contributes.menus['view/title'].some((entry) => (
     entry.command === 'runlist.manageGroups'
-      && entry.when === 'view == runlist.projects'
+      && entry.when === 'view == runlist.projects && runlist.showTitlebarExtras'
   )));
 });
 

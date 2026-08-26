@@ -26,6 +26,7 @@ function installMcpBridge(context) {
     'src/lifecycle/project-process.js',
     'src/lifecycle/runtime-process-owner.js',
     'src/ports/service-port-overrides.js',
+    'src/projects/launch-env.js',
     'src/projects/launch-profile.js',
     'src/projects/project-output.js',
     'src/projects/project-diagnostics.js',
@@ -33,6 +34,7 @@ function installMcpBridge(context) {
     'src/projects/project-store.js',
     'src/projects/project-tags.js',
     'src/services/external-url.js',
+    'src/services/local-hostname.js',
     'package.json'
   ];
   for (const relativePath of bridgeFiles) {
@@ -112,6 +114,14 @@ function activate(context) {
     vscode.commands.registerCommand('runlist.showAgentSetup', () => provider.showAgentSetup()),
     vscode.commands.registerCommand('runlist.transferProjects', () => provider.showProjectTransfer()),
     vscode.commands.registerCommand('runlist.manageGroups', () => provider.showRunGroupManager()),
+    vscode.commands.registerCommand(
+      'runlist.showPortListening',
+      () => provider.showPortListeningDiagnosis()
+    ),
+    vscode.commands.registerCommand(
+      'runlist.importCompose',
+      () => provider.showComposeImport()
+    ),
     vscode.commands.registerCommand(
       'runlist.copySupportDiagnostics',
       () => provider.copySupportDiagnostics()

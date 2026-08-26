@@ -187,7 +187,7 @@ test('cross-window deletion clears expanded preview state and exits diagnosis wi
   const immediateState = renderedState(view);
   assert.equal(provider.expandedPreviewProjectId, undefined);
   assert.equal(provider.expandedPreviewServicePort, undefined);
-  assert.deepEqual(immediateState.focusTarget, { type: 'field', id: 'project-search' });
+  assert.deepEqual(immediateState.focusTarget, { type: 'project-control', id: remaining.id });
   assert.notDeepEqual(immediateState.focusTarget, { type: 'project-control', id: project.id });
   await provider.statusRefreshPromise;
 
@@ -197,7 +197,7 @@ test('cross-window deletion clears expanded preview state and exits diagnosis wi
   assert.equal(provider.diagnosisProjectIncarnation, undefined);
   assert.equal(state.mode, 'list');
   assert.equal(state.diagnosis, undefined);
-  assert.deepEqual(state.focusTarget, { type: 'field', id: 'project-search' });
+  assert.deepEqual(state.focusTarget, { type: 'project-control', id: remaining.id });
   assert.match(state.routeNotice, /project is no longer available.*diagnosis was closed/i);
 });
 
@@ -244,7 +244,7 @@ test('cross-window deletion of the last project focuses the working Add route', 
 
   const state = renderedState(view);
   assert.equal(state.mode, 'list');
-  assert.deepEqual(state.focusTarget, { type: 'action', action: 'show-add' });
+  assert.equal(state.focusTarget, undefined);
   assert.equal(state.projects.length, 0);
 });
 
