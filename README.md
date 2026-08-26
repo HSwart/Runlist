@@ -1,42 +1,28 @@
-<div align="center">
-  <img src="media/runlist.png" width="80" height="80" alt="Runlist logo">
-  <h1>Runlist: Local Development Control Panel</h1>
-  <p><strong>Every local app, across every repository, in one focused VS Code control panel.</strong></p>
-  <p>Start, stop, monitor, and group dev servers, workers, and project commands across repositories from one sidebar.</p>
-  <p>Set projects up yourself—or optionally let a supported coding agent propose the setup for your approval. Runlist checks configured ports before start and asks before closing an external process to free one.</p>
-</div>
-
----
-
 <p align="center">
-  <img src="media/runlist-preview.png" width="900" alt="Current Runlist project and group controls inside VS Code">
+  <img src="media/runlist.png" width="80" height="80" alt="Runlist">
 </p>
 
-## A control panel for local projects
+<h1 align="center">Runlist</h1>
 
-Runlist keeps a reusable list of local projects from different repositories inside VS Code. It combines saved commands with project status, cautious port checks, quick links, and recent output, so it is more than a list of tasks to run.
+<p align="center"><strong>Start, stop, and switch local apps from one sidebar.</strong></p>
 
-- Start projects with their saved commands and safely stop the process trees Runlist launched.
-- Keep alternate launch profiles for projects that need different commands or service sets, and choose one from the existing Start controls.
-- Search saved projects by name, folder, or tag, and use the compact Tags disclosure to filter the list.
-- Pin important projects so they stay at the top of the list.
-- Give projects a friendly name without renaming their folders.
-- Keep configured service names and local addresses visible at a glance.
-- When another Runlist-owned project needs the same port, switch safely by stopping it before starting the selected project.
-- When an external process owns a configured port, review its service, process name, and PID in a native confirmation before closing it or closing it and starting the selected project.
-- When service ports are configured, see project status, copy a responding web service's URL, and open the first service at its localhost address or optional HTTP/HTTPS URL. Services with an Open URL are also checked for an HTTP response.
-- Expand a running web app into stable Overview, Output, Preview, and History tabs, with refresh, copy, and browser actions.
-- Open an eligible responding local web app on a phone by scanning a QR code generated entirely on your computer.
-- See current CPU and memory use for the process tree Runlist started while its project details are expanded.
-- Open any saved project folder in a new VS Code window.
-- Expand a starting or running project to follow its startup timeline and the latest three useful output lines, then open the complete Recent Output screen when you need more detail.
-- View readable recent output from the latest run, including a concise failure summary when startup exits, follow new lines, and open web links without leaving the sidebar.
-- After a failed start, prepare a bounded, sanitized diagnosis request for a connected coding agent without sending anything automatically.
-- Export one or all project setups, or import a file after a preview; imported changes stay blocked until you review and approve them.
-- Save run groups to start members sequentially in saved order or launch them in parallel; if one fails, Runlist rolls back only the projects that group run started, in reverse order.
-- Edit or remove a saved project without touching its files.
+<p align="center">
+  <img src="media/gallery-01-hero.png" width="1280" alt="Runlist in VS Code with every local app in one sidebar">
+</p>
 
-> Runlist remembers the setup. You decide what runs.
+<p align="center">Every local app. One sidebar.</p>
+
+<p align="center">
+  <img src="media/gallery-02-status.png" width="1280" alt="See what’s running and stop it from here">
+</p>
+
+<p align="center">See what’s running. Stop it from here.</p>
+
+<p align="center">
+  <img src="media/gallery-03-features.png" width="1280" alt="First-run: no projects yet, add this folder">
+</p>
+
+<p align="center">First-run: no projects yet, add this folder.</p>
 
 ## Install
 
