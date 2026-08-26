@@ -502,12 +502,14 @@ button:active:not(:disabled) {
   flex: 1 1 auto;
   min-width: 0;
   padding-top: 1px;
+  container-type: inline-size;
 }
 
 .project-title-line {
   min-width: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  gap: 6px;
 }
 
 .project-title-line h2 {
@@ -517,7 +519,7 @@ button:active:not(:disabled) {
 
 .current-window-label {
   flex: 0 0 auto;
-  margin-left: 6px;
+  margin: 0;
   padding: 0 5px;
   color: var(--vscode-badge-foreground, var(--vscode-descriptionForeground));
   background: var(--vscode-badge-background, var(--vscode-list-inactiveSelectionBackground));
@@ -527,6 +529,12 @@ button:active:not(:disabled) {
   font-weight: 600;
   line-height: 16px;
   white-space: nowrap;
+}
+
+@container (max-width: 250px) {
+  .current-window-label {
+    display: none;
+  }
 }
 
 .preview-toggle {
@@ -558,25 +566,22 @@ button:active:not(:disabled) {
   font-size: 13px;
   font-weight: 600;
   line-height: 16px;
-  white-space: nowrap;
 }
 
 .project-heading h2 {
   min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.project-heading h2 > .auto-scroll {
-  flex: 1 1 auto;
+  display: block;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: break-word;
 }
 
 .pinned-icon {
   width: 12px;
   height: 12px;
-  display: block;
-  flex: 0 0 auto;
+  display: inline-block;
+  vertical-align: -1px;
+  margin-right: 4px;
   color: var(--vscode-icon-foreground);
 }
 
@@ -584,6 +589,7 @@ button:active:not(:disabled) {
 .empty-state h2 {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .project-meta {
@@ -592,7 +598,7 @@ button:active:not(:disabled) {
   align-items: center;
   gap: 8px;
   margin-top: 2px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .project-status {
@@ -600,6 +606,7 @@ button:active:not(:disabled) {
   max-width: 100%;
   min-height: 16px;
   display: inline-flex;
+  flex: 0 1 auto;
   align-items: center;
   gap: 5px;
   margin: 0;
@@ -612,6 +619,7 @@ button:active:not(:disabled) {
   font-size: 11px;
   font-weight: 400;
   line-height: 16px;
+  white-space: nowrap;
 }
 
 .project-status > .auto-scroll {
@@ -1151,13 +1159,14 @@ button:active:not(:disabled) {
   width: auto;
   max-width: 100%;
   min-width: 0;
-  min-height: 22px;
+  min-height: 16px;
   display: inline-flex;
+  flex: 0 1 auto;
   align-items: center;
   justify-content: flex-start;
   gap: 4px;
   margin: 0;
-  padding: 0 2px;
+  padding: 0;
   color: var(--vscode-descriptionForeground);
   text-align: left;
   background: transparent;

@@ -111,7 +111,7 @@
     const fullLabels = projectStatusFullLabels(project);
     const primary = projectDisplayedStatus(project);
     const parts = [];
-    if (fullLabels[code] && fullLabels[code] !== primary) {
+    if (fullLabels[code] && fullLabels[code] !== primary && code !== 'active') {
       parts.push(fullLabels[code]);
     }
     const readiness = serviceReadinessDetailsText(project, project.status || 'stopped');
@@ -127,7 +127,10 @@
       return `${name}: ${projectDisplayedStatus(project)}`;
     }
     const fullLabels = projectStatusFullLabels(project);
-    const spokenStatus = fullLabels[projectStatusCode(project)] || projectDisplayedStatus(project) || 'Stopped';
+    const code = projectStatusCode(project);
+    const spokenStatus = code === 'active'
+      ? projectDisplayedStatus(project)
+      : (fullLabels[code] || projectDisplayedStatus(project) || 'Stopped');
     const readiness = serviceReadinessDetailsText(project, project.status || 'stopped');
     return `${name}: ${spokenStatus}${readiness ? ` ${readiness}` : ''}`;
   }

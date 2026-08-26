@@ -8,7 +8,7 @@ const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
 const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
 const host = fs.readFileSync(path.join(root, 'src', 'host', 'runlist-view-provider.js'), 'utf8');
 
-test('keeps the everyday list to name, status, primary action, and overflow', () => {
+test('keeps the everyday list to two lines: wrapping name, then status and port', () => {
   assert.match(webview, /class="project-meta"/);
   assert.match(webview, /class="project-status status-\$\{statusClass\}"/);
   assert.match(webview, /class="run-button /);
@@ -17,6 +17,8 @@ test('keeps the everyday list to name, status, primary action, and overflow', ()
   assert.doesNotMatch(webview, /class="detail-row"/);
   assert.doesNotMatch(webview, /Services · \$\{project\.services\.length\}/);
   assert.match(webview, /services\.slice\(0, 3\)\.map\(\(service\) => `\$\{service\.name\} :\$\{service\.port\}`\)/);
+  assert.doesNotMatch(webview, /class="auto-scroll"><span class="auto-scroll-content">\$\{projectName\}/);
+  assert.doesNotMatch(webview, /readinessDetailsHtml\(project, projectStatus\)/);
 });
 
 test('does not explain the product on first-run or everyday screens', () => {
@@ -40,5 +42,8 @@ test('uses compact native sidebar density instead of padded cards', () => {
   assert.match(styles, /\.project-services-summary \{[\s\S]*border: 0;/);
   assert.match(styles, /\.run-button \{[\s\S]*width: 22px;[\s\S]*height: 22px;/);
   assert.match(styles, /\.empty-state \{[\s\S]*padding: 16px 12px;/);
+  assert.match(styles, /\.project-heading h2 \{[\s\S]*white-space: normal;/);
+  assert.match(styles, /\.project-meta \{[\s\S]*flex-wrap: nowrap;/);
+  assert.match(styles, /@container \(max-width: 250px\) \{[\s\S]*\.current-window-label \{[\s\S]*display: none;/);
   assert.doesNotMatch(styles, /border-radius: 10px;/);
 });

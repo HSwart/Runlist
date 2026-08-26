@@ -1196,12 +1196,42 @@ test('renders everyday project rows without a competing folder path', () => {
     stateOverrides: { stopAllCount: 2 }
   });
 
+  assert.match(result.app.innerHTML, /<h2 id="project-northstar"[^>]*>[\s\S]*Northstar Dashboard\s*<\/h2>/);
   assert.match(result.app.innerHTML, /class="project-meta"/);
-  assert.match(result.app.innerHTML, /class="project-status status-running"/);
+  assert.match(result.app.innerHTML, /class="project-status status-running"[^>]*>[\s\S]*<span>Running<\/span>[\s\S]*web :4310/);
   assert.match(result.app.innerHTML, /web :4310/);
   assert.match(result.app.innerHTML, /class="visually-hidden">\/Users\/shared\/Projects\/northstar-dashboard/);
   assert.match(result.app.innerHTML, /data-action="stop-all"/);
   assert.match(result.app.innerHTML, /Stop all \(2\)/);
   assert.doesNotMatch(result.app.innerHTML, /class="detail-row"/);
   assert.doesNotMatch(result.app.innerHTML, /Services · 1/);
+  assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
+  assert.doesNotMatch(result.app.innerHTML, /class="auto-scroll"><span class="auto-scroll-content">Northstar Dashboard/);
+});
+
+test('renders Detected on the status line without a second Detected running sentence', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    currentWorkspace: true,
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/northstar-dashboard',
+    id: 'northstar',
+    launchProfiles: [],
+    name: 'Northstar Dashboard',
+    openPorts: [4310],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 4310 }],
+    status: 'active',
+    tags: []
+  }]);
+
+  assert.match(result.app.innerHTML, /Northstar Dashboard\s*<\/h2>/);
+  assert.match(result.app.innerHTML, /class="project-status status-active"[^>]*>[\s\S]*<span>Detected<\/span>[\s\S]*web :4310/);
+  assert.doesNotMatch(result.app.innerHTML, /Detected running/);
+  assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
+  assert.match(result.app.innerHTML, /class="current-window-label">This window</);
+  assert.match(result.app.innerHTML, /role="menuitem" disabled>[\s\S]*This window/);
 });
