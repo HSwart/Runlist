@@ -6,19 +6,29 @@ const { validateMarketplace } = require('../scripts/validate-marketplace');
 
 const root = path.join(__dirname, '..');
 
+function readText(...relativePath) {
+  return fs.readFileSync(path.join(root, ...relativePath), 'utf8').replace(/\r\n/g, '\n');
+}
+
 test('validates Marketplace metadata for the selected publisher and release', () => {
   const manifest = require('../package.json');
   const result = validateMarketplace(root, { preparation: true });
 
   assert.equal(manifest.name, 'runlist');
-  assert.equal(manifest.displayName, 'Runlist: Local Development Control Panel');
+  assert.equal(manifest.displayName, 'Runlist');
   assert.equal(
     manifest.description,
-    'Start, stop, monitor, and group local apps on the same computer as this VS Code window.'
+    'Start, stop, and switch local apps from one sidebar.'
   );
-  assert.ok(manifest.keywords.includes('dev server'));
-  assert.ok(manifest.keywords.includes('process manager'));
-  assert.ok(manifest.keywords.includes('npm scripts'));
+  assert.deepEqual(manifest.keywords.slice(0, 5), [
+    'npm scripts',
+    'task runner',
+    'dev server',
+    'process manager',
+    'ports'
+  ]);
+  assert.ok(!manifest.keywords.slice(0, 5).includes('mcp'));
+  assert.ok(!manifest.keywords.slice(0, 5).includes('coding agents'));
   assert.ok(!manifest.keywords.includes('project manager'));
   assert.equal(manifest.publisher, 'hankoswart');
   assert.equal(manifest.repository.url, 'https://github.com/HSwart/Runlist.git');
@@ -54,14 +64,28 @@ test('does not ship stale product branding', () => {
   ];
 
   for (const file of shippedTextFiles) {
-    const contents = fs.readFileSync(path.join(root, file), 'utf8');
+    const contents = readText(file);
     assert.doesNotMatch(contents, /\bswitchboard\b/i, file);
     assert.doesNotMatch(contents, /\bporter\b/i, file);
   }
 });
 
+test('leads the Marketplace release guide with terminal publish commands', () => {
+  const releaseGuide = readText('docs', 'marketplace-release.md');
+  const terminalHeading = releaseGuide.indexOf('## Publish from the terminal');
+  const publisherHeading = releaseGuide.indexOf('## Permanent publisher');
+
+  assert.match(releaseGuide, /^# Marketplace release checklist\n\n## Publish from the terminal\n/);
+  assert.ok(terminalHeading > 0 && terminalHeading < publisherHeading);
+  assert.match(releaseGuide, /az login --allow-no-subscriptions/);
+  assert.match(releaseGuide, /az account show/);
+  assert.match(releaseGuide, /npm run publish:marketplace/);
+  assert.match(releaseGuide, /vsce publish --azure-credential --packagePath releases\/runlist\.vsix/);
+  assert.doesNotMatch(releaseGuide, /vsce publish -p\b/);
+});
+
 test('documents temporary candidate validation and tracked publication artifact', () => {
-  const releaseGuide = fs.readFileSync(path.join(root, 'docs', 'marketplace-release.md'), 'utf8');
+  const releaseGuide = readText('docs', 'marketplace-release.md');
 
   assert.match(releaseGuide, /temporary candidate from (?:the )?current source/i);
   assert.match(releaseGuide, /compares the candidate's .* with the tracked artifact/i);
@@ -70,8 +94,8 @@ test('documents temporary candidate validation and tracked publication artifact'
 });
 
 test('requires extension-host smoke with the supported CI session commands', () => {
-  const releaseGuide = fs.readFileSync(path.join(root, 'docs', 'marketplace-release.md'), 'utf8');
-  const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'test.yml'), 'utf8');
+  const releaseGuide = readText('docs', 'marketplace-release.md');
+  const workflow = readText('.github', 'workflows', 'test.yml');
 
   assert.match(releaseGuide, /On Windows and macOS, run `npm run test:smoke` in a supported native desktop session\./i);
   assert.match(releaseGuide, /On Linux, run `xvfb-run -a npm run test:smoke` with an Xvfb display\./i);
@@ -83,22 +107,47 @@ test('requires extension-host smoke with the supported CI session commands', () 
   assert.doesNotMatch(workflow, /continue-on-error:\s*true/);
 });
 
-test('names where Start and Stop work before Local lifecycle only', () => {
-  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
-  const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
+test('keeps Start and Stop unavailable in unsupported remote windows', () => {
+  const webview = readText('media', 'main.js');
   const manifest = require('../package.json');
 
-  assert.match(manifest.description, /same computer as this VS Code window/i);
-  assert.match(readme, /same computer/i);
-  assert.match(readme, /Remote - WSL/);
-  assert.match(readme, /Remote SSH/);
-  assert.match(readme, /Dev Containers/);
-  assert.match(readme, /Codespaces/);
-  assert.match(readme, /Tunnels/);
-  assert.match(readme, /WSL network path/);
+  assert.equal(
+    manifest.description,
+    'Start, stop, and switch local apps from one sidebar.'
+  );
   assert.match(webview, /lifecycleWindowSupported === false/);
   assert.match(webview, /Windows WSL network paths will not start or stop processes/);
   assert.doesNotMatch(webview, /Remote SSH, WSL, Dev Containers/);
+});
+
+test('documents GitHub Actions Marketplace publication from the marketplace environment', () => {
+  const releaseGuide = readText('docs', 'marketplace-release.md');
+  const workflow = readText('.github', 'workflows', 'publish-marketplace.yml');
+
+  assert.match(releaseGuide, /Actions → \*\*Publish Marketplace\*\* → \*\*Run workflow\*\*/);
+  assert.match(releaseGuide, /workflow_dispatch/);
+  assert.match(releaseGuide, /only Ops publish path/);
+  assert.match(releaseGuide, /not a second Ops route/);
+  assert.match(releaseGuide, /optional Hanko fallback/i);
+  assert.match(releaseGuide, /environment: marketplace/);
+  assert.match(releaseGuide, /limited to protected branches/);
+  assert.match(releaseGuide, /Publishing from a tag is not supported/);
+  assert.doesNotMatch(releaseGuide, /Tag path|tag matching `v\*`|push a tag/);
+  assert.doesNotMatch(releaseGuide, /That is the only publish path/);
+  assert.doesNotMatch(workflow, /pull_request/);
+  assert.doesNotMatch(workflow, /--azure-credential/);
+  assert.doesNotMatch(workflow, /publish:marketplace/);
+  assert.doesNotMatch(workflow, /ovsx|open-vsx|OVSX/i);
+  assert.doesNotMatch(workflow, /-p\s| --pat\s/);
+  assert.doesNotMatch(workflow, /echo\s+["']?\$\{?VSCE_PAT|printenv|printf\s+.*\$\{?VSCE_PAT/);
+  assert.doesNotMatch(workflow, /tags:|refs\/tags|v\*/);
+  assert.doesNotMatch(workflow, /^\s*push:\s*$/m);
+  assert.match(workflow, /environment:\s*marketplace/);
+  assert.match(workflow, /VSCE_PAT:\s*\$\{\{\s*secrets\.VSCE_PAT\s*\}\}/);
+  assert.match(workflow, /npm run package/);
+  assert.match(workflow, /^\s*workflow_dispatch:\s*$/m);
+  assert.match(workflow, /github\.ref == 'refs\/heads\/main'/);
+  assert.match(workflow, /vsce publish --packagePath releases\/runlist\.vsix/);
 });
 
 test('passes strict Marketplace publication validation', () => {

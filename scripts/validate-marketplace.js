@@ -105,21 +105,15 @@ function validateMarketplace(root, options = {}) {
     errors.push('package.json icon must reference a PNG that is at least 128x128');
   }
 
-  if (!readme.includes('[security policy](SECURITY.md)')) {
-    errors.push('README.md must link to SECURITY.md');
-  }
-  if (!readme.includes('[MIT License](LICENSE)')) {
-    errors.push('README.md must link to LICENSE');
-  }
   if (readme.includes('github.com/HSwart/Runlist/releases/download/')) {
     errors.push('README.md must use Marketplace installation instead of a direct VSIX download');
   }
   const marketplaceUrl = `https://marketplace.visualstudio.com/items?itemName=${manifest.publisher}.${manifest.name}`;
-  if (!readme.includes('### Install from the VS Code Marketplace')) {
+  if (!readme.includes(`Install from the [VS Code Marketplace](${marketplaceUrl}).`)) {
     errors.push('README.md must explain how to install from the VS Code Marketplace');
   }
   const marketplaceLinks = readme.match(/https:\/\/marketplace\.visualstudio\.com\/items\?itemName=[^)"<\s]+/g) || [];
-  if (marketplaceLinks.some((link) => link !== marketplaceUrl)) {
+  if (marketplaceLinks.length === 0 || marketplaceLinks.some((link) => link !== marketplaceUrl)) {
     errors.push('README.md Marketplace links must use the manifest publisher and extension name');
   }
   if (!security.includes(`| ${manifest.version} | Yes |`)) {

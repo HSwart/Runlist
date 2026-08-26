@@ -2,8 +2,15 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
   canUseCurrentWorkspace,
+  currentWorkspaceFolderPath,
+  foldersReferToSamePath,
   localWorkspaceFolders,
-  selectCurrentWorkspaceFolder
+  orderSidebarProjects,
+  projectForCurrentWindow,
+  selectCurrentWorkspaceFolder,
+  startThisFolderDecision,
+  starterDraftForCurrentWorkspace,
+  workspaceFolderMatchesProject
 } = require('../src/projects/project-workspace');
 
 function workspaceFolder(name, fsPath, scheme = 'file') {
@@ -89,6 +96,90 @@ test('asks the user to choose from clearly labeled multi-root workspace folders'
     placeHolder: 'Choose the workspace folder to use for this project',
     title: 'Use current workspace'
   });
+});
+
+test('prefills a starter draft only for a single local workspace folder', () => {
+  assert.deepEqual(starterDraftForCurrentWorkspace([]), {});
+  assert.deepEqual(starterDraftForCurrentWorkspace([
+    workspaceFolder('Remote app', '/workspaces/app', 'vscode-remote'),
+    workspaceFolder('Local app', '/Users/example/app')
+  ]), { folder: '/Users/example/app' });
+  assert.deepEqual(starterDraftForCurrentWorkspace([
+    workspaceFolder('Frontend', '/Users/example/frontend'),
+    workspaceFolder('API', '/Users/example/api')
+  ]), {});
+  assert.equal(
+    currentWorkspaceFolderPath([workspaceFolder('App', '/Users/example/app')]),
+    '/Users/example/app'
+  );
+});
+
+test('matches project folders to the current window without requiring the path to exist', () => {
+  assert.equal(foldersReferToSamePath(
+    'C:\\Users\\Example\\App\\',
+    'c:/Users/Example/App',
+    'win32'
+  ), true);
+  assert.equal(foldersReferToSamePath('/Users/example/app', '/Users/example/other', 'darwin'), false);
+  assert.equal(workspaceFolderMatchesProject(
+    '/Users/example/app',
+    [workspaceFolder('App', '/Users/example/app/')]
+  ), true);
+  assert.equal(workspaceFolderMatchesProject(
+    '/Users/example/app',
+    [workspaceFolder('Remote', '/workspaces/app', 'vscode-remote')]
+  ), false);
+});
+
+test('keeps pinned projects first, then the current window, without changing saved order inside groups', () => {
+  const ordered = orderSidebarProjects([
+    { id: 'a', pinned: false, currentWorkspace: false },
+    { id: 'b', pinned: true, currentWorkspace: false },
+    { id: 'c', pinned: false, currentWorkspace: true },
+    { id: 'd', pinned: true, currentWorkspace: true },
+    { id: 'e', pinned: false, currentWorkspace: false }
+  ]);
+  assert.deepEqual(ordered.map((project) => project.id), ['b', 'd', 'c', 'a', 'e']);
+});
+
+test('Start This Folder names a missing folder or unsaved project instead of starting', () => {
+  assert.deepEqual(startThisFolderDecision([], []), {
+    status: 'no-folder',
+    message: 'Open a local folder in this window to use Start This Folder.'
+  });
+  assert.deepEqual(startThisFolderDecision([], [
+    workspaceFolder('Remote', '/workspaces/app', 'vscode-remote')
+  ]), {
+    status: 'no-folder',
+    message: 'Open a local folder in this window to use Start This Folder.'
+  });
+  assert.deepEqual(startThisFolderDecision([
+    { id: 'other', folder: '/Users/example/other' }
+  ], [
+    workspaceFolder('App', '/Users/example/app')
+  ]), {
+    status: 'no-project',
+    message: "This window's folder is not a saved Runlist project. Add it from Runlist first."
+  });
+});
+
+test('Start This Folder picks the This-window project already sorted to the top', () => {
+  const workspace = [workspaceFolder('App', '/Users/example/app')];
+  const projects = [
+    { id: 'other', folder: '/Users/example/other' },
+    { id: 'unpinned-match', folder: '/Users/example/app', pinned: false },
+    { id: 'pinned-match', folder: '/Users/example/app/', pinned: true }
+  ];
+
+  assert.equal(projectForCurrentWindow(projects, workspace).id, 'pinned-match');
+  assert.deepEqual(startThisFolderDecision(projects, workspace), {
+    status: 'start',
+    projectId: 'pinned-match'
+  });
+  assert.equal(projectForCurrentWindow([
+    { id: 'first', folder: '/Users/example/app' },
+    { id: 'second', folder: '/Users/example/app/' }
+  ], workspace).id, 'first');
 });
 
 test('returns no folder when none is open or a multi-root choice is cancelled', async () => {

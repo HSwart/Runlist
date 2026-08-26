@@ -1,5 +1,20 @@
 # Marketplace release checklist
 
+## Publish from the terminal
+
+Optional laptop Microsoft Entra path. Ops publishes only via GitHub Actions (see Secure publication). This is not a second Ops route.
+
+1. Be on the reviewed release commit on `main` (or the release branch after CI is green).
+2. Install Azure CLI if needed: https://learn.microsoft.com/cli/azure/install-azure-cli
+3. `az login --allow-no-subscriptions` (same Microsoft account that owns publisher `hankoswart`). An Azure subscription is not required.
+4. `az account show` to confirm the account.
+5. `npm ci`
+6. `npm run publish:marketplace`
+
+This command validates, then publishes the tracked VSIX at `releases/runlist.vsix` via `vsce publish --azure-credential --packagePath releases/runlist.vsix`.
+
+GitHub Actions publishing is a separate Ops path and uses a repo secret; it is not how you publish from your laptop.
+
 Do not describe a Runlist release as available in the Marketplace until that exact version can be installed from VS Code.
 
 ## Permanent publisher
@@ -20,6 +35,24 @@ The strict `npm run validate:marketplace:publish` command must pass before publi
 Before publication, `npm run validate:marketplace:vsix` checks the tracked `releases/runlist.vsix` artifact. It creates a temporary candidate from the current source, compares the candidate's identity, version, and packaged contents with the tracked artifact, and removes the candidate after the check. The temporary candidate is for comparison only; it is not published or retained.
 
 ## Secure publication
+
+Ops publishes from GitHub Actions on `main`. That is the only Ops publish path. Local `vsce` is not required for Ops.
+
+The **Publish Marketplace** workflow uses the `marketplace` GitHub Environment and its `VSCE_PAT` secret. The publish job sets `environment: marketplace` so GitHub injects that environment secret. Do not print, echo, or commit the token.
+
+How Ops publishes after the reviewed release is on `main` and its tests have passed:
+
+GitHub → Actions → **Publish Marketplace** → **Run workflow**, with the `main` branch selected (`workflow_dispatch`).
+
+The workflow runs `npm ci`, then `npm run package` (strict Marketplace validation and a fresh `releases/runlist.vsix`), then `@vscode/vsce publish --packagePath releases/runlist.vsix` with `VSCE_PAT` from the environment. It does not run `npm run publish:marketplace` and does not pass `--azure-credential`.
+
+The `marketplace` environment is limited to protected branches. `main` is protected, so `workflow_dispatch` on `main` can use the environment. Publishing from a tag is not supported until that environment also allows tags. Do not change environment protection rules from this repository.
+
+Open VSX is not part of this workflow.
+
+### Local Microsoft Entra (optional Hanko fallback)
+
+This is not a second Ops route. Keep `npm run publish:marketplace` for Hanko only, when GitHub Actions is unavailable and a local Microsoft Entra sign-in is already in place.
 
 Use your Microsoft Entra identity. Install the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli), run `az login --allow-no-subscriptions` once, and confirm the active account with `az account show`. Azure CLI keeps the local sign-in and refreshes it when possible; repeat the login only when Microsoft requires authentication again. An Azure subscription is not required.
 

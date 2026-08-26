@@ -4,33 +4,65 @@ const path = require('node:path');
 const test = require('node:test');
 
 const root = path.join(__dirname, '..');
-const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8').replace(/\r\n/g, '\n');
+const getStartedHeading = '## Get started';
+const firstFold = readme.slice(0, readme.indexOf(getStartedHeading));
 
-test('leads with the generated current Runlist preview', () => {
-  const screenshotPath = 'media/runlist-preview.png';
-  const screenshot = fs.readFileSync(path.join(root, screenshotPath));
+test('leads with the signed Marketplace gallery stills', () => {
+  const galleryPaths = [
+    'media/gallery-01-hero.png',
+    'media/gallery-02-status.png',
+    'media/gallery-03-features.png'
+  ];
 
-  assert.ok(readme.indexOf(screenshotPath) < readme.indexOf('## A control panel'));
-  assert.match(readme, /runlist-preview\.png" width="900" alt="Current Runlist/);
-  assert.equal(screenshot.subarray(1, 4).toString('ascii'), 'PNG');
-  assert.ok(screenshot.readUInt32BE(16) >= 1000);
-  assert.ok(screenshot.readUInt32BE(20) >= 700);
-});
+  for (const screenshotPath of galleryPaths) {
+    const screenshot = fs.readFileSync(path.join(root, screenshotPath));
+    assert.ok(readme.includes(screenshotPath));
+    assert.equal(screenshot.subarray(1, 4).toString('ascii'), 'PNG');
+    assert.ok(screenshot.readUInt32BE(16) >= 1000);
+    assert.ok(screenshot.readUInt32BE(20) >= 700);
+  }
 
-test('keeps README positioning and installation claims accurate', () => {
-  assert.match(readme, /Runlist: Local Development Control Panel/);
-  assert.match(readme, /Every local app, across every repository/);
-  assert.match(readme, /Start, stop, monitor, and group dev servers, workers, and project commands/);
-  assert.match(readme, /optionally let a supported coding agent propose the setup for your approval/);
-  assert.match(readme, /asks before closing an external process to free one/);
-  assert.match(readme, /revalidates each process identity before termination/);
-  assert.doesNotMatch(readme, /github\.com\/HSwart\/Runlist\/releases\/download/);
-  assert.match(readme, /Install from the VS Code Marketplace/);
-  assert.match(readme, /marketplace\.visualstudio\.com\/items\?itemName=hankoswart\.runlist/);
   assert.match(
     readme,
-    /Export one or all project setups.*import a file after a preview.*review and approve/is
+    /gallery-01-hero\.png" width="1280" alt="Every local app in one VS Code sidebar"/
   );
-  assert.match(readme, /run groups.*saved order.*reverse/is);
-  assert.match(readme, /repair proposal.*current.*proposed.*Retry start/is);
+  assert.match(
+    readme,
+    /gallery-02-status\.png" width="1280" alt="See what’s running and stop it from here"/
+  );
+  assert.match(
+    readme,
+    /gallery-03-features\.png" width="1280" alt="First-run: no projects yet, add this folder"/
+  );
+  assert.ok(readme.indexOf('media/gallery-01-hero.png') < readme.indexOf(getStartedHeading));
+  assert.ok(readme.indexOf('media/gallery-02-status.png') > readme.indexOf(getStartedHeading));
+  assert.doesNotMatch(firstFold, /runlist-preview\.png/);
+  assert.doesNotMatch(readme, /\.svg/i);
+  assert.doesNotMatch(readme, /raw\.githubusercontent\.com/);
+  assert.doesNotMatch(readme, /media\/runlist\.png/);
+});
+
+test('keeps the signed listing page only', () => {
+  assert.match(readme, /^# Runlist\n/);
+  assert.match(firstFold, /Start, stop, and switch local apps from one sidebar\./);
+  assert.match(firstFold, /Every local app, one sidebar/);
+  assert.match(readme, /## Get started/);
+  assert.match(readme, /Add this folder/);
+  assert.match(readme, /## Features/);
+  assert.match(readme, /Windows, macOS, and Linux/);
+  assert.match(
+    readme,
+    /Install from the \[VS Code Marketplace\]\(https:\/\/marketplace\.visualstudio\.com\/items\?itemName=hankoswart\.runlist\)\./
+  );
+  assert.match(readme, /Publisher Hanko Swart\. `hankoswart\.runlist`\./);
+  assert.doesNotMatch(readme, /<h1 align="center">Runlist<\/h1>/);
+  assert.doesNotMatch(readme, /github\.com\/HSwart\/Runlist\/releases\/download/);
+  assert.doesNotMatch(readme, /## Install\b/);
+  assert.doesNotMatch(readme, /## Contributing/);
+  assert.doesNotMatch(readme, /## Security/);
+  assert.doesNotMatch(readme, /## Optional:/);
+  assert.doesNotMatch(readme, /## Day-to-day use/);
+  assert.doesNotMatch(readme, /SECURITY\.md/);
+  assert.doesNotMatch(readme, /\[MIT License\]\(LICENSE\)/);
 });

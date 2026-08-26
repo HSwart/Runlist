@@ -1066,3 +1066,173 @@ test('matches Turkish-sensitive tags with locale-independent identity and filter
   assert.match(result.app.innerHTML, /class="active-tag-chip"[^>]*data-tag="I"/);
   assert.match(result.projectCount.innerHTML, /<strong>1<\/strong> of 2 projects/);
 });
+
+test('empty state offers Add this folder when a workspace folder is present', () => {
+  const result = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      currentWorkspaceFolder: '/Users/example/app'
+    }
+  });
+
+  assert.match(result.app.innerHTML, /No projects yet/);
+  assert.match(result.app.innerHTML, /Add this folder/);
+  assert.match(result.app.innerHTML, /folder open in this window/);
+  assert.doesNotMatch(result.app.innerHTML, />Add project</);
+});
+
+test('empty state keeps Add project when no workspace folder is open', () => {
+  const result = renderNonEmptyProjectList([]);
+
+  assert.match(result.app.innerHTML, />Add project</);
+  assert.match(result.app.innerHTML, /Save a project folder and its start command once/);
+  assert.doesNotMatch(result.app.innerHTML, /Add this folder/);
+});
+
+test('marks the current-window project without replacing its name', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    currentWorkspace: true,
+    detailsExpanded: false,
+    folder: 'C:\\Projects\\Example',
+    id: 'example',
+    launchProfiles: [],
+    name: 'Example',
+    openPorts: [],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [],
+    status: 'stopped',
+    tags: []
+  }]);
+
+  assert.doesNotMatch(result.app.innerHTML, /class="current-window-label"/);
+  assert.match(result.app.innerHTML, /aria-label="Example, this window"/);
+  assert.match(result.app.innerHTML, /role="menuitem" disabled>[\s\S]*This window/);
+});
+
+function projectFormDraft(overrides = {}) {
+  return {
+    name: '',
+    folder: '/Users/example/app',
+    startCommand: 'npm run dev',
+    stopCommand: '',
+    services: [],
+    launchProfiles: [],
+    selectedLaunchProfileId: 'default',
+    ...overrides
+  };
+}
+
+test('hides launch profiles on first add when only Default exists', () => {
+  const result = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      mode: 'add',
+      draft: projectFormDraft(),
+      formErrors: {}
+    }
+  });
+
+  assert.match(result.app.innerHTML, /<h2>Add project<\/h2>/);
+  assert.doesNotMatch(result.app.innerHTML, /class="launch-profile-editor"/);
+});
+
+test('shows launch profiles when editing or when alternatives already exist', () => {
+  const editDefault = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      mode: 'edit',
+      reviewRequired: false,
+      draft: projectFormDraft({ id: 'example', name: 'Example' }),
+      formErrors: {}
+    }
+  });
+  assert.match(editDefault.app.innerHTML, /class="launch-profile-editor"/);
+
+  const reviewDefault = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      mode: 'edit',
+      reviewRequired: true,
+      draft: projectFormDraft({ id: 'example', name: 'Example' }),
+      formErrors: {}
+    }
+  });
+  assert.doesNotMatch(reviewDefault.app.innerHTML, /class="launch-profile-editor"/);
+
+  const addWithProfiles = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      mode: 'add',
+      draft: projectFormDraft({
+        launchProfiles: [{
+          id: 'tests',
+          name: 'Tests',
+          startCommand: 'npm test',
+          stopCommand: '',
+          services: []
+        }]
+      }),
+      formErrors: {}
+    }
+  });
+  assert.match(addWithProfiles.app.innerHTML, /class="launch-profile-editor"/);
+});
+
+test('renders everyday project rows without a competing folder path', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/northstar-dashboard',
+    id: 'northstar',
+    launchProfiles: [],
+    name: 'Northstar Dashboard',
+    openPorts: [4310],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 4310 }],
+    status: 'running',
+    tags: []
+  }], {
+    stateOverrides: { stopAllCount: 2 }
+  });
+
+  assert.match(result.app.innerHTML, /<h2 id="project-northstar"[^>]*>[\s\S]*Northstar Dashboard\s*<\/h2>/);
+  assert.match(result.app.innerHTML, /class="project-meta"/);
+  assert.match(result.app.innerHTML, /class="project-status status-running"[^>]*>[\s\S]*<span>Running<\/span>[\s\S]*web :4310/);
+  assert.match(result.app.innerHTML, /web :4310/);
+  assert.match(result.app.innerHTML, /class="visually-hidden">\/Users\/shared\/Projects\/northstar-dashboard/);
+  assert.match(result.app.innerHTML, /data-action="stop-all"/);
+  assert.match(result.app.innerHTML, /Stop all \(2\)/);
+  assert.doesNotMatch(result.app.innerHTML, /class="detail-row"/);
+  assert.doesNotMatch(result.app.innerHTML, /Services · 1/);
+  assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
+  assert.doesNotMatch(result.app.innerHTML, /class="auto-scroll"><span class="auto-scroll-content">Northstar Dashboard/);
+});
+
+test('renders Detected on the status line without a second Detected running sentence', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    currentWorkspace: true,
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/northstar-dashboard',
+    id: 'northstar',
+    launchProfiles: [],
+    name: 'Northstar Dashboard',
+    openPorts: [4310],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 4310 }],
+    status: 'active',
+    tags: []
+  }]);
+
+  assert.match(result.app.innerHTML, /Northstar Dashboard\s*<\/h2>/);
+  assert.match(result.app.innerHTML, /class="project-status status-active"[^>]*>[\s\S]*<span>Detected<\/span>[\s\S]*web :4310/);
+  assert.doesNotMatch(result.app.innerHTML, /Detected running/);
+  assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
+  assert.doesNotMatch(result.app.innerHTML, /class="current-window-label"/);
+  assert.match(result.app.innerHTML, /role="menuitem" disabled>[\s\S]*This window/);
+});

@@ -30,6 +30,10 @@ test('runs pinned secret scanning and SBOM gates without duplicating CodeQL defa
     path.join(root, '.github', 'workflows', 'security.yml'),
     'utf8'
   );
+  const publishWorkflow = fs.readFileSync(
+    path.join(root, '.github', 'workflows', 'publish-marketplace.yml'),
+    'utf8'
+  );
   const unpinnedAction = /uses:\s+[^\s@]+@(?![a-f0-9]{40}(?:\s|$))/i;
 
   assert.match(testWorkflow, /name: Engineering gates[\s\S]*npm run quality/);
@@ -39,6 +43,33 @@ test('runs pinned secret scanning and SBOM gates without duplicating CodeQL defa
   assert.match(securityWorkflow, /name: Secret scan/);
   assert.match(securityWorkflow, /run: npm run scan:secrets/);
   assert.doesNotMatch(securityWorkflow, unpinnedAction);
+  assert.match(publishWorkflow, /environment:\s*marketplace/);
+  assert.doesNotMatch(publishWorkflow, unpinnedAction);
+});
+
+test('rejects fork and non-HSwart pull requests with a same-repo authors check', () => {
+  const workflow = fs.readFileSync(
+    path.join(root, '.github', 'workflows', 'same-repo-authors.yml'),
+    'utf8'
+  );
+  const unpinnedAction = /uses:\s+[^\s@]+@(?![a-f0-9]{40}(?:\s|$))/i;
+
+  assert.match(workflow, /^name: Same-repo authors only$/m);
+  assert.match(workflow, /^\s+name: Same-repo authors only$/m);
+  assert.match(workflow, /on:\s*\n\s+pull_request:\s*\n\s+types:\s*\[opened, synchronize, reopened, ready_for_review\]/);
+  assert.doesNotMatch(workflow, /^\s+push:/m);
+  assert.match(workflow, /permissions:\s*\n\s+contents: read/);
+  assert.match(workflow, /github\.event\.pull_request\.head\.repo\.full_name/);
+  assert.match(workflow, /github\.repository/);
+  assert.match(workflow, /github\.event\.pull_request\.user\.login/);
+  assert.match(workflow, /\[ "\$\{AUTHOR\}" != "HSwart" \]/);
+  assert.match(workflow, /Fork pull request rejected/);
+  assert.match(workflow, /Wrong author rejected/);
+  assert.doesNotMatch(workflow, /actions\/checkout/);
+  assert.doesNotMatch(workflow, /actions\/setup-node/);
+  assert.doesNotMatch(workflow, /secrets\./);
+  assert.doesNotMatch(workflow, /npm /);
+  assert.doesNotMatch(workflow, unpinnedAction);
 });
 
 test('detects high-confidence secrets without reproducing their values', () => {

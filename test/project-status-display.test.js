@@ -60,10 +60,10 @@ test('moves uncommon lifecycle phrases off the capsule without renaming them as 
 
   assert.equal(projectDisplayedStatus({ name: 'App', status: 'active' }), 'Detected');
   assert.notEqual(projectDisplayedStatus({ name: 'App', status: 'active' }), 'Running');
-  assert.equal(projectStatusDetailText({ name: 'App', status: 'active' }), 'Detected running');
+  assert.equal(projectStatusDetailText({ name: 'App', status: 'active' }), '');
   assert.equal(
     projectStatusAnnouncement({ name: 'App', status: 'active' }),
-    'App: Detected running'
+    'App: Detected'
   );
 
   assert.equal(projectDisplayedStatus({ name: 'App', status: 'ownership-lost' }), 'Unavailable');

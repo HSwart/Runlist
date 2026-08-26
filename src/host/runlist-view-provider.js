@@ -63,7 +63,12 @@ const {
 } = require('../lifecycle/startup-history');
 const {
   canUseCurrentWorkspace,
-  selectCurrentWorkspaceFolder
+  currentWorkspaceFolderPath,
+  orderSidebarProjects,
+  selectCurrentWorkspaceFolder,
+  startThisFolderDecision,
+  starterDraftForCurrentWorkspace,
+  workspaceFolderMatchesProject
 } = require('../projects/project-workspace');
 const {
   cleanupTrackedProcessForDeletion,
@@ -232,6 +237,12 @@ class RunlistViewProvider {
     this.resourceSampleProjectId = undefined;
     this.resourceSampleGeneration = 0;
     this.statusMonitoringDisposable = undefined;
+    this.workspaceFoldersDisposable = vscode.workspace?.onDidChangeWorkspaceFolders?.(() => {
+      if (this.disposed) {
+        return;
+      }
+      this.render();
+    });
     this.projectOutputs = new Map();
     this.projectIncarnations = new Map();
     this.projectIncarnationSequence = 0;
@@ -333,6 +344,16 @@ class RunlistViewProvider {
     this.render();
   }
 
+  async revealRunlistView() {
+    if (this.view) {
+      this.view.show(true);
+      return;
+    }
+    await vscode.commands.executeCommand('workbench.view.extension.runlist');
+    await vscode.commands.executeCommand('runlist.projects.focus');
+    this.view?.show?.(true);
+  }
+
   async showAddProject(returnFocus) {
     if (!await this.confirmDiscardProjectChanges()) {
       return;
@@ -340,14 +361,16 @@ class RunlistViewProvider {
     this.mode = 'add';
     this.routeNotice = undefined;
     this.diagnosisProjectIncarnation = undefined;
-    this.draft = {};
-    this.formBaseline = projectFormValues({});
+    this.draft = starterDraftForCurrentWorkspace(vscode.workspace.workspaceFolders);
+    this.formBaseline = projectFormValues(this.draft);
     this.formProjectSnapshot = undefined;
     this.formErrors = {};
-    this.focusTarget = { type: 'field', id: 'project-name' };
+    this.focusTarget = this.draft.folder
+      ? { type: 'field', id: 'start-command' }
+      : { type: 'field', id: 'project-name' };
     this.returnFocus = returnFocus || this.defaultListFocusTarget();
     this.selectedProjectId = undefined;
-    this.view?.show?.(true);
+    await this.revealRunlistView();
     this.render();
   }
 
@@ -362,8 +385,28 @@ class RunlistViewProvider {
     this.focusTarget = { type: 'action', action: 'close-screen' };
     this.returnFocus = this.defaultListFocusTarget();
     this.selectedProjectId = undefined;
-    this.view?.show?.(true);
+    await this.revealRunlistView();
     this.render();
+  }
+
+  async startThisFolder() {
+    if (!await this.confirmDiscardProjectChanges()) {
+      return false;
+    }
+    const decision = startThisFolderDecision(
+      this.projects,
+      vscode.workspace.workspaceFolders
+    );
+    this.mode = 'list';
+    await this.revealRunlistView();
+    if (decision.status !== 'start') {
+      vscode.window.showWarningMessage(decision.message);
+      this.render();
+      return false;
+    }
+    this.focusTarget = { type: 'project-control', id: decision.projectId };
+    this.render();
+    return this.startProject(decision.projectId);
   }
 
   async showProjectTransfer() {
@@ -544,8 +587,8 @@ class RunlistViewProvider {
         busy: true,
         message: `Stopping ${project?.name || 'project'}…`
       },
-      started: { busy: false, message: 'All group projects are ready.' },
-      stopped: { busy: false, message: 'Owned group processes stopped.' },
+      started: { busy: false, message: '' },
+      stopped: { busy: false, message: '' },
       failed: {
         busy: false,
         message: progress.reason
@@ -3943,7 +3986,7 @@ class RunlistViewProvider {
       ? readProjectDiagnostics(this.projectsFile, outputProject.id)
       : undefined;
     const cleanProjectOutput = sanitizeProjectOutput(rawProjectOutput);
-    const stateProjects = projects.map((project) => {
+    const stateProjects = orderSidebarProjects(projects.map((project) => {
       const openPorts = this.projectOpenPorts.get(project.id) || [];
       const respondingPorts = this.projectRespondingPorts.get(project.id) || [];
       const serviceUrls = this.projectServiceUrls.get(project.id) || [];
@@ -4022,6 +4065,10 @@ class RunlistViewProvider {
           ? runtime.stopCommand
           : project.stopCommand,
         pinned: project.pinned === true,
+        currentWorkspace: workspaceFolderMatchesProject(
+          project.folder,
+          vscode.workspace.workspaceFolders
+        ),
         openPorts,
         portConflict: this.projectPortConflicts.get(project.id),
         respondingPorts,
@@ -4069,7 +4116,7 @@ class RunlistViewProvider {
           && !respondingPorts.includes(port)),
         searchText: projectSearchText(project)
       };
-    });
+    }));
     if (this.expandedPreviewProjectId
       && !stateProjects.some((project) => project.detailsExpanded)) {
       const previousId = this.expandedPreviewProjectId;
@@ -4110,6 +4157,7 @@ class RunlistViewProvider {
       draft: this.draft,
       canUseCurrentWorkspace: this.mode === 'add'
         && canUseCurrentWorkspace(vscode.workspace.workspaceFolders),
+      currentWorkspaceFolder: currentWorkspaceFolderPath(vscode.workspace.workspaceFolders) || '',
       focusTarget: this.focusTarget || this.lastFocusTarget,
       formErrors: this.formErrors,
       groups,
@@ -4185,6 +4233,8 @@ class RunlistViewProvider {
   dispose() {
     this.statusMonitoringDisposable?.dispose();
     this.statusMonitoringDisposable = undefined;
+    this.workspaceFoldersDisposable?.dispose();
+    this.workspaceFoldersDisposable = undefined;
     this.disposed = true;
     this.statusRefreshPending = false;
     if (this.shutdownPromise) {

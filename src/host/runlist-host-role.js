@@ -11,14 +11,16 @@ function resolveRunlistHostRole({ remoteName, extensionKind } = {}) {
   if (!remote) {
     return { activate: true, reason: 'local' };
   }
+  // VS Code picks one host from extensionKind. The selected host must activate;
+  // skipping it leaves commands and the sidebar unregistered.
   if (remote === 'wsl' && kind === 'workspace') {
     return { activate: true, reason: 'wsl-workspace' };
   }
   if (remote === 'wsl' && kind === 'ui') {
-    return { activate: false, reason: 'wsl-ui-defer' };
+    return { activate: true, reason: 'wsl-ui-list-only' };
   }
   if (kind === 'workspace') {
-    return { activate: false, reason: 'remote-workspace-skip' };
+    return { activate: true, reason: 'remote-workspace-list-only' };
   }
   return { activate: true, reason: 'remote-ui-list-only' };
 }

@@ -1,8 +1,8 @@
 {
   "name": "runlist",
-  "displayName": "Runlist: Local Development Control Panel",
-  "description": "Start, stop, monitor, and group local apps on the same computer as this VS Code window.",
-  "version": "0.0.8",
+  "displayName": "Runlist",
+  "description": "Start, stop, and switch local apps from one sidebar.",
+  "version": "0.0.9",
   "publisher": "hankoswart",
   "license": "SEE LICENSE IN LICENSE",
   "icon": "media/runlist.png",
@@ -21,20 +21,20 @@
     "url": "https://github.com/HSwart/Runlist/issues"
   },
   "keywords": [
+    "npm scripts",
+    "task runner",
+    "dev server",
+    "process manager",
+    "ports",
     "local development",
     "development control panel",
-    "dev server",
     "local dev server",
     "dev server manager",
     "local apps",
-    "task runner",
     "command runner",
     "script runner",
-    "npm scripts",
     "project commands",
-    "process manager",
     "port manager",
-    "ports",
     "localhost",
     "multi-project",
     "monorepo",
@@ -56,38 +56,49 @@
     "onCommand:runlist.showAgentSetup",
     "onCommand:runlist.transferProjects",
     "onCommand:runlist.manageGroups",
-    "onCommand:runlist.copySupportDiagnostics"
+    "onCommand:runlist.copySupportDiagnostics",
+    "onCommand:runlist.startThisFolder"
   ],
   "main": "./extension.js",
   "extensionKind": [
-    "ui",
-    "workspace"
+    "workspace",
+    "ui"
   ],
   "contributes": {
     "commands": [
       {
         "command": "runlist.addProject",
         "title": "Add Project",
+        "category": "Runlist",
         "icon": "$(add)"
       },
       {
         "command": "runlist.showAgentSetup",
         "title": "Set Up Agent Connections",
+        "category": "Runlist",
         "icon": "$(plug)"
       },
       {
         "command": "runlist.transferProjects",
         "title": "Import or Export Projects",
+        "category": "Runlist",
         "icon": "$(files)"
       },
       {
         "command": "runlist.manageGroups",
         "title": "Manage Run Groups",
+        "category": "Runlist",
         "icon": "$(run-all)"
       },
       {
         "command": "runlist.copySupportDiagnostics",
-        "title": "Copy Runlist Support Diagnostics"
+        "title": "Copy Runlist Support Diagnostics",
+        "category": "Runlist"
+      },
+      {
+        "command": "runlist.startThisFolder",
+        "title": "Start This Folder",
+        "category": "Runlist"
       }
     ],
     "configuration": {
