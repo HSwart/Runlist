@@ -93,6 +93,74 @@ function portClosureConfirmation(project, intent, openPorts, processes) {
   };
 }
 
+function formatRecoveryPorts(ports) {
+  const values = normalizedPorts(ports);
+  if (!values.length) {
+    return 'the configured ports';
+  }
+  if (values.length === 1) {
+    return `:${values[0]}`;
+  }
+  if (values.length === 2) {
+    return `:${values[0]} and :${values[1]}`;
+  }
+  return `${values.slice(0, -1).map((port) => `:${port}`).join(', ')}, and :${values.at(-1)}`;
+}
+
+/**
+ * Plain-language outcome copy for diagnosis and run-row close entry points.
+ * Returns null when the host should stay silent (canceled / no-op close).
+ */
+function portCloseUserMessage(projectName, result, intent = 'stop') {
+  const name = typeof projectName === 'string' && projectName.trim()
+    ? projectName.trim()
+    : 'this project';
+  switch (result?.status) {
+    case 'unresolved':
+      return {
+        level: 'error',
+        text: `Could not close ${name}'s ports: Runlist could not identify the exact process listening on ${formatRecoveryPorts(result.ports)}.`
+      };
+    case 'protected':
+      return {
+        level: 'error',
+        text: `Could not close ${name}'s ports because ${result.processes.join(', ')} is protected.`
+      };
+    case 'changed':
+      return {
+        level: 'warning',
+        text: `The process on ${name}'s port changed while you confirmed. Nothing was stopped. Whatever is listening now was left running.`
+      };
+    case 'still-open':
+      return {
+        level: 'error',
+        text: `Could not close ${name}'s ports: ${formatRecoveryPorts(result.ports)} is still in use.`
+      };
+    case 'closed':
+      if (!result.processCount) {
+        return null;
+      }
+      if (intent === 'start') {
+        return {
+          level: 'info',
+          text: `Closed the process on ${formatRecoveryPorts(result.openPorts)}. Starting ${name}…`
+        };
+      }
+      if (result.openPorts?.length) {
+        return {
+          level: 'info',
+          text: `Closed the process on ${formatRecoveryPorts(result.openPorts)}.`
+        };
+      }
+      return {
+        level: 'info',
+        text: `Closed the saved process for ${name}.`
+      };
+    default:
+      return null;
+  }
+}
+
 function normalizedPorts(ports) {
   return [...new Set((ports || [])
     .map(Number)
@@ -197,6 +265,7 @@ function relatedPortProjectIds(project, reservationConflicts = [], projects = []
 module.exports = {
   managedPortBlockers,
   portClosureConfirmation,
+  portCloseUserMessage,
   recoverProjectPorts,
   relatedPortProjectIds
 };

@@ -44,6 +44,7 @@ const {
 const {
   managedPortBlockers,
   portClosureConfirmation,
+  portCloseUserMessage,
   recoverProjectPorts,
   relatedPortProjectIds
 } = require('../ports/port-recovery');
@@ -3480,29 +3481,21 @@ class RunlistViewProvider {
       if (result.status === 'canceled') {
         return false;
       }
-      if (result.status === 'unresolved') {
-        vscode.window.showErrorMessage(
-          `Could not close ${project.name}'s ports: Runlist could not identify the exact process listening on ${formatPortList(result.ports)}.`
-        );
+      const outcome = portCloseUserMessage(project.name, result, intent);
+      if (result.status === 'unresolved'
+        || result.status === 'protected'
+        || result.status === 'changed'
+        || result.status === 'still-open') {
+        if (outcome?.level === 'warning') {
+          vscode.window.showWarningMessage(outcome.text);
+        } else if (outcome) {
+          vscode.window.showErrorMessage(outcome.text);
+        }
         return false;
       }
-      if (result.status === 'protected') {
-        vscode.window.showErrorMessage(
-          `Could not close ${project.name}'s ports because ${result.processes.join(', ')} is protected.`
-        );
-        return false;
-      }
-      if (result.status === 'changed') {
-        vscode.window.showWarningMessage(
-          `${project.name}'s port owner changed while the confirmation was open. Nothing was stopped; try again.`
-        );
-        return false;
-      }
-      if (result.status === 'still-open') {
-        vscode.window.showErrorMessage(
-          `Could not close ${project.name}'s ports: ${formatPortList(result.ports)} is still in use.`
-        );
-        return false;
+
+      if (outcome?.level === 'info') {
+        vscode.window.showInformationMessage(outcome.text);
       }
 
       if (intent === 'stop' && this.processes.has(id)) {
