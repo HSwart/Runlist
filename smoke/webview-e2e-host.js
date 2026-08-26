@@ -116,12 +116,20 @@ async function executeBrowserCommand(command, provider, root) {
     });
     provider.renderProjectList();
     const started = await provider.startProject(seeded.project.id);
-    const status = provider.getProjectStatus(seeded.project.id);
-    assert.equal(started, true, `Could not start the screenshot project (status=${status}).`);
+    assert.equal(started, true, `Could not start the screenshot project (status=${provider.getProjectStatus(seeded.project.id)}).`);
+    await waitFor(
+      async () => {
+        await provider.refreshProjectStatuses();
+        return ['running', 'active'].includes(provider.getProjectStatus(seeded.project.id));
+      },
+      'Screenshot project did not become running after start.',
+      20000
+    );
+    provider.renderProjectList();
     return {
       projectId: seeded.project.id,
       name: seeded.project.name,
-      status,
+      status: provider.getProjectStatus(seeded.project.id),
       hasProcess: provider.processes.has(seeded.project.id)
     };
   }

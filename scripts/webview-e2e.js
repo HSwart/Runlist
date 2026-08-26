@@ -146,12 +146,12 @@ async function captureIdeScreenshots(browser, ready, root, extensionDevelopmentP
   assert.ok(fs.statSync(frameAPath).size > 10000, 'Frame A IDE screenshot was unexpectedly small.');
 
   const seeded = await hostCommand(root, 'seed-running-screenshot');
-  await waitFor(async () => await hostCommand(root, 'project-status', { projectId: seeded.projectId }) === 'running',
-    20000, 'seeded screenshot project to become running');
+  assert.ok(['running', 'active'].includes(seeded.status), `Expected running project, got ${seeded.status}`);
   await waitFor(async () => await hostCommand(root, 'start-count') >= 1,
     10000, 'seeded screenshot project to write its launch marker');
   // Let the elapsed clock tick so Frame B looks alive.
   await new Promise((resolve) => setTimeout(resolve, 1400));
+  await hostCommand(root, 'refresh-list');
   await hostCommand(root, 'prepare-screenshot');
   await widenSidebar(page, 420);
   await hideWorkbenchChrome(page);
@@ -166,8 +166,9 @@ async function captureIdeScreenshots(browser, ready, root, extensionDevelopmentP
 
   await hostCommand(root, 'stop-project', { projectId: seeded.projectId });
   await waitFor(async () => {
-    const status = await hostCommand(root, 'project-status', { projectId: seeded.projectId });
-    return status === 'stopped' || status === 'idle' || status === 'inactive';
+    const snapshot = await hostCommand(root, 'project-status', { projectId: seeded.projectId });
+    return !snapshot.hasProcess
+      && ['stopped', 'idle', 'inactive'].includes(snapshot.status);
   }, 15000, 'seeded screenshot project to stop');
 }
 
