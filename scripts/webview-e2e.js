@@ -145,7 +145,7 @@ async function captureIdeScreenshots(browser, ready, root, extensionDevelopmentP
   await page.screenshot({ path: frameAPath });
   assert.ok(fs.statSync(frameAPath).size > 10000, 'Frame A IDE screenshot was unexpectedly small.');
 
-  const seeded = await hostCommand(root, 'seed-running-screenshot');
+  const seeded = await hostCommand(root, 'seed-running-screenshot', {}, 30000);
   assert.ok(['running', 'active'].includes(seeded.status), `Expected running project, got ${seeded.status}`);
   await waitFor(async () => await hostCommand(root, 'start-count') >= 1,
     10000, 'seeded screenshot project to write its launch marker');
@@ -572,7 +572,7 @@ async function clickCurrentWebview(browser, locatorForFrame) {
   throw lastError;
 }
 
-async function hostCommand(root, action, values = {}) {
+async function hostCommand(root, action, values = {}, timeoutMs = 10000) {
   const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const commandPath = path.join(root, 'browser-command.json');
   const responsePath = path.join(root, 'host-response.json');
@@ -589,7 +589,7 @@ async function hostCommand(root, action, values = {}) {
       return false;
     }
     return response.id === id;
-  }, 10000, `host command ${action}`);
+  }, timeoutMs, `host command ${action}`);
   if (response.error) {
     throw new Error(response.error);
   }

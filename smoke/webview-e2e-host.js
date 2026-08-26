@@ -107,6 +107,18 @@ async function executeBrowserCommand(command, provider, root) {
   }
   if (command.action === 'seed-running-screenshot') {
     const ready = JSON.parse(fs.readFileSync(path.join(root, 'host-ready.json'), 'utf8'));
+    fs.writeFileSync(path.join(ready.lifecyclePath, 'server.js'), [
+      "const fs = require('node:fs');",
+      "const http = require('node:http');",
+      "const path = require('node:path');",
+      "const marker = path.join(__dirname, 'starts.txt');",
+      "fs.appendFileSync(marker, `${process.pid}\\n`);",
+      'http.createServer((request, response) => {',
+      "  response.writeHead(200, { 'Content-Type': 'text/plain' });",
+      "  response.end('ok');",
+      '}).listen(4310, \'127.0.0.1\');',
+      ''
+    ].join('\n'));
     const seeded = upsertProject(provider.projectsFile, {
       name: 'Acme Storefront',
       folder: ready.lifecyclePath,
