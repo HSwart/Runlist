@@ -55,7 +55,7 @@ test('keeps a Marketplace listing that sells shipped behavior', () => {
   assert.match(readme, /`start` \/ `dev` chip/);
   assert.match(readme, /## Features/);
   assert.match(readme, /Start, stop, and restart from the running row/);
-  assert.match(readme, /Port chip opens the app at localhost/);
+  assert.match(readme, /Port chip opens the app at a stable `name\.localhost` URL/);
   assert.match(readme, /Launch profiles, tags, and run groups/);
   assert.match(readme, /Live preview, recent output, and open-on-phone/);
   assert.match(readme, /Import or export project setups/);

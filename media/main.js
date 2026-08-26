@@ -290,9 +290,18 @@ function readinessServiceList(services) {
     .join(', ');
 }
 
-function serviceLocalAddress(service) {
-  const fullUrl = service.url || (project.localHostname
-    ? `http://${project.localHostname}.localhost:${service.port}`
+function serviceLocalAddress(service, project = {}) {
+  const hostname = project.localHostname
+    || (typeof project.name === 'string' ? String(project.name) : '');
+  const slug = hostname
+    .trim()
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 63)
+    .replace(/-+$/g, '');
+  const fullUrl = service.url || (slug
+    ? `http://${slug}.localhost:${service.port}`
     : `http://localhost:${service.port}`);
   try {
     const parsed = new URL(fullUrl);
@@ -701,7 +710,7 @@ function projectServicesDetailHtml(project, projectName) {
         const panelId = `service-detail-${projectId}-${escapeHtml(port)}`;
         const expanded = String(expandedServiceState[project.id] || '') === port;
         const details = serviceDisplayDetails(project, service);
-        const address = serviceLocalAddress(service);
+        const address = serviceLocalAddress(service, project);
         const savedPort = service.savedPort || service.port;
         const temporaryDetail = service.temporaryPort
           ? `Temporary for this launch. Saved as port ${savedPort} via ${service.portVariable}.`

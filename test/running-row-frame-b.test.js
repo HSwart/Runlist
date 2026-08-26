@@ -41,7 +41,7 @@ test('port chip opens the app at localhost through openProject', () => {
   assert.match(webview, /project\.previewPort/);
   assert.match(
     webview,
-    /aria-label="\$\{canOpen \? `Open \$\{projectName\} at localhost\$\{escapeHtml\(portLabel\)\}` : openTitle\}"/
+    /aria-label="\$\{canOpen \? `Open \$\{projectName\} at \$\{escapeHtml\(project\.previewUrl \|\| `localhost\$\{portLabel\}`\)\}` : openTitle\}"/
   );
   assert.match(webview, /open: \(\) => \{[\s\S]*type: 'openProject'/);
   assert.match(
