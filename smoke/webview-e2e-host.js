@@ -101,6 +101,10 @@ async function executeBrowserCommand(command, provider, root) {
     void vscode.commands.executeCommand(command.command);
     return { command: command.command };
   }
+  if (command.action === 'refresh-list') {
+    provider.renderProjectList();
+    return { refreshed: true };
+  }
   if (command.action === 'prepare-screenshot') {
     await vscode.commands.executeCommand('runlist.projects.focus');
     await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');

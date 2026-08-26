@@ -119,6 +119,28 @@ async function runWebviewJourneys(browser, webview, ready, root, extensionDevelo
   let page = webview.page();
   await assertVisible(webview.getByRole('heading', { name: 'No projects yet' }));
 
+  const artifactDir = path.join('/opt/cursor/artifacts/screenshots');
+  fs.mkdirSync(artifactDir, { recursive: true });
+  fs.writeFileSync(path.join(ready.workspacePath, 'package.json'), JSON.stringify({
+    name: 'acme-storefront',
+    scripts: {
+      start: 'node server.js',
+      dev: 'node server.js',
+      test: 'node --test'
+    }
+  }, null, 2));
+  await hostCommand(root, 'refresh-list');
+  webview = await currentRunlistFrame(browser, (frame) => (
+    frame.getByRole('button', { name: 'Start start for this folder' }).isVisible()
+      .catch(() => false)
+    || frame.getByRole('button', { name: 'start', exact: true }).isVisible()
+  ));
+  await widenSidebar(page, 420);
+  await page.locator('.notifications-toasts').evaluate((element) => {
+    element.style.display = 'none';
+  }).catch(() => undefined);
+  await page.screenshot({ path: path.join(artifactDir, 'ide-frame-a-empty.png') });
+
   const addButton = webview.getByRole('button', { name: 'Add this folder' });
   await addButton.focus();
   assert.equal(await webview.evaluate(() => document.activeElement?.textContent?.trim()), 'Add this folder');
@@ -131,6 +153,9 @@ async function runWebviewJourneys(browser, webview, ready, root, extensionDevelo
   await webview.locator('#project-name').fill('Lifecycle project');
   await webview.locator('#folder').fill(ready.lifecyclePath);
   await webview.locator('#start-command').fill('node server.js');
+  await webview.getByRole('button', { name: 'Add service' }).click();
+  await webview.locator('#service-name-0').fill('web');
+  await webview.locator('#service-port-0').fill('4310');
   const saveButton = webview.getByRole('button', { name: 'Save project' });
   await saveButton.focus();
   await page.keyboard.press('Enter');
@@ -141,7 +166,7 @@ async function runWebviewJourneys(browser, webview, ready, root, extensionDevelo
 
   await verifyMenuKeyboardAndFocus(webview, page, 'Lifecycle project');
   webview = await editProject(browser, webview, 'Lifecycle project', 'Lifecycle project edited');
-  webview = await exerciseProjectLifecycle(browser, webview, root, 'Lifecycle project edited');
+  webview = await exerciseProjectLifecycle(browser, webview, root, 'Lifecycle project edited', artifactDir);
 
   await openAndCancelImportThroughVsCode(page, root);
   const seeded = await hostCommand(root, 'seed-review');
@@ -176,6 +201,9 @@ async function runWebviewJourneys(browser, webview, ready, root, extensionDevelo
   await page.screenshot({ path: screenshotPath });
   assert.ok(fs.statSync(screenshotPath).size > 10000,
     'The generated webview screenshot was unexpectedly small.');
+  if (UPDATE_SCREENSHOT) {
+    fs.copyFileSync(screenshotPath, path.join(artifactDir, 'ide-runlist-preview.png'));
+  }
 
   webview = await deleteProject(browser, webview, root, 'Imported dashboard', false);
   webview = await deleteProject(browser, webview, root, 'Lifecycle project edited', true);
@@ -216,15 +244,28 @@ async function editProject(browser, webview, before, after) {
   return webview;
 }
 
-async function exerciseProjectLifecycle(browser, webview, root, projectName) {
+async function exerciseProjectLifecycle(browser, webview, root, projectName, artifactDir = '') {
   await webview.getByRole('button', { name: `Start ${projectName}` }).click();
   await waitForProjectStatus(browser, projectName, 'Running');
   webview = await currentRunlistFrame(browser);
   await waitFor(async () => await hostCommand(root, 'start-count') >= 1,
     5000, 'the start command to write its launch marker');
+  await assertVisible(webview.getByRole('button', { name: `Stop ${projectName}` }));
+  await assertVisible(webview.getByRole('button', { name: `Restart ${projectName}` }));
+  await assertVisible(webview.locator('.project-port-chip'));
+  await assertVisible(webview.locator('[data-row-elapsed]'));
+  // Let the elapsed clock tick so Frame B looks alive in IDE screenshots.
+  await new Promise((resolve) => setTimeout(resolve, 1200));
+  if (artifactDir) {
+    const page = webview.page();
+    await widenSidebar(page, 420);
+    await page.locator('.notifications-toasts').evaluate((element) => {
+      element.style.display = 'none';
+    }).catch(() => undefined);
+    await page.screenshot({ path: path.join(artifactDir, 'ide-frame-b-running-row.png') });
+  }
 
-  await webview.getByRole('button', { name: `More actions for ${projectName}` }).click();
-  await webview.getByRole('menuitem', { name: `Restart ${projectName}` }).click();
+  await webview.getByRole('button', { name: `Restart ${projectName}` }).click();
   await waitFor(async () => await hostCommand(root, 'start-count') >= 2,
     15000, 'restart to launch a new process');
   await waitForProjectStatus(browser, projectName, 'Running');
