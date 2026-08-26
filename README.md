@@ -13,7 +13,7 @@ Start, stop, and switch local apps from one sidebar.
 
 ## Get started
 
-1. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=hankoswart.runlist)
+1. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=hankoswart.runlist).
 2. Open the Runlist sidebar
 3. Add this folder
 4. Save the start command — or pick a `start` / `dev` chip when your folder already has one

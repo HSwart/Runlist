@@ -1301,7 +1301,7 @@ test('uses the saved custom stop during awaited shutdown without opening a deact
 
   assert.match(
     source,
-    /const confirmed = options\.approvedLaunchStop === true\s*\|\| await this\.confirmCustomStopCommand\(stopProject\)/
+    /const confirmed = options\.approvedLaunchStop === true\s*\|\|\s*isComposeManagedProject\(stopProject\)\s*\|\|\s*await this\.confirmCustomStopCommand\(stopProject\)/
   );
   assert.match(
     source,

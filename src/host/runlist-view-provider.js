@@ -4045,6 +4045,7 @@ class RunlistViewProvider {
         return false;
       }
       const confirmed = options.approvedLaunchStop === true
+        || isComposeManagedProject(stopProject)
         || await this.confirmCustomStopCommand(stopProject);
       if (!confirmed) {
         return false;

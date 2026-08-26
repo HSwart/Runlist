@@ -473,7 +473,8 @@ function parseScalar(text, line) {
   if (/^-?\d+$/.test(text)) {
     return Number(text);
   }
-  if (/[{}\[\],:&*#]|^\s|\s$/.test(text)) {
+  // Colons are allowed for common Compose values such as image tags (nginx:alpine).
+  if (/[{}\[\],&*#]|^\s|\s$/.test(text)) {
     throw composeError(
       'COMPOSE_UNSUPPORTED_YAML',
       `Runlist could not read the value at line ${line}. Quote the value or simplify the file.`

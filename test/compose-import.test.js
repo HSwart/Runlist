@@ -56,6 +56,23 @@ services:
   assert.match(parsed.services[2].note, /No published host ports/);
 });
 
+test('parses Docker image tags with colons in service definitions', () => {
+  const parsed = parseComposeServices(`
+services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "4310:80"
+  api:
+    image: ghcr.io/acme/api:v1.2.3
+    ports:
+      - "7071:3000"
+`);
+  assert.equal(parsed.services.length, 2);
+  assert.deepEqual(parsed.services[0].ports, [4310]);
+  assert.deepEqual(parsed.services[1].ports, [7071]);
+});
+
 test('builds a reviewable Runlist proposal without starting anything', () => {
   const proposal = buildComposeImportProposal({
     folder: '/tmp/acme',
