@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.0.11 — Everyday running row and clearer listing
+
+- Show Stop and Restart on the running row, and open the app from the port chip.
+- Show elapsed run time on line 2 with status and port.
+- Sort unpinned apps by last-started while keeping pinned apps first.
+- Offer `start` / `dev` chips on the empty Add this folder state when the current folder’s package.json defines them.
+- Rewrite the Marketplace README so Features match shipped behavior: running-row controls, profiles, tags, run groups, preview, phone handoff, and import/export.
+
 ## 0.0.10 — Marketplace gallery packaging
 
 - Declare the three signed listing stills as Addressable `Microsoft.VisualStudio.Services.Screenshots.{1,2,3}` VSIX assets so the Marketplace gallery can show them.
