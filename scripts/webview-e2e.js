@@ -577,9 +577,18 @@ async function hostCommand(root, action, values = {}) {
   const responsePath = path.join(root, 'host-response.json');
   fs.rmSync(responsePath, { force: true });
   fs.writeFileSync(commandPath, JSON.stringify({ id, action, ...values }));
-  await waitFor(() => fs.existsSync(responsePath), 10000, `host command ${action}`);
-  const response = JSON.parse(fs.readFileSync(responsePath, 'utf8'));
-  assert.equal(response.id, id, `Host response did not match ${action}.`);
+  let response;
+  await waitFor(() => {
+    if (!fs.existsSync(responsePath)) {
+      return false;
+    }
+    try {
+      response = JSON.parse(fs.readFileSync(responsePath, 'utf8'));
+    } catch {
+      return false;
+    }
+    return response.id === id;
+  }, 10000, `host command ${action}`);
   if (response.error) {
     throw new Error(response.error);
   }
