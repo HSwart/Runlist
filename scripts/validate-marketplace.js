@@ -109,7 +109,7 @@ function validateMarketplace(root, options = {}) {
     errors.push('README.md must use Marketplace installation instead of a direct VSIX download');
   }
   const marketplaceUrl = `https://marketplace.visualstudio.com/items?itemName=${manifest.publisher}.${manifest.name}`;
-  if (!readme.includes(`Install from the VS Code Marketplace: ${marketplaceUrl}`)) {
+  if (!readme.includes(`Install from the [VS Code Marketplace](${marketplaceUrl}).`)) {
     errors.push('README.md must explain how to install from the VS Code Marketplace');
   }
   const marketplaceLinks = readme.match(/https:\/\/marketplace\.visualstudio\.com\/items\?itemName=[^)"<\s]+/g) || [];

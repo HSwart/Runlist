@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.0.9 — Native sidebar and Marketplace listing
+
+- Keep everyday sidebar rows to two lines with native VS Code list chrome and the workbench font.
+- Fix first-run Add Project, Start This Folder, and first-add launch profiles.
+- Refresh This window when workspace folders change.
+- Activate Start and Stop on Remote WSL from the workspace host.
+
 ## 0.0.8 — Flexible project runs
 
 - Add alternate launch profiles with their own commands, optional custom stop commands, and services, selectable from the existing Start controls.

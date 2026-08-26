@@ -53,7 +53,7 @@ test('keeps the signed listing page only', () => {
   assert.match(readme, /Windows, macOS, and Linux/);
   assert.match(
     readme,
-    /Install from the VS Code Marketplace: https:\/\/marketplace\.visualstudio\.com\/items\?itemName=hankoswart\.runlist/
+    /Install from the \[VS Code Marketplace\]\(https:\/\/marketplace\.visualstudio\.com\/items\?itemName=hankoswart\.runlist\)\./
   );
   assert.match(readme, /Publisher Hanko Swart\. `hankoswart\.runlist`\./);
   assert.doesNotMatch(readme, /<h1 align="center">Runlist<\/h1>/);

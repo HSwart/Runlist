@@ -29,6 +29,6 @@ First-run: no projects yet, add this folder.
 - Open the app in your browser
 - Windows, macOS, and Linux
 
-Install from the VS Code Marketplace: https://marketplace.visualstudio.com/items?itemName=hankoswart.runlist
+Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=hankoswart.runlist).
 
 Publisher Hanko Swart. `hankoswart.runlist`.
