@@ -946,11 +946,15 @@ function renderList() {
         <div class="empty-actions">
           <button class="primary-button" data-action="show-add">${addLabel}</button>
           ${workspaceFolder && startScripts.length ? `
-            <div class="empty-start-chips" role="group" aria-label="Start scripts for this folder">
-              ${startScripts.map((script) => `
-                <button class="empty-start-chip" data-action="start-workspace-script" data-script="${escapeHtml(script.name)}" title="${escapeHtml(script.startCommand)}" aria-label="Start ${escapeHtml(script.name)} for this folder">
-                  ${escapeHtml(script.name)}
-                </button>`).join('')}
+            <div class="empty-start-chips" role="group" aria-label="Start options for this folder">
+              ${startScripts.map((script) => {
+                const chipLabel = script.name === 'dev' ? 'Dev' : 'Start';
+                const chipHint = `Run \`${script.startCommand}\` for this folder`;
+                return `
+                <button class="empty-start-chip" data-action="start-workspace-script" data-script="${escapeHtml(script.name)}" title="${escapeHtml(chipHint)}" aria-label="${escapeHtml(chipHint)}">
+                  ${escapeHtml(chipLabel)}
+                </button>`;
+              }).join('')}
             </div>` : ''}
         </div>
       </section>`;

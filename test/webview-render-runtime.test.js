@@ -1083,6 +1083,10 @@ test('empty state offers Add this folder when a workspace folder is present', ()
   assert.match(result.app.innerHTML, /folder open in this window/);
   assert.match(result.app.innerHTML, /class="empty-start-chips"/);
   assert.match(result.app.innerHTML, /data-action="start-workspace-script" data-script="dev"/);
+  assert.match(result.app.innerHTML, />Start</);
+  assert.match(result.app.innerHTML, />Dev</);
+  assert.match(result.app.innerHTML, /aria-label="Run `npm start` for this folder"/);
+  assert.match(result.app.innerHTML, /aria-label="Run `npm run dev` for this folder"/);
   assert.doesNotMatch(result.app.innerHTML, />Add project</);
 });
 

@@ -16,6 +16,8 @@ test('running row keeps status and port on one second line', () => {
   assert.match(styles, /\.project-meta \{[\s\S]*flex-wrap: nowrap;/);
   assert.match(styles, /\.project-heading h2 \{[\s\S]*white-space: normal;/);
   assert.match(styles, /\.project-port-chip \{[\s\S]*font-size: 11px;/);
+  assert.match(styles, /\.run-button \{[\s\S]*min-width: 24px;/);
+  assert.match(styles, /\.project-actions \{[\s\S]*gap: 6px;/);
   assert.doesNotMatch(styles, /Inter|fonts\.googleapis|@font-face/);
   assert.doesNotMatch(webview, /class="project-services-summary"/);
 });

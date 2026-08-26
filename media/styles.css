@@ -814,7 +814,7 @@ button:active:not(:disabled) {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 
 .project-tag-filter {
@@ -957,8 +957,10 @@ button:active:not(:disabled) {
 }
 
 .run-button {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1002,8 +1004,10 @@ button:active:not(:disabled) {
 
 .more-button,
 .icon-button {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
   display: grid;
   place-items: center;
   padding: 0;
@@ -2704,6 +2708,39 @@ select[aria-invalid='true'] {
 
   .project-row {
     padding: 5px 8px 6px;
+  }
+
+  .project-topline {
+    gap: 6px;
+  }
+
+  .project-actions {
+    gap: 4px;
+  }
+
+  .project-meta {
+    gap: 6px;
+  }
+
+  .project-status span,
+  .project-row-elapsed,
+  .project-port-chip {
+    flex-shrink: 1;
+  }
+
+  .project-status {
+    min-width: 0;
+  }
+
+  .project-status span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .run-button,
+  .more-button {
+    flex: 0 0 auto;
   }
 }
 

@@ -32,7 +32,7 @@ test('contributes one native project transfer command to the Runlist view', () =
 
   assert.deepEqual(command, {
     command: 'runlist.transferProjects',
-    title: 'Import or Export Projects',
+    title: 'Import or Export',
     category: 'Runlist',
     icon: '$(files)'
   });
@@ -42,6 +42,19 @@ test('contributes one native project transfer command to the Runlist view', () =
     group: 'navigation@3'
   });
   assert.ok(manifest.activationEvents.includes('onCommand:runlist.transferProjects'));
+});
+
+test('view title commands use plain-language icon titles', () => {
+  const root = path.join(__dirname, '..');
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const byId = Object.fromEntries(
+    manifest.contributes.commands.map((item) => [item.command, item.title])
+  );
+
+  assert.equal(byId['runlist.addProject'], 'Add Project');
+  assert.equal(byId['runlist.showAgentSetup'], 'Set Up Agents');
+  assert.equal(byId['runlist.transferProjects'], 'Import or Export');
+  assert.equal(byId['runlist.manageGroups'], 'Manage Groups');
 });
 
 test('groups every contributed command under Runlist in the Command Palette', () => {

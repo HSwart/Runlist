@@ -85,19 +85,19 @@
       },
       {
         "command": "runlist.showAgentSetup",
-        "title": "Set Up Agent Connections",
+        "title": "Set Up Agents",
         "category": "Runlist",
         "icon": "$(plug)"
       },
       {
         "command": "runlist.transferProjects",
-        "title": "Import or Export Projects",
+        "title": "Import or Export",
         "category": "Runlist",
         "icon": "$(files)"
       },
       {
         "command": "runlist.manageGroups",
-        "title": "Manage Run Groups",
+        "title": "Manage Groups",
         "category": "Runlist",
         "icon": "$(run-all)"
       },

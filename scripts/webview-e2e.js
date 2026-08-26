@@ -209,9 +209,9 @@ async function runWebviewJourneys(browser, webview, ready, root, extensionDevelo
   }, null, 2));
   await hostCommand(root, 'refresh-list');
   webview = await currentRunlistFrame(browser, (frame) => (
-    frame.getByRole('button', { name: 'Start start for this folder' }).isVisible()
+    frame.getByRole('button', { name: 'Run `npm start` for this folder' }).isVisible()
       .catch(() => false)
-    || frame.getByRole('button', { name: 'start', exact: true }).isVisible()
+    || frame.getByRole('button', { name: 'Start', exact: true }).isVisible()
   ));
   await widenSidebar(page, 420);
   await page.locator('.notifications-toasts').evaluate((element) => {
