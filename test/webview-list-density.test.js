@@ -48,3 +48,12 @@ test('uses compact native sidebar density instead of padded cards', () => {
   assert.match(styles, /\.current-window-label \{[\s\S]*display: none;/);
   assert.doesNotMatch(styles, /border-radius: 10px;/);
 });
+
+test('uses the workbench font for sidebar chrome and leaves output on the editor font', () => {
+  assert.match(styles, /^:root \{[\s\S]*?font-family: var\(--vscode-font-family\);/m);
+  assert.match(styles, /^input \{\n(?:  .*\n)*  font-family: var\(--vscode-font-family\);\n  font-size: var\(--vscode-font-size\);/m);
+  assert.match(styles, /\.project-search input \{[\s\S]*?font-family: var\(--vscode-font-family\);/);
+  assert.match(styles, /\.output-peek-line \{\n(?:  .*\n)*  font-family: var\(--vscode-editor-font-family\);\n  font-size: var\(--vscode-editor-font-size, 11px\);/);
+  assert.match(styles, /\.output-entry \{\n(?:  .*\n)*  font-family: var\(--vscode-editor-font-family\);\n  font-size: var\(--vscode-editor-font-size, 11px\);/);
+  assert.doesNotMatch(styles, /Inter|fonts\.googleapis|@font-face/);
+});
