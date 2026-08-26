@@ -51,9 +51,11 @@ test('keeps a Marketplace listing that sells shipped behavior', () => {
   assert.match(firstFold, /stop or restart from the row/);
   assert.match(firstFold, /Open the app from its port/);
   assert.match(readme, /## Get started/);
+  assert.match(readme, /Install from the \[VS Code Marketplace\]/);
   assert.match(readme, /Add this folder/);
   assert.match(readme, /`start` \/ `dev` chip/);
-  assert.match(readme, /## Features/);
+  assert.match(readme, /## Everyday use/);
+  assert.match(readme, /## Power features/);
   assert.match(readme, /Start, stop, and restart from the running row/);
   assert.match(readme, /Port chip opens the app at a stable `name\.localhost` URL/);
   assert.match(readme, /Launch profiles, tags, and run groups/);
@@ -62,9 +64,10 @@ test('keeps a Marketplace listing that sells shipped behavior', () => {
   assert.match(readme, /Windows, macOS, and Linux/);
   assert.match(
     readme,
-    /Install from the \[VS Code Marketplace\]\(https:\/\/marketplace\.visualstudio\.com\/items\?itemName=hankoswart\.runlist\)\./
+    /\[VS Code Marketplace\]\(https:\/\/marketplace\.visualstudio\.com\/items\?itemName=hankoswart\.runlist\)/
   );
   assert.match(readme, /Publisher Hanko Swart\. `hankoswart\.runlist`\./);
+  assert.match(firstFold, /A VS Code sidebar for starting, stopping, and opening local dev apps\./);
   assert.doesNotMatch(readme, /<h1 align="center">Runlist<\/h1>/);
   assert.doesNotMatch(readme, /github\.com\/HSwart\/Runlist\/releases\/download/);
   assert.doesNotMatch(readme, /## Install\b/);
