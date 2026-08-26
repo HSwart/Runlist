@@ -27,6 +27,8 @@ First-run stays empty until you add a folder. No setup dump.
 - Start, stop, and restart from the running row
 - Port chip opens the app at localhost when it’s ready
 - Checks configured ports before a start, and helps you switch when another Runlist app owns the port
+- On a running or conflicted row, shows who owns the port: this app, another Runlist app, or an external process (name and PID)
+- What’s Listening lists configured project ports and their listeners; closing a listener always asks for confirmation with the exact port and PID, then checks identity again before stopping anything
 - Launch profiles, tags, and run groups for the apps you keep coming back to
 - Live preview, recent output, and open-on-phone handoff for local web apps
 - Import or export project setups, then review changes before they can run
