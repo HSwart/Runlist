@@ -90,3 +90,20 @@ test('host Start probes Compose availability and records Compose ownership field
   assert.match(processSource, /composeServices:/);
   assert.doesNotMatch(host, /docker kill|docker rm -f/);
 });
+
+test('Windows Compose shell quoting escapes backslashes before quotes', () => {
+  const runtime = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'compose', 'compose-runtime.js'),
+    'utf8'
+  );
+  const quote = runtime.slice(
+    runtime.indexOf('function quoteShellArg'),
+    runtime.indexOf('function unavailable')
+  );
+  assert.match(quote, /replace\(\/\\\\\/g/);
+  assert.match(quote, /replace\(\/"\/g/);
+  assert.ok(
+    quote.indexOf("replace(/\\\\/g") < quote.indexOf('replace(/"/g'),
+    'backslash escape must run before quote escape'
+  );
+});

@@ -177,7 +177,8 @@ function quoteShellArg(value) {
     if (!/[\s"]/u.test(text)) {
       return text;
     }
-    return `"${text.replace(/"/g, '\\"')}"`;
+    // Escape backslashes first so \" stays a literal quote inside the double-quoted arg.
+    return `"${text.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
   }
   if (!/[^\w@%+=:,./-]/u.test(text)) {
     return text;
