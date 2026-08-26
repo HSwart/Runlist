@@ -4,9 +4,14 @@ const path = require('node:path');
 const test = require('node:test');
 
 const root = path.join(__dirname, '..');
-const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
-const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
-const host = fs.readFileSync(path.join(root, 'src', 'host', 'runlist-view-provider.js'), 'utf8');
+
+function readText(...relativePath) {
+  return fs.readFileSync(path.join(root, ...relativePath), 'utf8').replace(/\r\n/g, '\n');
+}
+
+const webview = readText('media', 'main.js');
+const styles = readText('media', 'styles.css');
+const host = readText('src', 'host', 'runlist-view-provider.js');
 
 test('keeps the everyday list to two lines: wrapping name, then status and port', () => {
   assert.match(webview, /class="project-meta"/);

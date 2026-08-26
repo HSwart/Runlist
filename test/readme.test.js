@@ -4,7 +4,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const root = path.join(__dirname, '..');
-const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8').replace(/\r\n/g, '\n');
 const getStartedHeading = '## Get started';
 const firstFold = readme.slice(0, readme.indexOf(getStartedHeading));
 

@@ -6,6 +6,10 @@ const { validateMarketplace } = require('../scripts/validate-marketplace');
 
 const root = path.join(__dirname, '..');
 
+function readText(...relativePath) {
+  return fs.readFileSync(path.join(root, ...relativePath), 'utf8').replace(/\r\n/g, '\n');
+}
+
 test('validates Marketplace metadata for the selected publisher and release', () => {
   const manifest = require('../package.json');
   const result = validateMarketplace(root, { preparation: true });
@@ -60,14 +64,14 @@ test('does not ship stale product branding', () => {
   ];
 
   for (const file of shippedTextFiles) {
-    const contents = fs.readFileSync(path.join(root, file), 'utf8');
+    const contents = readText(file);
     assert.doesNotMatch(contents, /\bswitchboard\b/i, file);
     assert.doesNotMatch(contents, /\bporter\b/i, file);
   }
 });
 
 test('leads the Marketplace release guide with terminal publish commands', () => {
-  const releaseGuide = fs.readFileSync(path.join(root, 'docs', 'marketplace-release.md'), 'utf8');
+  const releaseGuide = readText('docs', 'marketplace-release.md');
   const terminalHeading = releaseGuide.indexOf('## Publish from the terminal');
   const publisherHeading = releaseGuide.indexOf('## Permanent publisher');
 
@@ -81,7 +85,7 @@ test('leads the Marketplace release guide with terminal publish commands', () =>
 });
 
 test('documents temporary candidate validation and tracked publication artifact', () => {
-  const releaseGuide = fs.readFileSync(path.join(root, 'docs', 'marketplace-release.md'), 'utf8');
+  const releaseGuide = readText('docs', 'marketplace-release.md');
 
   assert.match(releaseGuide, /temporary candidate from (?:the )?current source/i);
   assert.match(releaseGuide, /compares the candidate's .* with the tracked artifact/i);
@@ -90,8 +94,8 @@ test('documents temporary candidate validation and tracked publication artifact'
 });
 
 test('requires extension-host smoke with the supported CI session commands', () => {
-  const releaseGuide = fs.readFileSync(path.join(root, 'docs', 'marketplace-release.md'), 'utf8');
-  const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'test.yml'), 'utf8');
+  const releaseGuide = readText('docs', 'marketplace-release.md');
+  const workflow = readText('.github', 'workflows', 'test.yml');
 
   assert.match(releaseGuide, /On Windows and macOS, run `npm run test:smoke` in a supported native desktop session\./i);
   assert.match(releaseGuide, /On Linux, run `xvfb-run -a npm run test:smoke` with an Xvfb display\./i);
@@ -104,7 +108,7 @@ test('requires extension-host smoke with the supported CI session commands', () 
 });
 
 test('keeps Start and Stop unavailable in unsupported remote windows', () => {
-  const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
+  const webview = readText('media', 'main.js');
   const manifest = require('../package.json');
 
   assert.equal(
@@ -117,11 +121,8 @@ test('keeps Start and Stop unavailable in unsupported remote windows', () => {
 });
 
 test('documents GitHub Actions Marketplace publication from the marketplace environment', () => {
-  const releaseGuide = fs.readFileSync(path.join(root, 'docs', 'marketplace-release.md'), 'utf8');
-  const workflow = fs.readFileSync(
-    path.join(root, '.github', 'workflows', 'publish-marketplace.yml'),
-    'utf8'
-  );
+  const releaseGuide = readText('docs', 'marketplace-release.md');
+  const workflow = readText('.github', 'workflows', 'publish-marketplace.yml');
 
   assert.match(releaseGuide, /Actions → \*\*Publish Marketplace\*\* → \*\*Run workflow\*\*/);
   assert.match(releaseGuide, /workflow_dispatch/);
