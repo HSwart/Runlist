@@ -11,6 +11,7 @@ test('running row keeps status and port on one second line', () => {
   assert.match(webview, /class="project-meta"/);
   assert.match(webview, /class="project-status status-\$\{statusClass\}"/);
   assert.match(webview, /class="project-port-chip" data-action="open"/);
+  assert.match(webview, /class="project-row-elapsed" data-row-elapsed/);
   assert.match(webview, /const rowPort = projectRowPort\(project\)/);
   assert.match(styles, /\.project-meta \{[\s\S]*flex-wrap: nowrap;/);
   assert.match(styles, /\.project-heading h2 \{[\s\S]*white-space: normal;/);

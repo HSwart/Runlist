@@ -131,15 +131,25 @@ test('matches project folders to the current window without requiring the path t
   ), false);
 });
 
-test('keeps pinned projects first, then the current window, without changing saved order inside groups', () => {
+test('keeps pinned projects first and sorts unpinned by last-started', () => {
   const ordered = orderSidebarProjects([
-    { id: 'a', pinned: false, currentWorkspace: false },
-    { id: 'b', pinned: true, currentWorkspace: false },
-    { id: 'c', pinned: false, currentWorkspace: true },
+    { id: 'a', pinned: false, startupHistory: [{ completedAt: 1000, durationMs: 100 }] },
+    { id: 'b', pinned: true, startupHistory: [{ completedAt: 500, durationMs: 50 }] },
+    { id: 'c', pinned: false, timeline: { launchedAt: 3000 } },
     { id: 'd', pinned: true, currentWorkspace: true },
-    { id: 'e', pinned: false, currentWorkspace: false }
+    { id: 'e', pinned: false, startupHistory: [{ completedAt: 2000, durationMs: 200 }] },
+    { id: 'f', pinned: false }
   ]);
-  assert.deepEqual(ordered.map((project) => project.id), ['b', 'd', 'c', 'a', 'e']);
+  assert.deepEqual(ordered.map((project) => project.id), ['b', 'd', 'c', 'e', 'a', 'f']);
+});
+
+test('keeps stable unpinned order when nothing has started yet', () => {
+  const ordered = orderSidebarProjects([
+    { id: 'a', pinned: false },
+    { id: 'b', pinned: false, currentWorkspace: true },
+    { id: 'c', pinned: false }
+  ]);
+  assert.deepEqual(ordered.map((project) => project.id), ['a', 'b', 'c']);
 });
 
 test('Start This Folder names a missing folder or unsaved project instead of starting', () => {

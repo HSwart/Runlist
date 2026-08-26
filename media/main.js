@@ -342,6 +342,21 @@ function formatElapsed(milliseconds) {
   return `${minutes}m ${String(seconds % 60).padStart(2, '0')}s`;
 }
 
+function projectRowElapsedStartedAt(project = {}) {
+  const launchedAt = project.timeline?.launchedAt;
+  if (!Number.isFinite(launchedAt)) {
+    return undefined;
+  }
+  if (project.reviewRequired || project.forceClosing || project.handoffInProgress) {
+    return undefined;
+  }
+  const status = project.status || 'stopped';
+  if (!['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active'].includes(status)) {
+    return undefined;
+  }
+  return launchedAt;
+}
+
 function formatStartupDuration(milliseconds) {
   if (milliseconds < 1000) {
     return `${Math.max(0, Math.round(milliseconds))}ms`;
@@ -1059,6 +1074,10 @@ function renderList() {
             : '';
         const rowPort = projectRowPort(project);
         const portLabel = rowPort ? `:${rowPort}` : '';
+        const rowElapsedStartedAt = projectRowElapsedStartedAt(project);
+        const rowElapsedLabel = Number.isFinite(rowElapsedStartedAt)
+          ? formatElapsed(Date.now() - rowElapsedStartedAt)
+          : '';
         return `
           <article id="project-row-${projectId}" class="project-row" data-project-id="${projectId}" aria-labelledby="project-${projectId}" aria-describedby="project-folder-${projectId}" tabindex="-1" title="${escapeHtml(project.folder)}">
             <div class="project-topline">
@@ -1071,6 +1090,8 @@ function renderList() {
                 </div>
                 <div class="project-meta">
                   <div class="project-status status-${statusClass}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : `<span class="status-dot ${statusDotClass}" aria-hidden="true"></span>`}<span>${escapeHtml(displayedStatus)}</span></div>
+                  ${Number.isFinite(rowElapsedStartedAt) ? `
+                    <span class="project-row-elapsed" data-row-elapsed data-started-at="${rowElapsedStartedAt}" aria-label="Running for ${escapeHtml(rowElapsedLabel)}">${escapeHtml(rowElapsedLabel)}</span>` : ''}
                   ${rowPort ? `
                     <button class="project-port-chip" data-action="open" data-id="${projectId}" ${canOpen ? '' : 'disabled'} title="${openTitle}" aria-label="${canOpen ? `Open ${projectName} at localhost${escapeHtml(portLabel)}` : openTitle}">
                       <span>${escapeHtml(portLabel)}</span>
@@ -2427,17 +2448,26 @@ function updateTimelineElapsed() {
       ? `Ready in ${formatElapsed(readyAt - startedAt)}`
       : `Elapsed ${formatElapsed(Date.now() - startedAt)}`;
   });
+  document.querySelectorAll('[data-row-elapsed]').forEach((element) => {
+    const startedAt = Number(element.dataset.startedAt);
+    if (!Number.isFinite(startedAt)) {
+      return;
+    }
+    const label = formatElapsed(Date.now() - startedAt);
+    element.textContent = label;
+    element.setAttribute('aria-label', `Running for ${label}`);
+  });
 }
 
 function initializeTimelineClock() {
   clearInterval(timelineClock);
   timelineClock = undefined;
-  const elapsed = document.querySelector('[data-timeline-elapsed]');
+  const elapsed = document.querySelector('[data-timeline-elapsed], [data-row-elapsed]');
   if (!elapsed) {
     return;
   }
   updateTimelineElapsed();
-  if (document.querySelector('[data-timeline-elapsed][data-ready-at=""]')) {
+  if (document.querySelector('[data-timeline-elapsed][data-ready-at=""], [data-row-elapsed]')) {
     timelineClock = setInterval(updateTimelineElapsed, 1000);
   }
 }

@@ -44,11 +44,31 @@ function workspaceFolderMatchesProject(projectFolder, workspaceFolders, platform
 }
 
 function orderSidebarProjects(projects) {
-  return [
-    ...projects.filter((project) => project.pinned === true),
-    ...projects.filter((project) => project.pinned !== true && project.currentWorkspace === true),
-    ...projects.filter((project) => project.pinned !== true && project.currentWorkspace !== true)
-  ];
+  const list = Array.isArray(projects) ? projects : [];
+  const pinned = list.filter((project) => project.pinned === true);
+  const unpinned = list
+    .map((project, index) => ({ project, index }))
+    .filter(({ project }) => project.pinned !== true)
+    .sort((left, right) => {
+      const delta = projectLastStartedAt(right.project) - projectLastStartedAt(left.project);
+      return delta !== 0 ? delta : left.index - right.index;
+    })
+    .map(({ project }) => project);
+  return [...pinned, ...unpinned];
+}
+
+function projectLastStartedAt(project = {}) {
+  let latest = 0;
+  if (Number.isFinite(project.timeline?.launchedAt)) {
+    latest = Math.max(latest, project.timeline.launchedAt);
+  }
+  for (const entry of project.startupHistory || []) {
+    if (!Number.isFinite(entry?.completedAt) || !Number.isFinite(entry?.durationMs)) {
+      continue;
+    }
+    latest = Math.max(latest, entry.completedAt - entry.durationMs);
+  }
+  return latest;
 }
 
 function projectForCurrentWindow(projects, workspaceFolders, platform = process.platform) {
@@ -110,6 +130,7 @@ module.exports = {
   localWorkspaceFolders,
   orderSidebarProjects,
   projectForCurrentWindow,
+  projectLastStartedAt,
   selectCurrentWorkspaceFolder,
   startThisFolderDecision,
   starterDraftForCurrentWorkspace,

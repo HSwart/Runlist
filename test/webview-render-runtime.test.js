@@ -1212,6 +1212,58 @@ test('renders everyday project rows without a competing folder path', () => {
   assert.doesNotMatch(result.app.innerHTML, /class="auto-scroll"><span class="auto-scroll-content">Northstar Dashboard/);
 });
 
+test('running row shows elapsed from the live timeline on line 2', () => {
+  const launchedAt = Date.now() - 65_000;
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/northstar-dashboard',
+    id: 'northstar',
+    launchProfiles: [],
+    name: 'Northstar Dashboard',
+    openPorts: [4310],
+    pinned: false,
+    previewExpanded: false,
+    previewUrl: 'http://localhost:4310',
+    previewPort: 4310,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 4310 }],
+    status: 'running',
+    tags: [],
+    timeline: { launchedAt, readyAt: launchedAt + 1200 }
+  }]);
+
+  assert.match(result.app.innerHTML, /class="project-status status-running"[^>]*>[\s\S]*<span>Running<\/span>/);
+  assert.match(result.app.innerHTML, /class="project-row-elapsed" data-row-elapsed data-started-at="/);
+  assert.match(result.app.innerHTML, /aria-label="Running for 1m 0?5s"/);
+  assert.match(result.app.innerHTML, /class="project-port-chip"[^>]*>[\s\S]*:4310/);
+  assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
+});
+
+test('stopped rows do not show elapsed time', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/northstar-dashboard',
+    id: 'northstar',
+    launchProfiles: [],
+    name: 'Northstar Dashboard',
+    openPorts: [],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 4310 }],
+    status: 'stopped',
+    tags: [],
+    timeline: { launchedAt: Date.now() - 10_000, readyAt: Date.now() - 9_000 }
+  }]);
+
+  assert.doesNotMatch(result.app.innerHTML, /data-row-elapsed/);
+  assert.match(result.app.innerHTML, /class="project-port-chip"/);
+});
+
 test('renders Detected on the status line without a second Detected running sentence', () => {
   const result = renderNonEmptyProjectList([{
     activeLaunchProfileId: 'default',
