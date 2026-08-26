@@ -16,9 +16,15 @@ test('validates Marketplace metadata for the selected publisher and release', ()
     manifest.description,
     'Start, stop, and switch local apps from one sidebar.'
   );
-  assert.ok(manifest.keywords.includes('dev server'));
-  assert.ok(manifest.keywords.includes('process manager'));
-  assert.ok(manifest.keywords.includes('npm scripts'));
+  assert.deepEqual(manifest.keywords.slice(0, 5), [
+    'npm scripts',
+    'task runner',
+    'dev server',
+    'process manager',
+    'ports'
+  ]);
+  assert.ok(!manifest.keywords.slice(0, 5).includes('mcp'));
+  assert.ok(!manifest.keywords.slice(0, 5).includes('coding agents'));
   assert.ok(!manifest.keywords.includes('project manager'));
   assert.equal(manifest.publisher, 'hankoswart');
   assert.equal(manifest.repository.url, 'https://github.com/HSwart/Runlist.git');
