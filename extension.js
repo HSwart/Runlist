@@ -33,6 +33,7 @@ function installMcpBridge(context) {
     'src/projects/project-store.js',
     'src/projects/project-tags.js',
     'src/services/external-url.js',
+    'src/services/local-hostname.js',
     'package.json'
   ];
   for (const relativePath of bridgeFiles) {
