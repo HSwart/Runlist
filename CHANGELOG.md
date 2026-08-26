@@ -6,7 +6,10 @@
 - Show elapsed run time on line 2 with status and port.
 - Sort unpinned apps by last-started while keeping pinned apps first.
 - Offer `start` / `dev` chips on the empty Add this folder state when the current folder’s package.json defines them.
-- Rewrite the Marketplace README so Features match shipped behavior: running-row controls, profiles, tags, run groups, preview, phone handoff, and import/export.
+- Import Docker Compose services into one reviewed project row with scoped start and stop.
+- Show a Compose layers indicator on Compose-managed projects.
+- Attach launch environment files to launch profiles for reviewed env at Start.
+- Rewrite the Marketplace README so Get started, Everyday use, and Power features match shipped behavior.
 
 ## 0.0.10 — Marketplace gallery packaging
 
