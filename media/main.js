@@ -704,7 +704,7 @@ function projectDetailTabsHtml(project, projectName) {
         ${resourceMetricsContent(project.resourceMetrics, project.runtimePulse, project.httpResponsePulse)}
       </div>
     </section>` : '';
-  const overviewContent = `${project.timeline ? projectTimelineHtml(project, projectName) : ''}${runtime}`
+  const overviewContent = `${readinessDetailsHtml(project, project.status || 'stopped')}${project.timeline ? projectTimelineHtml(project, projectName) : ''}${runtime}`
     || '<p class="project-detail-empty">No startup details yet.</p>';
   const outputContent = project.outputPeek !== undefined
     ? `<div class="project-output-peek-slot" data-output-peek-slot data-project-id="${projectId}" data-project-name="${projectName}">${projectOutputPeekHtml(project.outputPeek, project.id, project.name)}</div>`
@@ -1065,13 +1065,11 @@ function renderList() {
                 <div class="project-title-line">
                   <h2 id="project-${projectId}" title="${project.pinned ? `Pinned: ${projectName}` : projectName}" aria-label="${project.pinned ? `Pinned project: ${projectName}` : projectName}${project.currentWorkspace ? ', this window' : ''}">
                     ${project.pinned ? icon('pinned', 'pinned-icon') : ''}
-                    <span class="auto-scroll"><span class="auto-scroll-content">${projectName}</span></span>
+                    ${projectName}
                   </h2>
-                  ${project.currentWorkspace ? '<span class="current-window-label">This window</span>' : ''}
                 </div>
                 <div class="project-meta">
-                  <div class="project-status status-${statusClass}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : `<span class="status-dot ${statusDotClass}" aria-hidden="true"></span>`}<span class="auto-scroll"><span class="auto-scroll-content">${escapeHtml(displayedStatus)}</span></span></div>
-                  ${!reviewRequired ? readinessDetailsHtml(project, projectStatus) : ''}
+                  <div class="project-status status-${statusClass}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : `<span class="status-dot ${statusDotClass}" aria-hidden="true"></span>`}<span>${escapeHtml(displayedStatus)}</span></div>
                   ${project.services?.length ? `
                     <button class="project-services-summary" data-action="open-services" data-id="${projectId}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} services for ${projectName}">
                       <span><small>${escapeHtml(servicesSummary(project))}</small></span>
@@ -1124,6 +1122,9 @@ function renderList() {
                   <button data-action="toggle-pin" data-id="${projectId}" role="menuitem" aria-label="${project.pinned ? `Unpin ${projectName}` : `Pin ${projectName} to the top`}">
                     ${icon(project.pinned ? 'pinned' : 'pin', 'menu-icon')}<span>${project.pinned ? 'Unpin' : 'Pin to top'}</span>
                   </button>
+                  ${project.currentWorkspace ? `<button role="menuitem" disabled>
+                    ${icon('folder', 'menu-icon')}<span>This window</span>
+                  </button>` : ''}
                   <div class="menu-divider" role="separator"></div>
                   <button class="danger" data-action="delete" data-id="${projectId}" role="menuitem">
                     ${icon('trash', 'menu-icon')}<span>Delete project</span>

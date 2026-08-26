@@ -29,7 +29,7 @@
       'not-responding': 'Web service not responding',
       'ownership-lost': 'Running — control unavailable',
       stopping: 'Stopping…',
-      active: project.httpUnresponsive ? 'Detected, web service not responding' : 'Detected running',
+      active: project.httpUnresponsive ? 'Detected, web service not responding' : 'Detected',
       'port-in-use': conflict?.ownerName ? `${blockedServiceLabel} by ${conflictOwnerName}` : blockedServiceLabel,
       'port-in-use-unknown': blockedServiceLabel,
       'review-required': 'Review setup',

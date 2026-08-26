@@ -149,7 +149,7 @@ Runlist keeps the everyday controls simple:
 
 Removing a project from Runlist does **not** delete the project or any of its files.
 
-If Runlist finds a configured service already running but did not start it itself, the project is labelled **Detected running**. Without a custom stop command, its Stop control asks for confirmation before closing the exact processes listening on that project's configured ports. The same confirmed action remains directly available under **Close configured ports…** when a custom stop command exists.
+If Runlist finds a configured service already running but did not start it itself, the project is labelled **Detected**. Without a custom stop command, its Stop control asks for confirmation before closing the exact processes listening on that project's configured ports. The same confirmed action remains directly available under **Close configured ports…** when a custom stop command exists.
 
 ## Contributing
 
