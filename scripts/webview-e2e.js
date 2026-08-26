@@ -80,6 +80,7 @@ async function main() {
     let webview;
     try {
       await waitFor(async () => {
+        await attachVsCodeWebviewTargets(browser);
         const frames = browser.contexts()
           .flatMap((context) => context.pages())
           .flatMap((page) => page.frames());
@@ -467,6 +468,7 @@ async function waitForProjectStatus(browser, projectName, expected) {
 async function currentRunlistFrame(browser, predicate = () => true) {
   let webview;
   await waitFor(async () => {
+    await attachVsCodeWebviewTargets(browser);
     const frames = browser.contexts()
       .flatMap((context) => context.pages())
       .flatMap((page) => page.frames());
@@ -513,14 +515,73 @@ async function assertVisible(locator, timeoutMs = 5000) {
   assert.equal(await locator.isVisible(), true);
 }
 
-async function findRunlistFrame(frames, predicate = () => true) {
-  for (const frame of frames) {
+const attachedWebviewTargetIds = new Set();
+
+async function attachVsCodeWebviewTargets(browser) {
+  const pages = browser.contexts().flatMap((context) => context.pages());
+  for (const page of pages) {
     try {
-      if (await frame.locator('#app').count()
-        && await frame.evaluate(() => Boolean(window.runlistState))
-        && await predicate(frame)) {
+      const session = await page.context().newCDPSession(page);
+      const { targetInfos } = await session.send('Target.getTargets');
+      for (const info of targetInfos) {
+        if (info.type !== 'iframe' || !/vscode-webview:/i.test(info.url || '')) {
+          continue;
+        }
+        if (attachedWebviewTargetIds.has(info.targetId)) {
+          continue;
+        }
+        try {
+          await session.send('Target.attachToTarget', {
+            targetId: info.targetId,
+            flatten: true
+          });
+          attachedWebviewTargetIds.add(info.targetId);
+        } catch {
+          // Target may already be attached from a previous poll.
+        }
+      }
+    } catch {
+      // The workbench page can reload while the extension host finishes booting.
+    }
+  }
+}
+
+async function frameLooksLikeRunlist(frame, predicate = () => true) {
+  return Boolean(await frame.locator('#app').count()
+    && await frame.evaluate(() => Boolean(window.runlistState))
+    && await predicate(frame));
+}
+
+async function nestedContentFrames(frame) {
+  const nested = [...frame.childFrames()];
+  try {
+    const handles = await frame.locator('iframe').elementHandles();
+    for (const handle of handles) {
+      const content = await handle.contentFrame();
+      if (content && !nested.includes(content)) {
+        nested.push(content);
+      }
+    }
+  } catch {
+    // Nested iframe handles can disappear while VS Code swaps the webview document.
+  }
+  return nested;
+}
+
+async function findRunlistFrame(frames, predicate = () => true) {
+  const queue = [...frames];
+  const seen = new Set();
+  while (queue.length) {
+    const frame = queue.shift();
+    if (!frame || seen.has(frame)) {
+      continue;
+    }
+    seen.add(frame);
+    try {
+      if (await frameLooksLikeRunlist(frame, predicate)) {
         return frame;
       }
+      queue.push(...await nestedContentFrames(frame));
     } catch {
       // Cross-target frames can disappear while VS Code finishes opening the view.
     }
