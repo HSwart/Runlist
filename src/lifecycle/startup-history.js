@@ -93,6 +93,36 @@ function clearStartupHistory(projectsFile, projectId) {
   }
 }
 
+function projectLastStartedPath(projectsFile, projectId) {
+  return path.join(startupHistoryDirectory(projectsFile, projectId), 'last-started.json');
+}
+
+function recordProjectLastStartedAt(projectsFile, projectId, startedAt) {
+  if (!Number.isFinite(startedAt)) {
+    throw new TypeError('Accepted start timestamp is invalid.');
+  }
+  const directory = startupHistoryDirectory(projectsFile, projectId);
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const targetPath = projectLastStartedPath(projectsFile, projectId);
+  const temporaryPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(
+    temporaryPath,
+    `${JSON.stringify({ startedAt: Math.round(startedAt) })}\n`,
+    { encoding: 'utf8', mode: 0o600 }
+  );
+  fs.renameSync(temporaryPath, targetPath);
+  return Math.round(startedAt);
+}
+
+function readProjectLastStartedAt(projectsFile, projectId) {
+  try {
+    const value = JSON.parse(fs.readFileSync(projectLastStartedPath(projectsFile, projectId), 'utf8'));
+    return Number.isFinite(value?.startedAt) ? Math.round(value.startedAt) : 0;
+  } catch {
+    return 0;
+  }
+}
+
 function averageReadyDuration(history) {
   const durations = (Array.isArray(history) ? history : [])
     .filter((entry) => entry?.outcome === 'ready'
@@ -172,7 +202,9 @@ module.exports = {
   MAX_STARTUP_FAILURE_SUMMARY_CHARS,
   MAX_STARTUP_HISTORY,
   normalizeFailureSummary,
+  readProjectLastStartedAt,
   readStartupHistory,
+  recordProjectLastStartedAt,
   replaceTimedOutStartupHistory,
   startupHistoryDirectory,
   startupHistoryEntry

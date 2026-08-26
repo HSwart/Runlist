@@ -7,6 +7,7 @@ const {
   localWorkspaceFolders,
   orderSidebarProjects,
   projectForCurrentWindow,
+  projectLastStartedAt,
   selectCurrentWorkspaceFolder,
   startThisFolderDecision,
   starterDraftForCurrentWorkspace,
@@ -141,6 +142,45 @@ test('keeps pinned projects first and sorts unpinned by last-started', () => {
     { id: 'f', pinned: false }
   ]);
   assert.deepEqual(ordered.map((project) => project.id), ['b', 'd', 'c', 'e', 'a', 'f']);
+});
+
+test('start-then-stop-before-ready still sorts by the accepted start timestamp', () => {
+  // Service-backed start accepted, then Stop before ready/timeout/fail:
+  // no startupHistory entry and live timeline metadata is gone.
+  // Persisted lastStartedAt must still win the unpinned sort.
+  const ordered = orderSidebarProjects([
+    {
+      id: 'older-ready',
+      pinned: false,
+      startupHistory: [{ outcome: 'ready', completedAt: 5_000, durationMs: 1_000 }]
+    },
+    {
+      id: 'stopped-before-ready',
+      pinned: false,
+      lastStartedAt: 9_000,
+      startupHistory: []
+    },
+    {
+      id: 'never-started',
+      pinned: false
+    }
+  ]);
+  assert.deepEqual(
+    ordered.map((project) => project.id),
+    ['stopped-before-ready', 'older-ready', 'never-started']
+  );
+  assert.equal(
+    projectLastStartedAt({ lastStartedAt: 9_000, startupHistory: [] }),
+    9_000
+  );
+  assert.equal(
+    projectLastStartedAt({
+      lastStartedAt: 2_000,
+      timeline: { launchedAt: 8_000 },
+      startupHistory: [{ outcome: 'ready', completedAt: 5_000, durationMs: 1_000 }]
+    }),
+    8_000
+  );
 });
 
 test('keeps stable unpinned order when nothing has started yet', () => {

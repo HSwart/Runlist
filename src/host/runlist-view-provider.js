@@ -58,7 +58,9 @@ const {
   appendStartupHistory,
   averageReadyDuration,
   clearStartupHistory,
+  readProjectLastStartedAt,
   readStartupHistory,
+  recordProjectLastStartedAt,
   replaceTimedOutStartupHistory,
   startupHistoryEntry
 } = require('../lifecycle/startup-history');
@@ -3276,6 +3278,11 @@ class RunlistViewProvider {
       });
 
       this.processes.set(id, child);
+      try {
+        recordProjectLastStartedAt(this.projectsFile, id, launchedAt);
+      } catch {
+        // Last-started order is optional and must never block Start.
+      }
       listenToProjectOutput(child, (chunk) => this.addProjectOutput(id, chunk, savedProjectRevision));
       child.once('error', (error) => {
         if (this.processes.get(id) !== child) {
@@ -4615,6 +4622,11 @@ class RunlistViewProvider {
         ))
         : undefined;
       const startupHistory = readStartupHistory(this.projectsFile, project.id);
+      const lastStartedAt = Math.max(
+        readProjectLastStartedAt(this.projectsFile, project.id),
+        Number.isFinite(attempt?.launchedAt) ? attempt.launchedAt : 0,
+        Number.isFinite(runtime?.launchedAt) ? runtime.launchedAt : 0
+      );
       const detailTabs = availableProjectDetailTabs({
         servicesAvailable: runtimeProject.services.length > 0,
         outputAvailable: outputPeek !== undefined,
@@ -4649,6 +4661,7 @@ class RunlistViewProvider {
         ),
         serviceUrls,
         status,
+        lastStartedAt: lastStartedAt || undefined,
         lifecycleBlocked: !lifecycleCapability.supported,
         lifecycleBlockedReason: lifecycleCapability.reason,
         timeline,

@@ -62,6 +62,9 @@ function orderSidebarProjects(projects) {
 
 function projectLastStartedAt(project = {}) {
   let latest = 0;
+  if (Number.isFinite(project.lastStartedAt)) {
+    latest = Math.max(latest, project.lastStartedAt);
+  }
   if (Number.isFinite(project.timeline?.launchedAt)) {
     latest = Math.max(latest, project.timeline.launchedAt);
   }
