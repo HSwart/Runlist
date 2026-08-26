@@ -1125,7 +1125,9 @@ function renderList() {
           : '';
         const isComposeProject = typeof project.composePath === 'string' && Boolean(project.composePath.trim());
         const projectKindLabel = isComposeProject ? 'Compose project' : 'project';
-        const titleAriaLabel = `${project.pinned ? `Pinned ${projectKindLabel}` : projectKindLabel}: ${projectName}${project.currentWorkspace ? ', this window' : ''}`;
+        const titleAriaLabel = project.pinned
+          ? `Pinned ${projectKindLabel}: ${projectName}${project.currentWorkspace ? ', this window' : ''}`
+          : `${isComposeProject ? `${projectKindLabel}: ` : ''}${projectName}${project.currentWorkspace ? ', this window' : ''}`;
         return `
           <article id="project-row-${projectId}" class="project-row${isComposeProject ? ' compose-project-row' : ''}" data-project-id="${projectId}"${isComposeProject ? ' data-compose="true"' : ''} aria-labelledby="project-${projectId}" aria-describedby="project-folder-${projectId}" tabindex="-1" title="${escapeHtml(project.folder)}">
             <div class="project-topline">

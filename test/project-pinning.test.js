@@ -85,7 +85,7 @@ test('renders accessible pin controls and restores focus after a row moves', () 
   const extension = readShippedHostSource(root);
 
   assert.match(webview, /data-action="toggle-pin"[^>]*role="menuitem"[^>]*aria-label=/);
-  assert.match(webview, /Pinned project: \$\{projectName\}/);
+  assert.match(webview, /Pinned \$\{projectKindLabel\}: \$\{projectName\}/);
   assert.match(webview, /project\.pinned \? icon\('pinned', 'pinned-icon'\) : ''/);
   assert.match(webview, /icon\(project\.pinned \? 'pinned' : 'pin', 'menu-icon'\)/);
   assert.match(webview, /'toggle-pin': \(\) => vscode\.postMessage\(\{ type: 'toggleProjectPin'/);
