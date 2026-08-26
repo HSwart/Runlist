@@ -7,7 +7,7 @@ test('ships as a local UI extension with a Marketplace icon', () => {
   const root = path.join(__dirname, '..');
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 
-  assert.deepEqual(manifest.extensionKind, ['ui', 'workspace']);
+  assert.deepEqual(manifest.extensionKind, ['workspace', 'ui']);
   assert.equal(manifest.icon, 'media/runlist.png');
   assert.equal(fs.existsSync(path.join(root, manifest.icon)), true);
 });

@@ -124,28 +124,8 @@ test('activate registers Runlist commands and the projects webview', async (t) =
   assert.ok(subscriptions.length > 0);
 });
 
-test('does not activate the Windows UI host for Remote WSL', () => {
-  const extension = loadExtension({
-    env: { remoteName: 'wsl' },
-    ExtensionKind: { UI: 1, Workspace: 2 }
-  });
-  const result = extension.activate({
-    extension: { extensionKind: 1 },
-    globalStorageUri: { fsPath: os.tmpdir() },
-    globalState: { get: () => [] }
-  });
-  assert.deepEqual(result, { hostRole: { activate: false, reason: 'wsl-ui-defer' } });
-});
-
-test('does not activate workspace hosts for SSH and other remotes', () => {
-  const extension = loadExtension({
-    env: { remoteName: 'ssh-remote' }
-  });
-  const result = extension.activate({
-    extension: { extensionKind: 2 },
-    globalStorageUri: { fsPath: os.tmpdir() },
-    globalState: { get: () => [] }
-  });
-  assert.deepEqual(result, { hostRole: { activate: false, reason: 'remote-workspace-skip' } });
+test('prefers the workspace host so Remote WSL is not a UI-only no-op', () => {
+  const manifest = require('../package.json');
+  assert.deepEqual(manifest.extensionKind, ['workspace', 'ui']);
 });
 
