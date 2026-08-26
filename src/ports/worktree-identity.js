@@ -3,13 +3,24 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
+function canonicalFilesystemPath(value) {
+  try {
+    if (typeof fs.realpathSync.native === 'function') {
+      return fs.realpathSync.native(value);
+    }
+    return fs.realpathSync(value);
+  } catch {
+    return path.resolve(value);
+  }
+}
+
 function detectWorktreeIdentity(folder, options = {}) {
   if (typeof folder !== 'string' || !folder.trim()) {
     return null;
   }
   let absolute;
   try {
-    absolute = fs.realpathSync(folder.trim());
+    absolute = canonicalFilesystemPath(folder.trim());
   } catch {
     try {
       absolute = path.resolve(folder.trim());
@@ -71,11 +82,7 @@ function normalizeGitPath(value, cwd) {
   const resolved = path.isAbsolute(trimmed)
     ? trimmed
     : path.resolve(cwd, trimmed);
-  try {
-    return fs.realpathSync(resolved);
-  } catch {
-    return path.resolve(resolved);
-  }
+  return canonicalFilesystemPath(resolved);
 }
 
 function normalizePathKey(value) {

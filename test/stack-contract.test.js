@@ -131,12 +131,12 @@ test('serialize writes relative paths only and omits secret-shaped fields', (t) 
   const parsed = JSON.parse(document);
   assert.equal(parsed.schemaVersion, 1);
   assert.equal(parsed.projects[0].folder, '.');
-  assert.equal(parsed.projects[1].folder, path.join('apps', 'api'));
+  assert.equal(parsed.projects[1].folder, 'apps/api');
   assert.equal(parsed.projects[0].id, undefined);
   assert.equal(parsed.projects[0].composePath, undefined);
   assert.equal(parsed.projects[0].pinned, undefined);
   assert.equal(parsed.projects[0].env, undefined);
-  assert.deepEqual(parsed.groups[0].projectFolders, ['.', path.join('apps', 'api')]);
+  assert.deepEqual(parsed.groups[0].projectFolders, ['.', 'apps/api']);
 });
 
 test('allows envFile paths in stack contracts but rejects env maps', (t) => {
