@@ -3069,8 +3069,12 @@ class RunlistViewProvider {
         this.projectStatuses.set(id, 'stopped');
         this.startReadinessDeadlines.delete(id);
         this.readinessWarnings.delete(id);
+        const composeDetail = isComposeManagedProject(project)
+          && (error?.code === 'ENOENT' || /ENOENT|not found/i.test(error?.message || ''))
+          ? 'Docker is not available. Install Docker Desktop or Engine, then try again.'
+          : error.message;
         this.showStartFailure(project, {
-          detail: error.message,
+          detail: composeDetail,
           projectRevision: savedProjectRevision
         });
         this.renderProjectList();
