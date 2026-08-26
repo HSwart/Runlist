@@ -1,6 +1,6 @@
 {
   "name": "runlist",
-  "displayName": "Runlist: Local Development Control Panel",
+  "displayName": "Runlist",
   "description": "Start, stop, and switch local apps from one sidebar.",
   "version": "0.0.8",
   "publisher": "hankoswart",
