@@ -1150,7 +1150,7 @@ class RunlistViewProvider {
       }));
   }
 
-  async refreshComposeAvailabilityNotice() {
+  refreshComposeAvailabilityNotice() {
     const hasComposeProject = this.projects.some((project) => isComposeManagedProject(project));
     if (!hasComposeProject) {
       this.composeNotice = undefined;
@@ -1167,14 +1167,22 @@ class RunlistViewProvider {
       this.composeNotice = cached.result?.ok ? undefined : cached.result?.message;
       return;
     }
-    const result = await probeComposeAvailability();
-    if (this.disposed) {
-      return;
-    }
-    this.composeAvailability = { checkedAt: now, result };
-    this.composeNotice = result.ok
-      ? undefined
-      : `${result.message} Compose projects stay listed, but Start is unavailable until Docker is ready.`;
+    void probeComposeAvailability().then((result) => {
+      if (this.disposed) {
+        return;
+      }
+      this.composeAvailability = { checkedAt: Date.now(), result };
+      const nextNotice = result.ok
+        ? undefined
+        : `${result.message} Compose projects stay listed, but Start is unavailable until Docker is ready.`;
+      if (this.composeNotice === nextNotice) {
+        return;
+      }
+      this.composeNotice = nextNotice;
+      if (this.mode === 'list' && this.view) {
+        this.renderProjectList();
+      }
+    }).catch(() => undefined);
   }
 
   async refreshProjectStatuses() {
@@ -1193,7 +1201,7 @@ class RunlistViewProvider {
     this.statusRefreshPromise = refreshPromise;
     const revision = this.statusRevision;
     try {
-      await this.refreshComposeAvailabilityNotice();
+      this.refreshComposeAvailabilityNotice();
       await Promise.all([
         this.portReservations.reconcileProcessIdentities(),
         this.processOwnership.reconcileProcessIdentities()
