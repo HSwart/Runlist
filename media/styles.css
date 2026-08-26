@@ -252,10 +252,16 @@ button:active:not(:disabled) {
 }
 
 .bulk-stop-icon,
-.jump-icon,
-.status-progress {
+.jump-icon {
   width: 16px;
   height: 16px;
+  display: block;
+  flex: 0 0 auto;
+}
+
+.status-progress {
+  width: 14px;
+  height: 14px;
   display: block;
   flex: 0 0 auto;
 }
@@ -564,13 +570,22 @@ button:active:not(:disabled) {
   overflow-wrap: break-word;
 }
 
-.pinned-icon {
-  width: 12px;
-  height: 12px;
+.project-kind-icon {
+  width: 14px;
+  height: 14px;
   display: inline-block;
-  vertical-align: -1px;
+  vertical-align: -2px;
   margin-right: 4px;
   color: var(--vscode-icon-foreground);
+  flex: 0 0 auto;
+}
+
+.pinned-icon {
+  color: var(--vscode-icon-foreground);
+}
+
+.compose-kind-icon {
+  color: var(--vscode-descriptionForeground);
 }
 
 .screen-header h2,
@@ -624,11 +639,6 @@ button:active:not(:disabled) {
 .project-status.status-review-required {
   color: var(--vscode-editorWarning-foreground, #cca700);
   font-weight: 600;
-}
-
-.status-progress {
-  width: 12px;
-  height: 12px;
 }
 
 .project-readiness-detail {
@@ -869,6 +879,8 @@ button:active:not(:disabled) {
 
 .active-tag-chip svg {
   flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
 }
 
 .project-tag-choices {
@@ -927,6 +939,23 @@ button:active:not(:disabled) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.launch-profile-trigger .icon {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+}
+
+.compose-kind-marker {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4px;
+  vertical-align: -2px;
+}
+
+.compose-kind-marker .project-kind-icon {
+  margin-right: 0;
 }
 
 .launch-profile-trigger:hover:not(:disabled),

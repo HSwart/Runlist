@@ -64,6 +64,8 @@ test('project store persists composePath on schema 6 without inventing nested si
 test('webview marks Compose projects on Frame B without a third permanent line', () => {
   assert.match(webview, /data-compose="true"/);
   assert.match(webview, /Compose project/);
+  assert.match(webview, /compose-kind-icon/);
+  assert.match(webview, /icon\('layers', 'project-kind-icon compose-kind-icon'\)/);
   assert.doesNotMatch(webview, /project-compose-cue/);
   assert.doesNotMatch(styles, /\.project-compose-cue/);
   assert.doesNotMatch(webview, /compose-service-row|nested-compose-dashboard/);

@@ -15,7 +15,7 @@ test('Compose import review is read-only until save and never runs docker compos
   assert.match(webview, /function renderComposeImport\(/);
   assert.match(webview, /Review Compose import/);
   assert.match(webview, /data-action="approve-compose-import"/);
-  assert.match(webview, /data-action="import-compose"/);
+  assert.match(webview, /data-action="import-compose"[\s\S]*icon\('layers', 'menu-icon'\)/);
   assert.match(webview, /Runlist has not started Docker or Compose/);
   assert.match(styles, /\.compose-import-row \{/);
   assert.match(host, /async showComposeImport\(/);
