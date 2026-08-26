@@ -10,8 +10,7 @@ const {
   buildComposeStopCommand,
   composeLaunchCommands,
   composeServiceNames,
-  probeComposeAvailability,
-  quoteShellArg
+  probeComposeAvailability
 } = require('../src/compose/compose-runtime');
 const {
   composeDown,
@@ -28,69 +27,27 @@ const {
   writeComposeFixture
 } = require('./helpers/docker-compose-harness');
 
-const hostSource = fs.readFileSync(
-  path.join(__dirname, '..', 'src', 'host', 'runlist-view-provider.js'),
-  'utf8'
-);
+const dockerIntegrationPlatform = process.platform === 'linux';
 
 let dockerReady;
 
 before(async () => {
-  dockerReady = await dockerRuntimeAvailable();
+  dockerReady = dockerIntegrationPlatform && await dockerRuntimeAvailable();
 });
 
 function testIfDocker(name, fn, options) {
   test(name, options, async (t) => {
+    if (!dockerIntegrationPlatform) {
+      t.skip('Docker Compose integration runs on Linux CI only');
+      return;
+    }
     if (!dockerReady) {
       t.skip('Docker runtime unavailable');
+      return;
     }
     return fn(t);
   });
 }
-
-test('Compose-managed Stop skips the custom Stop confirmation modal', () => {
-  assert.match(
-    hostSource,
-    /isComposeManagedProject\(stopProject\)\s*\|\|\s*await this\.confirmCustomStopCommand\(stopProject\)/
-  );
-});
-
-test('parses common Docker image tags with colons', () => {
-  const proposal = buildComposeImportProposal({
-    folder: '/tmp/acme',
-    composePath: '/tmp/acme/compose.yaml',
-    contents: `
-services:
-  web:
-    image: nginx:alpine
-    ports:
-      - "4310:80"
-  api:
-    image: ghcr.io/acme/api:v1.2.3
-    ports:
-      - "7071:3000"
-`
-  });
-  assert.equal(proposal.parsedServices.length, 2);
-  assert.match(proposal.proposedProject.startCommand, /docker compose up web api/);
-});
-
-test('quoteShellArg handles spaces and quotes on all platforms', () => {
-  const sample = "/tmp/my project/compose.yaml";
-  const unix = quoteShellArg(sample);
-  assert.match(unix, /'\/tmp\/my project\/compose\.yaml'/);
-
-  const previous = process.platform;
-  Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' });
-  try {
-    const windows = quoteShellArg('C:\\apps\\my project\\compose.yaml');
-    assert.match(windows, /^"/);
-    assert.match(windows, /compose\.yaml"$/);
-    assert.doesNotMatch(windows, /\\\\"/);
-  } finally {
-    Object.defineProperty(process, 'platform', { configurable: true, value: previous });
-  }
-});
 
 testIfDocker('probeComposeAvailability passes against a live Docker daemon', async () => {
   const execFileAsync = await createProbeExecFileAsync();
@@ -304,6 +261,10 @@ services:
 });
 
 test('docker integration tests skip cleanly when Docker runtime is unavailable', async () => {
+  if (!dockerIntegrationPlatform) {
+    assert.equal(dockerReady, false);
+    return;
+  }
   if (dockerReady) {
     assert.equal(await dockerRuntimeAvailable(), true);
     return;

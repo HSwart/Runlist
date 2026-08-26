@@ -14,6 +14,18 @@ const {
   parseComposeServices
 } = require('../src/compose/compose-parse');
 
+test('detects compose.yml, compose.yaml, and docker-compose.yml in preference order', () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-compose-yml-'));
+  fs.writeFileSync(path.join(folder, 'docker-compose.yml'), 'services: {}\n');
+  fs.writeFileSync(path.join(folder, 'compose.yml'), 'services: {}\n');
+  assert.deepEqual(
+    detectComposeFiles(folder).map((file) => path.basename(file)),
+    ['compose.yml', 'docker-compose.yml']
+  );
+  assert.equal(path.basename(resolveComposeFile(folder)), 'compose.yml');
+  fs.rmSync(folder, { recursive: true, force: true });
+});
+
 test('detects compose.yaml and docker-compose.yml in preference order', () => {
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-compose-'));
   fs.writeFileSync(path.join(folder, 'docker-compose.yml'), 'services: {}\n');

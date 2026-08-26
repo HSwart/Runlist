@@ -8,6 +8,7 @@ const {
   composeLaunchCommands,
   isComposeManagedProject,
   probeComposeAvailability,
+  quoteShellArg,
   serviceNamesFromComposeCommand
 } = require('../src/compose/compose-runtime');
 
@@ -89,6 +90,34 @@ test('host Start probes Compose availability and records Compose ownership field
   assert.match(processSource, /composePath:/);
   assert.match(processSource, /composeServices:/);
   assert.doesNotMatch(host, /docker kill|docker rm -f/);
+});
+
+test('Compose-managed Stop skips the custom Stop confirmation modal', () => {
+  assert.match(
+    host,
+    /isComposeManagedProject\(stopProject\)\s*\|\|\s*await this\.confirmCustomStopCommand\(stopProject\)/
+  );
+});
+
+test('quoteShellArg handles spaces and quotes on all platforms', () => {
+  const previous = process.platform;
+  Object.defineProperty(process, 'platform', { configurable: true, value: 'linux' });
+  try {
+    const unix = quoteShellArg('/tmp/my project/compose.yaml');
+    assert.match(unix, /'\/tmp\/my project\/compose\.yaml'/);
+  } finally {
+    Object.defineProperty(process, 'platform', { configurable: true, value: previous });
+  }
+
+  Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' });
+  try {
+    const windows = quoteShellArg('C:\\apps\\my project\\compose.yaml');
+    assert.match(windows, /^"/);
+    assert.match(windows, /compose\.yaml"$/);
+    assert.doesNotMatch(windows, /\\\\"/);
+  } finally {
+    Object.defineProperty(process, 'platform', { configurable: true, value: previous });
+  }
 });
 
 test('Windows Compose shell quoting escapes backslashes before quotes', () => {
