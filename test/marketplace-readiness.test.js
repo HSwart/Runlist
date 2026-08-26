@@ -110,11 +110,14 @@ test('documents GitHub Actions Marketplace publication from the marketplace envi
 
   assert.match(releaseGuide, /Actions → \*\*Publish Marketplace\*\* → \*\*Run workflow\*\*/);
   assert.match(releaseGuide, /workflow_dispatch/);
-  assert.match(releaseGuide, /only publish path/);
+  assert.match(releaseGuide, /only Ops publish path/);
+  assert.match(releaseGuide, /not a second Ops route/);
+  assert.match(releaseGuide, /optional Hanko fallback/i);
   assert.match(releaseGuide, /environment: marketplace/);
   assert.match(releaseGuide, /limited to protected branches/);
   assert.match(releaseGuide, /Publishing from a tag is not supported/);
   assert.doesNotMatch(releaseGuide, /Tag path|tag matching `v\*`|push a tag/);
+  assert.doesNotMatch(releaseGuide, /That is the only publish path/);
   assert.doesNotMatch(workflow, /pull_request/);
   assert.doesNotMatch(workflow, /--azure-credential/);
   assert.doesNotMatch(workflow, /publish:marketplace/);
