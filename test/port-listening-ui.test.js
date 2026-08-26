@@ -15,7 +15,7 @@ test('What\'s listening screen stays read-only and routes into existing close fl
   assert.match(webview, /What's listening/);
   assert.match(webview, /data-action="refresh-port-listening"/);
   assert.match(webview, /data-action="copy-port-listening"/);
-  assert.match(webview, /data-action="reveal-port-owner"/);
+  assert.match(webview, /data-action="reveal-listening-project"/);
   assert.match(webview, /Close listener…/);
   assert.doesNotMatch(webview, /auto-kill|bulk kill|kill all/i);
   assert.match(styles, /\.port-listening-row \{/);

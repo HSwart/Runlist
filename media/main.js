@@ -1789,7 +1789,7 @@ function renderPortListening() {
           <div class="port-listening-actions">
             <button type="button" class="secondary-button" data-action="copy-port-listening" data-port="${port}">Copy</button>
             ${row.canReveal && row.projectId ? `
-              <button type="button" class="secondary-button" data-action="reveal-port-owner" data-id="${escapeHtml(row.projectId)}">Show project</button>` : ''}
+              <button type="button" class="secondary-button" data-action="reveal-listening-project" data-id="${escapeHtml(row.projectId)}">Show project</button>` : ''}
             ${row.canClose && row.closeProjectId ? `
               <button type="button" class="secondary-button" data-action="force-close-ports" data-id="${escapeHtml(row.closeProjectId)}" data-port="${port}">Close listener…</button>` : ''}
           </div>
@@ -2219,7 +2219,7 @@ app.addEventListener('click', (event) => {
         ...(Number.isInteger(port) && port >= 1 && port <= 65535 ? { port } : {})
       });
     },
-    'reveal-port-owner': () => vscode.postMessage({
+    'reveal-listening-project': () => vscode.postMessage({
       type: 'revealPortOwnerProject',
       id: button.dataset.id
     }),

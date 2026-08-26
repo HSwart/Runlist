@@ -106,9 +106,9 @@ function plainLanguageForIdentity(identity) {
       if (identity.reason === 'pid-reuse') {
         return 'This PID no longer matches the process identity Runlist recorded, so ownership is unknown.';
       }
-      return 'Runlist could not confirm who owns this port.';
+      return 'Runlist could not confirm the process on this port.';
     default:
-      return 'Runlist could not confirm who owns this port.';
+      return 'Runlist could not confirm the process on this port.';
   }
 }
 
