@@ -55,6 +55,17 @@ test('view title commands use plain-language icon titles', () => {
   assert.equal(byId['runlist.showAgentSetup'], 'Set Up Agents');
   assert.equal(byId['runlist.transferProjects'], 'Import or Export');
   assert.equal(byId['runlist.manageGroups'], 'Manage Groups');
+  assert.equal(byId['runlist.showPortListening'], "What's Listening");
+});
+
+test('contributes What\'s Listening to the Runlist view title', () => {
+  const root = path.join(__dirname, '..');
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  assert.ok(manifest.activationEvents.includes('onCommand:runlist.showPortListening'));
+  assert.ok(manifest.contributes.menus['view/title'].some((entry) => (
+    entry.command === 'runlist.showPortListening'
+      && entry.when === 'view == runlist.projects'
+  )));
 });
 
 test('groups every contributed command under Runlist in the Command Palette', () => {

@@ -67,6 +67,7 @@
     "onCommand:runlist.showAgentSetup",
     "onCommand:runlist.transferProjects",
     "onCommand:runlist.manageGroups",
+    "onCommand:runlist.showPortListening",
     "onCommand:runlist.copySupportDiagnostics",
     "onCommand:runlist.startThisFolder"
   ],
@@ -100,6 +101,12 @@
         "title": "Manage Groups",
         "category": "Runlist",
         "icon": "$(run-all)"
+      },
+      {
+        "command": "runlist.showPortListening",
+        "title": "What's Listening",
+        "category": "Runlist",
+        "icon": "$(server-process)"
       },
       {
         "command": "runlist.copySupportDiagnostics",
@@ -167,11 +174,20 @@
           "command": "runlist.manageGroups",
           "when": "view == runlist.projects",
           "group": "navigation@4"
+        },
+        {
+          "command": "runlist.showPortListening",
+          "when": "view == runlist.projects",
+          "group": "navigation@5"
         }
       ],
       "commandPalette": [
         {
           "command": "runlist.showAgentSetup",
+          "when": "false"
+        },
+        {
+          "command": "runlist.showPortListening",
           "when": "false"
         }
       ]

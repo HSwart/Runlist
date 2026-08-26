@@ -1753,6 +1753,67 @@ function renderProjectOutput() {
   });
 }
 
+function renderPortListening() {
+  const report = state.portListening || { rows: [], empty: true };
+  const rows = Array.isArray(report.rows) ? report.rows : [];
+  const rowHtml = rows.length
+    ? rows.map((row) => {
+      const port = Number(row.port);
+      const kindLabel = row.kind === 'owned'
+        ? 'Runlist'
+        : row.kind === 'external'
+          ? 'External'
+          : row.kind === 'gone'
+            ? 'Idle'
+            : row.kind === 'ambiguous'
+              ? 'Unclear'
+              : 'Unknown';
+      const processLabel = row.kind === 'gone'
+        ? 'Nothing listening'
+        : [
+          row.name || 'Unknown process',
+          Number.isInteger(row.pid) ? `PID ${row.pid}` : null
+        ].filter(Boolean).join(' · ');
+      const ownerLabel = row.kind === 'owned' && row.projectName
+        ? row.projectName
+        : (row.configuredProjects || []).map((project) => project.name).join(', ');
+      return `
+        <article class="port-listening-row" data-port="${port}">
+          <div class="port-listening-topline">
+            <strong class="port-listening-port">:${escapeHtml(String(port))}</strong>
+            <span class="port-listening-kind kind-${escapeHtml(row.kind || 'unknown')}">${escapeHtml(kindLabel)}</span>
+          </div>
+          <p class="port-listening-process">${escapeHtml(processLabel)}</p>
+          ${ownerLabel ? `<p class="port-listening-owner">${escapeHtml(ownerLabel)}</p>` : ''}
+          <p class="port-listening-reason">${escapeHtml(row.plainReason || '')}</p>
+          <div class="port-listening-actions">
+            <button type="button" class="secondary-button" data-action="copy-port-listening" data-port="${port}">Copy</button>
+            ${row.canReveal && row.projectId ? `
+              <button type="button" class="secondary-button" data-action="reveal-port-owner" data-id="${escapeHtml(row.projectId)}">Show project</button>` : ''}
+            ${row.canClose && row.closeProjectId ? `
+              <button type="button" class="secondary-button" data-action="force-close-ports" data-id="${escapeHtml(row.closeProjectId)}" data-port="${port}">Close listener…</button>` : ''}
+          </div>
+        </article>`;
+    }).join('')
+    : `<p class="screen-copy" role="status">No configured project ports yet. Add a project with a service port to diagnose listeners here.</p>`;
+
+  app.innerHTML = `
+    <section class="diagnosis-screen port-listening-screen" aria-label="What's listening">
+      <header class="screen-header">
+        <h2>What's listening</h2>
+        <div class="screen-header-actions">
+          <button type="button" class="secondary-button" data-action="refresh-port-listening">Refresh</button>
+          <button type="button" class="secondary-button" data-action="copy-port-listening">Copy all</button>
+          <button class="icon-button" data-action="close-screen" aria-label="Close what's listening">${icon('close')}</button>
+        </div>
+      </header>
+      <p class="screen-copy">Configured project ports only. Runlist never closes a listener without an exact port and PID confirmation.</p>
+      <div class="port-listening-list" role="list">
+        ${rowHtml}
+      </div>
+    </section>`;
+}
+
 function renderProjectDiagnosis() {
   const diagnosis = state.diagnosis;
   if (!diagnosis) {
@@ -2150,6 +2211,18 @@ app.addEventListener('click', (event) => {
     },
     'register-agent': () => vscode.postMessage({ type: 'registerAgent', agent: button.dataset.agent }),
     'show-agent-connections': () => vscode.postMessage({ type: 'showAgentSetup' }),
+    'refresh-port-listening': () => vscode.postMessage({ type: 'refreshPortListening' }),
+    'copy-port-listening': () => {
+      const port = Number(button.dataset.port);
+      vscode.postMessage({
+        type: 'copyPortListeningDetails',
+        ...(Number.isInteger(port) && port >= 1 && port <= 65535 ? { port } : {})
+      });
+    },
+    'reveal-port-owner': () => vscode.postMessage({
+      type: 'revealPortOwnerProject',
+      id: button.dataset.id
+    }),
     'manage-group': () => vscode.postMessage({ type: 'manageRunGroups', id: button.dataset.id }),
     'toggle-tag-filter': () => {
       tagsExpanded = !tagsExpanded;
@@ -2304,7 +2377,12 @@ app.addEventListener('click', (event) => {
     'force-close-ports': () => {
       closeMenus();
       button.disabled = true;
-      vscode.postMessage({ type: 'forceCloseProjectPorts', id: button.dataset.id });
+      const port = Number(button.dataset.port);
+      vscode.postMessage({
+        type: 'forceCloseProjectPorts',
+        id: button.dataset.id,
+        ...(Number.isInteger(port) && port >= 1 && port <= 65535 ? { port } : {})
+      });
     },
     'force-close-ports-and-start': () => {
       button.disabled = true;
@@ -2920,6 +2998,8 @@ if (state.mode === 'list') {
   renderProjectOutput();
 } else if (state.mode === 'diagnosis') {
   renderProjectDiagnosis();
+} else if (state.mode === 'port-listening') {
+  renderPortListening();
 } else {
   renderProjectForm(state.mode);
 }

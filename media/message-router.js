@@ -48,6 +48,10 @@
     'setTagFilter',
     'showAdd',
     'showAgentSetup',
+    'showPortListening',
+    'refreshPortListening',
+    'copyPortListeningDetails',
+    'revealPortOwnerProject',
     'showDiagnosis',
     'showEdit',
     'showOutput',
@@ -69,6 +73,7 @@
     'forceCloseProjectPorts',
     'forceCloseProjectPortsAndStart',
     'handoffProject',
+    'revealPortOwnerProject',
     'openProject',
     'openProjectFolder',
     'openProjectTerminal',
@@ -145,6 +150,20 @@
       return undefined;
     }
     if (value.type === 'resolveServicePort'
+      && (!Number.isInteger(Number(value.port))
+        || Number(value.port) < 1
+        || Number(value.port) > 65535)) {
+      return undefined;
+    }
+    if (value.type === 'forceCloseProjectPorts'
+      && value.port !== undefined
+      && (!Number.isInteger(Number(value.port))
+        || Number(value.port) < 1
+        || Number(value.port) > 65535)) {
+      return undefined;
+    }
+    if (value.type === 'copyPortListeningDetails'
+      && value.port !== undefined
       && (!Number.isInteger(Number(value.port))
         || Number(value.port) < 1
         || Number(value.port) > 65535)) {

@@ -28,6 +28,14 @@ test('allowlists the complete host-to-webview message contract', () => {
 test('validates commands sent from the webview before routing', async () => {
   assert.ok(WEBVIEW_COMMAND_TYPES.has('saveProject'));
   assert.ok(WEBVIEW_COMMAND_TYPES.has('startProject'));
+  assert.ok(WEBVIEW_COMMAND_TYPES.has('showPortListening'));
+  assert.ok(WEBVIEW_COMMAND_TYPES.has('refreshPortListening'));
+  assert.ok(WEBVIEW_COMMAND_TYPES.has('copyPortListeningDetails'));
+  assert.ok(WEBVIEW_COMMAND_TYPES.has('revealPortOwnerProject'));
+  assert.equal(validateWebviewCommand({ type: 'forceCloseProjectPorts', id: 'project-1', port: 70000 }), undefined);
+  assert.equal(validateWebviewCommand({ type: 'forceCloseProjectPorts', id: 'project-1', port: 4310 })?.port, 4310);
+  assert.equal(validateWebviewCommand({ type: 'copyPortListeningDetails', port: 0 }), undefined);
+  assert.equal(validateWebviewCommand({ type: 'copyPortListeningDetails' })?.type, 'copyPortListeningDetails');
   assert.equal(validateWebviewCommand({ type: 'startProject', id: '' }), undefined);
   assert.equal(validateWebviewCommand({ type: 'copyServiceUrl', id: 'project-1', port: 70000 }), undefined);
   assert.equal(validateWebviewCommand({ type: 'resolveServicePort', id: 'project-1', port: 0 }), undefined);

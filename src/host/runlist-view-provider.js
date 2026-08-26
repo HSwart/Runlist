@@ -110,6 +110,11 @@ const {
   PortReservationStore
 } = require('../ports/port-gate');
 const {
+  buildPortListeningReport,
+  formatPortListenerClipboardLine,
+  formatPortListeningClipboard
+} = require('../ports/port-listening-report');
+const {
   projectFormChanged,
   projectFormSetup,
   projectFormServices,
@@ -383,11 +388,94 @@ class RunlistViewProvider {
     this.mode = 'agents';
     this.routeNotice = undefined;
     this.diagnosisProjectIncarnation = undefined;
+    this.portListeningReport = undefined;
     this.draft = {};
     this.focusTarget = { type: 'action', action: 'close-screen' };
     this.returnFocus = this.defaultListFocusTarget();
     this.selectedProjectId = undefined;
     await this.revealRunlistView();
+    this.render();
+  }
+
+  async showPortListeningDiagnosis() {
+    if (!await this.confirmDiscardProjectChanges()) {
+      return;
+    }
+    this.mode = 'port-listening';
+    this.routeNotice = undefined;
+    this.diagnosisProjectIncarnation = undefined;
+    this.draft = {};
+    this.focusTarget = { type: 'action', action: 'close-screen' };
+    this.returnFocus = this.defaultListFocusTarget();
+    this.selectedProjectId = undefined;
+    await this.refreshPortListeningDiagnosis({ reveal: true });
+  }
+
+  async refreshPortListeningDiagnosis(options = {}) {
+    if (this.mode !== 'port-listening') {
+      return;
+    }
+    const ports = [...new Set(this.projects.flatMap((project) => (
+      Array.isArray(project?.services)
+        ? project.services
+          .map((service) => Number(service?.port))
+          .filter((port) => Number.isInteger(port) && port >= 1 && port <= 65535)
+        : []
+    )))].sort((left, right) => left - right);
+    let listeners = [];
+    if (ports.length) {
+      try {
+        listeners = await findListeningProcesses(ports);
+      } catch {
+        listeners = [];
+      }
+    }
+    this.portListeningReport = buildPortListeningReport({
+      projects: this.projects,
+      listeners,
+      processRuntime: this.processOwnership.snapshot(),
+      platform: process.platform,
+      scannedAt: Date.now()
+    });
+    if (options.reveal) {
+      await this.revealRunlistView();
+    }
+    this.render();
+  }
+
+  async copyPortListeningDetails(port) {
+    if (this.mode !== 'port-listening' || !this.portListeningReport) {
+      return;
+    }
+    const parsedPort = Number(port);
+    let text;
+    if (Number.isInteger(parsedPort) && parsedPort >= 1 && parsedPort <= 65535) {
+      const row = this.portListeningReport.rows.find((item) => item.port === parsedPort);
+      text = formatPortListenerClipboardLine(row || {
+        port: parsedPort,
+        kind: 'gone',
+        plainReason: 'Nothing is listening on this port right now.'
+      });
+    } else {
+      text = formatPortListeningClipboard(this.portListeningReport);
+    }
+    await vscode.env.clipboard.writeText(text);
+    vscode.window.showInformationMessage('Copied listening details.');
+  }
+
+  async revealPortOwnerProject(id) {
+    const project = this.projects.find((item) => item.id === id);
+    if (!project) {
+      vscode.window.showWarningMessage('That project is no longer in Runlist.');
+      return;
+    }
+    this.mode = 'list';
+    this.routeNotice = undefined;
+    this.portListeningReport = undefined;
+    this.diagnosisProjectIncarnation = undefined;
+    this.selectedProjectId = undefined;
+    this.returnFocus = undefined;
+    this.focusTarget = { type: 'project-control', id };
     this.render();
   }
 
@@ -1423,6 +1511,7 @@ class RunlistViewProvider {
     this.selectedProjectId = undefined;
     this.diagnosisProjectIncarnation = undefined;
     this.approvedRepairProjectId = undefined;
+    this.portListeningReport = undefined;
     this.returnFocus = undefined;
     this.focusTarget = returnFocus;
     this.render();
@@ -3320,8 +3409,12 @@ class RunlistViewProvider {
     const portGeneration = this.portReservations.captureShared(id);
 
     this.forceClosingProjectIds.add(id);
-    this.focusTarget = { type: 'project-control', id };
-    this.renderProjectList();
+    if (this.mode === 'port-listening') {
+      this.render();
+    } else {
+      this.focusTarget = { type: 'project-control', id };
+      this.renderProjectList();
+    }
     try {
       const result = await recoverProjectPorts(recoveryProject, intent, {
         additionalProcesses,
@@ -3393,8 +3486,12 @@ class RunlistViewProvider {
       return false;
     } finally {
       this.forceClosingProjectIds.delete(id);
-      this.focusTarget = { type: 'project-control', id };
-      this.renderProjectList();
+      if (this.mode === 'port-listening') {
+        void this.refreshPortListeningDiagnosis();
+      } else {
+        this.focusTarget = { type: 'project-control', id };
+        this.renderProjectList();
+      }
       void this.refreshProjectStatuses();
     }
   }
@@ -4231,6 +4328,9 @@ class RunlistViewProvider {
           stale: repairProposalStale
         } : undefined
       } : undefined,
+      portListening: this.mode === 'port-listening'
+        ? (this.portListeningReport || { scannedAt: Date.now(), rows: [], empty: true })
+        : undefined,
       projects: stateProjects,
       runningAppIds: runningAppProjectIds(stateProjects),
       stopAllCount: stoppableProjectIds(stateProjects).length,
