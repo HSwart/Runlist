@@ -20,7 +20,7 @@ const {
   reserveLocalPort,
   runComposeUpAttached,
   runDocker,
-  runShellCommand,
+  runComposeCommand,
   waitForTcpPort,
   waitForTcpPortClosed,
   withComposeProjectName,
@@ -120,7 +120,7 @@ testIfDocker('full lifecycle: detect → import → up → port ready → scoped
   assert.equal(await waitForTcpPort(webPort, { timeoutMs: 60_000 }), true);
   assert.equal(await waitForTcpPort(cachePort, { timeoutMs: 60_000 }), true);
 
-  await runShellCommand(stopCommand, { cwd: workspace.root, timeoutMs: 60_000 });
+  await runComposeCommand(stopCommand, { cwd: workspace.root, timeoutMs: 60_000 });
 
   assert.equal(await waitForTcpPortClosed(webPort, { timeoutMs: 30_000 }), true);
   assert.equal(await waitForTcpPortClosed(cachePort, { timeoutMs: 30_000 }), true);
@@ -175,7 +175,7 @@ testIfDocker('scoped stop leaves unrelated compose services running', async (t) 
   });
   assert.equal(await waitForTcpPort(webPort, { timeoutMs: 60_000 }), true);
 
-  await runShellCommand(stopCommand, { cwd: workspace.root, timeoutMs: 60_000 });
+  await runComposeCommand(stopCommand, { cwd: workspace.root, timeoutMs: 60_000 });
   assert.equal(await waitForTcpPortClosed(webPort, { timeoutMs: 30_000 }), true);
 
   const running = await runDocker([
@@ -236,7 +236,7 @@ services:
   });
 
   assert.equal(await waitForTcpPort(webPort, { timeoutMs: 60_000 }), true);
-  await runShellCommand(stopCommand, { cwd: folderWithSpaces, timeoutMs: 60_000 });
+  await runComposeCommand(stopCommand, { cwd: folderWithSpaces, timeoutMs: 60_000 });
   assert.equal(await waitForTcpPortClosed(webPort, { timeoutMs: 30_000 }), true);
 });
 

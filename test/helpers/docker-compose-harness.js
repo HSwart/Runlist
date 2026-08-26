@@ -21,6 +21,52 @@ function shellQuote(value) {
   return `'${text.replace(/'/g, `'\\''`)}'`;
 }
 
+function splitCommandTokens(command) {
+  const tokens = [];
+  let current = '';
+  let quote = null;
+  for (let index = 0; index < command.length; index += 1) {
+    const character = command[index];
+    if (quote) {
+      if (character === quote) {
+        quote = null;
+        continue;
+      }
+      if (character === '\\' && quote === '"' && command[index + 1] === '"') {
+        current += '"';
+        index += 1;
+        continue;
+      }
+      current += character;
+      continue;
+    }
+    if (character === '\'' || character === '"') {
+      quote = character;
+      continue;
+    }
+    if (/\s/u.test(character)) {
+      if (current) {
+        tokens.push(current);
+        current = '';
+      }
+      continue;
+    }
+    current += character;
+  }
+  if (current) {
+    tokens.push(current);
+  }
+  return tokens;
+}
+
+function composeCommandToDockerArgs(command) {
+  const tokens = splitCommandTokens(String(command || '').trim());
+  if (tokens.length < 4 || tokens[0] !== 'docker' || tokens[1] !== 'compose') {
+    throw new Error(`Unsupported compose command: ${command}`);
+  }
+  return tokens.slice(1);
+}
+
 async function detectDockerInvoker() {
   if (cachedDockerInvoker) {
     return cachedDockerInvoker;
@@ -31,6 +77,16 @@ async function detectDockerInvoker() {
       await execFileAsync('docker', ['info'], baseOptions);
       cachedDockerShellMode = 'direct';
       return (args, options = {}) => execFileAsync('docker', args, {
+        ...baseOptions,
+        timeout: Number.isFinite(options.timeoutMs) ? options.timeoutMs : DEFAULT_TIMEOUT_MS,
+        cwd: options.cwd,
+        env: options.env
+      });
+    },
+    async () => {
+      await execFileAsync('sudo', ['docker', 'info'], baseOptions);
+      cachedDockerShellMode = 'sudo';
+      return (args, options = {}) => execFileAsync('sudo', ['docker', ...args], {
         ...baseOptions,
         timeout: Number.isFinite(options.timeoutMs) ? options.timeoutMs : DEFAULT_TIMEOUT_MS,
         cwd: options.cwd,
@@ -50,16 +106,6 @@ async function detectDockerInvoker() {
           env: options.env
         }
       );
-    },
-    async () => {
-      await execFileAsync('sudo', ['docker', 'info'], baseOptions);
-      cachedDockerShellMode = 'sudo';
-      return (args, options = {}) => execFileAsync('sudo', ['docker', ...args], {
-        ...baseOptions,
-        timeout: Number.isFinite(options.timeoutMs) ? options.timeoutMs : DEFAULT_TIMEOUT_MS,
-        cwd: options.cwd,
-        env: options.env
-      });
     }
   ];
 
@@ -76,15 +122,15 @@ async function detectDockerInvoker() {
   return undefined;
 }
 
-async function wrapDockerShell(command) {
+async function resolveDockerSpawnSpec(dockerArgs) {
   await detectDockerInvoker();
   if (cachedDockerShellMode === 'sudo') {
-    return `sudo ${command}`;
+    return { executable: 'sudo', argv: ['docker', ...dockerArgs] };
   }
   if (cachedDockerShellMode === 'sg') {
-    return `sg docker -c ${shellQuote(command)}`;
+    throw new Error('Attached compose requires direct or sudo Docker access.');
   }
-  return command;
+  return { executable: 'docker', argv: dockerArgs };
 }
 
 function withComposeProjectName(command, projectName) {
@@ -242,52 +288,30 @@ async function composeDown(composePath, projectName) {
   }
 }
 
-async function runShellCommand(command, options = {}) {
-  const platform = options.platform || process.platform;
-  const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 60_000;
-  const wrapped = options.wrapDocker === false ? command : await wrapDockerShell(command);
-  if (platform === 'win32') {
-    await execFileAsync('cmd.exe', ['/d', '/s', '/c', wrapped], {
-      cwd: options.cwd,
-      timeout: timeoutMs,
-      windowsHide: true,
-      maxBuffer: 4 * 1024 * 1024
-    });
-    return;
-  }
-  await execFileAsync('sh', ['-lc', wrapped], {
+async function runComposeCommand(command, options = {}) {
+  const dockerArgs = composeCommandToDockerArgs(command);
+  await runDocker(dockerArgs, {
+    timeoutMs: Number.isFinite(options.timeoutMs) ? options.timeoutMs : 60_000,
     cwd: options.cwd,
-    timeout: timeoutMs,
-    maxBuffer: 4 * 1024 * 1024
+    env: options.env
   });
 }
 
-function spawnShellCommand(command, options = {}) {
-  const platform = options.platform || process.platform;
-  const shellCommand = options.shellCommand || command;
-  if (platform === 'win32') {
-    return spawn('cmd.exe', ['/d', '/s', '/c', shellCommand], {
-      cwd: options.cwd,
-      env: options.env || process.env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true
-    });
-  }
-  return spawn(shellCommand, {
+function spawnComposeProcess(command, options = {}) {
+  const dockerArgs = composeCommandToDockerArgs(command);
+  return resolveDockerSpawnSpec(dockerArgs).then(({ executable, argv }) => spawn(executable, argv, {
     cwd: options.cwd,
     env: options.env || process.env,
-    shell: true,
     stdio: ['ignore', 'pipe', 'pipe'],
-    detached: true
-  });
+    detached: process.platform !== 'win32',
+    windowsHide: true
+  }));
 }
 
 async function runComposeUpAttached(startCommand, options = {}) {
-  const shellCommand = await wrapDockerShell(startCommand);
-  const child = spawnShellCommand(startCommand, {
+  const child = await spawnComposeProcess(startCommand, {
     cwd: options.cwd,
-    platform: options.platform,
-    shellCommand
+    env: options.env
   });
   let stdout = '';
   let stderr = '';
@@ -342,20 +366,20 @@ async function runComposeUpAttached(startCommand, options = {}) {
 }
 
 module.exports = {
+  composeCommandToDockerArgs,
   composeDown,
   createComposeWorkspace,
   createProbeExecFileAsync,
   dockerCommand,
   dockerRuntimeAvailable,
   reserveLocalPort,
+  runComposeCommand,
   runComposeUpAttached,
   runDocker,
-  runShellCommand,
   sleep,
-  spawnShellCommand,
+  splitCommandTokens,
   waitForTcpPort,
   waitForTcpPortClosed,
   withComposeProjectName,
-  wrapDockerShell,
   writeComposeFixture
 };
