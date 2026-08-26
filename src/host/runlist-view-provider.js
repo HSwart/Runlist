@@ -4548,7 +4548,9 @@ class RunlistViewProvider {
     const outputDiagnostics = outputProject
       ? readProjectDiagnostics(this.projectsFile, outputProject.id)
       : undefined;
-    const cleanProjectOutput = sanitizeProjectOutput(rawProjectOutput);
+    const cleanProjectOutput = outputProject
+      ? this.redactProjectOutputText(outputProject.id, rawProjectOutput)
+      : sanitizeProjectOutput(rawProjectOutput);
     const stateProjects = orderSidebarProjects(projects.map((project) => {
       const openPorts = this.projectOpenPorts.get(project.id) || [];
       const respondingPorts = this.projectRespondingPorts.get(project.id) || [];
