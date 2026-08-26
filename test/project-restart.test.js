@@ -881,9 +881,10 @@ test('keeps an abandoned host reclaimable without a heartbeat refresh', (t) => {
   assert.equal(observer.reserve('project-1'), undefined);
 });
 
-test('exposes an accessible single-project Restart overflow action', () => {
+test('exposes accessible Restart on the running row and in overflow', () => {
   const script = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
 
+  assert.match(script, /class="run-button restart" data-action="restart" data-id="\$\{projectId\}" aria-label="Restart \$\{projectName\}"/);
   assert.match(script, /data-action="restart" data-id="\$\{projectId\}" role="menuitem" aria-label="Restart \$\{projectName\}"/);
   assert.match(script, /const detectedWithoutStop = projectStatus === 'active' && !project\.stopCommand/);
   assert.match(script, /\['running', 'not-ready', 'not-responding', 'ownership-lost', 'active'\]\.includes\(projectStatus\)[\s\S]*&& !detectedWithoutStop[\s\S]*&& !ownershipLostWithoutStop/);

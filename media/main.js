@@ -640,13 +640,12 @@ function serviceDisplayDetails(project, service) {
   return { canResolve, canUseUrl, indicator, state };
 }
 
-function servicesSummary(project) {
-  const services = project.services || [];
-  const labels = services.slice(0, 3).map((service) => `${service.name} :${service.port}`);
-  if (services.length > 3) {
-    labels.push(`+${services.length - 3}`);
+function projectRowPort(project) {
+  if (Number.isInteger(project.previewPort) && project.previewPort > 0) {
+    return project.previewPort;
   }
-  return labels.join(' · ');
+  const firstService = (project.services || []).find((service) => Number.isInteger(service.port) && service.port > 0);
+  return firstService?.port;
 }
 
 function projectServicesDetailHtml(project, projectName) {
@@ -1058,6 +1057,8 @@ function renderList() {
           : ['port-in-use', 'port-in-use-unknown', 'not-ready', 'not-responding', 'review-required', 'ownership-lost'].includes(statusClass)
             ? 'conflict'
             : '';
+        const rowPort = projectRowPort(project);
+        const portLabel = rowPort ? `:${rowPort}` : '';
         return `
           <article id="project-row-${projectId}" class="project-row" data-project-id="${projectId}" aria-labelledby="project-${projectId}" aria-describedby="project-folder-${projectId}" tabindex="-1" title="${escapeHtml(project.folder)}">
             <div class="project-topline">
@@ -1070,11 +1071,12 @@ function renderList() {
                 </div>
                 <div class="project-meta">
                   <div class="project-status status-${statusClass}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : `<span class="status-dot ${statusDotClass}" aria-hidden="true"></span>`}<span>${escapeHtml(displayedStatus)}</span></div>
-                  ${project.services?.length ? `
-                    <button class="project-services-summary" data-action="open-services" data-id="${projectId}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} services for ${projectName}">
-                      <span><small>${escapeHtml(servicesSummary(project))}</small></span>
-                      ${icon('chevron-down')}
+                  ${rowPort ? `
+                    <button class="project-port-chip" data-action="open" data-id="${projectId}" ${canOpen ? '' : 'disabled'} title="${openTitle}" aria-label="${canOpen ? `Open ${projectName} at localhost${escapeHtml(portLabel)}` : openTitle}">
+                      <span>${escapeHtml(portLabel)}</span>
                     </button>` : ''}
+                  ${project.services?.length ? `
+                    <button class="preview-toggle" data-action="open-services" data-id="${projectId}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} services for ${projectName}" title="${project.detailsExpanded ? 'Collapse' : 'Expand'} services">${icon('chevron-down')}</button>` : ''}
                   ${!project.services?.length && project.startupHistory?.length ? `
                     <button class="preview-toggle" data-action="toggle-preview" data-id="${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} project details for ${projectName}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" title="${project.detailsExpanded ? 'Collapse' : 'Expand'} project details">${icon('chevron-down')}</button>` : ''}
                 </div>
@@ -1093,6 +1095,10 @@ function renderList() {
                 <button class="run-button ${reviewRequired ? 'review' : blocked ? 'blocked' : primaryAction.mode}" data-action="${primaryAction.action}" data-id="${projectId}" aria-label="${actionTitle}" title="${actionTitle}" ${primaryAction.disabled ? 'disabled' : ''}>
                   ${reviewRequired ? icon('edit') : productIcon(primaryAction.mode === 'stop' ? 'stop' : 'play')}
                 </button>
+                ${canRestart ? `
+                <button class="run-button restart" data-action="restart" data-id="${projectId}" aria-label="Restart ${projectName}" title="Restart ${projectName}" ${transitioning ? 'disabled' : ''}>
+                  ${icon('refresh')}
+                </button>` : ''}
                 <button class="more-button menu-trigger" data-action="toggle-menu" data-id="${projectId}" data-menu-target="${projectActionMenuId}" aria-label="More actions for ${projectName}" aria-haspopup="menu" aria-expanded="false">${icon('more')}</button>
                 <div class="action-menu" data-menu-id="${projectActionMenuId}" role="menu" aria-label="Actions for ${projectName}" hidden>
                   <button data-action="open" data-id="${projectId}" role="menuitem" ${canOpen ? '' : 'disabled'} title="${openTitle}">

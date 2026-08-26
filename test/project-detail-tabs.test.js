@@ -66,7 +66,7 @@ test('uses the official refresh Codicon, actionable resource copy, and local add
   assert.doesNotMatch(webview, />Resource use unavailable</);
   assert.match(webview, /Start this project in this VS Code window to measure CPU and memory\./);
   assert.match(webview, /serviceLocalAddress\(service\)[\s\S]*class="service-detail-body"/);
-  assert.match(webview, /class="project-services-summary"[^>]*data-action="open-services"/);
+  assert.match(webview, /class="preview-toggle"[^>]*data-action="open-services"/);
   assert.match(webview, /class="service-detail-list" aria-label="Services for/);
   assert.match(webview, /`http:\/\/localhost:\$\{service\.port\}`/);
 });
