@@ -427,6 +427,39 @@ test('smoke termination reports unavailable helper identity without signaling', 
   assert.deepEqual(signals, []);
 });
 
+test('smoke termination treats an already-exited helper as cleaned when identity is unavailable', async (t) => {
+  const smokeRunner = loadSmokeRunnerForTest();
+  const record = {
+    pid: 404404,
+    identity: '404404:638912345678901234',
+    kind: 'already-exited',
+    ports: [],
+    terminateTree: false,
+    state: 'running'
+  };
+  const signals = [];
+  const originalKill = process.kill;
+  process.kill = (pid, signal) => {
+    if (pid === record.pid && signal !== 0) {
+      signals.push([pid, signal]);
+    }
+    const error = new Error('ESRCH');
+    error.code = 'ESRCH';
+    throw error;
+  };
+  t.after(() => {
+    process.kill = originalKill;
+  });
+
+  await smokeRunner.terminateSmokeProcess(record, {
+    platform: 'win32',
+    identityAttempts: 2,
+    identityRetryDelayMs: 0,
+    readProcessIdentity: async () => undefined
+  });
+  assert.deepEqual(signals, []);
+});
+
 test('outer cleanup recovers a valid backup without overwriting corrupt manifest evidence', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-smoke-manifest-recovery-'));
   const smokeRunner = loadSmokeRunnerForTest();
