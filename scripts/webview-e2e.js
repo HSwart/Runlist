@@ -159,6 +159,14 @@ async function captureIdeScreenshots(browser, ready, root, extensionDevelopmentP
   await page.screenshot({ path: frameBPath });
   assert.ok(fs.statSync(frameBPath).size > 10000, 'Frame B IDE screenshot was unexpectedly small.');
 
+  await shrinkSidebar(page, 300);
+  await hideWorkbenchChrome(page);
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  const frameBNarrowPath = path.join(artifactDir, 'ide-frame-b-running-narrow.png');
+  await page.screenshot({ path: frameBNarrowPath });
+  assert.ok(fs.statSync(frameBNarrowPath).size > 10000, 'Narrow Frame B IDE screenshot was unexpectedly small.');
+  await widenSidebar(page, 420);
+
   const previewPath = path.join(extensionDevelopmentPath, 'media', 'runlist-preview.png');
   await page.screenshot({ path: previewPath });
   assert.ok(fs.statSync(previewPath).size > 10000, 'The generated webview screenshot was unexpectedly small.');
@@ -497,6 +505,31 @@ async function widenSidebar(page, targetWidth) {
     return;
   }
   throw new Error('Could not find the VS Code sidebar resize handle.');
+}
+
+async function shrinkSidebar(page, targetWidth) {
+  const sidebar = page.locator('.part.sidebar');
+  const bounds = await sidebar.boundingBox();
+  if (!bounds || bounds.width <= targetWidth) {
+    return;
+  }
+  const sashes = page.locator('.monaco-sash.vertical');
+  for (let index = 0; index < await sashes.count(); index += 1) {
+    const sashBounds = await sashes.nth(index).boundingBox();
+    if (!sashBounds || Math.abs(sashBounds.x - (bounds.x + bounds.width)) > 8) {
+      continue;
+    }
+    const x = sashBounds.x + Math.max(1, sashBounds.width / 2);
+    const y = bounds.y + Math.min(120, bounds.height / 2);
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x - (bounds.width - targetWidth), y, { steps: 10 });
+    await page.mouse.up();
+    await waitFor(async () => (await sidebar.boundingBox())?.width <= targetWidth + 12,
+      3000, 'the Runlist sidebar to shrink for the narrow screenshot');
+    return;
+  }
+  throw new Error('Could not find the VS Code sidebar resize handle to shrink.');
 }
 
 async function assertAxeClean(browser, extensionDevelopmentPath, label) {
