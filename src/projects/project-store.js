@@ -17,7 +17,7 @@ const {
   MAX_ALTERNATE_LAUNCH_PROFILES
 } = require('./launch-profile');
 
-const PROJECT_STORE_SCHEMA_VERSION = 5;
+const PROJECT_STORE_SCHEMA_VERSION = 6;
 const ATOMIC_RENAME_MAX_ATTEMPTS = 5;
 const ATOMIC_RENAME_RETRY_DELAY_MS = 10;
 const ATOMIC_RENAME_WAIT = new Int32Array(new SharedArrayBuffer(4));
@@ -379,7 +379,7 @@ function parseProjectDocument(contents) {
   if (!Object.hasOwn(value, 'schemaVersion')) {
     throw projectStoreError('INVALID_STORAGE', 'Runlist project storage does not have a schema version.');
   }
-  if (![1, 2, 3, 4, PROJECT_STORE_SCHEMA_VERSION].includes(value.schemaVersion)) {
+  if (![1, 2, 3, 4, 5, PROJECT_STORE_SCHEMA_VERSION].includes(value.schemaVersion)) {
     throw projectStoreError(
       'UNSUPPORTED_VERSION',
       `Runlist project storage version ${value.schemaVersion} is not supported.`
@@ -456,6 +456,7 @@ function validateStoredProjects(value, options = {}) {
   const supportsHealthChecks = options.schemaVersion === undefined
     || options.schemaVersion >= 3;
   const supportsTags = options.schemaVersion === undefined || options.schemaVersion >= 5;
+  const supportsComposePath = options.schemaVersion === undefined || options.schemaVersion >= 6;
   if (!Array.isArray(value)) {
     throw projectStoreError('INVALID_STORAGE', 'Runlist project storage does not contain a valid project list.');
   }
@@ -475,6 +476,7 @@ function validateStoredProjects(value, options = {}) {
       'services',
       ...(supportsLaunchProfiles ? ['launchProfiles', 'selectedLaunchProfileId'] : []),
       ...(supportsTags ? ['tags'] : []),
+      ...(supportsComposePath ? ['composePath'] : []),
       'pinned',
       'reviewRequired'
     ]);
@@ -537,6 +539,9 @@ function validateStoredProjects(value, options = {}) {
       if (JSON.stringify(tags) !== JSON.stringify(project.tags)) {
         throw projectStoreError('INVALID_STORAGE', `Runlist project ${index + 1} has invalid tags.`);
       }
+    }
+    if (supportsComposePath && project.composePath !== undefined) {
+      validateStoredComposePath(project.composePath, index);
     }
 
     const projectWithoutTags = { ...project };
@@ -606,6 +611,16 @@ function validateStoredFolder(value, projectIndex) {
   validateStoredText(value, `project ${projectIndex + 1} folder`, 4096);
   if (!path.isAbsolute(value)) {
     throw projectStoreError('INVALID_STORAGE', `Runlist project ${projectIndex + 1} folder is not an absolute path.`);
+  }
+}
+
+function validateStoredComposePath(value, projectIndex) {
+  validateStoredText(value, `project ${projectIndex + 1} Compose path`, 4096);
+  if (!path.isAbsolute(value)) {
+    throw projectStoreError(
+      'INVALID_STORAGE',
+      `Runlist project ${projectIndex + 1} Compose path is not an absolute path.`
+    );
   }
 }
 
@@ -708,6 +723,9 @@ function normalizeProjectInput(input, options = {}) {
   const tags = input.tags === undefined
     ? normalizeProjectTags(existing?.tags)
     : normalizeProjectTags(input.tags);
+  const composePath = normalizeOptionalComposePath(
+    input.composePath === undefined ? existing?.composePath : input.composePath
+  );
 
   const selectedProfile = input.selectedLaunchProfileId === undefined
     ? existing?.selectedLaunchProfileId
@@ -731,6 +749,7 @@ function normalizeProjectInput(input, options = {}) {
       : {}),
     ...(pinned ? { pinned: true } : {}),
     ...(tags.length ? { tags } : {}),
+    ...(composePath ? { composePath } : {}),
     reviewRequired: options.reviewRequired === undefined
       ? Boolean(existing?.reviewRequired)
       : Boolean(options.reviewRequired)
@@ -1124,6 +1143,23 @@ function normalizeFolder(value) {
     throw new Error(`folder does not exist or is not a directory: ${expanded}`);
   }
   return fs.realpathSync(expanded);
+}
+
+function normalizeOptionalComposePath(value) {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error('composePath must be an absolute Compose file path.');
+  }
+  if (value.length > 4096) {
+    throw new Error('composePath is too long.');
+  }
+  const expanded = value.trim().replace(/^~(?=$|[\\/])/, os.homedir());
+  if (!path.isAbsolute(expanded)) {
+    throw new Error('composePath must be an absolute path.');
+  }
+  return expanded;
 }
 
 function normalizeCommand(value, fieldName) {

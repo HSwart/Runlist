@@ -1123,18 +1123,22 @@ function renderList() {
         const rowElapsedLabel = Number.isFinite(rowElapsedStartedAt)
           ? formatElapsed(Date.now() - rowElapsedStartedAt)
           : '';
+        const isComposeProject = typeof project.composePath === 'string' && Boolean(project.composePath.trim());
+        const projectKindLabel = isComposeProject ? 'Compose project' : 'project';
+        const titleAriaLabel = `${project.pinned ? `Pinned ${projectKindLabel}` : projectKindLabel}: ${projectName}${project.currentWorkspace ? ', this window' : ''}`;
         return `
-          <article id="project-row-${projectId}" class="project-row" data-project-id="${projectId}" aria-labelledby="project-${projectId}" aria-describedby="project-folder-${projectId}" tabindex="-1" title="${escapeHtml(project.folder)}">
+          <article id="project-row-${projectId}" class="project-row${isComposeProject ? ' compose-project-row' : ''}" data-project-id="${projectId}"${isComposeProject ? ' data-compose="true"' : ''} aria-labelledby="project-${projectId}" aria-describedby="project-folder-${projectId}" tabindex="-1" title="${escapeHtml(project.folder)}">
             <div class="project-topline">
               <div class="project-heading">
                 <div class="project-title-line">
-                  <h2 id="project-${projectId}" title="${project.pinned ? `Pinned: ${projectName}` : projectName}" aria-label="${project.pinned ? `Pinned project: ${projectName}` : projectName}${project.currentWorkspace ? ', this window' : ''}">
+                  <h2 id="project-${projectId}" title="${project.pinned ? `Pinned: ${projectName}` : projectName}" aria-label="${titleAriaLabel}">
                     ${project.pinned ? icon('pinned', 'pinned-icon') : ''}
                     ${projectName}
                   </h2>
                 </div>
                 <div class="project-meta">
                   <div class="project-status status-${statusClass}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : `<span class="status-dot ${statusDotClass}" aria-hidden="true"></span>`}<span>${escapeHtml(displayedStatus)}</span></div>
+                  ${isComposeProject ? '<span class="project-compose-cue" title="Imported from Compose">Compose</span>' : ''}
                   ${projectListenerOwnerHtml(project)}
                   ${Number.isFinite(rowElapsedStartedAt) ? `
                     <span class="project-row-elapsed" data-row-elapsed data-started-at="${rowElapsedStartedAt}" aria-label="Running for ${escapeHtml(rowElapsedLabel)}">${escapeHtml(rowElapsedLabel)}</span>` : ''}
@@ -1147,7 +1151,7 @@ function renderList() {
                   ${!project.services?.length && project.startupHistory?.length ? `
                     <button class="preview-toggle" data-action="toggle-preview" data-id="${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} project details for ${projectName}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" title="${project.detailsExpanded ? 'Collapse' : 'Expand'} project details">${icon('chevron-down')}</button>` : ''}
                 </div>
-                <span id="project-folder-${projectId}" class="visually-hidden">${escapeHtml(project.folder)}</span>
+                <span id="project-folder-${projectId}" class="visually-hidden">${escapeHtml(project.folder)}${isComposeProject ? `. Compose file ${escapeHtml(project.composePath)}` : ''}</span>
               </div>
               <div class="project-actions">
                 ${hasLaunchProfiles ? `

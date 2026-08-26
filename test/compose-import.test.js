@@ -78,6 +78,7 @@ services:
     { name: 'web', port: '4310', url: '' }
   ]);
   assert.equal(proposal.proposedProject.reviewRequired, false);
+  assert.equal(proposal.proposedProject.composePath, '/tmp/acme/compose.yaml');
   assert.match(proposal.warnings[0], /db has no published host port/);
   assert.doesNotMatch(proposal.proposedProject.startCommand, /docker compose up -d/);
 });

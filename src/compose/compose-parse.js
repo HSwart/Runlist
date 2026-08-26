@@ -135,6 +135,7 @@ function buildComposeImportProposal(options = {}) {
         port: service.port,
         url: service.url
       })),
+      ...(composePath ? { composePath } : {}),
       reviewRequired: false
     },
     warnings: parsed.services
