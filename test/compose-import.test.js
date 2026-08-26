@@ -106,3 +106,18 @@ services:
       - "3000-3005:3000-3005"
 `), (error) => error instanceof ComposeFileError && error.code === 'COMPOSE_PORT_RANGE');
 });
+
+test('prefers an explicit Compose path over auto-detection', () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-compose-pick-'));
+  fs.writeFileSync(path.join(folder, 'compose.yaml'), 'services:\n  a:\n    ports: ["1:1"]\n');
+  const override = path.join(folder, 'docker-compose.yml');
+  fs.writeFileSync(override, 'services:\n  b:\n    ports: ["2:2"]\n');
+  assert.equal(resolveComposeFile(folder, override), path.resolve(override));
+  const proposal = buildComposeImportProposal({
+    folder,
+    composePath: override,
+    contents: fs.readFileSync(override, 'utf8')
+  });
+  assert.equal(proposal.parsedServices[0].name, 'b');
+  fs.rmSync(folder, { recursive: true, force: true });
+});
