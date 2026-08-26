@@ -973,9 +973,27 @@ class RunlistViewProvider {
   }
 
   defaultListFocusTarget() {
-    return this.projects.length
-      ? { type: 'field', id: 'project-search' }
-      : { type: 'action', action: 'show-add' };
+    const projectCount = this.projects.length;
+    if (projectCount > 1) {
+      return { type: 'field', id: 'project-search' };
+    }
+    if (projectCount === 1) {
+      return { type: 'project-control', id: this.projects[0].id };
+    }
+    return currentWorkspaceFolderPath(vscode.workspace.workspaceFolders)
+      ? { type: 'action', action: 'show-add' }
+      : undefined;
+  }
+
+  syncTitlebarContext() {
+    if (typeof vscode.commands?.executeCommand !== 'function') {
+      return;
+    }
+    void vscode.commands.executeCommand(
+      'setContext',
+      'runlist.showTitlebarExtras',
+      this.projects.length > 1
+    );
   }
 
   getProjectStatus(id) {
@@ -1060,12 +1078,16 @@ class RunlistViewProvider {
     this.expandedPreviewProjectId = undefined;
     this.expandedPreviewServicePort = undefined;
     this.syncHttpResponsePulseTarget(undefined, undefined, undefined);
-    const focusTarget = projects.length
+    const focusTarget = projects.length > 1
       ? { type: 'field', id: 'project-search' }
-      : { type: 'action', action: 'show-add' };
+      : projects.length === 1
+        ? { type: 'project-control', id: projects[0].id }
+        : currentWorkspaceFolderPath(vscode.workspace.workspaceFolders)
+          ? { type: 'action', action: 'show-add' }
+          : undefined;
     this.focusTarget = focusTarget;
     this.lastFocusTarget = focusTarget;
-    this.searchFocused = focusTarget.type === 'field' && focusTarget.id === 'project-search';
+    this.searchFocused = focusTarget?.type === 'field' && focusTarget.id === 'project-search';
     return true;
   }
 
@@ -4487,6 +4509,8 @@ class RunlistViewProvider {
     if (!this.view) {
       return;
     }
+
+    this.syncTitlebarContext();
 
     const stylesUri = this.view.webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'media', 'styles.css')

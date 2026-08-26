@@ -1080,7 +1080,7 @@ test('empty state offers Add this folder when a workspace folder is present', ()
 
   assert.match(result.app.innerHTML, /No projects yet/);
   assert.match(result.app.innerHTML, /Add this folder/);
-  assert.match(result.app.innerHTML, /folder open in this window/);
+  assert.match(result.app.innerHTML, /Add the folder open in this window\./);
   assert.match(result.app.innerHTML, /class="empty-start-chips"/);
   assert.match(result.app.innerHTML, /data-action="start-workspace-script" data-script="dev"/);
   assert.match(result.app.innerHTML, />\s*Start\s*</);
@@ -1090,12 +1090,12 @@ test('empty state offers Add this folder when a workspace folder is present', ()
   assert.doesNotMatch(result.app.innerHTML, />Add project</);
 });
 
-test('empty state keeps Add project when no workspace folder is open', () => {
+test('empty state hides Add this folder when no workspace folder is open', () => {
   const result = renderNonEmptyProjectList([]);
 
-  assert.match(result.app.innerHTML, />Add project</);
-  assert.match(result.app.innerHTML, /Save a project folder and its start command once/);
+  assert.match(result.app.innerHTML, /Open a folder in this window first\./);
   assert.doesNotMatch(result.app.innerHTML, /Add this folder/);
+  assert.doesNotMatch(result.app.innerHTML, />Add project</);
 });
 
 test('marks the current-window project without replacing its name', () => {

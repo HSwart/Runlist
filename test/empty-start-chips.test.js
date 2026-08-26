@@ -33,7 +33,9 @@ test('reads only package.json start and dev scripts for empty-state chips', (t) 
 test('empty Frame A keeps Add this folder and optional start/dev chips', () => {
   const extension = readShippedHostSource(root);
   assert.match(webview, /<h2>No projects yet<\/h2>/);
-  assert.match(webview, /data-action="show-add">\$\{addLabel\}/);
+  assert.match(webview, /const addLabel = 'Add this folder'/);
+  assert.match(webview, /data-action="show-add">\$\{addLabel\}<\/button>/);
+  assert.match(webview, /Add the folder open in this window\./);
   assert.match(webview, /class="empty-start-chips"/);
   assert.match(webview, /data-action="start-workspace-script" data-script="/);
   assert.match(webview, /const chipLabel = script\.name === 'dev' \? 'Dev' : 'Start'/);

@@ -168,22 +168,22 @@
         },
         {
           "command": "runlist.showAgentSetup",
-          "when": "view == runlist.projects",
+          "when": "view == runlist.projects && runlist.showTitlebarExtras",
           "group": "navigation@2"
         },
         {
           "command": "runlist.transferProjects",
-          "when": "view == runlist.projects",
+          "when": "view == runlist.projects && runlist.showTitlebarExtras",
           "group": "navigation@3"
         },
         {
           "command": "runlist.manageGroups",
-          "when": "view == runlist.projects",
+          "when": "view == runlist.projects && runlist.showTitlebarExtras",
           "group": "navigation@4"
         },
         {
           "command": "runlist.showPortListening",
-          "when": "view == runlist.projects",
+          "when": "view == runlist.projects && runlist.showTitlebarExtras",
           "group": "navigation@5"
         }
       ],

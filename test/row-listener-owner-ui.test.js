@@ -9,12 +9,8 @@ const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
 const host = fs.readFileSync(path.join(root, 'src', 'host', 'runlist-view-provider.js'), 'utf8');
 const statusDisplay = fs.readFileSync(path.join(root, 'media', 'project-status-display.js'), 'utf8');
 
-test('row keeps listener owner on line 2 without kill chrome or a third permanent line', () => {
-  assert.match(webview, /function projectListenerOwnerHtml\(/);
-  assert.match(webview, /class="project-listener-owner"/);
-  assert.match(webview, /\$\{projectListenerOwnerHtml\(project\)\}/);
-  assert.match(styles, /\.project-listener-owner \{[\s\S]*font-size: 11px;/);
-  assert.match(styles, /\.project-meta \{[\s\S]*flex-wrap: nowrap;/);
+test('row keeps listener owner off the everyday list line', () => {
+  assert.doesNotMatch(webview, /\$\{projectListenerOwnerHtml\(project\)\}/);
   assert.doesNotMatch(webview, /class="project-services-summary"/);
   assert.doesNotMatch(webview, /data-action="kill-port"|who owns this port/i);
   assert.doesNotMatch(styles, /Inter|fonts\.googleapis|@font-face/);

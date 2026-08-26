@@ -38,7 +38,7 @@ test('contributes one native project transfer command to the Runlist view', () =
   });
   assert.deepEqual(menu, {
     command: 'runlist.transferProjects',
-    when: 'view == runlist.projects',
+    when: 'view == runlist.projects && runlist.showTitlebarExtras',
     group: 'navigation@3'
   });
   assert.ok(manifest.activationEvents.includes('onCommand:runlist.transferProjects'));
@@ -59,13 +59,13 @@ test('view title commands use plain-language icon titles', () => {
   assert.equal(byId['runlist.importCompose'], 'Import Compose Services');
 });
 
-test('contributes What\'s Listening to the Runlist view title', () => {
+test('contributes What\'s Listening behind multi-project titlebar extras', () => {
   const root = path.join(__dirname, '..');
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   assert.ok(manifest.activationEvents.includes('onCommand:runlist.showPortListening'));
   assert.ok(manifest.contributes.menus['view/title'].some((entry) => (
     entry.command === 'runlist.showPortListening'
-      && entry.when === 'view == runlist.projects'
+      && entry.when === 'view == runlist.projects && runlist.showTitlebarExtras'
   )));
 });
 

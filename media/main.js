@@ -966,10 +966,10 @@ function renderList() {
   }
   if (state.projects.length === 0) {
     const workspaceFolder = String(state.currentWorkspaceFolder || '');
-    const addLabel = workspaceFolder ? 'Add this folder' : 'Add project';
+    const addLabel = 'Add this folder';
     const emptyCopy = workspaceFolder
-      ? 'Save a start command for the folder open in this window, then start it from here.'
-      : 'Save a project folder and its start command once, then start it from here.';
+      ? 'Add the folder open in this window.'
+      : 'Open a folder in this window first.';
     const startScripts = Array.isArray(state.workspaceStartScripts)
       ? state.workspaceStartScripts.filter((script) => script
         && ['start', 'dev'].includes(script.name)
@@ -982,7 +982,7 @@ function renderList() {
         <p>${escapeHtml(emptyCopy)}</p>
         ${state.lifecycleWindowSupported === false ? `<p>Start and Stop work for apps on this computer. You can still save projects here. Remote SSH, Dev Containers, GitHub Codespaces, VS Code Tunnels, and Windows WSL network paths will not start or stop processes in this release.</p>` : ''}
         <div class="empty-actions">
-          <button class="primary-button" data-action="show-add">${addLabel}</button>
+          ${workspaceFolder ? `<button class="primary-button" data-action="show-add">${addLabel}</button>` : ''}
           ${workspaceFolder && startScripts.length ? `
             <div class="empty-start-chips" role="group" aria-label="Start options for this folder">
               ${startScripts.map((script) => {
@@ -1030,10 +1030,11 @@ function renderList() {
         <p>${escapeHtml(state.composeNotice)}</p>
       </section>` : ''}
     ${runGroupsHtml()}
+    ${state.projects.length > 1 ? `
     <div class="project-search">
       ${icon('search', 'search-icon')}
       <input id="project-search" type="search" value="${escapeHtml(searchQuery)}" placeholder="Search projects" aria-label="Search projects" autocomplete="off" spellcheck="false">
-    </div>
+    </div>` : ''}
     ${tagFilterHtml()}
     <span id="project-search-status" class="visually-hidden" aria-live="polite"></span>
     ${runningApps.length > 1 ? `
@@ -1155,7 +1156,6 @@ function renderList() {
                 </div>
                 <div class="project-meta">
                   <div class="project-status status-${statusClass}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : `<span class="status-dot ${statusDotClass}" aria-hidden="true"></span>`}<span>${escapeHtml(displayedStatus)}</span></div>
-                  ${projectListenerOwnerHtml(project)}
                   ${Number.isFinite(rowElapsedStartedAt) ? `
                     <span class="project-row-elapsed" data-row-elapsed data-started-at="${rowElapsedStartedAt}" aria-label="Running for ${escapeHtml(rowElapsedLabel)}">${escapeHtml(rowElapsedLabel)}</span>` : ''}
                   ${rowPort ? `

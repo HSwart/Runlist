@@ -30,10 +30,11 @@ test('keeps the everyday list to two lines: wrapping name, then status and port'
 
 test('does not explain the product on first-run or everyday screens', () => {
   assert.match(webview, /<h2>No projects yet<\/h2>/);
-  assert.match(webview, /data-action="show-add">\$\{addLabel\}/);
   assert.match(webview, /Add this folder/);
-  assert.match(webview, /Save a start command for the folder open in this window/);
-  assert.match(webview, /Save a project folder and its start command once/);
+  assert.match(webview, /Add the folder open in this window\./);
+  assert.match(webview, /Open a folder in this window first\./);
+  assert.doesNotMatch(webview, /Save a start command for the folder open in this window/);
+  assert.doesNotMatch(webview, /Save a project folder and its start command once/);
   assert.doesNotMatch(webview, /Save a project folder and its commands once/);
   assert.doesNotMatch(webview, /Choose a folder and save its commands and services once/);
   assert.doesNotMatch(webview, /Update \$\{escapeHtml\(state\.draft\.name/);
@@ -62,4 +63,9 @@ test('uses the workbench font for sidebar chrome and leaves output on the editor
   assert.match(styles, /\.output-peek-line \{\n(?:  .*\n)*  font-family: var\(--vscode-editor-font-family\);\n  font-size: var\(--vscode-editor-font-size, 11px\);/);
   assert.match(styles, /\.output-entry \{\n(?:  .*\n)*  font-family: var\(--vscode-editor-font-family\);\n  font-size: var\(--vscode-editor-font-size, 11px\);/);
   assert.doesNotMatch(styles, /Inter|fonts\.googleapis|@font-face/);
+});
+
+test('hides project search on a one-row list', () => {
+  assert.match(webview, /\$\{state\.projects\.length > 1 \? `/);
+  assert.match(webview, /id="project-search"/);
 });
