@@ -254,6 +254,8 @@ class RunlistViewProvider {
     this.approvedRepairProjectId = undefined;
     this.portListeningReport = undefined;
     this.composeImport = undefined;
+    this.composeAvailability = undefined;
+    this.composeNotice = undefined;
     this.expandedPreviewProjectId = undefined;
     this.expandedPreviewServicePort = undefined;
     this.processes = new Map();
@@ -1148,6 +1150,33 @@ class RunlistViewProvider {
       }));
   }
 
+  async refreshComposeAvailabilityNotice() {
+    const hasComposeProject = this.projects.some((project) => isComposeManagedProject(project));
+    if (!hasComposeProject) {
+      this.composeNotice = undefined;
+      this.composeAvailability = undefined;
+      return;
+    }
+    if (this.lifecycleCapability.supported === false) {
+      this.composeNotice = 'Compose projects cannot start in this window. Save and review still work; use a local window when Docker is available.';
+      return;
+    }
+    const now = Date.now();
+    const cached = this.composeAvailability;
+    if (cached && (now - cached.checkedAt) < 30000) {
+      this.composeNotice = cached.result?.ok ? undefined : cached.result?.message;
+      return;
+    }
+    const result = await probeComposeAvailability();
+    if (this.disposed) {
+      return;
+    }
+    this.composeAvailability = { checkedAt: now, result };
+    this.composeNotice = result.ok
+      ? undefined
+      : `${result.message} Compose projects stay listed, but Start is unavailable until Docker is ready.`;
+  }
+
   async refreshProjectStatuses() {
     if (this.disposed) {
       return;
@@ -1164,6 +1193,7 @@ class RunlistViewProvider {
     this.statusRefreshPromise = refreshPromise;
     const revision = this.statusRevision;
     try {
+      await this.refreshComposeAvailabilityNotice();
       await Promise.all([
         this.portReservations.reconcileProcessIdentities(),
         this.processOwnership.reconcileProcessIdentities()
@@ -4538,7 +4568,8 @@ class RunlistViewProvider {
       runningAppIds: runningAppProjectIds(stateProjects),
       stopAllCount: stoppableProjectIds(stateProjects).length,
       lifecycleWindowSupported: this.lifecycleCapability.supported !== false,
-      lifecycleWindowReason: this.lifecycleCapability.reason || ''
+      lifecycleWindowReason: this.lifecycleCapability.reason || '',
+      composeNotice: this.composeNotice || ''
     };
     const expandedPreview = stateProjects.find((project) => project.previewExpanded);
     const runningAppIdSet = new Set(state.runningAppIds.map(String));

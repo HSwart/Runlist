@@ -1014,6 +1014,10 @@ function renderList() {
       <section class="diagnosis-notice" role="status" aria-live="polite">
         <p>Start and Stop work for apps on this computer. Remote SSH, Dev Containers, GitHub Codespaces, VS Code Tunnels, and Windows WSL network paths can save and list projects only.</p>
       </section>` : ''}
+    ${state.composeNotice ? `
+      <section class="diagnosis-notice" role="status" aria-live="polite" aria-label="Compose availability">
+        <p>${escapeHtml(state.composeNotice)}</p>
+      </section>` : ''}
     ${runGroupsHtml()}
     <div class="project-search">
       ${icon('search', 'search-icon')}
