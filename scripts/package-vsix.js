@@ -59,6 +59,8 @@ const REVIEWED_PACKAGE_FILES = Object.freeze([
   'src/ports/port-listening-report.js',
   'src/ports/row-listener-owner.js',
   'src/ports/service-port-overrides.js',
+  'src/ports/worktree-identity.js',
+  'src/ports/worktree-ports.js',
   'src/compose/compose-file.js',
   'src/compose/compose-parse.js',
   'src/compose/compose-runtime.js',

@@ -28,6 +28,7 @@ First-run stays empty until you add a folder. No setup dump.
 - Port chip opens the app at a stable `name.localhost` URL when possible (falls back to `localhost:port`); readiness still tracks the real port
 - Optional local hostname on each project (defaults from the project name); collisions warned at save. Not a local reverse proxy — no Portless/Caddy parity
 - Checks configured ports before a start, and helps you switch when another Runlist app owns the port
+- Git worktrees with port variables get sticky temporary ports per worktree (saved baseline ports stay put); non-git folders keep current behavior
 - On a running or conflicted row, shows who owns the port: this app, another Runlist app, or an external process (name and PID)
 - What’s Listening lists configured project ports and their listeners; closing a listener always asks for confirmation with the exact port and PID, then checks identity again before stopping anything
 - Launch profiles, tags, and run groups for the apps you keep coming back to

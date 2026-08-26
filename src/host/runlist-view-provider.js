@@ -181,6 +181,11 @@ const {
   preferredServiceOpenUrl,
   slugifyLocalHostname
 } = require('../services/local-hostname');
+const { detectWorktreeIdentity } = require('../ports/worktree-identity');
+const {
+  WorktreePortsError,
+  allocateWorktreePortOverrides
+} = require('../ports/worktree-ports');
 const {
   RunGroupCoordinator,
   runGroupManagementWorkflow
@@ -298,6 +303,7 @@ class RunlistViewProvider {
         )
       }
     );
+    this.worktreePortsFile = path.join(path.dirname(projectsFile), 'worktree-ports.json');
     this.processOwnership = new ProcessOwnershipStore(
       path.join(path.dirname(projectsFile), 'process-ownership'),
       {
@@ -3055,11 +3061,28 @@ class RunlistViewProvider {
     let portOverrides;
     let launchProject;
     try {
-      portOverrides = normalizePortOverrides(project, options.portOverrides);
+      let requestedOverrides = options.portOverrides;
+      if (!requestedOverrides?.length) {
+        const identity = detectWorktreeIdentity(project.folder);
+        if (identity) {
+          const allocation = allocateWorktreePortOverrides({
+            project,
+            identity,
+            ledgerFile: this.worktreePortsFile
+          });
+          if (allocation?.overrides?.length) {
+            requestedOverrides = allocation.overrides;
+          }
+        }
+      }
+      portOverrides = normalizePortOverrides(project, requestedOverrides);
       launchProject = projectWithPortOverrides(project, portOverrides);
     } catch (error) {
       this.processOwnership.release(id);
-      vscode.window.showErrorMessage(`Could not start ${project.name}: ${error.message}`);
+      const message = error instanceof WorktreePortsError
+        ? error.message
+        : error.message;
+      vscode.window.showErrorMessage(`Could not start ${project.name}: ${message}`);
       return false;
     }
     const composeLaunch = composeLaunchCommands(launchProject);

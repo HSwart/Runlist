@@ -220,6 +220,7 @@ function rewriteLoopbackServiceUrl(value, savedPort, temporaryPort) {
 function isLocalServiceHost(host) {
   return host === 'localhost'
     || host === 'localhost.'
+    || host.endsWith('.localhost')
     || host === '0.0.0.0'
     || host === '[::]'
     || host === '[::1]'
