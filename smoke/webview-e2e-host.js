@@ -105,6 +105,27 @@ async function executeBrowserCommand(command, provider, root) {
     provider.renderProjectList();
     return { refreshed: true };
   }
+  if (command.action === 'seed-running-screenshot') {
+    const ready = JSON.parse(fs.readFileSync(path.join(root, 'host-ready.json'), 'utf8'));
+    const seeded = upsertProject(provider.projectsFile, {
+      name: 'Acme Storefront',
+      folder: ready.lifecyclePath,
+      startCommand: 'node server.js',
+      stopCommand: '',
+      services: [{ name: 'web', port: 4310 }]
+    });
+    provider.renderProjectList();
+    const started = await provider.startProject(seeded.project.id);
+    assert.equal(started, true, 'Could not start the screenshot project.');
+    return { projectId: seeded.project.id, name: seeded.project.name };
+  }
+  if (command.action === 'project-status') {
+    return provider.getProjectStatus(command.id);
+  }
+  if (command.action === 'stop-project') {
+    await provider.stopProject(command.id);
+    return { stopped: true };
+  }
   if (command.action === 'prepare-screenshot') {
     await vscode.commands.executeCommand('runlist.projects.focus');
     await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');
