@@ -214,6 +214,10 @@ async function validateVsix(root, dependencies = {}) {
         `Refusing to publish a stale or incorrect VSIX: packaged contents do not match current source (${shown.join('; ')}${remaining > 0 ? `; and ${remaining} more` : ''}). Run npm run package and review the new package first.`
       );
     }
+    if (reviewed.has('extension.vsixmanifest') && reviewed.has('extension/package.json') && reviewed.has('extension/readme.md')) {
+      const { assertMarketplaceGalleryPackaging } = require('./package-vsix');
+      assertMarketplaceGalleryPackaging(reviewed);
+    }
   } finally {
     fs.rmSync(temporaryDirectory, { recursive: true, force: true });
   }

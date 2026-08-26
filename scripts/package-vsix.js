@@ -3,6 +3,7 @@ const crypto = require('node:crypto');
 const os = require('node:os');
 const path = require('node:path');
 const { createVSIX, PackageManager } = require('@vscode/vsce');
+const yazl = require('yazl');
 const { readArchive } = require('./validate-vsix');
 
 // This is the reviewed extension boundary.  Packaging starts from this list,
@@ -80,6 +81,157 @@ const GENERATED_ARCHIVE_FILES = Object.freeze([
   '[Content_Types].xml',
   'extension.vsixmanifest'
 ]);
+
+const GALLERY_SCREENSHOTS = Object.freeze([
+  'media/gallery-01-hero.png',
+  'media/gallery-02-status.png',
+  'media/gallery-03-features.png'
+]);
+
+const GITHUB_RAW_README = /raw\.githubusercontent\.com|\/raw\/HEAD\//;
+
+function screenshotAssetType(index) {
+  return `Microsoft.VisualStudio.Services.Screenshots.${index + 1}`;
+}
+
+function marketplaceScreenshotUrl(manifest, index) {
+  const publisher = manifest.publisher;
+  const name = manifest.name;
+  const version = manifest.version;
+  if (typeof publisher !== 'string' || typeof name !== 'string' || typeof version !== 'string'
+    || publisher.trim() === '' || name.trim() === '' || version.trim() === '') {
+    throw new Error('Refusing to package screenshot URLs without publisher, name, and version');
+  }
+  return `https://${publisher}.gallery.vsassets.io/_apis/public/gallery/publisher/${publisher}/extension/${name}/${version}/assetbyname/${screenshotAssetType(index)}`;
+}
+
+function archiveFile(archive, name) {
+  const bytes = archive.get(name);
+  if (!bytes) {
+    throw new Error(`Refusing to package because ${name} is missing from the VSIX`);
+  }
+  return bytes;
+}
+
+function assertPngBytes(bytes, label) {
+  if (bytes.toString('utf8', 0, 32).startsWith('version https://git-lfs.github.com/')) {
+    throw new Error(`Refusing to package because ${label} is a Git LFS pointer`);
+  }
+  if (bytes.subarray(1, 4).toString('ascii') !== 'PNG') {
+    throw new Error(`Refusing to package because ${label} is not PNG bytes`);
+  }
+}
+
+function screenshotAssetTag(index) {
+  return `<Asset Type="${screenshotAssetType(index)}" Path="extension/${GALLERY_SCREENSHOTS[index]}" Addressable="true" />`;
+}
+
+function rewritePackagedReadme(readme, manifest) {
+  if (GITHUB_RAW_README.test(readme)) {
+    throw new Error('Refusing to package a README that uses GitHub-raw image URLs');
+  }
+
+  let result = readme;
+  GALLERY_SCREENSHOTS.forEach((screenshotPath, index) => {
+    const relativeSrc = `src="${screenshotPath}"`;
+    if (!result.includes(relativeSrc)) {
+      throw new Error(`Refusing to package because README is missing relative ${relativeSrc}`);
+    }
+    result = result.replaceAll(relativeSrc, `src="${marketplaceScreenshotUrl(manifest, index)}"`);
+  });
+
+  if (GITHUB_RAW_README.test(result) || /src="media\/gallery-/.test(result)) {
+    throw new Error('Refusing to package a README that is not Marketplace-addressable');
+  }
+  return result;
+}
+
+function addScreenshotAssets(vsixManifest) {
+  if (/Microsoft\.VisualStudio\.Services\.Screenshots\./.test(vsixManifest)
+    || /Microsoft\.VisualStudio\.Services\.Content\.Screenshot/.test(vsixManifest)) {
+    throw new Error('Refusing to package because vsixmanifest already declares screenshot assets');
+  }
+  if (!vsixManifest.includes('</Assets>')) {
+    throw new Error('Refusing to package because vsixmanifest is missing an Assets section');
+  }
+  const extra = GALLERY_SCREENSHOTS.map((_, index) => screenshotAssetTag(index)).join('\n');
+  return vsixManifest.replace('</Assets>', `${extra}\n\t\t</Assets>`);
+}
+
+function assertMarketplaceGalleryPackaging(archive) {
+  const manifest = JSON.parse(archiveFile(archive, 'extension/package.json').toString('utf8'));
+  const readme = archiveFile(archive, 'extension/readme.md').toString('utf8');
+  const vsixManifest = archiveFile(archive, 'extension.vsixmanifest').toString('utf8');
+
+  if (GITHUB_RAW_README.test(readme)) {
+    throw new Error('Refusing to package a README that uses GitHub-raw image URLs');
+  }
+  if (/src="media\/gallery-/.test(readme)) {
+    throw new Error('Refusing to package a README with relative gallery image sources');
+  }
+
+  GALLERY_SCREENSHOTS.forEach((screenshotPath, index) => {
+    const archivePath = `extension/${screenshotPath}`;
+    assertPngBytes(archiveFile(archive, archivePath), archivePath);
+    const assetUrl = marketplaceScreenshotUrl(manifest, index);
+    if (!readme.includes(`src="${assetUrl}"`)) {
+      throw new Error(`Refusing to package because README is missing Marketplace screenshot asset ${screenshotAssetType(index)}`);
+    }
+    if (GITHUB_RAW_README.test(assetUrl) || !assetUrl.startsWith('https://')) {
+      throw new Error('Refusing to package a non-Marketplace screenshot URL');
+    }
+    const assetTag = screenshotAssetTag(index);
+    if (!vsixManifest.includes(assetTag)) {
+      throw new Error(`Refusing to package because vsixmanifest is missing Addressable ${screenshotAssetType(index)}`);
+    }
+  });
+}
+
+function packageMarketplaceGallery(archive) {
+  const manifest = JSON.parse(archiveFile(archive, 'extension/package.json').toString('utf8'));
+  const next = new Map(archive);
+  next.set(
+    'extension/readme.md',
+    Buffer.from(rewritePackagedReadme(archiveFile(archive, 'extension/readme.md').toString('utf8'), manifest), 'utf8')
+  );
+  next.set(
+    'extension.vsixmanifest',
+    Buffer.from(addScreenshotAssets(archiveFile(archive, 'extension.vsixmanifest').toString('utf8')), 'utf8')
+  );
+  assertMarketplaceGalleryPackaging(next);
+  return next;
+}
+
+async function writeArchive(packagePath, archive) {
+  const tempPath = `${packagePath}.${process.pid}.${crypto.randomUUID()}.rewrite.tmp`;
+  let created = false;
+  try {
+    await new Promise((resolve, reject) => {
+      const zip = new yazl.ZipFile();
+      for (const [name, contents] of [...archive.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+        zip.addBuffer(Buffer.from(contents), name);
+      }
+      zip.end();
+      const out = fs.createWriteStream(tempPath, { flags: 'wx', mode: 0o600 });
+      created = true;
+      zip.outputStream.pipe(out);
+      zip.outputStream.once('error', reject);
+      out.once('error', reject);
+      out.once('finish', resolve);
+    });
+    fs.renameSync(tempPath, packagePath);
+    created = false;
+  } finally {
+    if (created) {
+      fs.rmSync(tempPath, { force: true });
+    }
+  }
+}
+
+async function applyMarketplaceGalleryPackaging(packagePath) {
+  const packaged = packageMarketplaceGallery(await readArchive(packagePath));
+  await writeArchive(packagePath, packaged);
+}
 
 function normalizeReviewedPath(filePath) {
   const normalized = filePath.replaceAll('\\', '/');
@@ -457,6 +609,7 @@ async function packageVsix(root, options = {}) {
     await createReviewedCandidate(root, candidatePath, createCandidate, temporaryDirectory);
     const archive = await readArchive(candidatePath);
     assertArchiveMatchesAllowlist(archive);
+    assertMarketplaceGalleryPackaging(archive);
     // Revalidate the destination after packaging and immediately before the
     // install so a replaced parent/output cannot be followed.
     const safeOutput = assertOutputPath(root, outputPath, outputOptions);
@@ -480,8 +633,13 @@ async function createReviewedCandidate(root, candidatePath, createCandidate = cr
       cwd: stagingDirectory,
       dependencies: false,
       packageManager: PackageManager.None,
-      packagePath: candidatePath
+      packagePath: candidatePath,
+      // Prevent vsce from rewriting README images to GitHub raw/HEAD. The
+      // packaged Details README is then rewritten onto Marketplace gallery
+      // screenshot asset URLs, not relative media/ paths.
+      rewriteRelativeLinks: false
     });
+    await applyMarketplaceGalleryPackaging(candidatePath);
   } finally {
     if (ownsTemporaryDirectory) {
       fs.rmSync(packageDirectory, { recursive: true, force: true });
@@ -499,10 +657,14 @@ if (require.main === module) {
 }
 
 module.exports = {
+  GALLERY_SCREENSHOTS,
   GENERATED_ARCHIVE_FILES,
   REVIEWED_PACKAGING_CONTROL_FILES,
   REVIEWED_PACKAGE_FILES,
+  addScreenshotAssets,
+  applyMarketplaceGalleryPackaging,
   assertArchiveMatchesAllowlist,
+  assertMarketplaceGalleryPackaging,
   assertOutputPath,
   assertReviewedPackageFiles,
   assertSafePathComponents,
@@ -510,6 +672,10 @@ module.exports = {
   copyReviewedPackage,
   createReviewedCandidate,
   expectedArchiveFiles,
+  marketplaceScreenshotUrl,
+  packageMarketplaceGallery,
   packageVsix,
-  replaceArtifact
+  replaceArtifact,
+  rewritePackagedReadme,
+  screenshotAssetType
 };

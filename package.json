@@ -2,7 +2,7 @@
   "name": "runlist",
   "displayName": "Runlist",
   "description": "Start, stop, and switch local apps from one sidebar.",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "publisher": "hankoswart",
   "license": "SEE LICENSE IN LICENSE",
   "icon": "media/runlist.png",
@@ -10,6 +10,17 @@
     "color": "#161B22",
     "theme": "dark"
   },
+  "screenshots": [
+    {
+      "path": "media/gallery-01-hero.png"
+    },
+    {
+      "path": "media/gallery-02-status.png"
+    },
+    {
+      "path": "media/gallery-03-features.png"
+    }
+  ],
   "pricing": "Free",
   "markdown": "github",
   "repository": {

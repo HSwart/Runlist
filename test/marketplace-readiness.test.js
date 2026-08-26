@@ -36,6 +36,11 @@ test('validates Marketplace metadata for the selected publisher and release', ()
     manifest.scripts['publish:marketplace'],
     'npm run validate:marketplace:publish && npm run validate:marketplace:vsix && vsce publish --azure-credential --packagePath releases/runlist.vsix'
   );
+  assert.deepEqual(manifest.screenshots, [
+    { path: 'media/gallery-01-hero.png' },
+    { path: 'media/gallery-02-status.png' },
+    { path: 'media/gallery-03-features.png' }
+  ]);
   assert.deepEqual(result.errors, []);
   assert.deepEqual(result.warnings, []);
 });
@@ -155,4 +160,11 @@ test('passes strict Marketplace publication validation', () => {
 
   assert.deepEqual(result.errors, []);
   assert.deepEqual(result.warnings, []);
+});
+
+test('keeps signed gallery stills packable and excludes the leftover screenshot', () => {
+  const vscodeIgnore = readText('.vscodeignore').split(/\r?\n/);
+
+  assert.ok(vscodeIgnore.includes('media/runlist-screenshot.png'));
+  assert.equal(vscodeIgnore.some((line) => /(^|\/)gallery-/.test(line) && !line.startsWith('!')), false);
 });

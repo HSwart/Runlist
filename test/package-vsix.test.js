@@ -7,12 +7,17 @@ const path = require('node:path');
 const test = require('node:test');
 const { createVSIX, PackageManager } = require('@vscode/vsce');
 const {
+  GALLERY_SCREENSHOTS,
   REVIEWED_PACKAGE_FILES,
   REVIEWED_PACKAGING_CONTROL_FILES,
   assertArchiveMatchesAllowlist,
+  assertMarketplaceGalleryPackaging,
   expectedArchiveFiles,
+  marketplaceScreenshotUrl,
+  packageMarketplaceGallery,
   packageVsix,
-  replaceArtifact
+  replaceArtifact,
+  rewritePackagedReadme
 } = require('../scripts/package-vsix');
 const { readArchive } = require('../scripts/validate-vsix');
 
@@ -113,6 +118,111 @@ test('packages only the reviewed allowlist and excludes untracked root inputs', 
   assert.equal(REVIEWED_PACKAGE_FILES.includes(sentinelName), false);
 });
 
+const GALLERY_STILLS = GALLERY_SCREENSHOTS;
+
+function assertPngBytes(bytes, label) {
+  assert.ok(bytes, `missing ${label}`);
+  assert.notEqual(bytes.toString('utf8', 0, 32).startsWith('version https://git-lfs.github.com/'), true, `${label} is a Git LFS pointer`);
+  assert.equal(bytes.subarray(1, 4).toString('ascii'), 'PNG', `${label} is not PNG bytes`);
+}
+
+test('ships Addressable screenshot assets and Marketplace-addressable README image sources', async (t) => {
+  const fixtureRoot = temporaryFixtureRoot(t);
+  const outputPath = temporaryOutput(fixtureRoot);
+  await packageVsix(fixtureRoot, { outputPath, testOnly: true });
+  const archive = await readArchive(outputPath);
+  const readme = archive.get('extension/readme.md').toString('utf8');
+  const vsixManifest = archive.get('extension.vsixmanifest').toString('utf8');
+  const packagedManifest = JSON.parse(archive.get('extension/package.json').toString('utf8'));
+  const sourceReadme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+
+  assert.deepEqual(
+    packagedManifest.screenshots,
+    GALLERY_STILLS.map((screenshotPath) => ({ path: screenshotPath }))
+  );
+  GALLERY_STILLS.forEach((screenshotPath, index) => {
+    assertPngBytes(archive.get(`extension/${screenshotPath}`), screenshotPath);
+    assert.match(sourceReadme, new RegExp(`src="${screenshotPath.replaceAll('.', '\\.')}"`));
+    const assetUrl = marketplaceScreenshotUrl(packagedManifest, index);
+    assert.match(readme, new RegExp(`src="${assetUrl.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`));
+    assert.match(
+      vsixManifest,
+      new RegExp(`<Asset Type="Microsoft\\.VisualStudio\\.Services\\.Screenshots\\.${index + 1}" Path="extension/${screenshotPath.replaceAll('.', '\\.')}" Addressable="true"`)
+    );
+  });
+  assert.doesNotMatch(readme, /raw\.githubusercontent\.com/);
+  assert.doesNotMatch(readme, /\/raw\/HEAD\//);
+  assert.doesNotMatch(readme, /src="media\/gallery-/);
+  assert.doesNotMatch(sourceReadme, /gallery\.vsassets\.io/);
+});
+
+test('fails closed when screenshot assets are missing from the vsixmanifest', () => {
+  const fixture = packageMarketplaceGallery(new Map([
+    ['extension/package.json', Buffer.from(JSON.stringify({
+      name: 'runlist',
+      publisher: 'hankoswart',
+      version: '0.0.10'
+    }))],
+    ['extension/readme.md', Buffer.from(
+      GALLERY_STILLS.map((screenshotPath) => `<img src="${screenshotPath}">`).join('\n'),
+      'utf8'
+    )],
+    ['extension.vsixmanifest', Buffer.from('<Assets></Assets>', 'utf8')],
+    ...GALLERY_STILLS.map((screenshotPath) => [
+      `extension/${screenshotPath}`,
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    ])
+  ]));
+
+  fixture.set('extension.vsixmanifest', Buffer.from('<Assets></Assets>', 'utf8'));
+  assert.throws(
+    () => assertMarketplaceGalleryPackaging(fixture),
+    /vsixmanifest is missing Addressable Microsoft\.VisualStudio\.Services\.Screenshots\.1/
+  );
+});
+
+test('fails closed when the packaged README uses GitHub-raw image URLs', () => {
+  assert.throws(
+    () => rewritePackagedReadme(
+      '<img src="https://github.com/HSwart/Runlist/raw/HEAD/media/gallery-01-hero.png">',
+      { name: 'runlist', publisher: 'hankoswart', version: '0.0.10' }
+    ),
+    /GitHub-raw image URLs/
+  );
+  assert.throws(
+    () => rewritePackagedReadme(
+      '<img src="https://raw.githubusercontent.com/HSwart/Runlist/HEAD/media/gallery-01-hero.png">',
+      { name: 'runlist', publisher: 'hankoswart', version: '0.0.10' }
+    ),
+    /GitHub-raw image URLs/
+  );
+
+  const packaged = packageMarketplaceGallery(new Map([
+    ['extension/package.json', Buffer.from(JSON.stringify({
+      name: 'runlist',
+      publisher: 'hankoswart',
+      version: '0.0.10'
+    }))],
+    ['extension/readme.md', Buffer.from(
+      GALLERY_STILLS.map((screenshotPath) => `<img src="${screenshotPath}">`).join('\n'),
+      'utf8'
+    )],
+    ['extension.vsixmanifest', Buffer.from('<Assets></Assets>', 'utf8')],
+    ...GALLERY_STILLS.map((screenshotPath) => [
+      `extension/${screenshotPath}`,
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    ])
+  ]));
+  packaged.set(
+    'extension/readme.md',
+    Buffer.from('<img src="https://github.com/HSwart/Runlist/raw/HEAD/media/gallery-01-hero.png">', 'utf8')
+  );
+  assert.throws(
+    () => assertMarketplaceGalleryPackaging(packaged),
+    /GitHub-raw image URLs/
+  );
+});
+
 test('npm run package invokes the reviewed helper in an isolated fixture', async (t) => {
   const fixtureRoot = temporaryFixtureRoot(t);
   addPackageRouteFiles(fixtureRoot);
@@ -208,7 +318,8 @@ test('rejects an unexpected archive entry before replacing output', async (t) =>
           cwd,
           dependencies: false,
           packageManager: PackageManager.None,
-          packagePath
+          packagePath,
+          rewriteRelativeLinks: false
         });
       }
     }),

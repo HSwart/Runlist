@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.0.10 — Marketplace gallery packaging
+
+- Declare the three signed listing stills as Addressable `Microsoft.VisualStudio.Services.Screenshots.{1,2,3}` VSIX assets so the Marketplace gallery can show them.
+- Keep git README image sources as relative `media/` paths, and rewrite the packaged Details README to Marketplace gallery screenshot asset URLs.
+
 ## 0.0.9 — Native sidebar and Marketplace listing
 
 - Keep everyday sidebar rows to two lines with native VS Code list chrome and the workbench font.
