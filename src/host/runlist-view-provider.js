@@ -174,7 +174,8 @@ const {
   projectRepairComparison,
   readProjectRepairProposal
 } = require('../projects/project-repair');
-const { runProjectTransferWorkflow } = require('../projects/project-transfer');
+const { runProjectTransferWorkflow, runStackContractLoadWorkflow, previewProjectImport } = require('../projects/project-transfer');
+const { detectStackContract, parseStackContract } = require('../projects/stack-contract');
 const {
   RunGroupCoordinator,
   runGroupManagementWorkflow
@@ -256,6 +257,7 @@ class RunlistViewProvider {
     this.composeImport = undefined;
     this.composeAvailability = undefined;
     this.composeNotice = undefined;
+    this.stackContractPrompted = false;
     this.expandedPreviewProjectId = undefined;
     this.expandedPreviewServicePort = undefined;
     this.processes = new Map();
@@ -373,6 +375,7 @@ class RunlistViewProvider {
 
     view.webview.onDidReceiveMessage((message) => this.handleMessage(message));
     this.render();
+    void this.maybeOfferStackContractLoad();
   }
 
   async revealRunlistView() {
@@ -692,12 +695,74 @@ class RunlistViewProvider {
     let lockSnapshot;
     return runProjectTransferWorkflow({
       projectsFile: this.projectsFile,
+      workspaceRoot: currentWorkspaceFolderPath(vscode.workspace.workspaceFolders),
       withProjectStoreLock: (operation) => withProjectStoreLockAsync(
         this.projectsFile,
         operation
       ),
       window: vscode.window,
       workspace: vscode.workspace,
+      isProjectActive: (project) => {
+        lockSnapshot ||= {
+          localProcessIds: [...this.processes.keys()],
+          portRuntime: this.portReservations.snapshot(),
+          processRuntime: this.processOwnership.snapshot()
+        };
+        return this.getProjectStatus(project.id) === 'active'
+          || this.projectSetupLocked(project.id, lockSnapshot);
+      },
+      reserveUpdatedProjects: (ids) => this.reserveProjectUpdates(ids),
+      onImported: () => this.renderProjectList()
+    });
+  }
+
+  async maybeOfferStackContractLoad() {
+    if (this.stackContractPrompted) {
+      return;
+    }
+    const workspaceRoot = currentWorkspaceFolderPath(vscode.workspace.workspaceFolders);
+    if (!workspaceRoot) {
+      return;
+    }
+    const contractPath = detectStackContract(workspaceRoot);
+    if (!contractPath) {
+      return;
+    }
+    this.stackContractPrompted = true;
+    let parsed;
+    try {
+      parsed = parseStackContract(fs.readFileSync(contractPath), { workspaceRoot, contractPath });
+    } catch {
+      return;
+    }
+    const preview = previewProjectImport(this.projects, parsed.projects, {
+      replaceOptionalMetadata: false,
+      isProjectActive: (project) => this.getProjectStatus(project.id) === 'active'
+    });
+    if (!preview.changeCount) {
+      return;
+    }
+    const review = 'Review stack file';
+    const choice = await vscode.window.showInformationMessage(
+      'This workspace has a Runlist stack file with setups that are not in your sidebar yet.',
+      review,
+      'Not now'
+    );
+    if (choice === review) {
+      await this.showProjectTransferLoadStack();
+    }
+  }
+
+  async showProjectTransferLoadStack() {
+    let lockSnapshot;
+    return runStackContractLoadWorkflow({
+      projectsFile: this.projectsFile,
+      workspaceRoot: currentWorkspaceFolderPath(vscode.workspace.workspaceFolders),
+      withProjectStoreLock: (operation) => withProjectStoreLockAsync(
+        this.projectsFile,
+        operation
+      ),
+      window: vscode.window,
       isProjectActive: (project) => {
         lockSnapshot ||= {
           localProcessIds: [...this.processes.keys()],

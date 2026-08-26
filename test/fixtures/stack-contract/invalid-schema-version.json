@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 99,
+  "projects": [
+    {
+      "name": "Future",
+      "folder": ".",
+      "startCommand": "npm run dev",
+      "services": []
+    }
+  ],
+  "groups": []
+}
