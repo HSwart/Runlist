@@ -17,6 +17,7 @@
   ]);
   const WEBVIEW_COMMAND_TYPES = new Set([
     'approveProjectRepair',
+    'approveComposeImport',
     'closeScreen',
     'copyDiagnosisRequest',
     'copyOutput',
@@ -49,6 +50,7 @@
     'showAdd',
     'showAgentSetup',
     'showPortListening',
+    'showComposeImport',
     'refreshPortListening',
     'copyPortListeningDetails',
     'revealPortOwnerProject',

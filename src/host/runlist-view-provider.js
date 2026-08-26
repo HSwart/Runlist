@@ -111,6 +111,15 @@ const {
   PortReservationStore
 } = require('../ports/port-gate');
 const {
+  buildComposeImportProposal
+} = require('../compose/compose-parse');
+const {
+  ComposeFileError,
+  detectComposeFiles,
+  readComposeFile,
+  resolveComposeFile
+} = require('../compose/compose-file');
+const {
   buildPortListeningReport,
   formatPortListenerClipboardLine,
   formatPortListeningClipboard
@@ -238,6 +247,8 @@ class RunlistViewProvider {
     this.diagnosisProjectIncarnation = undefined;
     this.routeNotice = undefined;
     this.approvedRepairProjectId = undefined;
+    this.portListeningReport = undefined;
+    this.composeImport = undefined;
     this.expandedPreviewProjectId = undefined;
     this.expandedPreviewServicePort = undefined;
     this.processes = new Map();
@@ -478,11 +489,138 @@ class RunlistViewProvider {
     this.mode = 'list';
     this.routeNotice = undefined;
     this.portListeningReport = undefined;
+    this.composeImport = undefined;
     this.diagnosisProjectIncarnation = undefined;
     this.selectedProjectId = undefined;
     this.returnFocus = undefined;
     this.focusTarget = { type: 'project-control', id };
     this.render();
+  }
+
+  async showComposeImport(projectId) {
+    if (!await this.confirmDiscardProjectChanges()) {
+      return;
+    }
+    let project;
+    let folder;
+    let preferredPath;
+    if (typeof projectId === 'string' && projectId) {
+      project = this.projects.find((item) => item.id === projectId);
+      if (!project) {
+        vscode.window.showWarningMessage('That project is no longer in Runlist.');
+        return;
+      }
+      folder = project.folder;
+    } else {
+      const picked = await vscode.window.showOpenDialog({
+        canSelectFiles: false,
+        canSelectFolders: true,
+        canSelectMany: false,
+        openLabel: 'Use Folder',
+        title: 'Choose a folder with a Compose file'
+      });
+      if (!picked?.length) {
+        return;
+      }
+      folder = picked[0].fsPath;
+      const detected = detectComposeFiles(folder);
+      if (detected.length > 1) {
+        const choice = await vscode.window.showQuickPick(
+          detected.map((filePath) => ({
+            label: path.basename(filePath),
+            description: filePath,
+            path: filePath
+          })),
+          { title: 'Choose a Compose file to review' }
+        );
+        if (!choice) {
+          return;
+        }
+        preferredPath = choice.path;
+      }
+    }
+
+    try {
+      const composePath = resolveComposeFile(folder, preferredPath);
+      const file = readComposeFile(composePath);
+      const proposal = buildComposeImportProposal({
+        folder,
+        projectName: project?.name,
+        composePath: file.path,
+        contents: file.contents,
+        existingProjectId: project?.id
+      });
+      this.mode = 'compose-import';
+      this.routeNotice = undefined;
+      this.diagnosisProjectIncarnation = undefined;
+      this.portListeningReport = undefined;
+      this.draft = {};
+      this.composeImport = {
+        ...proposal,
+        existingProjectId: project?.id,
+        detectedFiles: detectComposeFiles(folder).map((filePath) => path.basename(filePath))
+      };
+      this.focusTarget = { type: 'action', action: 'approve-compose-import' };
+      this.returnFocus = project
+        ? { type: 'project-control', id: project.id }
+        : this.defaultListFocusTarget();
+      this.selectedProjectId = undefined;
+      await this.revealRunlistView();
+      this.render();
+    } catch (error) {
+      const message = error instanceof ComposeFileError
+        ? error.message
+        : `Could not read Compose services: ${error.message}`;
+      vscode.window.showErrorMessage(message);
+    }
+  }
+
+  async approveComposeImport() {
+    const draft = this.composeImport;
+    if (!draft?.proposedProject) {
+      return false;
+    }
+    try {
+      const existingId = draft.existingProjectId;
+      const existing = existingId
+        ? this.projects.find((item) => item.id === existingId)
+        : undefined;
+      if (existingId && !existing) {
+        vscode.window.showWarningMessage('That project is no longer in Runlist.');
+        this.composeImport = undefined;
+        this.mode = 'list';
+        this.renderProjectList();
+        return false;
+      }
+      const saved = await withProjectStoreLockAsync(this.projectsFile, () => (
+        upsertProject(this.projectsFile, {
+          ...draft.proposedProject,
+          ...(existing ? {
+            id: existing.id,
+            name: existing.name,
+            folder: existing.folder,
+            tags: existing.tags,
+            pinned: existing.pinned,
+            launchProfiles: existing.launchProfiles
+          } : {})
+        }, existing ? { expectedProject: existing } : {})
+      ));
+      this.projects = this.loadProjects();
+      this.composeImport = undefined;
+      this.mode = 'list';
+      this.focusTarget = { type: 'project-control', id: saved.id };
+      this.renderProjectList();
+      void this.refreshProjectStatuses();
+      vscode.window.showInformationMessage(
+        existing
+          ? `Saved Compose services for ${saved.name}. Runlist has not started anything.`
+          : `Added ${saved.name} from Compose. Runlist has not started anything.`
+      );
+      return true;
+    } catch (error) {
+      vscode.window.showErrorMessage(`Could not save Compose import: ${error.message}`);
+      return false;
+    }
   }
 
   async startThisFolder() {
@@ -1546,6 +1684,7 @@ class RunlistViewProvider {
     this.diagnosisProjectIncarnation = undefined;
     this.approvedRepairProjectId = undefined;
     this.portListeningReport = undefined;
+    this.composeImport = undefined;
     this.returnFocus = undefined;
     this.focusTarget = returnFocus;
     this.render();
@@ -4358,6 +4497,7 @@ class RunlistViewProvider {
       portListening: this.mode === 'port-listening'
         ? (this.portListeningReport || { scannedAt: Date.now(), rows: [], empty: true })
         : undefined,
+      composeImport: this.mode === 'compose-import' ? this.composeImport : undefined,
       projects: stateProjects,
       runningAppIds: runningAppProjectIds(stateProjects),
       stopAllCount: stoppableProjectIds(stateProjects).length,

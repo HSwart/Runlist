@@ -1189,6 +1189,9 @@ function renderList() {
                   <button data-action="force-close-ports" data-id="${projectId}" role="menuitem" aria-label="Close configured ports for ${projectName}" ${canCloseConfiguredPorts && !project.lifecycleBlocked ? '' : 'disabled'} title="${project.lifecycleBlocked ? escapeHtml(project.lifecycleBlockedReason) : canCloseConfiguredPorts ? `Review and close the processes using ${projectName}'s configured ports` : 'No configured ports are currently open'}">
                     ${icon('stop', 'menu-icon')}<span>Close configured ports…</span>
                   </button>
+                  <button data-action="import-compose" data-id="${projectId}" role="menuitem" title="Review Compose services for ${projectName}">
+                    ${icon('folder', 'menu-icon')}<span>Import Compose services…</span>
+                  </button>
                   <button data-action="edit" data-id="${projectId}" role="menuitem">
                     ${icon('edit', 'menu-icon')}<span>${reviewRequired ? 'Review setup' : 'Edit project'}</span>
                   </button>
@@ -1779,6 +1782,50 @@ function renderProjectOutput() {
       outputPanel.addEventListener('scroll', handleOutputScroll, { passive: true });
     }
   });
+}
+
+function renderComposeImport() {
+  const draft = state.composeImport;
+  if (!draft?.proposedProject) {
+    app.innerHTML = '<section class="diagnosis-screen"><p class="screen-copy">This Compose review is no longer available.</p></section>';
+    return;
+  }
+  const services = Array.isArray(draft.parsedServices) ? draft.parsedServices : [];
+  const warnings = Array.isArray(draft.warnings) ? draft.warnings : [];
+  const proposed = draft.proposedProject;
+  const rows = services.map((service) => {
+    const ports = (service.ports || []).map((port) => `:${port}`).join(', ') || 'No published host port';
+    const profiles = (service.profiles || []).length
+      ? `Profiles: ${service.profiles.join(', ')}`
+      : '';
+    return `
+      <article class="compose-import-row">
+        <div class="compose-import-topline">
+          <strong>${escapeHtml(service.name)}</strong>
+          <span class="compose-import-ports">${escapeHtml(ports)}</span>
+        </div>
+        ${profiles ? `<p class="compose-import-profiles">${escapeHtml(profiles)}</p>` : ''}
+        ${service.note ? `<p class="compose-import-note">${escapeHtml(service.note)}</p>` : ''}
+      </article>`;
+  }).join('');
+
+  app.innerHTML = `
+    <section class="diagnosis-screen compose-import-screen" aria-label="Review Compose import">
+      <header class="screen-header">
+        <h2>Review Compose import</h2>
+        <button class="icon-button" data-action="close-screen" aria-label="Close Compose import">${icon('close')}</button>
+      </header>
+      <p class="screen-copy">From <code>${escapeHtml(draft.composePath || 'Compose file')}</code>. Runlist has not started Docker or Compose.</p>
+      <p class="screen-copy">Proposed project <strong>${escapeHtml(proposed.name)}</strong> with start <code>${escapeHtml(proposed.startCommand)}</code>.</p>
+      ${warnings.length ? `<ul class="compose-import-warnings" role="status">${warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join('')}</ul>` : ''}
+      <div class="compose-import-list" role="list">
+        ${rows || '<p class="screen-copy" role="status">No Compose services were found.</p>'}
+      </div>
+      <div class="repair-actions">
+        <button class="primary-button" data-action="approve-compose-import"${proposed.services?.length ? '' : ' disabled'}>Save reviewed services</button>
+        <button class="secondary-button" data-action="close-screen">Cancel</button>
+      </div>
+    </section>`;
 }
 
 function renderPortListening() {
@@ -2416,6 +2463,14 @@ app.addEventListener('click', (event) => {
       button.disabled = true;
       vscode.postMessage({ type: 'forceCloseProjectPortsAndStart', id: button.dataset.id });
     },
+    'import-compose': () => {
+      closeMenus();
+      vscode.postMessage({ type: 'showComposeImport', id: button.dataset.id });
+    },
+    'approve-compose-import': () => {
+      button.disabled = true;
+      vscode.postMessage({ type: 'approveComposeImport' });
+    },
     'start-group': () => vscode.postMessage({ type: 'startRunGroup', id: button.dataset.id }),
     'stop-group': () => vscode.postMessage({ type: 'stopRunGroup', id: button.dataset.id }),
     handoff: () => {
@@ -3024,11 +3079,13 @@ if (state.mode === 'list') {
   renderAgentSetup();
 } else if (state.mode === 'output') {
   renderProjectOutput();
-} else if (state.mode === 'diagnosis') {
+  } else if (state.mode === 'diagnosis') {
   renderProjectDiagnosis();
-} else if (state.mode === 'port-listening') {
+  } else if (state.mode === 'port-listening') {
   renderPortListening();
-} else {
+  } else if (state.mode === 'compose-import') {
+  renderComposeImport();
+  } else {
   renderProjectForm(state.mode);
 }
 

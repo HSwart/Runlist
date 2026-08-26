@@ -88,6 +88,7 @@ function createRunlistWebviewRouter(host, adapters = {}) {
   const route = createWebviewCommandRouter({
     handlers: {
       approveProjectRepair: (message) => host.approveProjectRepair(message.proposalId),
+      approveComposeImport: () => host.approveComposeImport(),
       closeScreen: (message) => host.closeScreen(message.draft),
       copyDiagnosisRequest: () => host.copyDiagnosisRequest(),
       copyOutput: () => host.copyProjectOutput(),
@@ -117,6 +118,7 @@ function createRunlistWebviewRouter(host, adapters = {}) {
       rejectProjectRepair: () => host.rejectProjectRepair(),
       resolveServicePort: (message) => host.resolveServicePort(message.id, Number(message.port)),
       revealPortOwnerProject: (message) => host.revealPortOwnerProject(message.id),
+      showComposeImport: (message) => host.showComposeImport(message.id),
       restartProject: (message) => host.restartProject(message.id),
       retryProjectRepair: () => host.retryProjectRepair(),
       saveProject: (message) => host.saveProject(message.project),

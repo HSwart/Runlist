@@ -68,6 +68,7 @@
     "onCommand:runlist.transferProjects",
     "onCommand:runlist.manageGroups",
     "onCommand:runlist.showPortListening",
+    "onCommand:runlist.importCompose",
     "onCommand:runlist.copySupportDiagnostics",
     "onCommand:runlist.startThisFolder"
   ],
@@ -107,6 +108,11 @@
         "title": "What's Listening",
         "category": "Runlist",
         "icon": "$(server-process)"
+      },
+      {
+        "command": "runlist.importCompose",
+        "title": "Import Compose Services",
+        "category": "Runlist"
       },
       {
         "command": "runlist.copySupportDiagnostics",

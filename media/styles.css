@@ -1898,6 +1898,42 @@ button.project-listener-owner:hover {
   margin-top: 8px;
 }
 
+.compose-import-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.compose-import-row {
+  min-width: 0;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-widget-border));
+}
+
+.compose-import-topline {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.compose-import-ports,
+.compose-import-profiles,
+.compose-import-note {
+  margin: 2px 0 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.compose-import-warnings {
+  margin: 8px 0;
+  padding-left: 18px;
+  color: var(--vscode-editorWarning-foreground, #cca700);
+  font-size: 12px;
+}
+
 @media (max-width: 300px) {
   .port-listening-actions {
     flex-direction: column;

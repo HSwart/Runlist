@@ -56,6 +56,7 @@ test('view title commands use plain-language icon titles', () => {
   assert.equal(byId['runlist.transferProjects'], 'Import or Export');
   assert.equal(byId['runlist.manageGroups'], 'Manage Groups');
   assert.equal(byId['runlist.showPortListening'], "What's Listening");
+  assert.equal(byId['runlist.importCompose'], 'Import Compose Services');
 });
 
 test('contributes What\'s Listening to the Runlist view title', () => {

@@ -117,6 +117,10 @@ function activate(context) {
       () => provider.showPortListeningDiagnosis()
     ),
     vscode.commands.registerCommand(
+      'runlist.importCompose',
+      () => provider.showComposeImport()
+    ),
+    vscode.commands.registerCommand(
       'runlist.copySupportDiagnostics',
       () => provider.copySupportDiagnostics()
     ),
