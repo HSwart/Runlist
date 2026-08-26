@@ -932,13 +932,27 @@ function renderList() {
     const emptyCopy = workspaceFolder
       ? 'Save a start command for the folder open in this window, then start it from here.'
       : 'Save a project folder and its start command once, then start it from here.';
+    const startScripts = Array.isArray(state.workspaceStartScripts)
+      ? state.workspaceStartScripts.filter((script) => script
+        && ['start', 'dev'].includes(script.name)
+        && typeof script.startCommand === 'string')
+      : [];
     app.innerHTML = `
       ${runGroupsHtml()}
       <section class="empty-state">
         <h2>No projects yet</h2>
         <p>${escapeHtml(emptyCopy)}</p>
         ${state.lifecycleWindowSupported === false ? `<p>Start and Stop work for apps on this computer. You can still save projects here. Remote SSH, Dev Containers, GitHub Codespaces, VS Code Tunnels, and Windows WSL network paths will not start or stop processes in this release.</p>` : ''}
-        <button class="primary-button" data-action="show-add">${addLabel}</button>
+        <div class="empty-actions">
+          <button class="primary-button" data-action="show-add">${addLabel}</button>
+          ${workspaceFolder && startScripts.length ? `
+            <div class="empty-start-chips" role="group" aria-label="Start scripts for this folder">
+              ${startScripts.map((script) => `
+                <button class="empty-start-chip" data-action="start-workspace-script" data-script="${escapeHtml(script.name)}" title="${escapeHtml(script.startCommand)}" aria-label="Start ${escapeHtml(script.name)} for this folder">
+                  ${escapeHtml(script.name)}
+                </button>`).join('')}
+            </div>` : ''}
+        </div>
       </section>`;
     firstListRender = false;
     return;
@@ -2058,6 +2072,10 @@ app.addEventListener('click', (event) => {
 
   const actions = {
     'show-add': () => vscode.postMessage({ type: 'showAdd' }),
+    'start-workspace-script': () => vscode.postMessage({
+      type: 'startWorkspaceScript',
+      script: button.dataset.script
+    }),
     'close-screen': () => vscode.postMessage({
       type: 'closeScreen',
       draft: document.getElementById('project-form') ? currentDraft() : undefined

@@ -1070,13 +1070,19 @@ test('matches Turkish-sensitive tags with locale-independent identity and filter
 test('empty state offers Add this folder when a workspace folder is present', () => {
   const result = renderNonEmptyProjectList([], {
     stateOverrides: {
-      currentWorkspaceFolder: '/Users/example/app'
+      currentWorkspaceFolder: '/Users/example/app',
+      workspaceStartScripts: [
+        { name: 'start', startCommand: 'npm start' },
+        { name: 'dev', startCommand: 'npm run dev' }
+      ]
     }
   });
 
   assert.match(result.app.innerHTML, /No projects yet/);
   assert.match(result.app.innerHTML, /Add this folder/);
   assert.match(result.app.innerHTML, /folder open in this window/);
+  assert.match(result.app.innerHTML, /class="empty-start-chips"/);
+  assert.match(result.app.innerHTML, /data-action="start-workspace-script" data-script="dev"/);
   assert.doesNotMatch(result.app.innerHTML, />Add project</);
 });
 

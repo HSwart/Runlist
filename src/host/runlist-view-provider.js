@@ -68,7 +68,8 @@ const {
   selectCurrentWorkspaceFolder,
   startThisFolderDecision,
   starterDraftForCurrentWorkspace,
-  workspaceFolderMatchesProject
+  workspaceFolderMatchesProject,
+  workspaceStartDevScripts
 } = require('../projects/project-workspace');
 const {
   cleanupTrackedProcessForDeletion,
@@ -166,6 +167,7 @@ const {
   selectProjectLaunchProfile,
   subscribeProjectStoreDiagnostics,
   toggleProjectPinned,
+  upsertProject,
   upsertRunGroup,
   withProjectStoreLockAsync
 } = require('../projects/project-store');
@@ -407,6 +409,44 @@ class RunlistViewProvider {
     this.focusTarget = { type: 'project-control', id: decision.projectId };
     this.render();
     return this.startProject(decision.projectId);
+  }
+
+  async startWorkspaceScript(scriptName) {
+    if (!await this.confirmDiscardProjectChanges()) {
+      return false;
+    }
+    const folder = currentWorkspaceFolderPath(vscode.workspace.workspaceFolders);
+    const chip = workspaceStartDevScripts(folder)
+      .find((script) => script.name === scriptName);
+    if (!folder || !chip) {
+      vscode.window.showWarningMessage('That start script is no longer available for this folder.');
+      this.mode = 'list';
+      this.render();
+      return false;
+    }
+    if (this.projects.length > 0) {
+      this.mode = 'list';
+      this.render();
+      return false;
+    }
+    let project;
+    try {
+      ({ project } = await withProjectStoreLockAsync(this.projectsFile, () => (
+        upsertProject(this.projectsFile, {
+          folder,
+          startCommand: chip.startCommand
+        }, { expectProjectAbsent: true })
+      )));
+    } catch (error) {
+      vscode.window.showErrorMessage(error?.message || 'Could not save this folder in Runlist.');
+      this.mode = 'list';
+      this.render();
+      return false;
+    }
+    this.mode = 'list';
+    this.focusTarget = { type: 'project-control', id: project.id };
+    this.render();
+    return this.startProject(project.id);
   }
 
   async showProjectTransfer() {
@@ -4158,6 +4198,9 @@ class RunlistViewProvider {
       canUseCurrentWorkspace: this.mode === 'add'
         && canUseCurrentWorkspace(vscode.workspace.workspaceFolders),
       currentWorkspaceFolder: currentWorkspaceFolderPath(vscode.workspace.workspaceFolders) || '',
+      workspaceStartScripts: workspaceStartDevScripts(
+        currentWorkspaceFolderPath(vscode.workspace.workspaceFolders) || ''
+      ),
       focusTarget: this.focusTarget || this.lastFocusTarget,
       formErrors: this.formErrors,
       groups,

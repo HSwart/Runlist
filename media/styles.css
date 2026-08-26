@@ -2627,6 +2627,35 @@ select[aria-invalid='true'] {
   padding: 16px 12px;
 }
 
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.empty-start-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.empty-start-chip {
+  min-height: 22px;
+  padding: 0 8px;
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  background: var(--vscode-button-secondaryBackground, transparent);
+  border: 1px solid var(--vscode-button-border, var(--vscode-widget-border, transparent));
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.empty-start-chip:hover {
+  background: var(--vscode-button-secondaryHoverBackground, var(--vscode-toolbar-hoverBackground));
+}
+
 .search-empty {
   padding: 16px 12px;
 }

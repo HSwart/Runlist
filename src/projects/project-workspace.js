@@ -1,3 +1,6 @@
+const fs = require('node:fs');
+const path = require('node:path');
+
 function localWorkspaceFolders(workspaceFolders = []) {
   return workspaceFolders.filter((workspaceFolder) => (
     workspaceFolder?.uri?.scheme === 'file'
@@ -99,6 +102,35 @@ function startThisFolderDecision(projects, workspaceFolders, platform = process.
   };
 }
 
+function workspaceStartDevScripts(folder, readFileSync = fs.readFileSync) {
+  if (typeof folder !== 'string' || !folder.trim()) {
+    return [];
+  }
+  let packageJson;
+  try {
+    packageJson = JSON.parse(readFileSync(path.join(folder, 'package.json'), 'utf8'));
+  } catch {
+    return [];
+  }
+  const scripts = packageJson && typeof packageJson === 'object'
+    ? packageJson.scripts
+    : undefined;
+  if (!scripts || typeof scripts !== 'object' || Array.isArray(scripts)) {
+    return [];
+  }
+  const chips = [];
+  for (const name of ['start', 'dev']) {
+    if (typeof scripts[name] !== 'string' || !scripts[name].trim()) {
+      continue;
+    }
+    chips.push({
+      name,
+      startCommand: name === 'start' ? 'npm start' : 'npm run dev'
+    });
+  }
+  return chips;
+}
+
 async function selectCurrentWorkspaceFolder(vscode) {
   const workspaceFolders = localWorkspaceFolders(vscode.workspace.workspaceFolders);
   if (workspaceFolders.length === 0) {
@@ -134,5 +166,6 @@ module.exports = {
   selectCurrentWorkspaceFolder,
   startThisFolderDecision,
   starterDraftForCurrentWorkspace,
-  workspaceFolderMatchesProject
+  workspaceFolderMatchesProject,
+  workspaceStartDevScripts
 };

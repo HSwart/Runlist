@@ -53,6 +53,7 @@
     'showOutput',
     'startProject',
     'startRunGroup',
+    'startWorkspaceScript',
     'stopAllProjects',
     'stopProject',
     'stopRunGroup',
@@ -130,6 +131,10 @@
     }
     if (value.type === 'registerAgent'
       && !['claude', 'codex', 'copilot'].includes(value.agent)) {
+      return undefined;
+    }
+    if (value.type === 'startWorkspaceScript'
+      && !['start', 'dev'].includes(value.script)) {
       return undefined;
     }
     if (['copyServiceUrl', 'openServiceUrl'].includes(value.type)
