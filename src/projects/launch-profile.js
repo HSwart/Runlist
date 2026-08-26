@@ -10,6 +10,8 @@ function launchProfileOptions(project = {}) {
       name: DEFAULT_LAUNCH_PROFILE_NAME,
       startCommand: project.startCommand,
       ...(project.stopCommand ? { stopCommand: project.stopCommand } : {}),
+      ...(project.envFile ? { envFile: project.envFile } : {}),
+      ...(project.env ? { env: { ...project.env } } : {}),
       services: Array.isArray(project.services) ? project.services : []
     },
     ...(Array.isArray(project.launchProfiles) ? project.launchProfiles : [])
@@ -48,6 +50,16 @@ function resolveLaunchProfile(project = {}, profileId) {
     resolved.stopCommand = profile.stopCommand;
   } else {
     delete resolved.stopCommand;
+  }
+  if (profile.envFile) {
+    resolved.envFile = profile.envFile;
+  } else {
+    delete resolved.envFile;
+  }
+  if (profile.env) {
+    resolved.env = { ...profile.env };
+  } else {
+    delete resolved.env;
   }
   return resolved;
 }

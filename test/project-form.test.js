@@ -296,3 +296,37 @@ test('maps storage errors to the related form control', () => {
   assert.equal(projectSaveError(new Error('service names must be unique')).field, 'services');
   assert.equal(projectSaveError(new Error('The project no longer exists.')).field, 'form');
 });
+
+test('validates and round-trips env file and env map on profiles', () => {
+  const valid = validateProjectForm({
+    folder: '/tmp/app',
+    startCommand: 'npm run dev',
+    envFile: '.env',
+    envText: 'FLAG=1\nNOTE=hello',
+    launchProfiles: [{
+      id: 'tests',
+      name: 'Tests',
+      startCommand: 'npm test',
+      envFile: 'config/.env.tests',
+      envText: 'FLAG=tests',
+      services: []
+    }],
+    editingLaunchProfileId: 'default'
+  });
+  assert.deepEqual(valid.errors, {});
+  const setup = projectFormSetup(valid.values);
+  assert.equal(setup.envFile, '.env');
+  assert.deepEqual(setup.env, { FLAG: '1', NOTE: 'hello' });
+  assert.equal(setup.launchProfiles[0].envFile, 'config/.env.tests');
+  assert.deepEqual(setup.launchProfiles[0].env, { FLAG: 'tests' });
+
+  const invalid = validateProjectForm({
+    folder: '/tmp/app',
+    startCommand: 'npm run dev',
+    envFile: '../.env',
+    envText: 'not-valid',
+    services: []
+  });
+  assert.match(invalid.errors['env-file'] || '', /inside the project folder/i);
+  assert.match(invalid.errors['env-map'] || '', /KEY=value/i);
+});

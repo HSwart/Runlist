@@ -314,7 +314,7 @@ function projectProposalInput(project, proposal, launchProfileId) {
   if (!launchProfile) {
     throw repairError('STALE_PROPOSAL', 'The launch profile used by this failed start is no longer available.');
   }
-  const profileKeys = ['startCommand', 'stopCommand', 'services'];
+  const profileKeys = ['startCommand', 'stopCommand', 'services', 'envFile', 'env'];
   const profileChanges = Object.fromEntries(profileKeys
     .filter((key) => Object.hasOwn(proposal, key))
     .map((key) => [

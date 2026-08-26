@@ -139,6 +139,45 @@ test('serialize writes relative paths only and omits secret-shaped fields', (t) 
   assert.deepEqual(parsed.groups[0].projectFolders, ['.', path.join('apps', 'api')]);
 });
 
+test('allows envFile paths in stack contracts but rejects env maps', (t) => {
+  const fixture = workspaceFixture(t);
+  const parsed = parseStackContract(JSON.stringify({
+    schemaVersion: 1,
+    projects: [{
+      name: 'Web',
+      folder: '.',
+      startCommand: 'npm run dev',
+      envFile: '.env',
+      services: [{ name: 'web', port: 3000 }],
+      launchProfiles: [{
+        id: 'staging',
+        name: 'Staging',
+        startCommand: 'npm run start:staging',
+        envFile: '.env.staging',
+        services: [{ name: 'web', port: 3001 }]
+      }]
+    }],
+    groups: []
+  }), { workspaceRoot: fixture.root });
+  assert.equal(parsed.projects[0].envFile, '.env');
+  assert.equal(parsed.projects[0].launchProfiles[0].envFile, '.env.staging');
+
+  assert.throws(
+    () => parseStackContract(JSON.stringify({
+      schemaVersion: 1,
+      projects: [{
+        name: 'Web',
+        folder: '.',
+        startCommand: 'npm run dev',
+        env: { TOKEN: 'nope' },
+        services: []
+      }],
+      groups: []
+    }), { workspaceRoot: fixture.root }),
+    (error) => error instanceof StackContractError && error.code === 'SECRETS_FORBIDDEN'
+  );
+});
+
 test('round-trip export then load preview shows no spurious project churn', (t) => {
   const fixture = workspaceFixture(t);
   const projectsFile = path.join(fixture.root, 'storage', 'projects.json');

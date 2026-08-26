@@ -442,7 +442,9 @@ function projectSetupFingerprint(project) {
     selectedLaunchProfileId: project.selectedLaunchProfileId || 'default',
     tags: project.tags || [],
     pinned: project.pinned === true,
-    localHostname: project.localHostname || ''
+    localHostname: project.localHostname || '',
+    envFile: project.envFile || '',
+    env: project.env || {}
   });
 }
 

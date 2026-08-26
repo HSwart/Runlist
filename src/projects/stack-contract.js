@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { normalizeEnvFile } = require('./launch-env');
 
 const STACK_CONTRACT_SCHEMA_VERSION = 1;
 const STACK_CONTRACT_FILE_CANDIDATES = Object.freeze([
@@ -10,7 +11,6 @@ const MAX_CONTRACT_BYTES = 5 * 1024 * 1024;
 const MAX_CONTRACT_PROJECTS = 1000;
 const FORBIDDEN_SECRET_KEYS = new Set([
   'env',
-  'envfile',
   'environment',
   'secrets',
   'secret',
@@ -119,12 +119,16 @@ function serializeStackContract({ projects = [], groups = [] } = {}, options = {
     if (Array.isArray(project.tags) && project.tags.length) {
       entry.tags = [...project.tags];
     }
+    if (project.envFile) {
+      entry.envFile = project.envFile;
+    }
     if (Array.isArray(project.launchProfiles) && project.launchProfiles.length) {
       entry.launchProfiles = project.launchProfiles.map((profile) => ({
         id: profile.id,
         name: profile.name,
         startCommand: profile.startCommand,
         ...(profile.stopCommand ? { stopCommand: profile.stopCommand } : {}),
+        ...(profile.envFile ? { envFile: profile.envFile } : {}),
         services: (profile.services || []).map((service) => serializeContractService(service))
       }));
     }
@@ -165,7 +169,8 @@ function normalizeContractProject(project, index, workspaceRoot) {
     'stopCommand',
     'services',
     'tags',
-    'launchProfiles'
+    'launchProfiles',
+    'envFile'
   ]);
   if (Object.keys(project).some((key) => !allowed.has(key))) {
     throw stackError('INVALID_CONTRACT', `Stack project ${index + 1} contains unsupported fields.`);
@@ -194,6 +199,20 @@ function normalizeContractProject(project, index, workspaceRoot) {
     }
     entry.tags = project.tags.map((tag) => tag.trim()).filter(Boolean);
   }
+  if (project.envFile !== undefined) {
+    try {
+      const envFile = normalizeEnvFile(project.envFile);
+      if (!envFile) {
+        throw new Error('empty');
+      }
+      entry.envFile = envFile;
+    } catch {
+      throw stackError(
+        'INVALID_CONTRACT',
+        `Stack project ${index + 1} has an invalid envFile path.`
+      );
+    }
+  }
   if (project.launchProfiles !== undefined) {
     if (!Array.isArray(project.launchProfiles)) {
       throw stackError('INVALID_CONTRACT', `Stack project ${index + 1} has invalid launchProfiles.`);
@@ -206,11 +225,40 @@ function normalizeContractProject(project, index, workspaceRoot) {
         );
       }
       rejectForbiddenKeys(profile, `stack project ${index + 1} launch profile ${profileIndex + 1}`);
+      const allowedProfile = new Set([
+        'id',
+        'name',
+        'startCommand',
+        'stopCommand',
+        'services',
+        'envFile'
+      ]);
+      if (Object.keys(profile).some((key) => !allowedProfile.has(key))) {
+        throw stackError(
+          'INVALID_CONTRACT',
+          `Stack project ${index + 1} launch profile ${profileIndex + 1} contains unsupported fields.`
+        );
+      }
+      let envFile;
+      if (profile.envFile !== undefined) {
+        try {
+          envFile = normalizeEnvFile(profile.envFile);
+          if (!envFile) {
+            throw new Error('empty');
+          }
+        } catch {
+          throw stackError(
+            'INVALID_CONTRACT',
+            `Stack project ${index + 1} launch profile ${profileIndex + 1} has an invalid envFile path.`
+          );
+        }
+      }
       return {
         id: profile.id,
         name: profile.name,
         startCommand: profile.startCommand,
         ...(profile.stopCommand ? { stopCommand: profile.stopCommand } : {}),
+        ...(envFile ? { envFile } : {}),
         services: normalizeContractServices(profile.services, index)
       };
     });

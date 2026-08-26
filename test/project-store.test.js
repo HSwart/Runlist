@@ -569,7 +569,7 @@ test('migrates version-one projects and persists alternate launch profiles', (t)
   fs.writeFileSync(projectsFile, `${JSON.stringify(original, null, 2)}\n`);
 
   assert.equal(readProjects(projectsFile)[0].startCommand, 'npm run dev');
-  assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).schemaVersion, 7);
+  assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).schemaVersion, 8);
 
   const saved = upsertProject(projectsFile, {
     ...readProjects(projectsFile)[0],
@@ -603,7 +603,7 @@ test('migrates version-two storage and validates explicit service health checks'
   })}\n`);
 
   assert.equal(readProjects(projectsFile)[0].services[0].name, 'web');
-  assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).schemaVersion, 7);
+  assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).schemaVersion, 8);
 
   const updated = upsertProject(projectsFile, {
     ...readProjects(projectsFile)[0],
@@ -649,7 +649,7 @@ test('migrates version-four storage and persists normalized project tags', (t) =
   })}\n`);
 
   assert.equal(readProjects(projectsFile)[0].name, 'Tags');
-  assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).schemaVersion, 7);
+  assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).schemaVersion, 8);
 
   const updated = upsertProject(projectsFile, {
     ...readProjects(projectsFile)[0],
@@ -668,7 +668,7 @@ test('creates a versioned project document while preserving the array API', (t) 
   initializeProjectStore(projectsFile);
 
   assert.deepEqual(JSON.parse(fs.readFileSync(projectsFile, 'utf8')), {
-    schemaVersion: 7,
+    schemaVersion: 8,
     projects: []
   });
   assert.deepEqual(readProjects(projectsFile), []);
@@ -693,7 +693,7 @@ test('migrates historical arrays without losing project values or order', (t) =>
   }]);
   assert.equal(fs.readFileSync(`${projectsFile}.bak`, 'utf8'), legacyText);
   assert.deepEqual(JSON.parse(fs.readFileSync(projectsFile, 'utf8')), {
-    schemaVersion: 7,
+    schemaVersion: 8,
     projects: [{
       ...legacy[0],
       services: [],
@@ -791,7 +791,7 @@ test('leaves an unrecoverable primary and backup unchanged', (t) => {
 
 test('does not rewrite an unsupported future schema', (t) => {
   const { projectsFile } = projectStoreFixture(t);
-  const future = '{"schemaVersion":8,"projects":[]}\n';
+  const future = '{"schemaVersion":9,"projects":[]}\n';
   fs.writeFileSync(projectsFile, future);
 
   assert.throws(
@@ -878,7 +878,7 @@ test('retries a transient Windows atomic replacement denial', (t) => {
 
   assert.equal(attempts, 2);
   assert.deepEqual(JSON.parse(fs.readFileSync(projectsFile, 'utf8')), {
-    schemaVersion: 7,
+    schemaVersion: 8,
     projects: []
   });
 });
@@ -1064,4 +1064,66 @@ test('rejects project folders that do not exist', (t) => {
     }),
     /does not exist/
   );
+});
+
+test('persists relative envFile and env map on projects and profiles', (t) => {
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-store-'));
+  const projectFolder = path.join(temporaryRoot, 'sample-app');
+  const projectsFile = path.join(temporaryRoot, 'storage', 'projects.json');
+  fs.mkdirSync(projectFolder);
+  t.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
+
+  initializeProjectStore(projectsFile);
+  const created = upsertProject(projectsFile, {
+    folder: projectFolder,
+    startCommand: 'npm run dev',
+    envFile: '.env',
+    env: { FLAG: '1' },
+    launchProfiles: [{
+      id: 'tests',
+      name: 'Tests',
+      startCommand: 'npm test',
+      envFile: 'config/.env.tests',
+      env: { FLAG: 'tests' },
+      services: []
+    }],
+    services: []
+  });
+
+  assert.equal(created.project.envFile, '.env');
+  assert.deepEqual(created.project.env, { FLAG: '1' });
+  assert.equal(created.project.launchProfiles[0].envFile, 'config/.env.tests');
+  assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).schemaVersion, 8);
+
+  assert.throws(
+    () => upsertProject(projectsFile, {
+      folder: projectFolder,
+      startCommand: 'npm run dev',
+      envFile: '../.env',
+      services: []
+    }),
+    /inside the project folder/i
+  );
+});
+
+test('migrates schema version 7 documents that omit launch env fields', (t) => {
+  const { projectsFile, temporaryRoot } = projectStoreFixture(t);
+  const folder = path.join(temporaryRoot, 'hostname-app');
+  fs.mkdirSync(folder);
+  fs.writeFileSync(projectsFile, `${JSON.stringify({
+    schemaVersion: 7,
+    projects: [{
+      id: 'legacy-host',
+      name: 'Legacy',
+      folder,
+      startCommand: 'npm run dev',
+      localHostname: 'legacy',
+      services: [],
+      reviewRequired: false
+    }]
+  }, null, 2)}\n`);
+
+  const projects = readProjects(projectsFile);
+  assert.equal(projects[0].localHostname, 'legacy');
+  assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).schemaVersion, 8);
 });

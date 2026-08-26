@@ -65,6 +65,7 @@ const REVIEWED_PACKAGE_FILES = Object.freeze([
   'src/compose/compose-parse.js',
   'src/compose/compose-runtime.js',
   'src/projects/launch-profile.js',
+  'src/projects/launch-env.js',
   'src/projects/project-diagnostics.js',
   'src/projects/project-form.js',
   'src/projects/project-output.js',

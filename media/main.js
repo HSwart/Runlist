@@ -1721,6 +1721,16 @@ function renderProjectForm(mode) {
         ${fieldError('stop-command')}
         <p class="field-hint">Leave blank unless this project needs its own stop command.</p>
 
+        <label for="env-file">Env file <span class="optional-label">Optional</span></label>
+        <input id="env-file" name="envFile" value="${escapeHtml(activeProfile.envFile || '')}" placeholder=".env" maxlength="256" autocomplete="off" spellcheck="false" ${errorAttributes('env-file')}>
+        ${fieldError('env-file')}
+        <p class="field-hint">Relative to the project folder. Required at Start if set. Keep secrets in the file, not in Runlist export.</p>
+
+        <label for="env-map">Env overrides <span class="optional-label">Optional</span></label>
+        <textarea id="env-map" name="envText" rows="3" placeholder="FLAG=1" spellcheck="false" ${errorAttributes('env-map')}>${escapeHtml(activeProfile.envText || '')}</textarea>
+        ${fieldError('env-map')}
+        <p class="field-hint">Non-secret KEY=value lines. Applied after the env file. Temporary ports still win.</p>
+
         <fieldset id="services" class="service-editor" ${state.servicesLocked ? 'disabled' : ''} ${errors.services ? 'aria-invalid="true" aria-describedby="services-hint services-error" tabindex="-1"' : 'aria-describedby="services-hint"'}>
           <legend>Services <span class="optional-label">Optional</span></legend>
           <p id="services-hint" class="field-hint">${state.servicesLocked ? 'Stop this project before changing its services.' : 'Add up to 32 named service ports.'}</p>
@@ -2038,15 +2048,30 @@ function jumpToLatestOutput() {
 }
 
 function draftLaunchProfileOptions(draft = {}) {
+  const envTextFrom = (value) => {
+    if (typeof value?.envText === 'string') {
+      return value.envText;
+    }
+    if (value?.env && typeof value.env === 'object' && !Array.isArray(value.env)) {
+      return Object.keys(value.env).sort().map((key) => `${key}=${value.env[key]}`).join('\n');
+    }
+    return '';
+  };
   return [
     {
       id: 'default',
       name: 'Default',
       startCommand: String(draft.startCommand || ''),
       stopCommand: String(draft.stopCommand || ''),
+      envFile: String(draft.envFile || ''),
+      envText: envTextFrom(draft),
       services: Array.isArray(draft.services) ? draft.services : []
     },
-    ...(Array.isArray(draft.launchProfiles) ? draft.launchProfiles : [])
+    ...(Array.isArray(draft.launchProfiles) ? draft.launchProfiles : []).map((profile) => ({
+      ...profile,
+      envFile: String(profile.envFile || ''),
+      envText: envTextFrom(profile)
+    }))
   ];
 }
 
@@ -2097,6 +2122,8 @@ function currentDraft(
   const profileValues = {
     startCommand: fieldValue('startCommand'),
     stopCommand: fieldValue('stopCommand'),
+    envFile: fieldValue('envFile'),
+    envText: fieldValue('envText'),
     services
   };
   if (editingProfileId === 'default') {
@@ -2279,6 +2306,8 @@ app.addEventListener('click', (event) => {
         name: nextLaunchProfileName(profiles),
         startCommand: source.startCommand || '',
         stopCommand: source.stopCommand || '',
+        envFile: source.envFile || '',
+        envText: source.envText || '',
         services: (source.services || []).map((service) => ({ ...service }))
       }];
       draft.selectedLaunchProfileId = id;

@@ -32,9 +32,10 @@ First-run stays empty until you add a folder. No setup dump.
 - On a running or conflicted row, shows who owns the port: this app, another Runlist app, or an external process (name and PID)
 - What’s Listening lists configured project ports and their listeners; closing a listener always asks for confirmation with the exact port and PID, then checks identity again before stopping anything
 - Launch profiles, tags, and run groups for the apps you keep coming back to
+- Optional env file (path relative to the project folder) and non-secret env overrides per project or launch profile; Start fails closed if a configured env file is missing; temporary port variables still win; values are redacted from Recent Output, diagnostics, and agent diagnosis
 - Live preview, recent output, and open-on-phone handoff for local web apps (phone handoff uses your LAN address; named `.localhost` URLs are for this machine)
 - Import or export project setups, then review changes before they can run
-- Optional `runlist.json` (or `.runlist/projects.json`) stack file in a repo: load or export from Import or Export, review before commands can run; keep secrets out of the file
+- Optional `runlist.json` (or `.runlist/projects.json`) stack file in a repo: load or export from Import or Export, review before commands can run; may reference an `envFile` path, but keep secret values out of the file (use `.env.example` in git and a local `.env` for real secrets)
 - Import Docker Compose services after review (Compose file is not started until you Start). Needs Docker Engine + Compose v2; Stop ends only the Compose services that run started
 - Windows, macOS, and Linux
 

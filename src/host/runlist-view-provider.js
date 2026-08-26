@@ -98,9 +98,15 @@ const {
   normalizePortOverrides,
   parseTemporaryPort,
   portVariableValidationMessage,
-  projectLaunchEnvironment,
   projectWithPortOverrides
 } = require('../ports/service-port-overrides');
+const {
+  LaunchEnvError,
+  collectLaunchEnvSecretValues,
+  redactKnownEnvValues,
+  resolveProjectLaunchEnvironment
+} = require('../projects/launch-env');
+const { redactSensitiveText } = require('../projects/project-diagnostics');
 const {
   detectLifecycleCapability,
   projectLifecycleCapability
@@ -286,6 +292,7 @@ class RunlistViewProvider {
       this.render();
     });
     this.projectOutputs = new Map();
+    this.projectLaunchSecrets = new Map();
     this.projectIncarnations = new Map();
     this.projectIncarnationSequence = 0;
     this.projectOutputPeekIncarnations = new Map();
@@ -1825,6 +1832,12 @@ class RunlistViewProvider {
     return choice === 'Discard changes';
   }
 
+  redactProjectOutputText(id, output) {
+    return redactSensitiveText(
+      redactKnownEnvValues(output, this.projectLaunchSecrets.get(id) || [])
+    );
+  }
+
   addProjectOutput(id, chunk, projectRevision) {
     if (projectRevision && !this.isCurrentProjectRevision(id, projectRevision)) {
       return;
@@ -1874,6 +1887,7 @@ class RunlistViewProvider {
       this.projectFailureDetails.delete(id);
       this.projectFailureSummaries.delete(id);
       this.projectOutputs.delete(id);
+      this.projectLaunchSecrets.delete(id);
     }
     if (clearTimeline) {
       this.projectTimelineFailures.delete(id);
@@ -2034,7 +2048,7 @@ class RunlistViewProvider {
       }
       const previousDiagnostic = readProjectDiagnostics(this.projectsFile, project.id);
       writeProjectDiagnostics(this.projectsFile, project.id, {
-        output: this.projectOutputs.get(project.id),
+        output: this.redactProjectOutputText(project.id, this.projectOutputs.get(project.id)),
         lifecycleState: this.getProjectStatus(project.id),
         exitCode: details.code,
         signal: details.signal,
@@ -2174,6 +2188,7 @@ class RunlistViewProvider {
       return;
     }
     const rawOutput = this.projectOutputs.get(id) || '';
+    const displayOutput = this.redactProjectOutputText(id, rawOutput);
     if (showingPeek) {
       if (!hasPeekIncarnation) {
         return;
@@ -2183,21 +2198,24 @@ class RunlistViewProvider {
         messageToken: this.webviewMessageToken,
         id,
         projectIncarnation: peekIncarnation,
-        entries: projectOutputPeek(rawOutput)
+        entries: projectOutputPeek(displayOutput)
       });
       return;
     }
     this.view?.webview.postMessage({
       type: 'projectOutput',
       messageToken: this.webviewMessageToken,
-      entries: formatProjectOutput(rawOutput),
+      entries: formatProjectOutput(displayOutput),
       failureSummary: this.projectFailureSummaries.get(id),
-      output: sanitizeProjectOutput(rawOutput)
+      output: displayOutput
     });
   }
 
   async copyProjectOutput() {
-    const output = sanitizeProjectOutput(this.projectOutputs.get(this.selectedProjectId) || '');
+    const output = this.redactProjectOutputText(
+      this.selectedProjectId,
+      this.projectOutputs.get(this.selectedProjectId) || ''
+    );
     if (!output) {
       return;
     }
@@ -2897,6 +2915,7 @@ class RunlistViewProvider {
       this.stoppingProjectIds.delete(id);
       this.remoteStopRequests.delete(id);
       this.projectOutputs.delete(id);
+      this.projectLaunchSecrets.delete(id);
       this.projectFailureSummaries.delete(id);
       this.projectFailureDetails.delete(id);
       clearProjectDiagnostics(this.projectsFile, id);
@@ -3228,10 +3247,32 @@ class RunlistViewProvider {
         launchedAt,
         projectRevision: savedProjectRevision
       });
+      let launchEnvironment;
+      try {
+        launchEnvironment = resolveProjectLaunchEnvironment(
+          launchProject,
+          process.env,
+          portOverrides
+        );
+        this.projectLaunchSecrets.set(id, collectLaunchEnvSecretValues(launchProject));
+      } catch (error) {
+        this.managedProjectIds.delete(id);
+        this.processOwnership.release(id);
+        this.releaseStartReservation(id);
+        this.projectStatuses.set(id, 'stopped');
+        this.startReadinessDeadlines.delete(id);
+        this.projectAttemptMetadata.delete(id);
+        const detail = error instanceof LaunchEnvError
+          ? error.message
+          : error.message;
+        vscode.window.showErrorMessage(`Could not start ${project.name}: ${detail}`);
+        this.renderProjectList();
+        return false;
+      }
       const child = spawnProjectCommand(launchProject.startCommand, {
         cwd: launchProject.folder,
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: projectLaunchEnvironment(process.env, portOverrides)
+        env: launchEnvironment
       });
 
       this.processes.set(id, child);
@@ -4326,14 +4367,17 @@ class RunlistViewProvider {
   runCustomStopCommand(project, options = {}) {
     let environment;
     try {
-      environment = projectLaunchEnvironment(
+      environment = resolveProjectLaunchEnvironment(
+        project,
         process.env,
         effectiveProjectPortOverrides(project)
       );
     } catch (error) {
       return Promise.resolve({
         succeeded: false,
-        detail: `its temporary port settings are invalid: ${error.message}`
+        detail: error instanceof LaunchEnvError
+          ? error.message
+          : `its temporary port settings are invalid: ${error.message}`
       });
     }
     this.beginStopping(project.id, options);
@@ -4563,7 +4607,10 @@ class RunlistViewProvider {
           || this.processes.has(project.id)
           || this.projectRuntime.has(project.id));
       const outputPeek = outputPeekVisible
-        ? projectOutputPeek(this.projectOutputs.get(project.id))
+        ? projectOutputPeek(this.redactProjectOutputText(
+          project.id,
+          this.projectOutputs.get(project.id)
+        ))
         : undefined;
       const startupHistory = readStartupHistory(this.projectsFile, project.id);
       const detailTabs = availableProjectDetailTabs({

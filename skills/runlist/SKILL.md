@@ -16,7 +16,7 @@ description: Set up or update a local development project in Runlist, or diagnos
 7. Call the `runlist_setup_project` MCP tool with the absolute folder, exact start command, complete service list with any explicit URL overrides, optional custom stop command, and optional friendly name.
 8. Report the saved project name, start command, any custom stop command, service ports, and included URL overrides succinctly. Tell the user to review and approve the setup in the Runlist sidebar before running it.
 
-When the repository already has a committed Runlist stack file (`runlist.json` or `.runlist/projects.json`), tell the user they can use **Runlist → Import or Export → Load stack from this workspace**, review the exact folders and commands, and approve before anything can run. Do not put secrets, env files, or tokens in that stack file.
+When the repository already has a committed Runlist stack file (`runlist.json` or `.runlist/projects.json`), tell the user they can use **Runlist → Import or Export → Load stack from this workspace**, review the exact folders and commands, and approve before anything can run. The stack file may reference an `envFile` path relative to each project folder, but must not include secret values or an `env` map. Prefer a committed `.env.example` and a local `.env` that stays out of git.
 
 If the Runlist MCP tool is unavailable, tell the user to open **Runlist → Agent connections** in VS Code and select **Set up** for this agent. Do not edit Runlist's storage file directly.
 

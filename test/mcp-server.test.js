@@ -225,6 +225,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
     'src/lifecycle/project-process.js',
     'src/lifecycle/runtime-process-owner.js',
     'src/ports/service-port-overrides.js',
+    'src/projects/launch-env.js',
     'src/projects/launch-profile.js',
     'src/projects/project-output.js',
     'src/projects/project-diagnostics.js',
