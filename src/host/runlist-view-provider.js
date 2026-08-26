@@ -237,6 +237,12 @@ class RunlistViewProvider {
     this.resourceSampleProjectId = undefined;
     this.resourceSampleGeneration = 0;
     this.statusMonitoringDisposable = undefined;
+    this.workspaceFoldersDisposable = vscode.workspace?.onDidChangeWorkspaceFolders?.(() => {
+      if (this.disposed) {
+        return;
+      }
+      this.render();
+    });
     this.projectOutputs = new Map();
     this.projectIncarnations = new Map();
     this.projectIncarnationSequence = 0;
@@ -4219,6 +4225,8 @@ class RunlistViewProvider {
   dispose() {
     this.statusMonitoringDisposable?.dispose();
     this.statusMonitoringDisposable = undefined;
+    this.workspaceFoldersDisposable?.dispose();
+    this.workspaceFoldersDisposable = undefined;
     this.disposed = true;
     this.statusRefreshPending = false;
     if (this.shutdownPromise) {
