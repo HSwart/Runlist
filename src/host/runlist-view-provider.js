@@ -120,6 +120,11 @@ const {
   resolveComposeFile
 } = require('../compose/compose-file');
 const {
+  composeLaunchCommands,
+  isComposeManagedProject,
+  probeComposeAvailability
+} = require('../compose/compose-runtime');
+const {
   buildPortListeningReport,
   formatPortListenerClipboardLine,
   formatPortListeningClipboard
@@ -2846,6 +2851,16 @@ class RunlistViewProvider {
       return false;
     }
 
+    if (isComposeManagedProject(project)) {
+      const availability = await probeComposeAvailability();
+      if (!availability.ok) {
+        vscode.window.showErrorMessage(
+          `Could not start ${project.name}: ${availability.message}`
+        );
+        return false;
+      }
+    }
+
     const currentStatus = this.getProjectStatus(id);
     if (currentStatus !== 'stopped' && !options.allowPortConflict) {
       if (['port-in-use', 'port-in-use-unknown'].includes(currentStatus)) {
@@ -2888,6 +2903,16 @@ class RunlistViewProvider {
       this.processOwnership.release(id);
       vscode.window.showErrorMessage(`Could not start ${project.name}: ${error.message}`);
       return false;
+    }
+    const composeLaunch = composeLaunchCommands(launchProject);
+    if (composeLaunch) {
+      launchProject = {
+        ...launchProject,
+        startCommand: composeLaunch.startCommand,
+        stopCommand: composeLaunch.stopCommand,
+        composePath: composeLaunch.composePath,
+        composeServices: composeLaunch.composeServices
+      };
     }
     const processRuntime = this.processOwnership.snapshot();
     const effectiveProjects = projects.map((candidate) => projectStopStrategy(
@@ -3072,7 +3097,14 @@ class RunlistViewProvider {
         readinessDeadline,
         launchedAt,
         portOverrides,
-        ...(hasServices ? {} : { readyAt: launchedAt })
+        ...(hasServices ? {} : { readyAt: launchedAt }),
+        ...(composeLaunch ? {
+          ownershipKind: 'compose',
+          composePath: composeLaunch.composePath,
+          composeServices: composeLaunch.composeServices,
+          stopCommand: composeLaunch.stopCommand,
+          startCommand: composeLaunch.startCommand
+        } : {})
       });
       this.projectRuntime = this.processOwnership.snapshot();
       this.startAttempts.delete(id);

@@ -1101,6 +1101,15 @@ class ProcessOwnershipStore {
       ...(typeof details.launchProfileName === 'string'
         ? { launchProfileName: details.launchProfileName }
         : {}),
+      ...(details.ownershipKind === 'compose'
+        ? { ownershipKind: 'compose' }
+        : {}),
+      ...(typeof details.composePath === 'string' && details.composePath.trim()
+        ? { composePath: details.composePath.trim() }
+        : {}),
+      ...(Array.isArray(details.composeServices)
+        ? { composeServices: details.composeServices.map((name) => String(name)) }
+        : {}),
       ...(validRuntimePortOverrides(details.portOverrides)
         ? { portOverrides: details.portOverrides.map((override) => ({ ...override })) }
         : {}),
