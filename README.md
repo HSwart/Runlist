@@ -32,6 +32,7 @@ First-run stays empty until you add a folder. No setup dump.
 - Launch profiles, tags, and run groups for the apps you keep coming back to
 - Live preview, recent output, and open-on-phone handoff for local web apps
 - Import or export project setups, then review changes before they can run
+- Import Docker Compose services after review (Compose file is not started until you Start). Needs Docker Engine + Compose v2; Stop ends only the Compose services that run started
 - Windows, macOS, and Linux
 
 Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=hankoswart.runlist).
