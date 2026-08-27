@@ -58,12 +58,8 @@
     'refreshPortListening',
     'copyPortListeningDetails',
     'revealPortOwnerProject',
-<<<<<<< HEAD
-=======
-    'loadWorkspaceStack',
     'approveStackReview',
     'selectWorkspaceFolder',
->>>>>>> 8332796 (Finish workspace discovery: stack review overlay and multi-root pick.)
     'showDiagnosis',
     'showEdit',
     'showOutput',
