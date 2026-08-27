@@ -8,9 +8,11 @@ const {
   orderSidebarProjects,
   projectForCurrentWindow,
   projectLastStartedAt,
+  resolveWorkspaceFolderPath,
   selectCurrentWorkspaceFolder,
   startThisFolderDecision,
   starterDraftForCurrentWorkspace,
+  workspaceFolderChoices,
   workspaceFolderMatchesProject
 } = require('../src/projects/project-workspace');
 
@@ -66,37 +68,27 @@ test('asks the user to choose from clearly labeled multi-root workspace folders'
     workspaceFolder('Frontend', '/Users/example/product/frontend'),
     workspaceFolder('API', '/Users/example/product/api')
   ];
-  let pickerItems;
-  let pickerOptions;
+  assert.deepEqual(workspaceFolderChoices(workspaceFolders), [
+    { name: 'Frontend', folder: '/Users/example/product/frontend' },
+    { name: 'API', folder: '/Users/example/product/api' }
+  ]);
+  assert.equal(
+    resolveWorkspaceFolderPath(workspaceFolders, '/Users/example/product/api'),
+    '/Users/example/product/api'
+  );
+  assert.equal(resolveWorkspaceFolderPath(workspaceFolders), undefined);
+
   const vscode = {
     workspace: { workspaceFolders },
     window: {
-      showQuickPick: async (items, options) => {
-        pickerItems = items;
-        pickerOptions = options;
-        return items[1];
-      }
+      showQuickPick: async () => assert.fail('multi-root choice belongs in the sidebar')
     }
   };
-
-  assert.equal(await selectCurrentWorkspaceFolder(vscode), '/Users/example/product/api');
-  assert.deepEqual(pickerItems, [
-    {
-      description: '/Users/example/product/frontend',
-      folder: '/Users/example/product/frontend',
-      label: 'Frontend'
-    },
-    {
-      description: '/Users/example/product/api',
-      folder: '/Users/example/product/api',
-      label: 'API'
-    }
-  ]);
-  assert.deepEqual(pickerOptions, {
-    matchOnDescription: true,
-    placeHolder: 'Choose the workspace folder to use for this project',
-    title: 'Use current workspace'
-  });
+  assert.equal(await selectCurrentWorkspaceFolder(vscode), undefined);
+  assert.equal(
+    await selectCurrentWorkspaceFolder(vscode, { preferredFolder: '/Users/example/product/frontend' }),
+    '/Users/example/product/frontend'
+  );
 });
 
 test('prefills a starter draft only for a single local workspace folder', () => {

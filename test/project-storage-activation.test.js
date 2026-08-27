@@ -115,6 +115,7 @@ test('activate registers Runlist commands and the projects webview', async (t) =
     'runlist.showAgentSetup',
     'runlist.transferProjects',
     'runlist.manageGroups',
+    'runlist.loadWorkspaceStack',
     'runlist.showPortListening',
     'runlist.importCompose',
     'runlist.copySupportDiagnostics',

@@ -58,6 +58,12 @@
     'refreshPortListening',
     'copyPortListeningDetails',
     'revealPortOwnerProject',
+<<<<<<< HEAD
+=======
+    'loadWorkspaceStack',
+    'approveStackReview',
+    'selectWorkspaceFolder',
+>>>>>>> 8332796 (Finish workspace discovery: stack review overlay and multi-root pick.)
     'showDiagnosis',
     'showEdit',
     'showOutput',
@@ -150,6 +156,12 @@
     }
     if (value.type === 'startWorkspaceScript'
       && !['start', 'dev'].includes(value.script)) {
+      return undefined;
+    }
+    if (value.type === 'selectWorkspaceFolder'
+      && (typeof value.folder !== 'string'
+        || !value.folder.trim()
+        || value.folder.length > 4096)) {
       return undefined;
     }
     if (['copyServiceUrl', 'openServiceUrl'].includes(value.type)

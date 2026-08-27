@@ -67,6 +67,7 @@
     "onCommand:runlist.showAgentSetup",
     "onCommand:runlist.transferProjects",
     "onCommand:runlist.manageGroups",
+    "onCommand:runlist.loadWorkspaceStack",
     "onCommand:runlist.showPortListening",
     "onCommand:runlist.importCompose",
     "onCommand:runlist.copySupportDiagnostics",
@@ -102,6 +103,12 @@
         "title": "Manage Groups",
         "category": "Runlist",
         "icon": "$(run-all)"
+      },
+      {
+        "command": "runlist.loadWorkspaceStack",
+        "title": "Load Stack",
+        "category": "Runlist",
+        "icon": "$(repo)"
       },
       {
         "command": "runlist.showPortListening",
@@ -189,12 +196,16 @@
           "group": "1_library@2"
         },
         {
-          "command": "runlist.manageGroups",
+          "command": "runlist.loadWorkspaceStack",
           "group": "1_library@3"
         },
         {
-          "command": "runlist.showPortListening",
+          "command": "runlist.manageGroups",
           "group": "1_library@4"
+        },
+        {
+          "command": "runlist.showPortListening",
+          "group": "1_library@5"
         },
         {
           "command": "runlist.copySupportDiagnostics",
