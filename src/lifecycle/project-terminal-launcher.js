@@ -1,52 +1,42 @@
 /**
  * Start a project in a VS Code terminal tab titled exactly the project name.
- * Stop ends the process but keeps the tab. Closing the tab ends the process.
+ * Process control stays on the spawned child (ownership-safe). The terminal is a
+ * real Extension PTY so stdin works and I/O is visible in the Terminal panel.
  */
 
-function createProjectTerminalLauncher(vscode, options = {}) {
+function createProjectTerminalLauncher(vscodeApi, options = {}) {
+  if (!vscodeApi?.window?.createTerminal) {
+    return {
+      attach() {
+        return undefined;
+      },
+      dispose() {},
+      disposeAll() {},
+      get() {
+        return undefined;
+      }
+    };
+  }
   const terminals = new Map();
   const byTerminal = new Map();
-  const handles = new Map();
   const onClosed = typeof options.onTerminalClosed === 'function'
     ? options.onTerminalClosed
     : async () => {};
 
-  const closeSubscription = vscode.window.onDidCloseTerminal?.((terminal) => {
+  const closeSubscription = vscodeApi.window.onDidCloseTerminal?.((terminal) => {
     const projectId = byTerminal.get(terminal);
     if (!projectId) {
       return;
     }
     byTerminal.delete(terminal);
-    const handle = handles.get(projectId);
-    if (handle) {
-      handle._emitExit(null, 'terminal-closed');
-      handles.delete(projectId);
-    }
     if (terminals.get(projectId) === terminal) {
       terminals.delete(projectId);
     }
     void onClosed(projectId, terminal);
   });
 
-  const endSubscription = vscode.window.onDidEndTerminalShellExecution?.((event) => {
-    const projectId = byTerminal.get(event.terminal);
-    if (!projectId) {
-      return;
-    }
-    const handle = handles.get(projectId);
-    if (!handle || handle.terminal !== event.terminal) {
-      return;
-    }
-    const code = Number.isInteger(event.exitCode) ? event.exitCode : 0;
-    handle._emitExit(code, null);
-  });
-
   function get(projectId) {
     return terminals.get(projectId);
-  }
-
-  function getHandle(projectId) {
-    return handles.get(projectId);
   }
 
   function remember(projectId, terminal) {
@@ -58,64 +48,84 @@ function createProjectTerminalLauncher(vscode, options = {}) {
     byTerminal.set(terminal, projectId);
   }
 
-  async function start({
-    projectId,
-    name,
-    folder,
-    command,
-    env
-  }) {
+  function attach(projectId, { name, child }) {
+    if (!vscodeApi.EventEmitter) {
+      return undefined;
+    }
     const title = String(name || '').trim() || 'project';
     let terminal = terminals.get(projectId);
-    if (!terminal || terminal.exitStatus !== undefined) {
-      terminal = vscode.window.createTerminal({
-        name: title,
-        cwd: folder,
-        env: env && typeof env === 'object' ? env : undefined
-      });
+    if (terminal && terminal.exitStatus === undefined) {
+      // Restart reuses the same tab; rebind writers to the new child.
+      if (typeof terminal.__runlistRebind === 'function') {
+        terminal.__runlistRebind(child);
+      }
+      terminal.show(true);
       remember(projectId, terminal);
-    } else {
-      remember(projectId, terminal);
+      return terminal;
     }
-    terminal.show(true);
-    const line = String(command || '').trim();
-    if (!line) {
-      throw new Error('Start command is empty.');
-    }
-    // Interrupt any prior command in the reused Restart tab, then launch.
-    try {
-      terminal.sendText('\u0003', false);
-    } catch {
-      // First start has nothing to interrupt.
-    }
-    terminal.sendText(line, true);
-    let pid;
-    try {
-      pid = await terminal.processId;
-    } catch {
-      pid = undefined;
-    }
-    const handle = createTerminalProcessHandle(terminal, pid);
-    handles.set(projectId, handle);
-    return { terminal, pid, handle };
-  }
 
-  function interrupt(projectId) {
-    const terminal = terminals.get(projectId);
-    if (!terminal) {
-      return false;
+    const writeEmitter = new vscodeApi.EventEmitter();
+    const closeEmitter = new vscodeApi.EventEmitter();
+    let activeChild = child;
+    let closed = false;
+
+    function pipeChild(nextChild) {
+      activeChild = nextChild;
+      if (!nextChild) {
+        return;
+      }
+      nextChild.stdout?.on?.('data', (chunk) => {
+        writeEmitter.fire(String(chunk));
+      });
+      nextChild.stderr?.on?.('data', (chunk) => {
+        writeEmitter.fire(String(chunk));
+      });
     }
-    try {
-      terminal.sendText('\u0003', false);
-      return true;
-    } catch {
-      return false;
-    }
+
+    pipeChild(child);
+
+    const pty = {
+      onDidWrite: writeEmitter.event,
+      onDidClose: closeEmitter.event,
+      open() {},
+      close() {
+        closed = true;
+      },
+      handleInput(data) {
+        if (!activeChild || activeChild.killed || !activeChild.stdin) {
+          return;
+        }
+        try {
+          if (data === '\r') {
+            activeChild.stdin.write('\n');
+          } else {
+            activeChild.stdin.write(data);
+          }
+        } catch {
+          // Ignore stdin races after stop.
+        }
+      }
+    };
+
+    terminal = vscodeApi.window.createTerminal({
+      name: title,
+      pty
+    });
+    terminal.__runlistRebind = (nextChild) => {
+      pipeChild(nextChild);
+    };
+    terminal.__runlistClose = () => {
+      if (!closed) {
+        closeEmitter.fire();
+      }
+    };
+    remember(projectId, terminal);
+    terminal.show(true);
+    return terminal;
   }
 
   function dispose(projectId) {
     const terminal = terminals.get(projectId);
-    handles.delete(projectId);
     if (!terminal) {
       return;
     }
@@ -133,65 +143,16 @@ function createProjectTerminalLauncher(vscode, options = {}) {
       dispose(id);
     }
     closeSubscription?.dispose?.();
-    endSubscription?.dispose?.();
   }
 
   return {
+    attach,
     dispose,
     disposeAll,
-    get,
-    getHandle,
-    interrupt,
-    start
-  };
-}
-
-function createTerminalProcessHandle(terminal, pid) {
-  const listeners = {
-    exit: [],
-    error: []
-  };
-  let exited = false;
-  return {
-    pid,
-    terminal,
-    killed: false,
-    stdout: { on() {}, once() {} },
-    stderr: { on() {}, once() {} },
-    once(event, callback) {
-      if (!listeners[event] || typeof callback !== 'function') {
-        return;
-      }
-      listeners[event].push(callback);
-    },
-    on(event, callback) {
-      this.once(event, callback);
-    },
-    kill() {
-      this.killed = true;
-      try {
-        terminal.sendText('\u0003', false);
-      } catch {
-        // Terminal may already be closed.
-      }
-    },
-    _emitExit(code, signal) {
-      if (exited) {
-        return;
-      }
-      exited = true;
-      for (const callback of listeners.exit) {
-        try {
-          callback(code, signal);
-        } catch {
-          // Listener errors must not break lifecycle cleanup.
-        }
-      }
-    }
+    get
   };
 }
 
 module.exports = {
-  createProjectTerminalLauncher,
-  createTerminalProcessHandle
+  createProjectTerminalLauncher
 };

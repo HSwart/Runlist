@@ -328,19 +328,23 @@ class RunlistViewProvider {
           return;
         }
         if (this.managedProjectIds.has(projectId) || this.processes.has(projectId)) {
-          this.statusRevision += 1;
-          this.processes.delete(projectId);
-          this.forgetProjectMetrics(projectId);
-          this.projectRuntime.delete(projectId);
-          this.managedProjectIds.delete(projectId);
-          this.namedLocalhostEnabled.delete(projectId);
-          await this.clearOffLanShare(projectId);
-          this.httpInspector.clear(projectId);
-          this.processOwnership.release(projectId);
-          this.releaseStartReservation?.(projectId);
-          this.projectStatuses.set(projectId, 'stopped');
-          this.startReadinessDeadlines.delete(projectId);
-          this.renderProjectList();
+          try {
+            await this.stopProject(projectId);
+          } catch {
+            this.statusRevision += 1;
+            this.processes.delete(projectId);
+            this.forgetProjectMetrics(projectId);
+            this.projectRuntime.delete(projectId);
+            this.managedProjectIds.delete(projectId);
+            this.namedLocalhostEnabled.delete(projectId);
+            await this.clearOffLanShare(projectId);
+            this.httpInspector.clear(projectId);
+            this.processOwnership.release(projectId);
+            this.releaseStartReservation?.(projectId);
+            this.projectStatuses.set(projectId, 'stopped');
+            this.startReadinessDeadlines.delete(projectId);
+            this.renderProjectList();
+          }
         }
       }
     });
@@ -2476,6 +2480,25 @@ class RunlistViewProvider {
     // Do not claim the public URL still serves after Stop/off.
   }
 
+  async startHttpInspectorProxy(id, configuredPort, upstreamPort) {
+    const upstreamReady = await waitForLocalPort(upstreamPort, 10000);
+    if (!upstreamReady || !this.managedProjectIds.has(id)) {
+      return;
+    }
+    await this.httpInspector.startProxy(id, {
+      configuredPort,
+      upstreamPort,
+      onChange: () => {
+        if (this.expandedPreviewProjectId === id) {
+          this.renderProjectList();
+        }
+      }
+    });
+    if (this.httpInspector.isObserving(id)) {
+      this.renderProjectList();
+    }
+  }
+
   async openProject(id) {
     const savedProject = this.projects.find((item) => item.id === id);
     const project = projectStopStrategy(
@@ -3511,22 +3534,32 @@ class RunlistViewProvider {
         }
       }
 
-      const started = await this.projectTerminals.start({
-        projectId: id,
-        name: launchProject.name,
-        folder: launchProject.folder,
-        command: launchProject.startCommand,
+      const child = spawnProjectCommand(launchProject.startCommand, {
+        cwd: launchProject.folder,
+        stdio: ['pipe', 'pipe', 'pipe'],
         env: launchEnvironment
       });
-      const child = started.handle;
 
       this.processes.set(id, child);
+      try {
+        this.projectTerminals.attach(id, {
+          name: launchProject.name,
+          child
+        });
+      } catch (error) {
+        // Terminal UI must not block Start; process ownership still tracks the child.
+        this.diagnostics.record('terminal.attach-failed', {
+          projectId: id,
+          error: error?.message
+        });
+      }
       try {
         recordProjectLastStartedAt(this.projectsFile, id, launchedAt);
       } catch {
         // Last-started order is optional and must never block Start.
       }
       // I/O lives in the named Terminal tab; do not open Output on Start.
+      listenToProjectOutput(child, (chunk) => this.addProjectOutput(id, chunk, savedProjectRevision));
       child.once('error', (error) => {
         if (this.processes.get(id) !== child) {
           return;
@@ -3566,27 +3599,11 @@ class RunlistViewProvider {
           signal
         });
       });
-      if (inspectorUpstream && webPorts.length === 1) {
-        const upstreamReady = await waitForLocalPort(inspectorUpstream, 10000);
-        if (upstreamReady) {
-          await this.httpInspector.startProxy(id, {
-            configuredPort: webPorts[0],
-            upstreamPort: inspectorUpstream,
-            onChange: () => {
-              if (this.expandedPreviewProjectId === id) {
-                this.renderProjectList();
-              }
-            }
-          });
-        }
-      }
       if (!hasServices) {
         this.projectAttemptMetadata.get(id).readyAt = launchedAt;
       }
       this.projectMetrics.delete(id);
-      if (Number.isInteger(child.pid) && child.pid > 0) {
-        this.ownedProcessMetrics.track(id, child.pid);
-      }
+      this.ownedProcessMetrics.track(id, child.pid);
       await recordStartedProcess(this.processOwnership, this.portReservations, launchProject, child, {
         state: hasServices ? 'starting' : 'running',
         readinessDeadline,
@@ -3605,6 +3622,9 @@ class RunlistViewProvider {
       this.startAttempts.delete(id);
       this.statusRevision += 1;
       this.renderProjectList();
+      if (inspectorUpstream && webPorts.length === 1) {
+        void this.startHttpInspectorProxy(id, webPorts[0], inspectorUpstream);
+      }
       return true;
     } catch (error) {
       this.statusRevision += 1;

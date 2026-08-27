@@ -17,9 +17,10 @@ const parse = fs.readFileSync(
   'utf8'
 );
 
-test('Compose start uses the named Terminal and does not follow docker compose logs', () => {
-  assert.match(host, /projectTerminals\.start\(/);
+test('Compose start attaches a named Terminal and keeps bounded Recent Output', () => {
+  assert.match(host, /projectTerminals\.attach\(/);
   assert.match(host, /I\/O lives in the named Terminal tab/);
+  assert.match(host, /listenToProjectOutput\(child/);
   assert.doesNotMatch(host, /docker compose logs -f|compose logs --follow/);
   assert.doesNotMatch(parse, /docker compose up -d/);
   const flooded = 'x'.repeat(MAX_PROJECT_OUTPUT_CHARS + 5000);
