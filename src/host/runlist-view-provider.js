@@ -640,16 +640,16 @@ class RunlistViewProvider {
           } : {})
         }, existing ? { expectedProject: existing } : {})
       ));
-      this.projects = this.loadProjects();
+      const project = saved.project;
       this.composeImport = undefined;
       this.mode = 'list';
-      this.focusTarget = { type: 'project-control', id: saved.id };
+      this.focusTarget = { type: 'project-control', id: project.id };
       this.renderProjectList();
       void this.refreshProjectStatuses();
       vscode.window.showInformationMessage(
         existing
-          ? `Saved Compose services for ${saved.name}. Runlist has not started anything.`
-          : `Added ${saved.name} from Compose. Runlist has not started anything.`
+          ? `Saved Compose services for ${project.name}. Runlist has not started anything.`
+          : `Added ${project.name} from Compose. Runlist has not started anything.`
       );
       return true;
     } catch (error) {
