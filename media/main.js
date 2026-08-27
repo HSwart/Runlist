@@ -858,8 +858,14 @@ function statusSummaryHtml(projects) {
     .filter((project) => !project.reviewRequired
       && ['port-in-use', 'port-in-use-unknown'].includes(project.status)).length;
   const unsupportedCount = projects.filter((project) => project.status === 'unsupported').length;
-  const attentionCount = projects.filter((project) => projectNeedsAttention(project)).length;
-  return `<span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running${startingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${startingCount} starting` : ''}${notReadyCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notReadyCount} taking longer` : ''}${notRespondingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notRespondingCount} not responding` : ''}${stoppingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${stoppingCount} stopping` : ''}${ownershipLostCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${ownershipLostCount} control unavailable` : ''} <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped${reviewCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${reviewCount} to review` : ''}${conflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${conflictCount} unavailable` : ''}${unsupportedCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${unsupportedCount} local only` : ''}${attentionCount ? ` <button type="button" class="summary-attention" data-action="focus-attention" aria-label="Focus first project that needs attention">Needs attention</button>` : ''}`;
+  return `<span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running${startingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${startingCount} starting` : ''}${notReadyCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notReadyCount} taking longer` : ''}${notRespondingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notRespondingCount} not responding` : ''}${stoppingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${stoppingCount} stopping` : ''}${ownershipLostCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${ownershipLostCount} control unavailable` : ''} <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped${reviewCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${reviewCount} to review` : ''}${conflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${conflictCount} unavailable` : ''}${unsupportedCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${unsupportedCount} local only` : ''}`;
+}
+
+function attentionSummaryHtml(projects) {
+  if (!projects.some((project) => projectNeedsAttention(project))) {
+    return '';
+  }
+  return `<button type="button" class="summary-attention" data-action="focus-attention" aria-label="Focus first project that needs attention">Needs attention</button>`;
 }
 
 function runGroupsHtml() {
@@ -1040,6 +1046,7 @@ function renderList() {
           </button>` : ''}
       </span>
     </header>
+    <div id="summary-attention-slot" class="summary-attention-slot">${attentionSummaryHtml(state.projects)}</div>
     <span id="project-lifecycle-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span>
     ${state.routeNotice ? `
       <section id="route-notice" class="diagnosis-notice" role="status" aria-live="polite" aria-atomic="true">
@@ -1155,7 +1162,8 @@ function renderList() {
         const startFailureText = projectStartFailureText(project);
         const stopFailureText = projectStopFailureText(project);
         const rowStatusTitle = statusTitle
-          || ((startFailureText || stopFailureText) ? escapeHtml(displayedStatus) : '');
+          || (startFailureText ? escapeHtml(startFailureText) : '')
+          || (stopFailureText ? escapeHtml(stopFailureText) : '');
         const statusDotClass = startFailureText || stopFailureText
           ? 'conflict'
           : ['running', 'active'].includes(statusClass)
@@ -1361,6 +1369,10 @@ function applyProjectFilter(query) {
   const summaryStatus = document.getElementById('summary-status');
   if (summaryStatus) {
     summaryStatus.innerHTML = statusSummaryHtml(matchingProjects);
+  }
+  const attentionSlot = document.getElementById('summary-attention-slot');
+  if (attentionSlot) {
+    attentionSlot.innerHTML = attentionSummaryHtml(matchingProjects);
   }
 
   const emptyState = document.querySelector('[data-search-empty]');
@@ -2492,7 +2504,13 @@ app.addEventListener('click', (event) => {
       });
     },
     'focus-attention': () => {
-      const project = (state.projects || []).find((item) => projectNeedsAttention(item));
+      const project = (state.projects || []).find((item) => {
+        if (!projectNeedsAttention(item)) {
+          return false;
+        }
+        const row = document.querySelector(`.project-row[data-project-id="${CSS.escape(String(item.id))}"]`);
+        return row && row.hidden !== true;
+      });
       if (!project) {
         return;
       }

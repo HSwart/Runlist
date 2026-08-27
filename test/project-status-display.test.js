@@ -106,20 +106,28 @@ test('moves uncommon lifecycle phrases off the capsule without renaming them as 
   );
 });
 
-test('shows the start fail reason on line 2 instead of Stopped', () => {
+test('shows a short start-fail label on line 2 with detail kept for announcements', () => {
   assert.equal(
     projectDisplayedStatus({
       name: 'App',
       status: 'stopped',
       failureSummary: { title: 'Start failed', message: '/bin/sh: vite: command not found' }
     }),
-    '/bin/sh: vite: command not found'
+    'Start failed'
   );
   assert.equal(
     projectDisplayedStatus({
       name: 'App',
       status: 'stopped',
       failureSummary: { title: 'Start failed' }
+    }),
+    'Start failed'
+  );
+  assert.equal(
+    projectDisplayedStatus({
+      name: 'App',
+      status: 'stopped',
+      failureSummary: { message: '/bin/sh: vite: command not found' }
     }),
     'Start failed'
   );

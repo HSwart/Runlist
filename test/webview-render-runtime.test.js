@@ -1338,7 +1338,7 @@ test('failed start keeps a two-line row with the reason and Start', () => {
   assert.match(result.app.innerHTML, /<h2 id="project-broken"[^>]*>[\s\S]*Broken App\s*<\/h2>/);
   assert.match(
     result.app.innerHTML,
-    /class="project-status status-start-failed"[^>]*>[\s\S]*<span>\/bin\/sh: vite: command not found<\/span>/
+    /class="project-status status-start-failed"[^>]*title="\/bin\/sh: vite: command not found"[^>]*>[\s\S]*<span>Start failed<\/span>/
   );
   assert.match(result.app.innerHTML, /class="run-button start"[^>]*data-action="start"[^>]*aria-label="Start Broken App"/);
   assert.doesNotMatch(result.app.innerHTML, />Stopped</);
