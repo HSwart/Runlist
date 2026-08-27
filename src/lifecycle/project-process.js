@@ -599,7 +599,13 @@ function recordStartedProcess(
 ) {
   const identity = processOwnership.trackProcessIdentity(project.id, child.pid);
   child.runlistIdentity = identity;
-  child.runlistProcessTree = captureInitialProcessTree(child.pid, identity, options);
+  child.runlistProcessTree = captureInitialProcessTree(child.pid, identity, options)
+    .then((rows) => {
+      if (Array.isArray(rows) && rows.some((row) => row?.treeIncomplete === true)) {
+        child.runlistProcessTreeDegraded = true;
+      }
+      return rows;
+    });
   const ownershipReady = Promise.all([identity, child.runlistProcessTree])
     .then(([value]) => value);
   void ownershipReady.finally(() => releaseSupervisorIdentityHold(child)).catch(() => undefined);

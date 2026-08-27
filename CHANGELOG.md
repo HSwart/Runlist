@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.0.15 — Windows process-tree verifier fallback
+
+- When Windows `Get-CimInstance` process-tree inspection fails, fall back to an ownership-scoped `Get-Process` root check so a healthy Start is not rolled back as “could not verify the launched Windows process tree.”
+- Mark incomplete trees so Stop/recovery can still use the verified root without pretending full descendant coverage.
+
 ## 0.0.14 — Extra cut: README, fail/Stop honesty, Compose import
 
 - Land the signed short Marketplace README.
