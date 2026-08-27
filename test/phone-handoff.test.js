@@ -94,6 +94,7 @@ test('shows the handoff only for an eligible preview and copies its exact URL', 
   const root = path.join(__dirname, '..');
   const extension = readShippedHostSource(root);
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
+  const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
 
   assert.match(extension, /const phoneHandoff = previewExpanded\s*\? createPhoneHandoff\(previewService\.url\)/);
   assert.match(webview, /project\.phoneHandoff \? `[\s\S]*Open on phone[\s\S]*project\.phoneHandoff\.qrSvg/);
@@ -101,6 +102,18 @@ test('shows the handoff only for an eligible preview and copies its exact URL', 
   assert.match(webview, /data-url="\$\{escapeHtml\(project\.phoneHandoff\.url\)\}"/);
   assert.match(extension, /phoneHandoff\.url !== requestedUrl[\s\S]*clipboard\.writeText\(phoneHandoff\.url\)/);
   assert.match(webview, /aria-expanded="\$\{phoneHandoffOpen\}"[\s\S]*aria-controls="phone-handoff-/);
+  assert.match(webview, /data-action="open-on-phone"/);
+  assert.match(webview, /'open-on-phone':/);
+  assert.doesNotMatch(webview, /class="[^"]*share-(?:section|strip|band)/);
+  assert.doesNotMatch(styles, /\.share-(?:section|strip|band)\b/);
+  assert.match(
+    styles,
+    /@media \(max-width: 300px\) \{[\s\S]*\.preview-help-row \{[\s\S]*flex-direction:\s*column/
+  );
+  assert.match(
+    styles,
+    /@media \(max-width: 300px\) \{[\s\S]*\.phone-handoff-code \{[\s\S]*width:\s*min\(152px, 100%\)/
+  );
 });
 
 test('ships the pinned local QR runtime with its complete license notice', () => {

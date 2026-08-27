@@ -1246,6 +1246,9 @@ function renderList() {
                   <button data-action="open" data-id="${projectId}" role="menuitem" ${canOpen ? '' : 'disabled'} title="${openTitle}">
                     ${icon('external', 'menu-icon')}<span>Open app</span>
                   </button>
+                  <button data-action="open-on-phone" data-id="${projectId}" role="menuitem" ${canOpen ? '' : 'disabled'} title="${canOpen ? `Open ${projectName} on your phone` : openTitle}">
+                    ${icon('external', 'menu-icon')}<span>Open on phone</span>
+                  </button>
                   <button data-action="open-vscode" data-id="${projectId}" role="menuitem" title="Open ${projectName} in a new VS Code window">
                     ${icon('folder', 'menu-icon')}<span>Open in VS Code</span>
                   </button>
@@ -2829,6 +2832,23 @@ app.addEventListener('click', (event) => {
       url: button.dataset.url
     }),
     'toggle-phone-handoff': () => togglePhoneHandoff(button.dataset.id, button),
+    'open-on-phone': () => {
+      closeMenus();
+      const id = button.dataset.id;
+      const project = state.projects.find((item) => String(item.id) === String(id));
+      if (!project) {
+        return;
+      }
+      phoneHandoffState[id] = true;
+      detailTabState[id] = 'preview';
+      saveWebviewState();
+      if (!project.detailsExpanded) {
+        vscode.postMessage({ type: 'toggleProjectPreview', id });
+        return;
+      }
+      renderList();
+      requestAnimationFrame(() => document.getElementById(`phone-handoff-${String(id)}`)?.focus());
+    },
     'show-startup-failure': () => showStartupFailure(button.dataset.id, button.dataset.entryKey),
     'close-startup-failure': () => closeStartupFailure(button.dataset.id, button.dataset.entryKey),
     'toggle-preview': () => {
