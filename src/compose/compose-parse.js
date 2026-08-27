@@ -1,5 +1,6 @@
 const path = require('path');
 const { ComposeFileError } = require('./compose-file');
+const { normalizeEnvFile } = require('../projects/launch-env');
 
 /**
  * Parse a Compose document into reviewable Runlist service proposals.
@@ -83,6 +84,7 @@ function parseComposeServices(contents, options = {}) {
 
   return {
     composePath: typeof options.composePath === 'string' ? options.composePath : undefined,
+    envFile: composeImportEnvFile(document, servicesNode),
     services
   };
 }
@@ -132,12 +134,58 @@ function buildComposeImportProposal(options = {}) {
       stopCommand,
       services: composeImportServicesForSave(runlistServices),
       ...(composePath ? { composePath } : {}),
+      ...(parsed.envFile ? { envFile: parsed.envFile } : {}),
       reviewRequired: false
     },
     warnings: parsed.services
       .filter((service) => !service.ports.length)
       .map((service) => `${service.name} has no published host port, so it will not become a Runlist service row yet.`)
   };
+}
+
+function composeImportEnvFile(document, servicesNode) {
+  const candidates = [
+    ...composeEnvFileEntries(document?.env_file),
+    ...Object.values(servicesNode && typeof servicesNode === 'object' && !Array.isArray(servicesNode)
+      ? servicesNode
+      : {}).flatMap((definition) => (
+      definition && typeof definition === 'object' && !Array.isArray(definition)
+        ? composeEnvFileEntries(definition.env_file)
+        : []
+    ))
+  ];
+  for (const candidate of candidates) {
+    try {
+      const normalized = normalizeEnvFile(candidate);
+      if (normalized) {
+        return normalized;
+      }
+    } catch {
+      // Invalid paths stay out of the existing envFile field.
+    }
+  }
+  return undefined;
+}
+
+function composeEnvFileEntries(node) {
+  if (node === undefined || node === null) {
+    return [];
+  }
+  const entries = Array.isArray(node) ? node : [node];
+  const paths = [];
+  for (const entry of entries) {
+    if (typeof entry === 'string' && entry.trim()) {
+      paths.push(entry.trim());
+      continue;
+    }
+    if (entry && typeof entry === 'object' && !Array.isArray(entry) && typeof entry.path === 'string') {
+      const value = entry.path.trim();
+      if (value) {
+        paths.push(value);
+      }
+    }
+  }
+  return paths;
 }
 
 function assertSafeComposeYaml(text) {

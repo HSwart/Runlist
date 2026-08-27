@@ -210,3 +210,81 @@ test('prefers an explicit Compose path over auto-detection', () => {
   assert.equal(proposal.parsedServices[0].name, 'b');
   fs.rmSync(folder, { recursive: true, force: true });
 });
+
+test('Compose import fills the existing envFile field from env_file', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-compose-env-file-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const folder = path.join(root, 'app');
+  fs.mkdirSync(folder);
+  const composePath = path.join(folder, 'compose.yaml');
+  fs.writeFileSync(composePath, `
+env_file: .env
+services:
+  web:
+    ports:
+      - "4310:80"
+`.trimStart());
+  const projectsFile = path.join(root, 'projects.json');
+  initializeProjectStore(projectsFile, []);
+
+  const proposal = buildComposeImportProposal({
+    folder,
+    composePath,
+    contents: fs.readFileSync(composePath, 'utf8')
+  });
+  assert.equal(proposal.proposedProject.envFile, '.env');
+
+  const saved = upsertProject(projectsFile, proposal.proposedProject).project;
+  assert.equal(saved.envFile, '.env');
+
+  fs.writeFileSync(path.join(folder, '.env'), 'COMPOSE_SECRET=from-file\nPORT=4310\n');
+  const { resolveProjectLaunchEnvironment } = require('../src/projects/launch-env');
+  const environment = resolveProjectLaunchEnvironment(saved, { PATH: '/usr/bin' });
+  assert.equal(environment.COMPOSE_SECRET, 'from-file');
+  assert.equal(environment.PORT, '4310');
+});
+
+test('Compose import Start fails closed when the attached env_file is missing', () => {
+  const proposal = buildComposeImportProposal({
+    folder: '/tmp/acme',
+    composePath: '/tmp/acme/compose.yaml',
+    contents: `
+services:
+  web:
+    env_file:
+      - .env
+    ports:
+      - "4310:80"
+`
+  });
+  assert.equal(proposal.proposedProject.envFile, '.env');
+  const { LaunchEnvError, resolveProjectLaunchEnvironment } = require('../src/projects/launch-env');
+  assert.throws(
+    () => resolveProjectLaunchEnvironment(proposal.proposedProject, { PATH: '/usr/bin' }),
+    (error) => error instanceof LaunchEnvError
+      && error.code === 'ENV_FILE_MISSING'
+      && /Could not find env file “\.env”/i.test(error.message)
+  );
+});
+
+test('Compose import skips invalid env_file paths and leaves add-form env file unchanged', () => {
+  const proposal = buildComposeImportProposal({
+    folder: '/tmp/acme',
+    contents: `
+services:
+  web:
+    env_file: ../secret.env
+    ports:
+      - "4310:80"
+`
+  });
+  assert.equal(proposal.proposedProject.envFile, undefined);
+
+  const webview = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
+  assert.match(webview, /id="env-file" name="envFile"/);
+  const composeRender = webview.slice(
+    webview.indexOf('function renderComposeImport'),
+    webview.indexOf('function renderPortListening')
+  );
+  assert.doesNotMatch(composeRender, /id="env-file"|name="envFile"/);
+});
