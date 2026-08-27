@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Attach the VS Code debugger from ⋯ on a Runlist-started running row.
+- Share a running web app off-LAN through VS Code’s tunnel/port-forward, with teardown on Stop or toggle off.
+- Show an inbound HTTP Requests tab while a single web port can be observed; clear on Stop.
+- Add a Named localhost toggle (default off) so Open and the port chip can use `name.localhost`.
+- Detect a folder-root Compose file and add one Start/Stop row per service with `up --no-deps`.
+- Run Start in a VS Code terminal tab named after the project; Stop keeps the tab.
+
 ## 0.0.11 — Everyday running row and clearer listing
 
 - Show Stop and Restart on the running row, and open the app from the port chip.
