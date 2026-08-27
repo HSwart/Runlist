@@ -116,7 +116,7 @@
       },
       {
         "command": "runlist.copySupportDiagnostics",
-        "title": "Copy Runlist Support Diagnostics",
+        "title": "Copy Support Info",
         "category": "Runlist"
       },
       {
@@ -159,6 +159,13 @@
         }
       ]
     },
+    "submenus": [
+      {
+        "id": "runlist.globalOverflow",
+        "label": "More Runlist actions",
+        "icon": "$(ellipsis)"
+      }
+    ],
     "menus": {
       "view/title": [
         {
@@ -167,24 +174,31 @@
           "group": "navigation@1"
         },
         {
-          "command": "runlist.showAgentSetup",
-          "when": "view == runlist.projects && runlist.showTitlebarExtras",
+          "submenu": "runlist.globalOverflow",
+          "when": "view == runlist.projects",
           "group": "navigation@2"
+        }
+      ],
+      "runlist.globalOverflow": [
+        {
+          "command": "runlist.showAgentSetup",
+          "group": "1_library@1"
         },
         {
           "command": "runlist.transferProjects",
-          "when": "view == runlist.projects && runlist.showTitlebarExtras",
-          "group": "navigation@3"
+          "group": "1_library@2"
         },
         {
           "command": "runlist.manageGroups",
-          "when": "view == runlist.projects && runlist.showTitlebarExtras",
-          "group": "navigation@4"
+          "group": "1_library@3"
         },
         {
           "command": "runlist.showPortListening",
-          "when": "view == runlist.projects && runlist.showTitlebarExtras",
-          "group": "navigation@5"
+          "group": "1_library@4"
+        },
+        {
+          "command": "runlist.copySupportDiagnostics",
+          "group": "2_support@1"
         }
       ],
       "commandPalette": [

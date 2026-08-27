@@ -10,13 +10,18 @@ const router = fs.readFileSync(path.join(root, 'src', 'webview', 'webview-messag
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
 
-test('contributes run-group management to the Runlist view title', () => {
+test('contributes run-group management through the Global overflow hub', () => {
   assert.ok(manifest.activationEvents.includes('onCommand:runlist.manageGroups'));
   assert.ok(manifest.contributes.commands.some((entry) => entry.command === 'runlist.manageGroups'));
-  assert.ok(manifest.contributes.menus['view/title'].some((entry) => (
+  assert.ok((manifest.contributes.menus['runlist.globalOverflow'] || []).some((entry) => (
     entry.command === 'runlist.manageGroups'
-      && entry.when === 'view == runlist.projects && runlist.showTitlebarExtras'
   )));
+  assert.equal(
+    (manifest.contributes.menus['view/title'] || []).some((entry) => (
+      entry.command === 'runlist.manageGroups'
+    )),
+    false
+  );
 });
 
 test('renders compact keyboard-accessible group controls in the sidebar', () => {

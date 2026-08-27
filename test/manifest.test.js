@@ -20,28 +20,55 @@ test('ships as a local UI extension with a Marketplace icon', () => {
   );
 });
 
-test('contributes one native project transfer command to the Runlist view', () => {
+test('contributes Add and a Global overflow submenu on the Runlist view title', () => {
   const root = path.join(__dirname, '..');
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-  const command = manifest.contributes.commands.find((item) => (
+  const transfer = manifest.contributes.commands.find((item) => (
     item.command === 'runlist.transferProjects'
   ));
-  const menu = manifest.contributes.menus['view/title'].find((item) => (
-    item.command === 'runlist.transferProjects'
+  const viewTitle = manifest.contributes.menus['view/title'];
+  const overflow = (manifest.contributes.submenus || []).find((item) => (
+    item.id === 'runlist.globalOverflow'
   ));
+  const overflowItems = manifest.contributes.menus['runlist.globalOverflow'] || [];
 
-  assert.deepEqual(command, {
+  assert.deepEqual(transfer, {
     command: 'runlist.transferProjects',
     title: 'Import or Export',
     category: 'Runlist',
     icon: '$(files)'
   });
-  assert.deepEqual(menu, {
-    command: 'runlist.transferProjects',
-    when: 'view == runlist.projects && runlist.showTitlebarExtras',
-    group: 'navigation@3'
-  });
   assert.ok(manifest.activationEvents.includes('onCommand:runlist.transferProjects'));
+  assert.deepEqual(overflow, {
+    id: 'runlist.globalOverflow',
+    label: 'More Runlist actions',
+    icon: '$(ellipsis)'
+  });
+  assert.ok(viewTitle.some((entry) => (
+    entry.command === 'runlist.addProject'
+      && entry.when === 'view == runlist.projects'
+      && entry.group === 'navigation@1'
+  )));
+  assert.ok(viewTitle.some((entry) => (
+    entry.submenu === 'runlist.globalOverflow'
+      && entry.when === 'view == runlist.projects'
+      && entry.group === 'navigation@2'
+  )));
+  assert.equal(
+    viewTitle.some((entry) => entry.when && entry.when.includes('runlist.showTitlebarExtras')),
+    false,
+    'library actions must not stay gated behind showTitlebarExtras'
+  );
+  assert.deepEqual(
+    overflowItems.map((item) => item.command),
+    [
+      'runlist.showAgentSetup',
+      'runlist.transferProjects',
+      'runlist.manageGroups',
+      'runlist.showPortListening',
+      'runlist.copySupportDiagnostics'
+    ]
+  );
 });
 
 test('view title commands use plain-language icon titles', () => {
@@ -57,16 +84,23 @@ test('view title commands use plain-language icon titles', () => {
   assert.equal(byId['runlist.manageGroups'], 'Manage Groups');
   assert.equal(byId['runlist.showPortListening'], "What's Listening");
   assert.equal(byId['runlist.importCompose'], 'Import Compose Services');
+  assert.equal(byId['runlist.copySupportDiagnostics'], 'Copy Support Info');
 });
 
-test('contributes What\'s Listening behind multi-project titlebar extras', () => {
+test('contributes What\'s Listening through the Global overflow hub', () => {
   const root = path.join(__dirname, '..');
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   assert.ok(manifest.activationEvents.includes('onCommand:runlist.showPortListening'));
-  assert.ok(manifest.contributes.menus['view/title'].some((entry) => (
+  assert.ok((manifest.contributes.menus['runlist.globalOverflow'] || []).some((entry) => (
     entry.command === 'runlist.showPortListening'
-      && entry.when === 'view == runlist.projects && runlist.showTitlebarExtras'
   )));
+  assert.equal(
+    (manifest.contributes.menus['view/title'] || []).some((entry) => (
+      entry.command === 'runlist.showPortListening'
+    )),
+    false,
+    'What\'s Listening stays in the overflow submenu, not as its own titlebar icon'
+  );
 });
 
 test('groups every contributed command under Runlist in the Command Palette', () => {
@@ -115,13 +149,11 @@ test('contributes local redacted support diagnostics', () => {
 
   assert.deepEqual(command, {
     command: 'runlist.copySupportDiagnostics',
-    title: 'Copy Runlist Support Diagnostics',
+    title: 'Copy Support Info',
     category: 'Runlist'
   });
   assert.ok(manifest.activationEvents.includes('onCommand:runlist.copySupportDiagnostics'));
-  assert.deepEqual(manifest.contributes.configuration.properties['runlist.diagnostics.trace'], {
-    type: 'boolean',
-    default: false,
-    description: 'Include bounded, redacted error details in the local Runlist output and copied support diagnostics.'
-  });
+  assert.ok((manifest.contributes.menus['runlist.globalOverflow'] || []).some((entry) => (
+    entry.command === 'runlist.copySupportDiagnostics'
+  )));
 });

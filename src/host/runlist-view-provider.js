@@ -1002,17 +1002,6 @@ class RunlistViewProvider {
       : undefined;
   }
 
-  syncTitlebarContext() {
-    if (typeof vscode.commands?.executeCommand !== 'function') {
-      return;
-    }
-    void vscode.commands.executeCommand(
-      'setContext',
-      'runlist.showTitlebarExtras',
-      this.projects.length > 1
-    );
-  }
-
   getProjectStatus(id) {
     if (this.stoppingProjectIds.has(id)) {
       return 'stopping';
@@ -4713,8 +4702,6 @@ class RunlistViewProvider {
     if (!this.view) {
       return;
     }
-
-    this.syncTitlebarContext();
 
     const stylesUri = this.view.webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'media', 'styles.css')
