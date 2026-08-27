@@ -26,11 +26,12 @@ const {
 const { writeFileAtomically } = require('../projects/project-store');
 const { projectWithPortOverrides } = require('../ports/service-port-overrides');
 
-const OWNER_HEARTBEAT_TIMEOUT_MS = 10000;
+const OWNER_HEARTBEAT_TIMEOUT_MS = 30000;
 const HOST_IDENTITY_CACHE_TTL_MS = 250;
 const EXITED_IDENTITY_WAIT_MS = 250;
 const WINDOWS_PROCESS_TREE_SETTLE_MS = 500;
 const INVALID_RECORD_GRACE_MS = 2000;
+const PROCESS_GROUP_PROBE_TIMEOUT_MS = 10000;
 const CURRENT_PROCESS_IDENTITY = currentProcessIdentity({ allowRuntimeFallback: true });
 const OWNERSHIP_RECORDS = createAtomicJsonRecordUpdater({
   errorMessage: 'Runlist could not safely update shared process ownership.',
@@ -911,7 +912,7 @@ function readPosixProcessGroup(processGroupId, options = {}) {
       encoding: 'utf8',
       env: { ...process.env, LC_ALL: 'C' },
       maxBuffer: 64 * 1024,
-      timeout: options.processGroupProbeTimeoutMs ?? 1000,
+      timeout: options.processGroupProbeTimeoutMs ?? PROCESS_GROUP_PROBE_TIMEOUT_MS,
       windowsHide: true
     }, (error, stdout) => {
       if (error) {
