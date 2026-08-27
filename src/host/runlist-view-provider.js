@@ -2872,6 +2872,9 @@ class RunlistViewProvider {
       return;
     }
     const latestSharedOwnership = latestProcessRuntime.get(id);
+    const deletionOwnershipToken = typeof latestSharedOwnership?.token === 'string'
+      ? latestSharedOwnership.token
+      : undefined;
     const portGeneration = this.portReservations.captureShared(id);
     const hadTrackedProcess = this.processes.has(id);
     const hadDetachedProcess = this.detachedProjectIds.has(id);
@@ -2901,7 +2904,7 @@ class RunlistViewProvider {
       return;
     }
     const deletionConflict = this.processOwnership.holdForDeletion
-      ? this.processOwnership.holdForDeletion(id)
+      ? this.processOwnership.holdForDeletion(id, { expectedToken: deletionOwnershipToken })
       : this.processOwnership.reserve(id);
     if (deletionConflict) {
       vscode.window.showErrorMessage(deletionConflict.kind === 'uncertain'

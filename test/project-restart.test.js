@@ -1089,20 +1089,23 @@ test('holds process ownership while deleting a saved project', () => {
   const refreshOwnership = source.indexOf('const latestProcessRuntime = this.processOwnership.snapshot()');
   const verifyPortOwnership = source.indexOf('hasUnownedPortReservation(id', refreshOwnership);
   const latestOwnership = source.indexOf('const latestSharedOwnership = latestProcessRuntime.get(id)', verifyPortOwnership);
-  const reserveDeletion = source.indexOf('holdForDeletion(id)', refreshOwnership);
+  const captureDeletionToken = source.indexOf('const deletionOwnershipToken =', latestOwnership);
+  const reserveDeletion = source.indexOf('holdForDeletion(id, { expectedToken: deletionOwnershipToken })', captureDeletionToken);
   const removeSavedProject = source.indexOf('removeProject(this.projectsFile, id, { expectedProject: project })', reserveDeletion);
   const releaseDeletion = source.indexOf('this.processOwnership.release(id)', removeSavedProject);
 
   assert.ok(refreshOwnership >= 0);
   assert.ok(refreshOwnership < verifyPortOwnership);
   assert.ok(verifyPortOwnership < latestOwnership);
-  assert.ok(latestOwnership < reserveDeletion);
+  assert.ok(latestOwnership < captureDeletionToken);
+  assert.ok(captureDeletionToken < reserveDeletion);
   assert.ok(reserveDeletion < removeSavedProject);
   assert.ok(removeSavedProject < releaseDeletion);
   assert.match(source, /if \(hadTrackedProcess\)[\s\S]*cleanupTrackedProcessForDeletion[\s\S]*this\.processOwnership\.release\(id\)/);
   assert.match(source, /const hadDetachedProcess = this\.detachedProjectIds\.has\(id\)/);
   assert.match(source, /else if \(hadDetachedProcess \|\| latestSharedOwnership\)[\s\S]*this\.stopProject\(id, latestProject\)/);
-  assert.match(source, /holdForDeletion\(id\)[\s\S]*running in another VS Code window/);
+  assert.match(source, /holdForDeletion\(id, \{ expectedToken: deletionOwnershipToken \}\)/);
+  assert.match(source, /running in another VS Code window/);
 });
 
 test('prevents service metadata changes while a project is running', () => {
