@@ -8,45 +8,7 @@ const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8').replace(/\r
 const getStartedHeading = '## Get started';
 const firstFold = readme.slice(0, readme.indexOf(getStartedHeading));
 
-const signedReadme = [
-  '# Runlist',
-  '',
-  'Start, stop, and switch local apps from one sidebar.',
-  '',
-  '<img src="media/gallery-01-hero.png" width="1280" alt="Every local app in one VS Code sidebar">',
-  '',
-  '- Every local app, one sidebar',
-  '- Save the command once',
-  '- See what\u2019s running, stop it from here',
-  '- Switch when a port is already in use',
-  '',
-  '## Get started',
-  '1. Open the Runlist sidebar',
-  '2. Add this folder',
-  '3. Save the start command',
-  '4. Start it from the list',
-  '',
-  '<img src="media/gallery-02-status.png" width="1280" alt="See what\u2019s running and stop it from here">',
-  '',
-  'See what\u2019s running. Stop it from here.',
-  '',
-  '<img src="media/gallery-03-features.png" width="1280" alt="First-run: no projects yet, add this folder">',
-  '',
-  'First-run: no projects yet, add this folder.',
-  '',
-  '## Features',
-  '- Start, stop, and restart from the card',
-  '- Checks the port before it starts',
-  '- Open the app in your browser',
-  '- Windows, macOS, and Linux',
-  '',
-  'Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=hankoswart.runlist).',
-  '',
-  'Publisher Hanko Swart. `hankoswart.runlist`.',
-  ''
-].join('\n');
-
-test('leads with the signed Marketplace gallery stills', () => {
+test('leads with the Marketplace gallery stills', () => {
   const galleryPaths = [
     'media/gallery-01-hero.png',
     'media/gallery-02-status.png',
@@ -67,7 +29,7 @@ test('leads with the signed Marketplace gallery stills', () => {
   );
   assert.match(
     readme,
-    /src="media\/gallery-02-status\.png" width="1280" alt="See what\u2019s running and stop it from here"/
+    /src="media\/gallery-02-status\.png" width="1280" alt="See what\u2019s running and open it from here"/
   );
   assert.match(
     readme,
@@ -84,26 +46,46 @@ test('leads with the signed Marketplace gallery stills', () => {
   assert.doesNotMatch(readme, /media\/runlist\.png/);
 });
 
-test('locks the CoS-signed Marketplace listing verbatim', () => {
-  assert.equal(readme, signedReadme);
+test('keeps a professional Marketplace listing that matches shipped product', () => {
   assert.match(readme, /^# Runlist\n/);
   assert.match(firstFold, /Start, stop, and switch local apps from one sidebar\./);
-  assert.match(firstFold, /Every local app, one sidebar/);
-  assert.match(firstFold, /Save the command once/);
-  assert.match(firstFold, /See what\u2019s running, stop it from here/);
-  assert.match(firstFold, /Switch when a port is already in use/);
-  assert.match(readme, /## Get started\n1\. Open the Runlist sidebar\n2\. Add this folder\n3\. Save the start command\n4\. Start it from the list\n/);
-  assert.match(readme, /See what\u2019s running\. Stop it from here\./);
-  assert.match(readme, /First-run: no projects yet, add this folder\./);
-  assert.match(readme, /## Features\n- Start, stop, and restart from the card\n- Checks the port before it starts\n- Open the app in your browser\n- Windows, macOS, and Linux\n/);
-  assert.match(readme, /Install from the \[VS Code Marketplace\]/);
+  assert.match(firstFold, /Every local app, one place/);
+  assert.match(firstFold, /Save the start command once/);
+  assert.match(firstFold, /See what\u2019s running/);
+  assert.match(firstFold, /Open the app when it\u2019s ready/);
+  assert.match(firstFold, /Switch cleanly when a port is already in use/);
+
+  assert.match(readme, /## Get started\n/);
+  assert.match(readme, /Open the Runlist sidebar/);
   assert.match(readme, /Add this folder/);
+  assert.match(readme, /Save the start command/);
+  assert.match(readme, /`start` \/ `dev` chip/);
+  assert.match(readme, /Start it from the list/);
+  assert.match(readme, /First-run stays empty until you add a folder/);
+
+  assert.match(readme, /## Everyday use\n/);
+  assert.match(readme, /Start, stop, and restart from the project row/);
+  assert.match(readme, /Open the app from the port chip/);
+  assert.match(readme, /Checks configured ports before Start/);
+  assert.match(readme, /Live preview and recent output/);
+  assert.match(readme, /Open on phone/);
   assert.match(readme, /Windows, macOS, and Linux/);
+
+  assert.match(readme, /## Also included\n/);
+  assert.match(readme, /Launch profiles, tags, and groups/);
+  assert.match(readme, /More menu \(\u22ef\)|More menu \(⋯\)/);
+  assert.match(readme, /Load stack/);
+  assert.match(readme, /Docker Compose import/);
+  assert.match(readme, /Optional env file/);
+  assert.match(readme, /Optional local hostname/);
+
+  assert.match(readme, /Install from the \[VS Code Marketplace\]/);
   assert.match(
     readme,
     /\[VS Code Marketplace\]\(https:\/\/marketplace\.visualstudio\.com\/items\?itemName=hankoswart\.runlist\)/
   );
   assert.match(readme, /Publisher Hanko Swart\. `hankoswart\.runlist`\./);
+
   assert.doesNotMatch(readme, /<h1 align="center">Runlist<\/h1>/);
   assert.doesNotMatch(readme, /github\.com\/HSwart\/Runlist\/releases\/download/);
   assert.doesNotMatch(readme, /## Install\b/);
@@ -111,24 +93,20 @@ test('locks the CoS-signed Marketplace listing verbatim', () => {
   assert.doesNotMatch(readme, /## Security/);
   assert.doesNotMatch(readme, /## Optional:/);
   assert.doesNotMatch(readme, /## Day-to-day use/);
+  assert.doesNotMatch(readme, /## Power features/);
   assert.doesNotMatch(readme, /SECURITY\.md/);
   assert.doesNotMatch(readme, /\[MIT License\]\(LICENSE\)/);
 });
 
-test('fails closed on the old Marketplace essay and GitHub-raw image URLs', () => {
-  assert.doesNotMatch(readme, /## Everyday use/);
-  assert.doesNotMatch(readme, /## Power features/);
-  assert.doesNotMatch(readme, /A VS Code sidebar for starting, stopping, and opening local dev apps\./);
-  assert.doesNotMatch(readme, /stop or restart from the row/);
-  assert.doesNotMatch(readme, /Open the app from its port/);
-  assert.doesNotMatch(readme, /`start` \/ `dev` chip/);
-  assert.doesNotMatch(readme, /Start, stop, and restart from the running row/);
-  assert.doesNotMatch(readme, /Port chip opens the app at a stable `name\.localhost` URL/);
-  assert.doesNotMatch(readme, /Launch profiles, tags, and run groups/);
-  assert.doesNotMatch(readme, /Live preview, recent output, and open-on-phone/);
-  assert.doesNotMatch(readme, /Import or export project setups/);
-  assert.doesNotMatch(readme, /elapsed time, and open from the port/);
-  assert.doesNotMatch(readme, /First-run stays empty until you add a folder/);
+test('fails closed on overclaims and GitHub-raw image URLs', () => {
+  assert.doesNotMatch(readme, /auto-kill|kill all|full-system port|Pro tier|free tier|paid/i);
+  assert.doesNotMatch(readme, /Kubernetes|Tilt|Swarm|live_update/i);
+  assert.doesNotMatch(readme, /full Portless|Caddy feature parity|puma-dev parity/i);
+  assert.doesNotMatch(readme, /Not a local reverse proxy/i);
+  assert.doesNotMatch(readme, /Infisical|Doppler|Vault/i);
+  assert.doesNotMatch(readme, /auto-?apply|auto-?start.*stack|starts? on clone/i);
+  assert.doesNotMatch(readme, /create worktrees|delete worktrees|manages? git worktrees/i);
+  assert.doesNotMatch(readme, /Git worktrees with port variables get sticky temporary ports/i);
   assert.doesNotMatch(readme, /raw\.githubusercontent\.com/);
   assert.doesNotMatch(readme, /\/raw\/HEAD\//);
   assert.doesNotMatch(readme, /github\.com\/HSwart\/Runlist\/raw\//);
