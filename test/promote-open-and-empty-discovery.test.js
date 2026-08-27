@@ -27,6 +27,8 @@ test('empty state is the workspace discovery surface', () => {
   assert.match(webview, /stackContractPending === true/);
   assert.match(webview, /'load-workspace-stack': \(\) => vscode\.postMessage\(\{ type: 'loadWorkspaceStack' \}\)/);
   assert.match(router, /loadWorkspaceStack: \(\) => host\.showProjectTransferLoadStack\(\)/);
+  const messageRouter = fs.readFileSync(path.join(root, 'media', 'message-router.js'), 'utf8');
+  assert.match(messageRouter, /'loadWorkspaceStack'/);
   assert.match(host, /stackContractPendingForEmptyState\(\)/);
   assert.match(host, /stackContractPending: this\.stackContractPendingForEmptyState\(\)/);
   assert.match(host, /currentWorkspaceFolderName:/);
