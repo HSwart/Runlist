@@ -49,6 +49,7 @@
     'setTagFilter',
     'showAdd',
     'showAgentSetup',
+    'loadWorkspaceStack',
     'showPortListening',
     'showComposeImport',
     'refreshPortListening',

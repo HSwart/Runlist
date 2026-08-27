@@ -10,12 +10,16 @@ const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
 test('running row keeps status and port on one second line', () => {
   assert.match(webview, /class="project-meta"/);
   assert.match(webview, /class="project-status status-\$\{rowStatusClass\}"/);
-  assert.match(webview, /class="project-port-chip" data-action="open"/);
+  assert.match(webview, /class="project-port-chip\$\{canOpen \? ' is-openable' : ''\}" data-action="open"/);
+  assert.match(webview, /class="project-port-label">\$\{escapeHtml\(portLabel\)\}/);
+  assert.match(webview, /canOpen \? '<span class="project-open-label">Open<\/span>'/);
   assert.match(webview, /class="project-row-elapsed" data-row-elapsed/);
   assert.match(webview, /const rowPort = projectRowPort\(project\)/);
   assert.match(styles, /\.project-meta \{[\s\S]*flex-wrap: nowrap;/);
   assert.match(styles, /\.project-heading h2 \{[\s\S]*white-space: normal;/);
   assert.match(styles, /\.project-port-chip \{[\s\S]*font-size: 11px;/);
+  assert.match(styles, /\.project-port-chip\.is-openable \{[\s\S]*textLink-foreground/);
+  assert.match(styles, /\.project-open-label \{/);
   assert.match(styles, /\.run-button \{[\s\S]*min-width: 24px;/);
   assert.match(styles, /\.project-actions \{[\s\S]*gap: 6px;/);
   assert.doesNotMatch(styles, /Inter|fonts\.googleapis|@font-face/);

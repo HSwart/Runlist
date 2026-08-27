@@ -107,7 +107,8 @@ test('renders one lazy, sandboxed, accessible expandable preview', () => {
   assert.match(webview, /announceProjectStatusChanges\(state\.projects\)/);
   assert.match(webview, /\(timeline\.failed \|\| timeline\.attention\) && timeline\.outputAvailable/);
   assert.doesNotMatch(webview, /icon\('arrow-down'\)/);
-  assert.match(webview, /class="project-port-chip" data-action="open"[\s\S]*\$\{escapeHtml\(portLabel\)\}/);
+  assert.match(webview, /class="project-port-chip\$\{canOpen \? ' is-openable' : ''\}" data-action="open"[\s\S]*\$\{escapeHtml\(portLabel\)\}/);
+  assert.match(webview, /project-open-label">Open/);
   assert.match(webview, /project\.previewExpanded \? `[\s\S]*data-preview-frame data-src=/);
   assert.match(webview, /sandbox="allow-forms allow-scripts allow-same-origin" referrerpolicy="no-referrer"/);
   assert.match(webview, /frame\.src = source/);

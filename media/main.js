@@ -969,23 +969,28 @@ function renderList() {
   }
   if (state.projects.length === 0) {
     const workspaceFolder = String(state.currentWorkspaceFolder || '');
+    const workspaceFolderName = String(state.currentWorkspaceFolderName || '')
+      || (workspaceFolder ? workspaceFolder.split(/[/\\]/).filter(Boolean).at(-1) || workspaceFolder : '');
     const addLabel = 'Add this folder';
     const emptyCopy = workspaceFolder
-      ? 'Add the folder open in this window.'
+      ? `Add ${workspaceFolderName || 'the folder'} open in this window.`
       : 'Open a folder in this window first.';
     const startScripts = Array.isArray(state.workspaceStartScripts)
       ? state.workspaceStartScripts.filter((script) => script
         && ['start', 'dev'].includes(script.name)
         && typeof script.startCommand === 'string')
       : [];
+    const stackPending = state.stackContractPending === true;
     app.innerHTML = `
       ${runGroupsHtml()}
       <section class="empty-state">
         <h2>No projects yet</h2>
         <p>${escapeHtml(emptyCopy)}</p>
+        ${workspaceFolderName ? `<p class="empty-folder" title="${escapeHtml(workspaceFolder)}">${escapeHtml(workspaceFolderName)}</p>` : ''}
         ${state.lifecycleWindowSupported === false ? `<p>Start and Stop work for apps on this computer. You can still save projects here. Remote SSH, Dev Containers, GitHub Codespaces, VS Code Tunnels, and Windows WSL network paths will not start or stop processes in this release.</p>` : ''}
         <div class="empty-actions">
           ${workspaceFolder ? `<button class="primary-button" data-action="show-add">${addLabel}</button>` : ''}
+          ${stackPending ? `<button class="secondary-button" data-action="load-workspace-stack">Load stack</button>` : ''}
           ${workspaceFolder && startScripts.length ? `
             <div class="empty-start-chips" role="group" aria-label="Start options for this folder">
               ${startScripts.map((script) => {
@@ -1174,8 +1179,8 @@ function renderList() {
                   ${Number.isFinite(rowElapsedStartedAt) ? `
                     <span class="project-row-elapsed" data-row-elapsed data-started-at="${rowElapsedStartedAt}" aria-label="Running for ${escapeHtml(rowElapsedLabel)}">${escapeHtml(rowElapsedLabel)}</span>` : ''}
                   ${rowPort ? `
-                    <button class="project-port-chip" data-action="open" data-id="${projectId}" ${canOpen ? '' : 'disabled'} title="${openTitle}" aria-label="${canOpen ? `Open ${projectName} at ${escapeHtml(project.previewUrl || `localhost${portLabel}`)}` : openTitle}">
-                      <span>${escapeHtml(portLabel)}</span>
+                    <button class="project-port-chip${canOpen ? ' is-openable' : ''}" data-action="open" data-id="${projectId}" ${canOpen ? '' : 'disabled'} title="${openTitle}" aria-label="${canOpen ? `Open ${projectName} at ${escapeHtml(project.previewUrl || `localhost${portLabel}`)}` : openTitle}">
+                      <span class="project-port-label">${escapeHtml(portLabel)}</span>${canOpen ? '<span class="project-open-label">Open</span>' : ''}
                     </button>` : ''}
                   ${project.services?.length ? `
                     <button class="preview-toggle" data-action="open-services" data-id="${projectId}" aria-expanded="${project.detailsExpanded}" aria-controls="details-${projectId}" aria-label="${project.detailsExpanded ? 'Collapse' : 'Expand'} services for ${projectName}" title="${project.detailsExpanded ? 'Collapse' : 'Expand'} services">${icon('chevron-down')}</button>` : ''}
@@ -2280,6 +2285,7 @@ app.addEventListener('click', (event) => {
 
   const actions = {
     'show-add': () => vscode.postMessage({ type: 'showAdd' }),
+    'load-workspace-stack': () => vscode.postMessage({ type: 'loadWorkspaceStack' }),
     'start-workspace-script': () => vscode.postMessage({
       type: 'startWorkspaceScript',
       script: button.dataset.script

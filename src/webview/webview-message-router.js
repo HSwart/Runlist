@@ -141,6 +141,7 @@ function createRunlistWebviewRouter(host, adapters = {}) {
       },
       showAdd: () => host.showAddProject({ type: 'action', action: 'show-add' }),
       showAgentSetup: () => host.showAgentSetup(),
+      loadWorkspaceStack: () => host.showProjectTransferLoadStack(),
       showPortListening: () => host.showPortListeningDiagnosis(),
       copyPortListeningDetails: (message) => host.copyPortListeningDetails(message.port),
       startWorkspaceScript: (message) => host.startWorkspaceScript(message.script),

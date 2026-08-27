@@ -757,6 +757,10 @@ class RunlistViewProvider {
     if (this.stackContractPrompted) {
       return;
     }
+    // Empty sidebar surfaces Load stack on the empty state — avoid a toast there.
+    if (this.projects.length === 0) {
+      return;
+    }
     const workspaceRoot = currentWorkspaceFolderPath(vscode.workspace.workspaceFolders);
     if (!workspaceRoot) {
       return;
@@ -787,6 +791,30 @@ class RunlistViewProvider {
     );
     if (choice === review) {
       await this.showProjectTransferLoadStack();
+    }
+  }
+
+  stackContractPendingForEmptyState() {
+    if (this.projects.length > 0) {
+      return false;
+    }
+    const workspaceRoot = currentWorkspaceFolderPath(vscode.workspace.workspaceFolders);
+    if (!workspaceRoot) {
+      return false;
+    }
+    const contractPath = detectStackContract(workspaceRoot);
+    if (!contractPath) {
+      return false;
+    }
+    try {
+      const parsed = parseStackContract(fs.readFileSync(contractPath), { workspaceRoot, contractPath });
+      const preview = previewProjectImport(this.projects, parsed.projects, {
+        replaceOptionalMetadata: false,
+        isProjectActive: () => false
+      });
+      return preview.changeCount > 0;
+    } catch {
+      return false;
     }
   }
 
@@ -1000,17 +1028,6 @@ class RunlistViewProvider {
     return currentWorkspaceFolderPath(vscode.workspace.workspaceFolders)
       ? { type: 'action', action: 'show-add' }
       : undefined;
-  }
-
-  syncTitlebarContext() {
-    if (typeof vscode.commands?.executeCommand !== 'function') {
-      return;
-    }
-    void vscode.commands.executeCommand(
-      'setContext',
-      'runlist.showTitlebarExtras',
-      this.projects.length > 1
-    );
   }
 
   getProjectStatus(id) {
@@ -4714,8 +4731,6 @@ class RunlistViewProvider {
       return;
     }
 
-    this.syncTitlebarContext();
-
     const stylesUri = this.view.webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'media', 'styles.css')
     );
@@ -4977,9 +4992,14 @@ class RunlistViewProvider {
       canUseCurrentWorkspace: this.mode === 'add'
         && canUseCurrentWorkspace(vscode.workspace.workspaceFolders),
       currentWorkspaceFolder: currentWorkspaceFolderPath(vscode.workspace.workspaceFolders) || '',
+      currentWorkspaceFolderName: (() => {
+        const folder = currentWorkspaceFolderPath(vscode.workspace.workspaceFolders) || '';
+        return folder ? path.basename(folder) : '';
+      })(),
       workspaceStartScripts: workspaceStartDevScripts(
         currentWorkspaceFolderPath(vscode.workspace.workspaceFolders) || ''
       ),
+      stackContractPending: this.stackContractPendingForEmptyState(),
       focusTarget: this.focusTarget || this.lastFocusTarget,
       formErrors: this.formErrors,
       groups,

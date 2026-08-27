@@ -16,7 +16,7 @@ const host = readText('src', 'host', 'runlist-view-provider.js');
 test('keeps the everyday list to two lines: wrapping name, then status and port', () => {
   assert.match(webview, /class="project-meta"/);
   assert.match(webview, /class="project-status status-\$\{rowStatusClass\}"/);
-  assert.match(webview, /class="project-port-chip" data-action="open"/);
+  assert.match(webview, /class="project-port-chip\$\{canOpen \? ' is-openable' : ''\}" data-action="open"/);
   assert.match(webview, /class="run-button /);
   assert.match(webview, /aria-label="More actions for \$\{projectName\}"/);
   assert.match(webview, /class="visually-hidden">\$\{escapeHtml\(project\.folder\)\}/);
@@ -31,7 +31,7 @@ test('keeps the everyday list to two lines: wrapping name, then status and port'
 test('does not explain the product on first-run or everyday screens', () => {
   assert.match(webview, /<h2>No projects yet<\/h2>/);
   assert.match(webview, /Add this folder/);
-  assert.match(webview, /Add the folder open in this window\./);
+  assert.match(webview, /Add \$\{workspaceFolderName \|\| 'the folder'\} open in this window\./);
   assert.match(webview, /Open a folder in this window first\./);
   assert.doesNotMatch(webview, /Save a start command for the folder open in this window/);
   assert.doesNotMatch(webview, /Save a project folder and its start command once/);

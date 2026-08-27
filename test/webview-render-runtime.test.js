@@ -1067,6 +1067,7 @@ test('empty state offers Add this folder when a workspace folder is present', ()
   const result = renderNonEmptyProjectList([], {
     stateOverrides: {
       currentWorkspaceFolder: '/Users/example/app',
+      currentWorkspaceFolderName: 'app',
       workspaceStartScripts: [
         { name: 'start', startCommand: 'npm start' },
         { name: 'dev', startCommand: 'npm run dev' }
@@ -1076,7 +1077,8 @@ test('empty state offers Add this folder when a workspace folder is present', ()
 
   assert.match(result.app.innerHTML, /No projects yet/);
   assert.match(result.app.innerHTML, /Add this folder/);
-  assert.match(result.app.innerHTML, /Add the folder open in this window\./);
+  assert.match(result.app.innerHTML, /Add app open in this window\./);
+  assert.match(result.app.innerHTML, /class="empty-folder"[^>]*>app</);
   assert.match(result.app.innerHTML, /class="empty-start-chips"/);
   assert.match(result.app.innerHTML, /data-action="start-workspace-script" data-script="dev"/);
   assert.match(result.app.innerHTML, />\s*Start\s*</);
@@ -1084,6 +1086,19 @@ test('empty state offers Add this folder when a workspace folder is present', ()
   assert.match(result.app.innerHTML, /aria-label="Run `npm start` for this folder"/);
   assert.match(result.app.innerHTML, /aria-label="Run `npm run dev` for this folder"/);
   assert.doesNotMatch(result.app.innerHTML, />Add project</);
+  assert.doesNotMatch(result.app.innerHTML, /Load stack/);
+});
+
+test('empty state shows Load stack when a stack contract is pending', () => {
+  const result = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      currentWorkspaceFolder: '/Users/example/app',
+      currentWorkspaceFolderName: 'app',
+      stackContractPending: true
+    }
+  });
+
+  assert.match(result.app.innerHTML, /data-action="load-workspace-stack">Load stack</);
 });
 
 test('empty state hides Add this folder when no workspace folder is open', () => {
@@ -1243,7 +1258,7 @@ test('running row shows elapsed from the live timeline on line 2', () => {
   assert.match(result.app.innerHTML, /class="project-status status-running"[^>]*>[\s\S]*<span>Running<\/span>/);
   assert.match(result.app.innerHTML, /class="project-row-elapsed" data-row-elapsed data-started-at="/);
   assert.match(result.app.innerHTML, /aria-label="Running for 1m 0?5s"/);
-  assert.match(result.app.innerHTML, /class="project-port-chip"[^>]*>[\s\S]*:4310/);
+  assert.match(result.app.innerHTML, /class="project-port-chip is-openable"[^>]*>[\s\S]*:4310[\s\S]*class="project-open-label">Open/);
   assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
 });
 
