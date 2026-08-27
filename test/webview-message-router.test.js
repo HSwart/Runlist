@@ -27,6 +27,8 @@ test('allowlists the complete host-to-webview message contract', () => {
 
 test('validates commands sent from the webview before routing', async () => {
   assert.ok(WEBVIEW_COMMAND_TYPES.has('saveProject'));
+  assert.ok(WEBVIEW_COMMAND_TYPES.has('saveRunGroup'));
+  assert.ok(WEBVIEW_COMMAND_TYPES.has('removeRunGroup'));
   assert.ok(WEBVIEW_COMMAND_TYPES.has('startProject'));
   assert.ok(WEBVIEW_COMMAND_TYPES.has('loadWorkspaceStack'));
   assert.ok(WEBVIEW_COMMAND_TYPES.has('showPortListening'));

@@ -15,7 +15,6 @@ const detailTabState = { ...(persistedWebviewState.detailTabs || {}) };
 const phoneHandoffState = { ...(persistedWebviewState.phoneHandoffs || {}) };
 const startupFailureState = { ...(persistedWebviewState.startupFailures || {}) };
 const expandedServiceState = { ...(persistedWebviewState.expandedServices || {}) };
-let expandedRunGroupId = String(persistedWebviewState.expandedRunGroupId || '');
 const stateFilterRevision = Number.isSafeInteger(state.filterRevision)
   ? state.filterRevision
   : 0;
@@ -55,6 +54,9 @@ if (searchSelectionStart < 0
 }
 let firstListRender = true;
 let tagsExpanded = Boolean(persistedWebviewState.tagsExpanded);
+let groupsExpanded = Boolean(persistedWebviewState.groupsExpanded);
+let selectedGroupFilter = String(persistedWebviewState.groupFilter || '');
+let runGroupDraft = undefined;
 let outputFollowLatest = true;
 let announcedProjectStatuses = new Map();
 let announcedPreviewFailures = new Map();
@@ -262,6 +264,7 @@ function icon(name, className = 'icon') {
   // Official VS Code Codicon paths: https://github.com/microsoft/vscode-codicons
   const icons = {
     'chevron-down': { viewBox: '0 0 16 16', body: '<path d="M3.646 5.646a.5.5 0 0 1 .708 0L8 9.293l3.646-3.647a.5.5 0 0 1 .708.708l-4 4a.5.5 0 0 1-.708 0l-4-4a.5.5 0 0 1 0-.708Z"/>' },
+    'chevron-up': { viewBox: '0 0 16 16', body: '<path d="M3.646 10.354a.5.5 0 0 0 .708 0L8 6.707l3.646 3.647a.5.5 0 0 0 .708-.708l-4-4a.5.5 0 0 0-.708 0l-4 4a.5.5 0 0 0 0 .708Z"/>' },
     close: { viewBox: '0 0 16 16', body: '<path d="M8.70701 8.00001L12.353 4.35401C12.548 4.15901 12.548 3.84201 12.353 3.64701C12.158 3.45201 11.841 3.45201 11.646 3.64701L8.00001 7.29301L4.35401 3.64701C4.15901 3.45201 3.84201 3.45201 3.64701 3.64701C3.45201 3.84201 3.45201 4.15901 3.64701 4.35401L7.29301 8.00001L3.64701 11.646C3.45201 11.841 3.45201 12.158 3.64701 12.353C3.74501 12.451 3.87301 12.499 4.00101 12.499C4.12901 12.499 4.25701 12.45 4.35501 12.353L8.00101 8.70701L11.647 12.353C11.745 12.451 11.873 12.499 12.001 12.499C12.129 12.499 12.257 12.45 12.355 12.353C12.55 12.158 12.55 11.841 12.355 11.646L8.70901 8.00001H8.70701Z"/>' },
     copy: { viewBox: '0 0 16 16', body: '<path d="M4 4.5C4 3.672 4.672 3 5.5 3h6c.828 0 1.5.672 1.5 1.5v7c0 .828-.672 1.5-1.5 1.5h-6c-.828 0-1.5-.672-1.5-1.5v-7ZM5.5 4a.5.5 0 0 0-.5.5v7a.5.5 0 0 0 .5.5h6a.5.5 0 0 0 .5-.5v-7a.5.5 0 0 0-.5-.5h-6Z"/><path d="M2 3.5C2 2.672 2.672 2 3.5 2H10v1H3.5a.5.5 0 0 0-.5.5V11H2V3.5Z"/>' },
     edit: { viewBox: '0 0 16 16', body: '<path d="M14.236 1.76386C13.2123 0.740172 11.5525 0.740171 10.5289 1.76386L2.65722 9.63549C2.28304 10.0097 2.01623 10.4775 1.88467 10.99L1.01571 14.3755C0.971767 14.5467 1.02148 14.7284 1.14646 14.8534C1.27144 14.9783 1.45312 15.028 1.62432 14.9841L5.00978 14.1151C5.52234 13.9836 5.99015 13.7168 6.36433 13.3426L14.236 5.47097C15.2596 4.44728 15.2596 2.78755 14.236 1.76386ZM11.236 2.47097C11.8691 1.8378 12.8957 1.8378 13.5288 2.47097C14.162 3.10413 14.162 4.1307 13.5288 4.76386L12.75 5.54269L10.4571 3.24979L11.236 2.47097ZM9.75002 3.9569L12.0429 6.24979L5.65722 12.6355C5.40969 12.883 5.10023 13.0595 4.76117 13.1465L2.19447 13.8053L2.85327 11.2386C2.9403 10.8996 3.1168 10.5901 3.36433 10.3426L9.75002 3.9569Z"/>' },
@@ -504,8 +507,9 @@ function saveWebviewState() {
     phoneHandoffs: phoneHandoffState,
     startupFailures: startupFailureState,
     expandedServices: expandedServiceState,
-    expandedRunGroupId,
     tagsExpanded,
+    groupsExpanded,
+    groupFilter: selectedGroupFilter,
     filterRevisionSeen,
     filterRevision,
     searchQuery,
@@ -868,48 +872,40 @@ function attentionSummaryHtml(projects) {
   return `<button type="button" class="summary-attention" data-action="focus-attention" aria-label="Focus first project that needs attention">Needs attention</button>`;
 }
 
-function runGroupsHtml() {
+function groupFilterHtml() {
   if (!state.groups?.length) {
     return '';
   }
+  const activeGroup = state.groups.find((group) => String(group.id) === selectedGroupFilter);
   return `
-    <section class="run-groups" aria-label="Run groups">
-      <h2>Run groups</h2>
-      ${state.groups.map((group) => {
-        const groupId = escapeHtml(group.id);
-        const groupName = escapeHtml(group.name);
-        const memberNames = group.memberNames.map(escapeHtml).join(' → ') || 'No saved projects';
-        const expanded = String(group.id) === expandedRunGroupId;
-        const settingsId = `run-group-settings-${groupId}`;
-        const modeLabel = group.startMode === 'parallel' ? 'Parallel' : 'Sequential';
-        const actionLabel = group.canStop ? `Stop group ${groupName}` : `Start group ${groupName}`;
-        return `
-          <div class="run-group-item">
-            <div class="run-group-row">
-              <button class="run-group-toggle" data-action="toggle-run-group" data-id="${groupId}" aria-expanded="${expanded}"${expanded ? ` aria-controls="${settingsId}"` : ''} title="${groupName}">
-                ${icon('chevron-down')}
-                <span class="run-group-details">
-                  <strong>${groupName}</strong>
-                  <span role="status" aria-live="polite">${group.progress ? escapeHtml(group.progress) : `${group.projectIds.length} project${group.projectIds.length === 1 ? '' : 's'} · ${modeLabel}`}</span>
-                </span>
+    <section class="project-group-filter" aria-label="Run group filter">
+      <div class="project-group-filter-bar">
+        <button class="group-filter-toggle" data-action="toggle-group-filter" aria-expanded="${groupsExpanded}"${groupsExpanded ? ' aria-controls="project-group-choices"' : ''}>
+          ${icon('chevron-down')}<span>Groups</span>
+        </button>
+        ${activeGroup ? `<button class="active-group-chip" data-action="select-group-filter" data-id="${escapeHtml(activeGroup.id)}" aria-label="Clear group filter ${escapeHtml(activeGroup.name)}" title="Clear group filter">${escapeHtml(activeGroup.name)} ${icon('close')}</button>` : ''}
+      </div>
+      ${groupsExpanded ? `<div id="project-group-choices" class="project-group-choices" role="group" aria-label="Filter projects by run group">
+        <button type="button" data-action="select-group-filter" data-id="" aria-pressed="${!activeGroup}">All projects</button>
+        ${state.groups.map((group) => {
+          const groupId = escapeHtml(group.id);
+          const groupName = escapeHtml(group.name);
+          const actionLabel = group.canStop ? `Stop group ${groupName}` : `Start group ${groupName}`;
+          const pressed = String(group.id) === selectedGroupFilter;
+          return `
+            <div class="group-choice-row">
+              <button type="button" class="group-choice-name" data-action="select-group-filter" data-id="${groupId}" aria-pressed="${pressed}" title="${groupName}">
+                <strong>${groupName}</strong>
+                <span>${group.progress ? escapeHtml(group.progress) : `${group.projectIds.length} project${group.projectIds.length === 1 ? '' : 's'}`}</span>
               </button>
-              <div class="run-group-actions">
+              <div class="group-choice-actions">
                 ${group.canStop
-                  ? `<button data-action="stop-group" data-id="${groupId}" aria-label="Stop group ${groupName}" title="${group.lifecycleBlocked ? 'Lifecycle controls are available only for local projects' : actionLabel}" ${group.busy || group.lifecycleBlocked ? 'disabled' : ''}>${productIcon('stop')}</button>`
-                  : `<button data-action="start-group" data-id="${groupId}" aria-label="Start group ${groupName}" title="${group.lifecycleBlocked ? 'Lifecycle controls are available only for local projects' : actionLabel}" ${group.busy || group.lifecycleBlocked || !group.projectIds.length ? 'disabled' : ''}>${productIcon(group.busy ? 'loading' : 'play')}</button>`}
-                <button data-action="manage-group" data-id="${groupId}" aria-label="Manage group ${groupName}" title="Manage ${groupName}" ${group.busy ? 'disabled' : ''}>${icon('more')}</button>
+                  ? `<button type="button" data-action="stop-group" data-id="${groupId}" aria-label="Stop group ${groupName}" title="${group.lifecycleBlocked ? 'Lifecycle controls are available only for local projects' : actionLabel}" ${group.busy || group.lifecycleBlocked ? 'disabled' : ''}>${productIcon('stop')}</button>`
+                  : `<button type="button" data-action="start-group" data-id="${groupId}" aria-label="Start group ${groupName}" title="${group.lifecycleBlocked ? 'Lifecycle controls are available only for local projects' : actionLabel}" ${group.busy || group.lifecycleBlocked || !group.projectIds.length ? 'disabled' : ''}>${productIcon(group.busy ? 'loading' : 'play')}</button>`}
               </div>
-            </div>
-            ${expanded ? `<div class="run-group-settings" id="${settingsId}" role="region" aria-label="${groupName} settings">
-              <div class="run-group-members" title="${memberNames}">${memberNames}</div>
-              <label for="run-group-mode-${groupId}">Start mode</label>
-              <select id="run-group-mode-${groupId}" data-run-group-mode data-id="${groupId}" ${group.busy ? 'disabled' : ''}>
-                <option value="sequential" ${group.startMode === 'parallel' ? '' : 'selected'}>Sequential</option>
-                <option value="parallel" ${group.startMode === 'parallel' ? 'selected' : ''}>Parallel</option>
-              </select>
-            </div>` : ''}
-          </div>`;
-      }).join('')}
+            </div>`;
+        }).join('')}
+      </div>` : ''}
     </section>`;
 }
 
@@ -990,6 +986,10 @@ function renderList() {
     state.tagFilter = '';
     saveWebviewState();
   }
+  if (selectedGroupFilter && !(state.groups || []).some((group) => String(group.id) === selectedGroupFilter)) {
+    selectedGroupFilter = '';
+    saveWebviewState();
+  }
   if (state.projects.length === 0) {
     const workspaceFolder = String(state.currentWorkspaceFolder || '');
     const workspaceFolderName = String(state.currentWorkspaceFolderName || '')
@@ -1005,7 +1005,7 @@ function renderList() {
       : [];
     const stackPending = state.stackContractPending === true;
     app.innerHTML = `
-      ${runGroupsHtml()}
+      ${groupFilterHtml()}
       <section class="empty-state">
         <h2>No projects yet</h2>
         <p>${escapeHtml(emptyCopy)}</p>
@@ -1061,7 +1061,7 @@ function renderList() {
       <section class="diagnosis-notice" role="status" aria-live="polite" aria-label="Compose availability">
         <p>${escapeHtml(state.composeNotice)}</p>
       </section>` : ''}
-    ${runGroupsHtml()}
+    ${groupFilterHtml()}
     ${state.projects.length > 1 ? `
     <div class="project-search">
       ${icon('search', 'search-icon')}
@@ -1342,6 +1342,10 @@ function applyProjectFilter(query) {
   searchQuery = query;
   const normalizedQuery = normalizeSearchQuery(query);
   const normalizedTag = normalizeTagIdentity(selectedTagFilter);
+  const activeGroup = (state.groups || []).find((group) => String(group.id) === selectedGroupFilter);
+  const groupMemberIds = activeGroup
+    ? new Set((activeGroup.projectIds || []).map(String))
+    : undefined;
   const matchingProjects = state.projects.filter((project) => {
     const searchableText = String(
       project.searchText || [project.name, project.folder].filter(Boolean).join('\n')
@@ -1350,7 +1354,8 @@ function applyProjectFilter(query) {
     const matchesTag = !normalizedTag || (project.tags || []).some((tag) => (
       normalizeTagIdentity(tag) === normalizedTag
     ));
-    return matchesQuery && matchesTag;
+    const matchesGroup = !groupMemberIds || groupMemberIds.has(String(project.id));
+    return matchesQuery && matchesTag && matchesGroup;
   });
   const matchingIds = new Set(matchingProjects.map((project) => String(project.id)));
 
@@ -1358,7 +1363,7 @@ function applyProjectFilter(query) {
     row.hidden = !matchingIds.has(row.dataset.projectId);
   });
 
-  const filtering = normalizedQuery.length > 0 || normalizedTag.length > 0;
+  const filtering = normalizedQuery.length > 0 || normalizedTag.length > 0 || Boolean(activeGroup);
   const projectCount = document.getElementById('project-count');
   if (projectCount) {
     projectCount.innerHTML = filtering
@@ -1382,8 +1387,12 @@ function applyProjectFilter(query) {
 
   const status = document.getElementById('project-search-status');
   if (status) {
+    const filters = [
+      normalizedTag ? `tag ${selectedTagFilter}` : '',
+      activeGroup ? `group ${activeGroup.name}` : ''
+    ].filter(Boolean);
     status.textContent = filtering
-      ? `${matchingIds.size} ${matchingIds.size === 1 ? 'project' : 'projects'} shown${normalizedTag ? `, filtered by ${selectedTagFilter}` : ''}`
+      ? `${matchingIds.size} ${matchingIds.size === 1 ? 'project' : 'projects'} shown${filters.length ? `, filtered by ${filters.join(' and ')}` : ''}`
       : '';
   }
   scheduleAutoScrollUpdate();
@@ -1403,6 +1412,7 @@ function revealRunningApp(id) {
     }
     searchQuery = '';
     selectedTagFilter = '';
+    selectedGroupFilter = '';
     publishFilterState('setSearchQuery');
     applyProjectFilter('');
   }
@@ -2007,6 +2017,129 @@ function renderPortResolve() {
     </section>`;
 }
 
+function beginRunGroupDraft(group) {
+  if (group) {
+    runGroupDraft = {
+      id: String(group.id),
+      name: String(group.name || ''),
+      projectIds: [...(group.projectIds || [])].map(String),
+      startMode: group.startMode === 'parallel' ? 'parallel' : 'sequential'
+    };
+    return;
+  }
+  runGroupDraft = {
+    name: '',
+    projectIds: [],
+    startMode: 'sequential'
+  };
+}
+
+function syncRunGroupDraftFromForm() {
+  if (!runGroupDraft) {
+    return;
+  }
+  const nameInput = document.getElementById('run-group-name');
+  if (nameInput) {
+    runGroupDraft.name = String(nameInput.value || '');
+  }
+  const modeSelect = document.getElementById('run-group-mode');
+  if (modeSelect) {
+    runGroupDraft.startMode = modeSelect.value === 'parallel' ? 'parallel' : 'sequential';
+  }
+}
+
+function clearRunGroupDraft() {
+  runGroupDraft = undefined;
+}
+
+function renderRunGroupsEditor() {
+  const editor = state.runGroupsEditor || {};
+  const availableProjects = Array.isArray(editor.availableProjects) ? editor.availableProjects : [];
+  const groups = Array.isArray(state.groups) ? state.groups : [];
+  if (runGroupDraft === undefined && editor.focusGroupId) {
+    const focused = groups.find((group) => String(group.id) === String(editor.focusGroupId));
+    if (focused) {
+      beginRunGroupDraft(focused);
+    }
+  }
+
+  if (runGroupDraft) {
+    const draft = runGroupDraft;
+    const projectsById = new Map(availableProjects.map((project) => [String(project.id), project]));
+    const unusedProjects = availableProjects.filter((project) => !draft.projectIds.includes(String(project.id)));
+    const title = draft.id ? 'Edit group' : 'Create group';
+    app.innerHTML = `
+      <section class="diagnosis-screen run-groups-screen" aria-label="${title}">
+        <header class="screen-header">
+          <h2>${title}</h2>
+          <button class="icon-button" data-action="close-run-group-draft" aria-label="Back to run groups">${icon('close')}</button>
+        </header>
+        <label class="screen-field" for="run-group-name">Name</label>
+        <input id="run-group-name" type="text" maxlength="100" value="${escapeHtml(draft.name)}" autocomplete="off" spellcheck="false">
+        <label class="screen-field" for="run-group-mode">Start mode</label>
+        <select id="run-group-mode">
+          <option value="sequential" ${draft.startMode === 'parallel' ? '' : 'selected'}>Sequential</option>
+          <option value="parallel" ${draft.startMode === 'parallel' ? 'selected' : ''}>Parallel</option>
+        </select>
+        <p class="screen-copy">Projects start in the order shown.</p>
+        <div class="run-group-editor-members" role="list">
+          ${draft.projectIds.length ? draft.projectIds.map((projectId, index) => {
+            const project = projectsById.get(String(projectId));
+            const label = escapeHtml(project?.name || 'Missing project');
+            return `
+              <div class="run-group-editor-member" role="listitem" data-project-id="${escapeHtml(String(projectId))}">
+                <span><strong>${index + 1}.</strong> ${label}</span>
+                <div class="run-group-editor-member-actions">
+                  <button type="button" data-action="move-run-group-member" data-project-id="${escapeHtml(String(projectId))}" data-direction="up" aria-label="Move ${label} earlier" ${index === 0 ? 'disabled' : ''}>${icon('chevron-up')}</button>
+                  <button type="button" data-action="move-run-group-member" data-project-id="${escapeHtml(String(projectId))}" data-direction="down" aria-label="Move ${label} later" ${index === draft.projectIds.length - 1 ? 'disabled' : ''}>${icon('chevron-down')}</button>
+                  <button type="button" data-action="remove-run-group-member" data-project-id="${escapeHtml(String(projectId))}" aria-label="Remove ${label}">${icon('close')}</button>
+                </div>
+              </div>`;
+          }).join('') : '<p class="screen-copy">Add at least one saved project.</p>'}
+        </div>
+        ${unusedProjects.length && draft.projectIds.length < 20 ? `
+          <label class="screen-field" for="run-group-add-project">Add project</label>
+          <div class="run-group-add-row">
+            <select id="run-group-add-project">
+              ${unusedProjects.map((project) => `<option value="${escapeHtml(String(project.id))}">${escapeHtml(project.name)}</option>`).join('')}
+            </select>
+            <button type="button" class="secondary-button" data-action="add-run-group-member">Add</button>
+          </div>` : ''}
+        <div class="screen-actions">
+          <button type="button" class="primary-button" data-action="save-run-group-draft" ${draft.projectIds.length ? '' : 'disabled'}>Save group</button>
+          <button type="button" class="secondary-button" data-action="close-run-group-draft">Cancel</button>
+        </div>
+      </section>`;
+    return;
+  }
+
+  app.innerHTML = `
+    <section class="diagnosis-screen run-groups-screen" aria-label="Run groups">
+      <header class="screen-header">
+        <h2>Run groups</h2>
+        <button class="icon-button" data-action="close-screen" aria-label="Close run groups">${icon('close')}</button>
+      </header>
+      <p class="screen-copy">Save an ordered set of projects to start and stop together. Filter the list from Groups when a group exists.</p>
+      <div class="screen-actions">
+        <button type="button" class="primary-button" data-action="create-run-group" ${availableProjects.length ? '' : 'disabled'}>Create group</button>
+      </div>
+      ${!availableProjects.length ? '<p class="screen-copy">Add a project before creating a run group.</p>' : ''}
+      <div class="run-group-editor-list" role="list">
+        ${groups.length ? groups.map((group) => `
+          <article class="run-group-editor-row" role="listitem">
+            <div>
+              <strong>${escapeHtml(group.name)}</strong>
+              <p>${group.projectIds.length} project${group.projectIds.length === 1 ? '' : 's'} · ${group.startMode === 'parallel' ? 'Parallel' : 'Sequential'}</p>
+            </div>
+            <div class="run-group-editor-row-actions">
+              <button type="button" class="secondary-button" data-action="edit-run-group" data-id="${escapeHtml(group.id)}">Edit</button>
+              <button type="button" class="secondary-button" data-action="remove-run-group" data-id="${escapeHtml(group.id)}">Remove</button>
+            </div>
+          </article>`).join('') : '<p class="screen-copy">No run groups yet.</p>'}
+      </div>
+    </section>`;
+}
+
 function renderProjectDiagnosis() {
   const diagnosis = state.diagnosis;
   if (!diagnosis) {
@@ -2353,10 +2486,13 @@ app.addEventListener('click', (event) => {
       type: 'startWorkspaceScript',
       script: button.dataset.script
     }),
-    'close-screen': () => vscode.postMessage({
-      type: 'closeScreen',
-      draft: document.getElementById('project-form') ? currentDraft() : undefined
-    }),
+    'close-screen': () => {
+      clearRunGroupDraft();
+      vscode.postMessage({
+        type: 'closeScreen',
+        draft: document.getElementById('project-form') ? currentDraft() : undefined
+      });
+    },
     'pick-folder': () => vscode.postMessage({ type: 'pickFolder', draft: currentDraft() }),
     'use-current-workspace': () => vscode.postMessage({ type: 'useCurrentWorkspace', draft: currentDraft() }),
     'add-service': () => {
@@ -2440,6 +2576,9 @@ app.addEventListener('click', (event) => {
     'manage-group': () => vscode.postMessage({ type: 'manageRunGroups', id: button.dataset.id }),
     'toggle-tag-filter': () => {
       tagsExpanded = !tagsExpanded;
+      if (tagsExpanded) {
+        groupsExpanded = false;
+      }
       saveWebviewState();
       renderList();
       requestAnimationFrame(() => document.querySelector('[data-action="toggle-tag-filter"]')?.focus());
@@ -2456,16 +2595,109 @@ app.addEventListener('click', (event) => {
       renderList();
       requestAnimationFrame(() => document.querySelector('[data-action="toggle-tag-filter"]')?.focus());
     },
-    'toggle-run-group': () => {
-      expandedRunGroupId = expandedRunGroupId === String(button.dataset.id)
-        ? ''
-        : String(button.dataset.id);
+    'toggle-group-filter': () => {
+      groupsExpanded = !groupsExpanded;
+      if (groupsExpanded) {
+        tagsExpanded = false;
+      }
       saveWebviewState();
       renderList();
-      requestAnimationFrame(() => document.querySelector(
-        `[data-action="toggle-run-group"][data-id="${CSS.escape(String(button.dataset.id))}"]`
-      )?.focus());
+      requestAnimationFrame(() => document.querySelector('[data-action="toggle-group-filter"]')?.focus());
     },
+    'select-group-filter': () => {
+      const groupId = String(button.dataset.id || '');
+      selectedGroupFilter = groupId && groupId === selectedGroupFilter ? '' : groupId;
+      groupsExpanded = false;
+      saveWebviewState();
+      renderList();
+      requestAnimationFrame(() => document.querySelector('[data-action="toggle-group-filter"]')?.focus());
+    },
+    'create-run-group': () => {
+      beginRunGroupDraft();
+      renderRunGroupsEditor();
+      requestAnimationFrame(() => document.getElementById('run-group-name')?.focus());
+    },
+    'edit-run-group': () => {
+      const group = (state.groups || []).find((item) => String(item.id) === String(button.dataset.id));
+      if (!group) {
+        return;
+      }
+      beginRunGroupDraft(group);
+      renderRunGroupsEditor();
+      requestAnimationFrame(() => document.getElementById('run-group-name')?.focus());
+    },
+    'close-run-group-draft': () => {
+      clearRunGroupDraft();
+      renderRunGroupsEditor();
+      requestAnimationFrame(() => document.querySelector('[data-action="close-screen"]')?.focus());
+    },
+    'add-run-group-member': () => {
+      if (!runGroupDraft) {
+        return;
+      }
+      syncRunGroupDraftFromForm();
+      const select = document.getElementById('run-group-add-project');
+      const projectId = String(select?.value || '');
+      if (!projectId || runGroupDraft.projectIds.includes(projectId)) {
+        return;
+      }
+      runGroupDraft.projectIds.push(projectId);
+      renderRunGroupsEditor();
+    },
+    'remove-run-group-member': () => {
+      if (!runGroupDraft) {
+        return;
+      }
+      syncRunGroupDraftFromForm();
+      const projectId = String(button.dataset.projectId || '');
+      runGroupDraft.projectIds = runGroupDraft.projectIds.filter((id) => id !== projectId);
+      renderRunGroupsEditor();
+    },
+    'move-run-group-member': () => {
+      if (!runGroupDraft) {
+        return;
+      }
+      syncRunGroupDraftFromForm();
+      const projectId = String(button.dataset.projectId || '');
+      const index = runGroupDraft.projectIds.indexOf(projectId);
+      if (index < 0) {
+        return;
+      }
+      const direction = button.dataset.direction;
+      const swapWith = direction === 'up' ? index - 1 : index + 1;
+      if (swapWith < 0 || swapWith >= runGroupDraft.projectIds.length) {
+        return;
+      }
+      const next = [...runGroupDraft.projectIds];
+      [next[index], next[swapWith]] = [next[swapWith], next[index]];
+      runGroupDraft.projectIds = next;
+      renderRunGroupsEditor();
+    },
+    'save-run-group-draft': () => {
+      if (!runGroupDraft) {
+        return;
+      }
+      syncRunGroupDraftFromForm();
+      const name = String(runGroupDraft.name || '').trim();
+      const startMode = runGroupDraft.startMode === 'parallel' ? 'parallel' : 'sequential';
+      if (!name || !runGroupDraft.projectIds.length) {
+        return;
+      }
+      vscode.postMessage({
+        type: 'saveRunGroup',
+        group: {
+          ...(runGroupDraft.id ? { id: runGroupDraft.id } : {}),
+          name,
+          projectIds: runGroupDraft.projectIds,
+          startMode
+        }
+      });
+      clearRunGroupDraft();
+    },
+    'remove-run-group': () => vscode.postMessage({
+      type: 'removeRunGroup',
+      id: button.dataset.id
+    }),
     'toggle-menu': () => toggleMenu(button),
     'toggle-profile-menu': () => toggleMenu(button),
     'select-launch-profile': () => {
@@ -3030,14 +3262,6 @@ app.addEventListener('input', (event) => {
 });
 
 app.addEventListener('change', (event) => {
-  if (event.target.matches('[data-run-group-mode]')) {
-    vscode.postMessage({
-      type: 'setRunGroupStartMode',
-      id: event.target.dataset.id,
-      startMode: event.target.value
-    });
-    return;
-  }
   if (event.target.matches('[data-service-health-mode]')) {
     const draft = currentDraft(event.target.form);
     updateLaunchProfileDraft(draft, event.target.id);
@@ -3097,6 +3321,15 @@ document.addEventListener('keydown', (event) => {
     saveWebviewState();
     renderList();
     requestAnimationFrame(() => document.querySelector('[data-action="toggle-tag-filter"]')?.focus());
+    return;
+  }
+  if (event.key === 'Escape' && groupsExpanded
+    && event.target.closest('.project-group-filter')) {
+    event.preventDefault();
+    groupsExpanded = false;
+    saveWebviewState();
+    renderList();
+    requestAnimationFrame(() => document.querySelector('[data-action="toggle-group-filter"]')?.focus());
     return;
   }
   const tab = event.target.closest('[role="tab"]');
@@ -3247,6 +3480,8 @@ if (state.mode === 'list') {
   renderPortListening();
   } else if (state.mode === 'port-resolve') {
   renderPortResolve();
+  } else if (state.mode === 'run-groups') {
+  renderRunGroupsEditor();
   } else if (state.mode === 'compose-import') {
   renderComposeImport();
   } else {
