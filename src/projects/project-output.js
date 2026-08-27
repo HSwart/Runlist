@@ -249,15 +249,7 @@ function startFailureSummary(output, details = {}) {
     .split(/\r?\n/)
     .map(cleanFailureLine)
     .filter(Boolean);
-  let selected;
-  let selectedScore = 0;
-  for (const line of lines) {
-    const score = failureLineScore(line);
-    if (score >= selectedScore && score > 0) {
-      selected = line;
-      selectedScore = score;
-    }
-  }
+  const selected = selectFailureLine(lines);
 
   const explicitDetail = cleanFailureLine(details.detail);
   const outcome = failureOutcome(details.code, details.signal);
@@ -272,6 +264,35 @@ function startFailureSummary(output, details = {}) {
   };
 }
 
+function selectFailureLine(lines) {
+  const killIndex = lines.findIndex(isConcurrentlyKillBroadcast);
+  const intrinsicLines = killIndex >= 0 ? lines.slice(0, killIndex) : lines;
+  const intrinsic = highestScoringFailureLine(intrinsicLines);
+  if (intrinsic) {
+    return intrinsic;
+  }
+  // No useful intrinsic failure before concurrently's peer-kill broadcast — fall
+  // back to the full log while still demoting SIGTERM/SIGKILL peer-exit noise.
+  return highestScoringFailureLine(lines);
+}
+
+function highestScoringFailureLine(lines) {
+  let selected;
+  let selectedScore = 0;
+  for (const line of lines) {
+    const score = failureLineScore(line);
+    if (score >= selectedScore && score > 0) {
+      selected = line;
+      selectedScore = score;
+    }
+  }
+  return selected;
+}
+
+function isConcurrentlyKillBroadcast(line) {
+  return /Sending SIG(?:TERM|KILL) to other processes/i.test(line);
+}
+
 function cleanFailureLine(value) {
   const line = String(value || '').trim();
   if (!line) {
@@ -284,6 +305,13 @@ function cleanFailureLine(value) {
 
 function failureLineScore(line) {
   if (/^\s*(?:\$|>\s+\S+@)/.test(line) || /^Runlist:/i.test(line)) {
+    return 0;
+  }
+  if (isConcurrentlyKillBroadcast(line)) {
+    return 0;
+  }
+  // Peer kills from concurrently -k are not the root cause.
+  if (/exited with code\s+SIG(?:TERM|KILL)\b/i.test(line)) {
     return 0;
   }
   if (/not recognized as an internal or external command|command not found|no such file or directory|permission denied/i.test(line)) {

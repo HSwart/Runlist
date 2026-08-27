@@ -60,6 +60,12 @@ class OwnedProcessMetrics {
         this.tracked.delete(projectId);
         return unavailableMetrics('Resource use stopped because process ownership changed.');
       }
+      if (rows.some((row) => row?.treeIncomplete === true)) {
+        record.previous = undefined;
+        return unavailableMetrics(
+          'Resource use is unavailable because the process tree could not be fully inspected.'
+        );
+      }
 
       const timestamp = this.now();
       const current = new Map(rows.map((row) => [row.pid, row]));

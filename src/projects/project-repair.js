@@ -9,6 +9,7 @@ const {
   withProjectStoreLock
 } = require('./project-store');
 const { rewriteLoopbackServiceUrl } = require('../ports/service-port-overrides');
+const { formatCommandForDisplay } = require('./command-display');
 
 const PROJECT_REPAIR_SCHEMA_VERSION = 1;
 const PROPOSAL_KEYS = new Set([
@@ -16,7 +17,8 @@ const PROPOSAL_KEYS = new Set([
   'folder',
   'startCommand',
   'stopCommand',
-  'services'
+  'services',
+  'runtime'
 ]);
 
 class ProjectRepairError extends Error {
@@ -33,6 +35,7 @@ function projectConfigurationRevision(project) {
     folder: project.folder,
     startCommand: project.startCommand,
     stopCommand: project.stopCommand || '',
+    runtime: project.runtime || '',
     reviewRequired: project.reviewRequired === true,
     launchProfiles: project.launchProfiles || [],
     tags: project.tags || [],
@@ -191,8 +194,9 @@ function projectRepairComparison(current, proposed) {
   const comparison = [
     compareValue('Name', current.name, proposed.name),
     compareValue('Folder', current.folder, proposed.folder),
-    compareValue('Start command', current.startCommand, proposed.startCommand),
-    compareValue('Stop command', current.stopCommand, proposed.stopCommand)
+    compareCommandValue('Start command', current.startCommand, proposed.startCommand),
+    compareCommandValue('Stop command', current.stopCommand, proposed.stopCommand),
+    compareValue('Runtime', current.runtime, proposed.runtime)
   ];
   appendServiceComparison(comparison, '', current.services, proposed.services);
   const currentProfiles = new Map((current.launchProfiles || []).map((profile) => [profile.id, profile]));
@@ -205,12 +209,12 @@ function projectRepairComparison(current, proposed) {
     }
     const profileName = proposedProfile?.name || currentProfile?.name || 'Removed profile';
     const prefix = `Profile: ${profileName} - `;
-    comparison.push(compareValue(
+    comparison.push(compareCommandValue(
       `${prefix}start command`,
       currentProfile?.startCommand,
       proposedProfile?.startCommand
     ));
-    comparison.push(compareValue(
+    comparison.push(compareCommandValue(
       `${prefix}stop command`,
       currentProfile?.stopCommand,
       proposedProfile?.stopCommand
@@ -268,6 +272,19 @@ function compareValue(field, currentValue, proposedValue) {
     current: current || 'Not set',
     proposed: proposed || 'Not set',
     change
+  };
+}
+
+function compareCommandValue(field, currentValue, proposedValue) {
+  const comparison = compareValue(field, currentValue, proposedValue);
+  return {
+    ...comparison,
+    current: comparison.current === 'Not set'
+      ? comparison.current
+      : formatCommandForDisplay(comparison.current),
+    proposed: comparison.proposed === 'Not set'
+      ? comparison.proposed
+      : formatCommandForDisplay(comparison.proposed)
   };
 }
 

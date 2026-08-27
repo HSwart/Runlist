@@ -102,6 +102,23 @@ test('falls back to an ownership-scoped Windows root when CIM tree inspection fa
   }]);
 });
 
+test('treats incomplete Windows process trees as unavailable metrics', async () => {
+  const incompleteRoot = {
+    ...row(100, '100:start', 2, 10 * 1024 * 1024),
+    treeIncomplete: true
+  };
+  const metrics = new OwnedProcessMetrics({
+    readRoot: async () => incompleteRoot,
+    readTree: async () => [incompleteRoot]
+  });
+  metrics.track('project', 100);
+
+  assert.deepEqual(await metrics.sample('project', 100), {
+    available: false,
+    message: 'Resource use is unavailable because the process tree could not be fully inspected.'
+  });
+});
+
 test('aggregates current CPU and memory only across the tracked process tree', async () => {
   let now = 1000;
   let sample = [

@@ -14,12 +14,16 @@ const { normalizeProjectTags } = require('./project-tags');
 const { normalizeLocalHostname } = require('../services/local-hostname');
 const { normalizeEnvFile, normalizeEnvMap } = require('./launch-env');
 const {
+  classifyProjectRuntime,
+  normalizeProjectRuntime
+} = require('./project-runtime');
+const {
   DEFAULT_LAUNCH_PROFILE_ID,
   DEFAULT_LAUNCH_PROFILE_NAME,
   MAX_ALTERNATE_LAUNCH_PROFILES
 } = require('./launch-profile');
 
-const PROJECT_STORE_SCHEMA_VERSION = 8;
+const PROJECT_STORE_SCHEMA_VERSION = 9;
 const ATOMIC_RENAME_MAX_ATTEMPTS = 5;
 const ATOMIC_RENAME_RETRY_DELAY_MS = 10;
 const ATOMIC_RENAME_WAIT = new Int32Array(new SharedArrayBuffer(4));
@@ -381,7 +385,7 @@ function parseProjectDocument(contents) {
   if (!Object.hasOwn(value, 'schemaVersion')) {
     throw projectStoreError('INVALID_STORAGE', 'Runlist project storage does not have a schema version.');
   }
-  if (![1, 2, 3, 4, 5, 6, 7, PROJECT_STORE_SCHEMA_VERSION].includes(value.schemaVersion)) {
+  if (![1, 2, 3, 4, 5, 6, 7, 8, PROJECT_STORE_SCHEMA_VERSION].includes(value.schemaVersion)) {
     throw projectStoreError(
       'UNSUPPORTED_VERSION',
       `Runlist project storage version ${value.schemaVersion} is not supported.`
@@ -461,6 +465,7 @@ function validateStoredProjects(value, options = {}) {
   const supportsComposePath = options.schemaVersion === undefined || options.schemaVersion >= 6;
   const supportsLocalHostname = options.schemaVersion === undefined || options.schemaVersion >= 7;
   const supportsLaunchEnv = options.schemaVersion === undefined || options.schemaVersion >= 8;
+  const supportsRuntime = options.schemaVersion === undefined || options.schemaVersion >= 9;
   if (!Array.isArray(value)) {
     throw projectStoreError('INVALID_STORAGE', 'Runlist project storage does not contain a valid project list.');
   }
@@ -483,6 +488,7 @@ function validateStoredProjects(value, options = {}) {
       ...(supportsComposePath ? ['composePath'] : []),
       ...(supportsLocalHostname ? ['localHostname'] : []),
       ...(supportsLaunchEnv ? ['envFile', 'env'] : []),
+      ...(supportsRuntime ? ['runtime'] : []),
       'pinned',
       'reviewRequired'
     ]);
@@ -587,6 +593,17 @@ function validateStoredProjects(value, options = {}) {
         }
       }
     }
+    let runtime;
+    if (supportsRuntime && project.runtime !== undefined) {
+      try {
+        runtime = normalizeProjectRuntime(project.runtime);
+      } catch {
+        throw projectStoreError('INVALID_STORAGE', `Runlist project ${index + 1} has an invalid runtime.`);
+      }
+      if (!runtime || runtime !== project.runtime) {
+        throw projectStoreError('INVALID_STORAGE', `Runlist project ${index + 1} has an invalid runtime.`);
+      }
+    }
 
     const projectWithoutTags = { ...project };
     delete projectWithoutTags.tags;
@@ -598,6 +615,7 @@ function validateStoredProjects(value, options = {}) {
       ...(localHostname ? { localHostname } : {}),
       ...(envFile ? { envFile } : {}),
       ...(env ? { env } : {}),
+      ...(runtime ? { runtime } : {}),
       reviewRequired
     };
   });
@@ -837,6 +855,9 @@ function normalizeProjectInput(input, options = {}) {
   const env = input.env === undefined
     ? existing?.env
     : normalizeEnvMap(input.env);
+  const runtime = input.runtime === undefined
+    ? (existing?.runtime || classifyProjectRuntime(folder))
+    : normalizeProjectRuntime(input.runtime);
 
   const selectedProfile = input.selectedLaunchProfileId === undefined
     ? existing?.selectedLaunchProfileId
@@ -864,6 +885,7 @@ function normalizeProjectInput(input, options = {}) {
     ...(localHostname ? { localHostname } : {}),
     ...(envFile ? { envFile } : {}),
     ...(env ? { env } : {}),
+    ...(runtime ? { runtime } : {}),
     reviewRequired: options.reviewRequired === undefined
       ? Boolean(existing?.reviewRequired)
       : Boolean(options.reviewRequired)

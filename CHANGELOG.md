@@ -1,9 +1,13 @@
 # Changelog
 
-## 0.0.15 — Windows process-tree verifier fallback
+## 0.0.15 — Monorepo start showstoppers
 
 - When Windows `Get-CimInstance` process-tree inspection fails, fall back to an ownership-scoped `Get-Process` root check so a healthy Start is not rolled back as “could not verify the launched Windows process tree.”
-- Mark incomplete trees so Stop/recovery can still use the verified root without pretending full descendant coverage.
+- Mark incomplete trees so Stop/recovery can still use the verified root without pretending full descendant coverage; resource metrics stay unavailable when the tree is incomplete.
+- Attribute the first intrinsic `concurrently -k` failure ahead of peer-kill noise after “Sending SIGTERM/SIGKILL to other processes.”
+- Persist a classified project `runtime` at setup (schema 9) so Azure Functions Python is not mistaken for Node from a monorepo `package.json`; hide empty-state npm chips for non-Node runtimes.
+- Lint nested PowerShell `-Command` quoting on Windows Starts, strip package-manager `--silent`/`-s` at launch so stderr stays visible, and block Start when `.env.example` keys with example values are missing (names only).
+- Show decoded PowerShell beside `-EncodedCommand` in repair proposal diffs, warn on PATH vs project-venv Python version drift, and treat healthy apps with incomplete Windows lifecycle verification as degraded running rather than Start failed.
 
 ## 0.0.14 — Extra cut: README, fail/Stop honesty, Compose import
 
