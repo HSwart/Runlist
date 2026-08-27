@@ -29,7 +29,7 @@ test('leads with the Marketplace gallery stills', () => {
   );
   assert.match(
     readme,
-    /src="media\/gallery-02-status\.png" width="1280" alt="See what\u2019s running and open it from here"/
+    /src="media\/gallery-02-status\.png" width="1280" alt="See what\u2019s running, stop it, and open it from here"/
   );
   assert.match(
     readme,
@@ -48,38 +48,53 @@ test('leads with the Marketplace gallery stills', () => {
 
 test('keeps a professional Marketplace listing that matches shipped product', () => {
   assert.match(readme, /^# Runlist\n/);
-  assert.match(firstFold, /Start, stop, and switch local apps from one sidebar\./);
-  assert.match(firstFold, /Every local app, one place/);
+  assert.match(firstFold, /Your local apps\. One calm sidebar\./);
+  assert.match(firstFold, /Start, stop, and switch everything you\u2019re running locally/);
+  assert.match(firstFold, /One place for every local app/);
   assert.match(firstFold, /Save the start command once/);
-  assert.match(firstFold, /See what\u2019s running/);
+  assert.match(firstFold, /See what\u2019s actually running/);
   assert.match(firstFold, /Open the app when it\u2019s ready/);
-  assert.match(firstFold, /Switch cleanly when a port is already in use/);
+  assert.match(firstFold, /Handle busy ports without drama/);
+  assert.ok(firstFold.length > 600, 'hero should read as a finished product listing');
 
   assert.match(readme, /## Get started\n/);
-  assert.match(readme, /Open the Runlist sidebar/);
+  assert.match(readme, /Install from the \[VS Code Marketplace\]/);
+  assert.match(readme, /Open the \*\*Runlist\*\* sidebar/);
   assert.match(readme, /Add this folder/);
-  assert.match(readme, /Save the start command/);
   assert.match(readme, /`start` \/ `dev` chip/);
-  assert.match(readme, /Start it from the list/);
   assert.match(readme, /First-run stays empty until you add a folder/);
 
-  assert.match(readme, /## Everyday use\n/);
-  assert.match(readme, /Start, stop, and restart from the project row/);
-  assert.match(readme, /Open the app from the port chip/);
-  assert.match(readme, /Checks configured ports before Start/);
+  assert.match(readme, /## Everyday workflow\n/);
+  assert.match(readme, /Start, Stop, and Restart/);
+  assert.match(readme, /Open from the port chip/);
   assert.match(readme, /Live preview and recent output/);
-  assert.match(readme, /Open on phone/);
   assert.match(readme, /Windows, macOS, and Linux/);
 
-  assert.match(readme, /## Also included\n/);
-  assert.match(readme, /Launch profiles, tags, and groups/);
+  assert.match(readme, /## Ports, conflicts, and recovery\n/);
+  assert.match(readme, /Checks configured ports/);
+  assert.match(readme, /What\u2019s Listening/);
+  assert.match(readme, /exact port and process/);
+
+  assert.match(readme, /## Open in the browser — or on your phone\n|## Open in the browser \u2014 or on your phone\n/);
+  assert.match(readme, /local hostname/);
+  assert.match(readme, /name\.localhost/);
+  assert.match(readme, /Open on phone/);
+  assert.match(readme, /not a public tunnel/i);
+
+  assert.match(readme, /## Organize the work you repeat\n/);
+  assert.match(readme, /Launch profiles/);
+  assert.match(readme, /Tags/);
+  assert.match(readme, /Groups/);
   assert.match(readme, /More menu \(\u22ef\)|More menu \(⋯\)/);
+
+  assert.match(readme, /## Bring a whole stack into the sidebar\n/);
   assert.match(readme, /Load stack/);
+  assert.match(readme, /Import or Export/);
   assert.match(readme, /Docker Compose import/);
   assert.match(readme, /Optional env file/);
-  assert.match(readme, /Optional local hostname/);
+  assert.match(readme, /Nothing auto-starts on clone/);
 
-  assert.match(readme, /Install from the \[VS Code Marketplace\]/);
+  assert.match(readme, /## Built for people who live in VS Code\n/);
   assert.match(
     readme,
     /\[VS Code Marketplace\]\(https:\/\/marketplace\.visualstudio\.com\/items\?itemName=hankoswart\.runlist\)/
@@ -104,7 +119,9 @@ test('fails closed on overclaims and GitHub-raw image URLs', () => {
   assert.doesNotMatch(readme, /full Portless|Caddy feature parity|puma-dev parity/i);
   assert.doesNotMatch(readme, /Not a local reverse proxy/i);
   assert.doesNotMatch(readme, /Infisical|Doppler|Vault/i);
-  assert.doesNotMatch(readme, /auto-?apply|auto-?start.*stack|starts? on clone/i);
+  assert.doesNotMatch(readme, /auto-?apply/i);
+  assert.doesNotMatch(readme, /(?<!Nothing )auto-starts on clone/i);
+  assert.doesNotMatch(readme, /auto-start(?:s)? (?:the )?stack|stack auto-starts/i);
   assert.doesNotMatch(readme, /create worktrees|delete worktrees|manages? git worktrees/i);
   assert.doesNotMatch(readme, /Git worktrees with port variables get sticky temporary ports/i);
   assert.doesNotMatch(readme, /raw\.githubusercontent\.com/);
