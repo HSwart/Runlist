@@ -1,49 +1,34 @@
 # Runlist
 
-**A VS Code sidebar for starting, stopping, and opening local dev apps.**
-
 Start, stop, and switch local apps from one sidebar.
 
 <img src="media/gallery-01-hero.png" width="1280" alt="Every local app in one VS Code sidebar">
 
 - Every local app, one sidebar
-- Save the start command once
-- See what’s running, stop or restart from the row
-- Open the app from its port, or switch when a port is already in use
+- Save the command once
+- See what’s running, stop it from here
+- Switch when a port is already in use
 
 ## Get started
+1. Open the Runlist sidebar
+2. Add this folder
+3. Save the start command
+4. Start it from the list
 
-1. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=hankoswart.runlist).
-2. Open the Runlist sidebar
-3. Add this folder
-4. Save the start command — or pick a `start` / `dev` chip when your folder already has one
-5. Start it from the list
+<img src="media/gallery-02-status.png" width="1280" alt="See what’s running and stop it from here">
 
-<img src="media/gallery-02-status.png" width="1280" alt="See what’s running, elapsed time, and open from the port">
-
-See what’s running. Stop, restart, or open it from here.
+See what’s running. Stop it from here.
 
 <img src="media/gallery-03-features.png" width="1280" alt="First-run: no projects yet, add this folder">
 
-First-run stays empty until you add a folder. No setup dump.
+First-run: no projects yet, add this folder.
 
-## Everyday use
-
-- Start, stop, and restart from the running row
-- Port chip opens the app at a stable `name.localhost` URL when possible (falls back to `localhost:port`); readiness still tracks the real port
-- Checks configured ports before a start, and helps you switch when another Runlist app owns the port
-- Live preview, recent output, and open-on-phone handoff for local web apps (phone handoff uses your LAN address; named `.localhost` URLs are for this machine)
+## Features
+- Start, stop, and restart from the card
+- Checks the port before it starts
+- Open the app in your browser
 - Windows, macOS, and Linux
 
-## Power features
-
-- **Launch profiles, tags, and run groups** for the apps you keep coming back to
-- **Optional local hostname** on each project (defaults from the project name); collisions warned at save. Not a local reverse proxy — no Portless/Caddy parity
-- **Git worktree sticky ports** — git worktrees with port variables get sticky temporary ports per worktree (saved baseline ports stay put); non-git folders keep current behavior
-- **Launch environment** — optional env file (path relative to the project folder) and non-secret env overrides per project or launch profile; Start fails closed if a configured env file is missing; temporary port variables still win; values are redacted from Recent Output, diagnostics, and agent diagnosis
-- **Port diagnosis and safe recovery** — What’s Listening lists configured project ports and their listeners; closing a listener always asks for confirmation with the exact port and PID, then checks identity again before stopping anything. Running rows show conflict status when a port is blocked.
-- **Import or export project setups**, then review changes before they can run
-- **Stack contract** — optional `runlist.json` (or `.runlist/projects.json`) stack file in a repo: load or export from Import or Export, review before commands can run; may reference an `envFile` path, but keep secret values out of the file (use `.env.example` in git and a local `.env` for real secrets)
-- **Docker Compose import** — Import Docker Compose services after review (Compose file is not started until you Start). Needs Docker Engine + Compose v2; Stop ends only the Compose services that run started
+Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=hankoswart.runlist).
 
 Publisher Hanko Swart. `hankoswart.runlist`.
