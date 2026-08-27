@@ -29,6 +29,8 @@
     'forceCloseProjectPortsAndStart',
     'handoffProject',
     'manageRunGroups',
+    'saveRunGroup',
+    'removeRunGroup',
     'openOutputUrl',
     'openProject',
     'openServiceUrl',
@@ -81,6 +83,7 @@
     'openProject',
     'openProjectFolder',
     'openProjectTerminal',
+    'removeRunGroup',
     'resolveServicePort',
     'restartProject',
     'showDiagnosis',
@@ -114,6 +117,9 @@
       return undefined;
     }
     if (value.type === 'saveProject' && !isRecord(value.project)) {
+      return undefined;
+    }
+    if (value.type === 'saveRunGroup' && !validRunGroupPayload(value.group)) {
       return undefined;
     }
     if (value.type === 'updateDraft' && !isRecord(value.draft)) {
@@ -244,6 +250,31 @@
 
   function validId(value) {
     return typeof value === 'string' && value.length > 0 && value.length <= 256;
+  }
+
+  function validRunGroupPayload(value) {
+    if (!isRecord(value)) {
+      return false;
+    }
+    if (value.id !== undefined && !validId(value.id)) {
+      return false;
+    }
+    if (typeof value.name !== 'string'
+      || !value.name.trim()
+      || value.name.length > 100) {
+      return false;
+    }
+    if (!Array.isArray(value.projectIds)
+      || value.projectIds.length < 1
+      || value.projectIds.length > 20
+      || value.projectIds.some((id) => !validId(id))) {
+      return false;
+    }
+    if (value.startMode !== undefined
+      && !['sequential', 'parallel'].includes(value.startMode)) {
+      return false;
+    }
+    return true;
   }
 
   function validText(value, maximumLength) {

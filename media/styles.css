@@ -124,93 +124,133 @@ button:active:not(:disabled) {
   outline-offset: -1px;
 }
 
-.run-groups {
-  min-width: 0;
-  padding: 4px 12px 6px;
+.project-group-filter {
+  padding: 0 12px 6px;
   border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-widget-border));
 }
 
-.run-groups h2 {
-  margin: 0 0 6px;
-  color: var(--vscode-descriptionForeground);
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.run-group-row {
+.project-group-filter-bar {
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 1px 0;
 }
 
-.run-group-item + .run-group-item {
-  border-top: 1px solid var(--vscode-widget-border, transparent);
-}
-
-.run-group-toggle {
-  min-width: 0;
-  display: flex;
-  flex: 1;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 2px;
+.group-filter-toggle,
+.active-group-chip,
+.project-group-choices > button,
+.group-choice-name {
+  min-height: 26px;
   color: var(--vscode-foreground);
-  text-align: left;
   background: transparent;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 3px;
 }
 
-.run-group-toggle > svg {
-  flex: 0 0 auto;
+.group-filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px 2px 2px;
+}
+
+.group-filter-toggle svg {
   transition: transform 100ms ease;
 }
 
-.run-group-toggle[aria-expanded="false"] > svg {
+.group-filter-toggle[aria-expanded="false"] svg {
   transform: rotate(-90deg);
 }
 
-.run-group-toggle:hover {
-  background: var(--vscode-list-hoverBackground);
+.active-group-chip {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  overflow: hidden;
+  color: var(--vscode-badge-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--vscode-badge-background);
 }
 
-.run-group-details {
+.active-group-chip svg {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+}
+
+.project-group-choices {
+  display: grid;
+  gap: 4px;
+  max-height: 144px;
+  padding-top: 6px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.project-group-choices > button {
+  max-width: 100%;
+  justify-self: start;
+  padding: 2px 7px;
+  overflow: hidden;
+  color: var(--vscode-descriptionForeground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-color: var(--vscode-widget-border, transparent);
+}
+
+.project-group-choices > button[aria-pressed="true"],
+.group-choice-name[aria-pressed="true"] {
+  color: var(--vscode-badge-foreground);
+  background: var(--vscode-badge-background);
+  border-color: var(--vscode-focusBorder);
+}
+
+.group-choice-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.group-choice-name {
   min-width: 0;
   display: grid;
   flex: 1;
-  gap: 2px;
+  gap: 1px;
+  padding: 2px 7px;
+  text-align: left;
+  overflow: hidden;
+  border-color: var(--vscode-widget-border, transparent);
 }
 
-.run-group-details strong,
-.run-group-details span,
-.run-group-details small {
+.group-choice-name strong,
+.group-choice-name span {
   min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.run-group-details strong,
-.run-group-details span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.run-group-details span,
-.run-group-details small {
+.group-choice-name span {
   color: var(--vscode-descriptionForeground);
   font-size: 11px;
 }
 
-.run-group-actions {
+.group-choice-name[aria-pressed="true"] span {
+  color: inherit;
+  opacity: 0.85;
+}
+
+.group-choice-actions {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
 }
 
-.run-group-actions button {
+.group-choice-actions button {
   width: 22px;
   height: 22px;
   display: grid;
@@ -222,46 +262,96 @@ button:active:not(:disabled) {
   border-radius: 3px;
 }
 
-.run-group-actions button:hover:not(:disabled) {
+.group-choice-actions button:hover:not(:disabled) {
   color: var(--vscode-foreground);
   background: var(--vscode-toolbar-hoverBackground);
 }
 
-.run-group-actions button:disabled {
+.group-choice-actions button:disabled {
   cursor: default;
   color: var(--vscode-disabledForeground);
 }
 
-.run-group-settings {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 6px 10px;
-  padding: 4px 34px 8px 23px;
+.group-filter-toggle:hover,
+.active-group-chip:hover,
+.project-group-choices > button:hover,
+.group-choice-name:hover {
+  background-color: var(--vscode-list-hoverBackground);
 }
 
-.run-group-members {
-  grid-column: 1 / -1;
-  color: var(--vscode-descriptionForeground);
-  font-size: 11px;
+.run-groups-screen .run-group-editor-list,
+.run-groups-screen .run-group-editor-members {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.run-group-editor-row,
+.run-group-editor-member {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--vscode-widget-border, transparent);
+}
+
+.run-group-editor-row > div:first-child,
+.run-group-editor-member > span {
+  min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.run-group-settings label {
+.run-group-editor-row p {
+  margin: 2px 0 0;
+  color: var(--vscode-descriptionForeground);
   font-size: 11px;
 }
 
-.run-group-settings select {
+.run-group-editor-row-actions,
+.run-group-editor-member-actions,
+.run-group-add-row {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.run-group-add-row {
   min-width: 0;
-  max-width: 120px;
-  padding: 3px 20px 3px 6px;
-  color: var(--vscode-dropdown-foreground);
-  background: var(--vscode-dropdown-background);
-  border: 1px solid var(--vscode-dropdown-border, var(--vscode-widget-border));
+  margin-bottom: 8px;
+}
+
+.run-group-add-row select {
+  min-width: 0;
+  flex: 1;
+}
+
+.run-group-editor-member-actions button {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 3px;
+  color: var(--vscode-icon-foreground);
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+}
+
+.run-group-editor-member-actions button:hover:not(:disabled) {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.run-group-editor-member-actions button:disabled {
+  cursor: default;
+  color: var(--vscode-disabledForeground);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .run-group-toggle > svg,
+  .group-filter-toggle svg,
   .tag-filter-toggle svg,
   .service-detail-toggle > svg {
     transition: none;
@@ -1945,7 +2035,8 @@ button.project-listener-owner:hover {
 .diagnosis-screen,
 .output-screen,
 .port-listening-screen,
-.port-resolve-screen {
+.port-resolve-screen,
+.run-groups-screen {
   padding: 10px 12px;
 }
 

@@ -21,7 +21,8 @@ test('keeps project tags in one accessible on-demand filter instead of cards', (
 
 test('combines text search and the selected tag and announces the result', () => {
   assert.match(webview, /matchesQuery && matchesTag/);
-  assert.match(webview, /filtered by \$\{selectedTagFilter\}/);
+  assert.match(webview, /normalizedTag \? `tag \$\{selectedTagFilter\}`/);
+  assert.match(webview, /filtered by \$\{filters\.join\(' and '\)\}/);
   assert.match(webview, /event\.key === 'Escape' && tagsExpanded/);
 });
 

@@ -210,8 +210,7 @@ const {
   allocateWorktreePortOverrides
 } = require('../ports/worktree-ports');
 const {
-  RunGroupCoordinator,
-  runGroupManagementWorkflow
+  RunGroupCoordinator
 } = require('../groups/run-groups');
 const {
   initializeProjectStore,
@@ -884,27 +883,99 @@ class RunlistViewProvider {
   }
 
   async showRunGroupManager(selectedGroupId) {
-    return runGroupManagementWorkflow({
-      selectedGroupId,
-      groups: this.groups,
-      projects: this.projects,
-      window: vscode.window,
-      saveGroup: async (group, expectedGroup) => {
-        await withProjectStoreLockAsync(this.projectsFile, () => {
-          upsertRunGroup(this.projectsFile, group, { expectedGroup });
-        });
-        this.renderProjectList();
-      },
-      removeGroup: async (id, expectedGroup) => {
-        await withProjectStoreLockAsync(this.projectsFile, () => {
-          removeRunGroup(this.projectsFile, id, { expectedGroup });
-        });
-        this.runGroupStates.delete(id);
-        this.renderProjectList();
-      },
-      startGroup: (id) => this.startSavedRunGroup(id),
-      stopGroup: (id) => this.stopSavedRunGroup(id)
-    });
+    if (!await this.confirmDiscardProjectChanges()) {
+      return;
+    }
+    this.mode = 'run-groups';
+    this.routeNotice = undefined;
+    this.diagnosisProjectIncarnation = undefined;
+    this.portListeningReport = undefined;
+    this.portResolve = undefined;
+    this.composeImport = undefined;
+    this.runGroupsEditorFocusId = typeof selectedGroupId === 'string' ? selectedGroupId : undefined;
+    this.draft = {};
+    this.focusTarget = { type: 'action', action: 'close-screen' };
+    this.returnFocus = this.defaultListFocusTarget();
+    this.selectedProjectId = undefined;
+    await this.revealRunlistView();
+    this.render();
+  }
+
+  async saveRunGroupFromEditor(group) {
+    try {
+      const name = String(group?.name || '').trim();
+      const projectIds = Array.isArray(group?.projectIds)
+        ? [...new Set(group.projectIds.map(String))].filter(Boolean)
+        : [];
+      const startMode = group?.startMode === 'parallel' ? 'parallel' : 'sequential';
+      if (!name || name.length > 100 || !projectIds.length || projectIds.length > 20) {
+        vscode.window.showWarningMessage('Enter a name and at least one project for this run group.');
+        return false;
+      }
+      const knownIds = new Set(this.projects.map((project) => String(project.id)));
+      if (projectIds.some((id) => !knownIds.has(id))) {
+        vscode.window.showWarningMessage('One or more projects in this group are no longer saved.');
+        return false;
+      }
+      const existing = group?.id
+        ? this.groups.find((candidate) => candidate.id === group.id)
+        : undefined;
+      if (group?.id && !existing) {
+        vscode.window.showWarningMessage('That run group is no longer saved.');
+        this.runGroupsEditorFocusId = undefined;
+        this.render();
+        return false;
+      }
+      await withProjectStoreLockAsync(this.projectsFile, () => {
+        upsertRunGroup(this.projectsFile, {
+          ...(existing ? { id: existing.id } : {}),
+          name,
+          projectIds,
+          startMode
+        }, existing ? { expectedGroup: existing } : {});
+      });
+      this.runGroupsEditorFocusId = undefined;
+      this.mode = 'run-groups';
+      this.render();
+      return true;
+    } catch (error) {
+      vscode.window.showErrorMessage(`Could not save run group: ${error.message}`);
+      this.render();
+      return false;
+    }
+  }
+
+  async removeRunGroupFromEditor(id) {
+    try {
+      const group = this.groups.find((candidate) => candidate.id === id);
+      if (!group) {
+        vscode.window.showWarningMessage('That run group is no longer saved.');
+        this.render();
+        return false;
+      }
+      const confirm = 'Remove group';
+      const approved = await vscode.window.showWarningMessage(
+        `Remove ${group.name}?`,
+        { modal: true, detail: 'Saved projects and running processes are not changed.' },
+        confirm
+      );
+      if (approved !== confirm) {
+        return false;
+      }
+      await withProjectStoreLockAsync(this.projectsFile, () => {
+        removeRunGroup(this.projectsFile, id, { expectedGroup: group });
+      });
+      this.runGroupStates.delete(id);
+      if (this.runGroupsEditorFocusId === id) {
+        this.runGroupsEditorFocusId = undefined;
+      }
+      this.render();
+      return true;
+    } catch (error) {
+      vscode.window.showErrorMessage(`Could not remove run group: ${error.message}`);
+      this.render();
+      return false;
+    }
   }
 
   get projects() {
@@ -1901,6 +1972,7 @@ class RunlistViewProvider {
     this.portListeningReport = undefined;
     this.portResolve = undefined;
     this.composeImport = undefined;
+    this.runGroupsEditorFocusId = undefined;
     this.returnFocus = undefined;
     this.focusTarget = returnFocus;
     this.render();
@@ -5097,6 +5169,16 @@ class RunlistViewProvider {
         : undefined,
       portResolve: this.mode === 'port-resolve'
         ? (this.portResolve || undefined)
+        : undefined,
+      runGroupsEditor: this.mode === 'run-groups'
+        ? {
+          focusGroupId: this.runGroupsEditorFocusId || '',
+          availableProjects: projects.map((project) => ({
+            id: project.id,
+            name: project.name,
+            folder: project.folder
+          }))
+        }
         : undefined,
       composeImport: this.mode === 'compose-import' ? this.composeImport : undefined,
       projects: stateProjects,

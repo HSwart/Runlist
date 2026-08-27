@@ -261,9 +261,9 @@ async function runWebviewJourneys(browser, webview, ready, root, extensionDevelo
   ));
   await assertVisible(webview.getByRole('heading', { name: 'Imported dashboard' }));
   webview = await approveImportedProject(browser, webview);
-  await createRunGroupThroughVsCode(page, root, 'Development stack', 'Lifecycle project edited');
+  await createRunGroupThroughVsCode(browser, root, 'Development stack', 'Lifecycle project edited');
   webview = await currentRunlistFrame(browser, (frame) => (
-    frame.getByRole('button', { name: 'Start group Development stack' }).isVisible()
+    frame.getByRole('button', { name: 'Groups' }).isVisible()
   ));
   webview = await exerciseRunGroup(browser, webview, 'Development stack');
 
@@ -380,11 +380,20 @@ async function approveImportedProject(browser, webview) {
 }
 
 async function exerciseRunGroup(browser, webview, groupName) {
+  const groupsToggle = webview.getByRole('button', { name: 'Groups' });
+  await assertVisible(groupsToggle);
+  if (await groupsToggle.getAttribute('aria-expanded') !== 'true') {
+    await groupsToggle.click();
+  }
   const start = webview.getByRole('button', { name: `Start group ${groupName}` });
   await assertVisible(start);
   await start.click();
   await waitFor(async () => {
     const current = await currentRunlistFrame(browser);
+    const toggle = current.getByRole('button', { name: 'Groups' });
+    if (await toggle.getAttribute('aria-expanded') !== 'true') {
+      await toggle.click();
+    }
     return current.getByRole('button', { name: `Stop group ${groupName}` }).isVisible();
   }, 15000, `${groupName} to start`);
   await clickCurrentWebview(browser, (frame) => (
@@ -392,18 +401,38 @@ async function exerciseRunGroup(browser, webview, groupName) {
   ));
   await waitFor(async () => {
     const current = await currentRunlistFrame(browser);
+    const toggle = current.getByRole('button', { name: 'Groups' });
+    if (await toggle.getAttribute('aria-expanded') !== 'true') {
+      await toggle.click();
+    }
     return current.getByRole('button', { name: `Start group ${groupName}` }).isVisible();
   }, 15000, `${groupName} to stop`);
   return currentRunlistFrame(browser);
 }
 
-async function createRunGroupThroughVsCode(page, root, groupName, projectName) {
+async function createRunGroupThroughVsCode(browser, root, groupName, projectName) {
   await hostCommand(root, 'begin-vscode-command', { command: 'runlist.manageGroups' });
-  await chooseQuickPick(page, 'Create run group');
-  await fillQuickInput(page, groupName);
-  await chooseQuickPick(page, 'Add project');
-  await chooseQuickPick(page, projectName);
-  await chooseQuickPick(page, 'Save group');
+  let webview = await currentRunlistFrame(browser, (frame) => (
+    frame.getByRole('heading', { name: 'Run groups' }).isVisible()
+  ));
+  await webview.getByRole('button', { name: 'Create group' }).click();
+  webview = await currentRunlistFrame(browser, (frame) => (
+    frame.getByRole('heading', { name: 'Create group' }).isVisible()
+  ));
+  await webview.locator('#run-group-name').fill(groupName);
+  const projectOption = webview.locator('#run-group-add-project option').filter({ hasText: projectName });
+  await assertVisible(projectOption.first());
+  await webview.locator('#run-group-add-project').selectOption({ label: projectName });
+  await webview.getByRole('button', { name: 'Add' }).click();
+  await webview.getByRole('button', { name: 'Save group' }).click();
+  webview = await currentRunlistFrame(browser, (frame) => (
+    frame.getByRole('heading', { name: 'Run groups' }).isVisible()
+      && frame.getByText(groupName, { exact: true }).isVisible()
+  ));
+  await webview.getByRole('button', { name: 'Close run groups' }).click();
+  return currentRunlistFrame(browser, (frame) => (
+    frame.getByRole('button', { name: 'Groups' }).isVisible()
+  ));
 }
 
 async function openAndCancelImportThroughVsCode(page, root) {
