@@ -43,7 +43,7 @@ must never treat each other's PIDs as interchangeable.
 | Root exits with descendants | Descendants are verified and stopped before ownership is released | `project-process.test.js`, native adversarial smoke |
 | Shell performs `exec` | Launch identity remains valid for the owned supervisor/tree | `project-process.test.js`, native adversarial smoke |
 | PID or host PID is reused | No signal or stale-lock refresh occurs for the replacement | Native adversarial smoke, `project-process.test.js`, `port-gate.test.js`, `project-store.test.js` |
-| Extension host reloads | Exact owned processes stop; custom Stop is honored; the next host observes stopped | Native setup/lifecycle smoke |
+| Extension host reloads | Exact owned processes stay alive; the next host reattaches as Running when it can verify ownership, or Detected when it cannot; Stop from the row still ends an owned process | Native setup/lifecycle smoke |
 | Extension host crashes | Live targets remain protected under unavailable ownership and recover only after exact evidence changes | Native adversarial smoke, `project-process.test.js` |
 | Two VS Code windows compete | One generation wins; stale cleanup cannot release replacement state | Native adversarial smoke, `project-process.test.js`, `port-gate.test.js`, `project-restart.test.js` |
 | External listener blocks Start | Start is blocked and the listener remains alive without explicit confirmation | Native lifecycle smoke, `port-recovery.test.js` |

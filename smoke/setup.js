@@ -4,7 +4,7 @@ const net = require('net');
 const path = require('path');
 const vscode = require('vscode');
 const { readRootProcess } = require('../src/lifecycle/process-metrics');
-const { markSmokeProcessExited, registerSmokeProcess } = require('./run');
+const { registerSmokeProcess } = require('./run');
 
 async function run() {
   const smokeRoot = requiredEnvironment('RUNLIST_SMOKE_ROOT');
@@ -252,17 +252,12 @@ async function run() {
     readyGrandchildProcess,
     customStopProcess
   ];
-  const shutdownResults = await api.provider.dispose();
-  await waitForExactProcessesStopped(
-    fixtureProcesses,
-    () => `Awaited extension shutdown left a smoke fixture process running: ${JSON.stringify({
-      shutdownResults: shutdownResults.map((result) => result.status === 'rejected'
-        ? { status: result.status, reason: result.reason?.message }
-        : result)
-    })}`
+  await api.provider.dispose();
+  await waitFor(
+    async () => (await Promise.all(fixtureProcesses.map(exactProcessIsAlive))).every(Boolean),
+    'Reload dispose stopped an owned smoke fixture process.'
   );
-  await Promise.all(fixtureProcesses.map((processRecord) => markSmokeProcessExited(smokeRoot, processRecord)));
-  process.stdout.write('Smoke setup, isolated storage, view opening, untrusted review, and awaited reload shutdown passed.\n');
+  process.stdout.write('Smoke setup, isolated storage, view opening, untrusted review, and reload detach passed.\n');
 }
 
 async function saveProject(provider, input) {
@@ -325,39 +320,6 @@ async function exactProcessIsAlive(processRecord) {
       === processRecord.identity;
   } catch {
     return false;
-  }
-}
-
-async function waitForExactProcessesStopped(processes, message, timeoutMs = 10000) {
-  const deadline = Date.now() + timeoutMs;
-  const fastDeadline = Math.min(deadline, Date.now() + 1000);
-  while (Date.now() < fastDeadline) {
-    if (processes.every((processRecord) => !processIsAlive(processRecord.pid))) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  if ((await Promise.all(processes.map(exactProcessIsAlive))).every((alive) => !alive)) {
-    return;
-  }
-  while (Date.now() < deadline) {
-    if (processes.every((processRecord) => !processIsAlive(processRecord.pid))) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  if ((await Promise.all(processes.map(exactProcessIsAlive))).every((alive) => !alive)) {
-    return;
-  }
-  assert.fail(typeof message === 'function' ? message() : message);
-}
-
-function processIsAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error.code === 'EPERM';
   }
 }
 

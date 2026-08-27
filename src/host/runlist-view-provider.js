@@ -77,6 +77,7 @@ const {
 const {
   cleanupTrackedProcessForDeletion,
   customStopSpawnOptions,
+  detachTrackedProcesses,
   detachedServiceIdentityDecision,
   markOwnedRuntimeDetached,
   ProcessOwnershipStore,
@@ -85,7 +86,6 @@ const {
   recordStartedProcess,
   releaseSupervisorIdentityHold,
   rollbackStartedProcess,
-  shutdownTrackedProcesses,
   shouldRequestRemoteCustomStop,
   spawnProjectCommand,
   startExitDetached,
@@ -1027,6 +1027,9 @@ class RunlistViewProvider {
       if (!this.projectStatuses.has(id) && !this.stoppingProjectIds.has(id)) {
         this.projectStatuses.set(id, 'running');
       }
+    }
+    if (adopted.length) {
+      this.projectRuntime = this.processOwnership.snapshot();
     }
     return adopted;
   }
@@ -4984,34 +4987,13 @@ class RunlistViewProvider {
       }
 
       await this.lifecycle.waitForIdle();
-      const ownership = this.processOwnership.snapshot();
-      const shutdownProjectIds = new Set([
-        ...this.processes.keys(),
-        ...this.detachedProjectIds
-      ]);
-      await Promise.allSettled([...shutdownProjectIds].map((id) => {
-        const persisted = ownership.get(id);
-        const savedProject = this.projects.find((project) => project.id === id);
-        const project = projectStopStrategy(savedProject || {
-          id,
-          name: 'this project',
-          folder: persisted?.cwd,
-          stopCommand: persisted?.stopCommand || ''
-        }, persisted);
-        if (!project?.stopCommand) {
-          return undefined;
-        }
-        return this.lifecycle.stop(id, { ...project, reviewRequired: false }, {
-          approvedLaunchStop: true
-        });
-      }));
-      await this.lifecycle.waitForIdle();
       this.runGroupCoordinator.dispose();
-      return shutdownTrackedProcesses(
-        this.processes,
-        this.processOwnership,
-        this.portReservations
-      );
+      if (this.ownedProcessMetrics) {
+        for (const id of [...this.processes.keys()]) {
+          this.forgetProjectMetrics(id);
+        }
+      }
+      return detachTrackedProcesses(this.processes);
     })();
     return this.shutdownPromise;
   }

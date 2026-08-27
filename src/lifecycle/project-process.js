@@ -42,9 +42,10 @@ const removeInvalidJsonRecord = OWNERSHIP_RECORDS.removeInvalid;
 const updateJsonRecord = OWNERSHIP_RECORDS.update;
 
 function projectProcessSpawnOptions(platform = process.platform) {
-  return platform === 'win32'
-    ? { detached: false, windowsHide: true }
-    : { detached: true };
+  return {
+    detached: true,
+    ...(platform === 'win32' ? { windowsHide: true } : {})
+  };
 }
 
 function spawnProjectCommand(command, options = {}) {
@@ -347,6 +348,56 @@ function shutdownTrackedProcesses(processes, processOwnership, portReservations,
     portReservations.release(id);
     return true;
   }));
+}
+
+function detachTrackedProcess(child) {
+  if (!child || typeof child !== 'object') {
+    return;
+  }
+  try {
+    child.removeAllListeners?.();
+  } catch {
+    // Host teardown must not fail because a tracked process is already gone.
+  }
+  for (const stream of [child.stdout, child.stderr, child.stdin]) {
+    if (!stream || typeof stream !== 'object') {
+      continue;
+    }
+    try {
+      stream.removeAllListeners?.();
+    } catch {
+      // Ignore stream cleanup failures during host teardown.
+    }
+    try {
+      stream.unref?.();
+    } catch {
+      // Ignore stream unref failures during host teardown.
+    }
+  }
+  try {
+    if (child.connected) {
+      child.disconnect();
+    }
+  } catch {
+    // The process may already have closed its IPC channel.
+  }
+  try {
+    child.unref?.();
+  } catch {
+    // Ignore unref failures during host teardown.
+  }
+}
+
+function detachTrackedProcesses(processes) {
+  if (!processes || typeof processes.keys !== 'function') {
+    return [];
+  }
+  const detached = [...processes.keys()];
+  for (const id of detached) {
+    detachTrackedProcess(processes.get(id));
+    processes.delete(id);
+  }
+  return detached;
 }
 
 function detachedServicePorts(ownership) {
@@ -2224,6 +2275,7 @@ function startExitFailed(details) {
 module.exports = {
   cleanupTrackedProcessForDeletion,
   customStopSpawnOptions,
+  detachTrackedProcesses,
   detachedServiceIdentityDecision,
   handoffProjectSafely,
   markOwnedRuntimeDetached,

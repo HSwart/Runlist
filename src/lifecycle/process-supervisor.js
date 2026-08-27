@@ -6,6 +6,34 @@ let identityReleased = !identityGated;
 let commandOutcome;
 let finished = false;
 
+ignoreBrokenPipe(process.stdout);
+ignoreBrokenPipe(process.stderr);
+try {
+  process.on('SIGPIPE', () => {});
+} catch {
+  // Windows has no SIGPIPE.
+}
+
+function ignoreBrokenPipe(stream) {
+  stream?.on?.('error', () => {});
+}
+
+function forwardOutput(source, target) {
+  if (!source) {
+    return;
+  }
+  ignoreBrokenPipe(source);
+  source.on('data', (chunk) => {
+    try {
+      if (target?.writable && !target.destroyed) {
+        target.write(chunk);
+      }
+    } catch {
+      // Parent stdio closed; keep draining so the child does not get SIGPIPE.
+    }
+  });
+}
+
 function releaseIdentityHold() {
   identityReleased = true;
   if (process.connected) {
@@ -65,14 +93,14 @@ if (invalidArgv || invalidCommand) {
         cwd: process.cwd(),
         env: process.env,
         shell: false,
-        stdio: ['ignore', 'inherit', 'inherit'],
+        stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true
       })
       : spawn(command, {
         cwd: process.cwd(),
         env: process.env,
         shell: true,
-        stdio: ['ignore', 'inherit', 'inherit'],
+        stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true
       });
   } catch (error) {
@@ -80,14 +108,18 @@ if (invalidArgv || invalidCommand) {
     complete({ code: 1 });
   }
 
-  child?.once('error', (error) => {
-    process.stderr.write(`Runlist could not launch the start command: ${error.message}\n`);
-    complete({ code: 1 });
-  });
-  child?.once('exit', (code, signal) => {
-    complete({
-      code: Number.isInteger(code) ? code : 1,
-      signal
+  if (child) {
+    forwardOutput(child.stdout, process.stdout);
+    forwardOutput(child.stderr, process.stderr);
+    child.once('error', (error) => {
+      process.stderr.write(`Runlist could not launch the start command: ${error.message}\n`);
+      complete({ code: 1 });
     });
-  });
+    child.once('exit', (code, signal) => {
+      complete({
+        code: Number.isInteger(code) ? code : 1,
+        signal
+      });
+    });
+  }
 }
