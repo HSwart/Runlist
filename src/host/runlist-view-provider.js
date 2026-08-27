@@ -108,6 +108,15 @@ const {
   redactKnownEnvValues,
   resolveProjectLaunchEnvironment
 } = require('../projects/launch-env');
+const {
+  stripPackageManagerSilentFlags,
+  windowsStartCommandIssues
+} = require('../projects/command-display');
+const {
+  missingRequiredEnvKeys,
+  requiredEnvKeysFromExample
+} = require('../projects/required-env');
+const { detectRuntimeDrift } = require('../projects/runtime-drift');
 const { redactSensitiveText } = require('../projects/project-diagnostics');
 const {
   detectLifecycleCapability,
@@ -3332,10 +3341,56 @@ class RunlistViewProvider {
         this.renderProjectList();
         return false;
       }
+      const windowsIssues = windowsStartCommandIssues(launchProject.startCommand, process.platform);
+      if (windowsIssues.length) {
+        this.managedProjectIds.delete(id);
+        this.processOwnership.release(id);
+        this.releaseStartReservation(id);
+        this.projectStatuses.set(id, 'stopped');
+        this.startReadinessDeadlines.delete(id);
+        this.projectAttemptMetadata.delete(id);
+        this.showStartFailure(project, {
+          detail: windowsIssues[0],
+          projectRevision: savedProjectRevision
+        });
+        this.renderProjectList();
+        return false;
+      }
+      try {
+        const examplePath = path.join(launchProject.folder, '.env.example');
+        if (fs.existsSync(examplePath)) {
+          const exampleText = fs.readFileSync(examplePath, 'utf8');
+          const missing = missingRequiredEnvKeys(
+            requiredEnvKeysFromExample(exampleText),
+            launchEnvironment
+          );
+          if (missing.length) {
+            this.managedProjectIds.delete(id);
+            this.processOwnership.release(id);
+            this.releaseStartReservation(id);
+            this.projectStatuses.set(id, 'stopped');
+            this.startReadinessDeadlines.delete(id);
+            this.projectAttemptMetadata.delete(id);
+            this.showStartFailure(project, {
+              detail: `Missing required environment variables from .env.example: ${missing.join(', ')}.`,
+              projectRevision: savedProjectRevision
+            });
+            this.renderProjectList();
+            return false;
+          }
+        }
+      } catch {
+        // Env presence is best-effort and must not crash Start on unreadable examples.
+      }
+      const runtimeDrift = detectRuntimeDrift(launchProject);
+      if (runtimeDrift?.message) {
+        this.addProjectOutput(id, `Runlist: ${runtimeDrift.message}\n`, savedProjectRevision);
+      }
       const composeArgv = isComposeManagedProject(launchProject)
         ? composeProcessArgv(launchProject, 'up', { env: launchEnvironment })
         : undefined;
-      const child = spawnProjectCommand(launchProject.startCommand, {
+      const launchCommand = stripPackageManagerSilentFlags(launchProject.startCommand);
+      const child = spawnProjectCommand(launchCommand, {
         cwd: launchProject.folder,
         stdio: ['ignore', 'pipe', 'pipe'],
         env: launchEnvironment,
@@ -3404,6 +3459,16 @@ class RunlistViewProvider {
           startCommand: composeLaunch.startCommand
         } : {})
       });
+      if (child.runlistProcessTreeDegraded) {
+        this.addProjectOutput(
+          id,
+          'Runlist: the app started, but Windows process-tree inspection was incomplete. Stop still targets the verified root process.\n',
+          savedProjectRevision
+        );
+        void vscode.window.showWarningMessage(
+          `${project.name} started, but Runlist could not fully inspect its Windows process tree.`
+        );
+      }
       this.projectRuntime = this.processOwnership.snapshot();
       this.startAttempts.delete(id);
       this.statusRevision += 1;
@@ -3418,6 +3483,29 @@ class RunlistViewProvider {
         this.processOwnership,
         this.portReservations
       );
+      const verificationOnly = /could not verify the launched Windows process (?:tree|identity)/i
+        .test(error?.message || '');
+      if (!rollback.stopped && verificationOnly) {
+        const state = launchProject.services?.length ? 'not-ready' : 'running';
+        transitionOwnedRuntimeState(
+          this.processOwnership,
+          this.portReservations,
+          id,
+          state
+        );
+        this.projectRuntime = this.processOwnership.snapshot();
+        this.projectStatuses.set(id, state);
+        this.addProjectOutput(
+          id,
+          `Runlist: ${error.message} The app is still running; lifecycle verification was incomplete.\n`,
+          savedProjectRevision
+        );
+        void vscode.window.showWarningMessage(
+          `${project.name} is running, but Runlist could not finish lifecycle verification.`
+        );
+        this.renderProjectList();
+        return true;
+      }
       if (rollback.stopped) {
         this.forgetProjectMetrics(id);
         this.projectRuntime.delete(id);

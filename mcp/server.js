@@ -55,6 +55,11 @@ const setupTool = {
         type: 'string',
         description: 'Optional advanced custom shell command for projects that daemonize or manage external services such as Docker or databases. Omit it for ordinary development servers so Runlist stops only its launched process tree.'
       },
+      runtime: {
+        type: 'string',
+        enum: ['azure-functions-python', 'azure-functions-node', 'python', 'node', 'unknown'],
+        description: 'Optional classified runtime. Prefer azure-functions-python when host.json / FUNCTIONS_WORKER_RUNTIME=python evidence exists; never invent Node solely from a monorepo package.json.'
+      },
       services: {
         type: 'array',
         minItems: 1,
@@ -101,6 +106,7 @@ const setupTool = {
           folder: { type: 'string' },
           startCommand: { type: 'string' },
           stopCommand: { type: 'string' },
+          runtime: { type: 'string' },
           reviewRequired: { type: 'boolean' },
           services: {
             type: 'array',
@@ -387,7 +393,7 @@ function callTool(message) {
     if (!argumentsValue || typeof argumentsValue !== 'object' || Array.isArray(argumentsValue)) {
       throw new Error('arguments must be an object.');
     }
-    const allowedKeys = new Set(['name', 'folder', 'startCommand', 'stopCommand', 'services']);
+    const allowedKeys = new Set(['name', 'folder', 'startCommand', 'stopCommand', 'services', 'runtime']);
     const unsupportedKeys = Object.keys(argumentsValue).filter((key) => !allowedKeys.has(key));
     if (unsupportedKeys.length) {
       throw new Error(`unsupported argument: ${unsupportedKeys.join(', ')}`);
@@ -457,13 +463,14 @@ function setupToolProject(project) {
     folder: project.folder,
     startCommand: project.startCommand,
     ...(project.stopCommand ? { stopCommand: project.stopCommand } : {}),
+    ...(project.runtime ? { runtime: project.runtime } : {}),
     reviewRequired: project.reviewRequired === true,
-    services: (project.services || []).map((service) => ({
+    services: Array.isArray(project.services) ? project.services.map((service) => ({
       name: service.name,
       port: service.port,
       ...(service.portVariable ? { portVariable: service.portVariable } : {}),
       ...(service.url ? { url: service.url } : {})
-    }))
+    })) : []
   };
 }
 
@@ -518,6 +525,7 @@ function callDiagnosticsTool(message) {
         name: project.name,
         folder: project.folder,
         startCommand: redactSensitiveText(diagnosedProject.startCommand),
+        ...(project.runtime ? { runtime: project.runtime } : {}),
         launchProfile: {
           id: diagnosedProject.activeLaunchProfileId,
           name: diagnosedProject.activeLaunchProfileName

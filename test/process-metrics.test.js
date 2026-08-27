@@ -73,6 +73,52 @@ test('reads a Windows root process identity when CIM access is denied', async ()
   assert.deepEqual(actual, expected);
 });
 
+test('falls back to an ownership-scoped Windows root when CIM tree inspection fails', async () => {
+  const runFile = async (_command, args) => {
+    const script = args.at(-1);
+    if (script.includes('Get-CimInstance')) {
+      throw new Error('Access is denied.');
+    }
+    if (script.includes('Get-Process -Id $rootPid')) {
+      return JSON.stringify({
+        pid: 55,
+        parentPid: 0,
+        startedAt: 'T638912345678901234',
+        cpuSeconds: 0.5,
+        memoryBytes: 2048
+      });
+    }
+    throw new Error(`Unexpected Windows process query: ${script.slice(0, 80)}`);
+  };
+
+  const rows = await readOwnedProcessTree(55, 'win32', { runFile });
+  assert.deepEqual(rows, [{
+    pid: 55,
+    parentPid: 0,
+    identity: '55:638912345678901234',
+    cpuSeconds: 0.5,
+    memoryBytes: 2048,
+    treeIncomplete: true
+  }]);
+});
+
+test('treats incomplete Windows process trees as unavailable metrics', async () => {
+  const incompleteRoot = {
+    ...row(100, '100:start', 2, 10 * 1024 * 1024),
+    treeIncomplete: true
+  };
+  const metrics = new OwnedProcessMetrics({
+    readRoot: async () => incompleteRoot,
+    readTree: async () => [incompleteRoot]
+  });
+  metrics.track('project', 100);
+
+  assert.deepEqual(await metrics.sample('project', 100), {
+    available: false,
+    message: 'Resource use is unavailable because the process tree could not be fully inspected.'
+  });
+});
+
 test('aggregates current CPU and memory only across the tracked process tree', async () => {
   let now = 1000;
   let sample = [

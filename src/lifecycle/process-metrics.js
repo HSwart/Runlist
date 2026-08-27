@@ -60,6 +60,12 @@ class OwnedProcessMetrics {
         this.tracked.delete(projectId);
         return unavailableMetrics('Resource use stopped because process ownership changed.');
       }
+      if (rows.some((row) => row?.treeIncomplete === true)) {
+        record.previous = undefined;
+        return unavailableMetrics(
+          'Resource use is unavailable because the process tree could not be fully inspected.'
+        );
+      }
 
       const timestamp = this.now();
       const current = new Map(rows.map((row) => [row.pid, row]));
@@ -362,16 +368,33 @@ function parseCpuTime(value) {
 async function readWindowsProcesses(pid, includeTree, options = {}) {
   const runFile = options.runFile || execFileText;
   const script = windowsProcessScript(pid, includeTree);
-  const output = await runFile('powershell.exe', [
-    '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script
-  ], commandOptions({
-    ...options,
-    timeoutMs: options.timeoutMs || WINDOWS_TREE_COMMAND_TIMEOUT_MS
-  }));
-  if (!String(output).trim()) {
-    return [];
+  try {
+    const output = await runFile('powershell.exe', [
+      '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script
+    ], commandOptions({
+      ...options,
+      timeoutMs: options.timeoutMs || WINDOWS_TREE_COMMAND_TIMEOUT_MS
+    }));
+    if (!String(output).trim()) {
+      return [];
+    }
+    return parseWindowsProcessOutput(output);
+  } catch (error) {
+    if (!includeTree) {
+      throw error;
+    }
+    // CIM parent/child walks fail on some locked-down Windows hosts even when the
+    // launched process is healthy. Fall back to ownership-scoped root verification
+    // so Start does not kill a working app as a false verifier failure.
+    const root = await readWindowsRootProcess(pid, options);
+    if (!root || root.pid !== pid) {
+      throw error;
+    }
+    return [{
+      ...root,
+      treeIncomplete: true
+    }];
   }
-  return parseWindowsProcessOutput(output);
 }
 
 async function readWindowsRootProcess(pid, options = {}) {

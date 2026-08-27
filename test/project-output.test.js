@@ -284,6 +284,39 @@ test('surfaces a useful Windows failure ahead of process-manager wrapper output'
   });
 });
 
+test('attributes the first intrinsic concurrently failure ahead of peer kills', () => {
+  const output = [
+    '$ concurrently -k -n web,api "pnpm dev:web" "pnpm dev:api"',
+    '[web] VITE ready on http://localhost:5173',
+    '[api] Error: listen EADDRINUSE: address already in use :::4311',
+    '[api] api exited with code 1',
+    '--> Sending SIGTERM to other processes..',
+    '[web] web exited with code SIGTERM',
+    '[web] pnpm dev:web exited with code 1'
+  ].join('\n');
+
+  assert.deepEqual(startFailureSummary(output, { code: 1 }), {
+    title: 'Start failed',
+    message: '[api] Error: listen EADDRINUSE: address already in use :::4311',
+    outcome: 'Process exited with code 1.'
+  });
+});
+
+test('prefers the first concurrently child exit before a kill broadcast', () => {
+  const output = [
+    '[api] api exited with code 1',
+    '--> Sending SIGKILL to other processes..',
+    '[web] web exited with code 1',
+    '[web] fatal: peer was terminated'
+  ].join('\n');
+
+  assert.deepEqual(startFailureSummary(output, { code: 1 }), {
+    title: 'Start failed',
+    message: '[api] api exited with code 1',
+    outcome: 'Process exited with code 1.'
+  });
+});
+
 test('surfaces useful Unix failures from combined project output', () => {
   assert.deepEqual(startFailureSummary([
     'starting server',

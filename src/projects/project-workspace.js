@@ -109,6 +109,14 @@ function workspaceStartDevScripts(folder, readFileSync = fs.readFileSync) {
   if (typeof folder !== 'string' || !folder.trim()) {
     return [];
   }
+  const {
+    classifyProjectRuntime,
+    runtimeAllowsNpmStartChips
+  } = require('./project-runtime');
+  const runtime = classifyProjectRuntime(folder, { readFileSync });
+  if (!runtimeAllowsNpmStartChips(runtime)) {
+    return [];
+  }
   let packageJson;
   try {
     packageJson = JSON.parse(readFileSync(path.join(folder, 'package.json'), 'utf8'));

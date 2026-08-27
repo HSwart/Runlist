@@ -914,6 +914,59 @@ test('fails Windows Start closed when its initial owned tree cannot be verified'
   assert.equal(child.connected, false);
 });
 
+test('keeps a Windows Start when CIM tree inspection fails but the root identity still matches', async () => {
+  const messages = [];
+  const child = {
+    pid: 306,
+    connected: true,
+    send(message) {
+      messages.push(message);
+    },
+    disconnect() {
+      this.connected = false;
+    }
+  };
+  const ownership = {
+    trackProcessIdentity: async () => '306:100',
+    setProcess: () => true
+  };
+  const reservations = {
+    capture: () => 'generation',
+    setProcess: () => 0
+  };
+
+  await recordStartedProcess(
+    ownership,
+    reservations,
+    { id: 'project', folder: 'C:\\project', startCommand: 'npm start', services: [] },
+    child,
+    {},
+    {
+      platform: 'win32',
+      processTreeSettleMs: 0,
+      readOwnedProcessTree: async () => [{
+        pid: 306,
+        parentPid: 0,
+        identity: '306:100',
+        cpuSeconds: 0.1,
+        memoryBytes: 1024,
+        treeIncomplete: true
+      }]
+    }
+  );
+  assert.equal(child.runlistProcessTreeDegraded, true);
+  assert.deepEqual(messages, [{ type: 'runlistIdentityCaptured' }]);
+  assert.equal(child.connected, false);
+  assert.deepEqual(await child.runlistProcessTree, [{
+    pid: 306,
+    parentPid: 0,
+    identity: '306:100',
+    cpuSeconds: 0.1,
+    memoryBytes: 1024,
+    treeIncomplete: true
+  }]);
+});
+
 test('recovers an old corrupt ownership record but preserves a fresh partial write', (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-corrupt-ownership-'));
   const probe = new ProcessOwnershipStore(directory, {

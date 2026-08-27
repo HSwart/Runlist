@@ -30,6 +30,21 @@ test('reads only package.json start and dev scripts for empty-state chips', (t) 
   assert.deepEqual(workspaceStartDevScripts(path.join(temporaryRoot, 'missing')), []);
 });
 
+test('hides npm empty-state chips for Azure Functions Python folders', (t) => {
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-af-chips-'));
+  t.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(temporaryRoot, 'host.json'), '{}');
+  fs.writeFileSync(path.join(temporaryRoot, 'local.settings.json'), JSON.stringify({
+    Values: { FUNCTIONS_WORKER_RUNTIME: 'python' }
+  }));
+  fs.writeFileSync(path.join(temporaryRoot, 'package.json'), JSON.stringify({
+    scripts: { start: 'echo monorepo', dev: 'echo monorepo' }
+  }));
+  fs.writeFileSync(path.join(temporaryRoot, 'requirements.txt'), 'azure-functions\n');
+
+  assert.deepEqual(workspaceStartDevScripts(temporaryRoot), []);
+});
+
 test('empty Frame A keeps Add this folder and optional start/dev chips', () => {
   const extension = readShippedHostSource(root);
   assert.match(webview, /<h2>No projects yet<\/h2>/);
