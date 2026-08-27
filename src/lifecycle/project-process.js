@@ -26,7 +26,7 @@ const {
 const { writeFileAtomically } = require('../projects/project-store');
 const { projectWithPortOverrides } = require('../ports/service-port-overrides');
 
-const OWNER_HEARTBEAT_TIMEOUT_MS = 10000;
+const OWNER_HEARTBEAT_TIMEOUT_MS = 30000;
 const HOST_IDENTITY_CACHE_TTL_MS = 250;
 const EXITED_IDENTITY_WAIT_MS = 250;
 const WINDOWS_PROCESS_TREE_SETTLE_MS = 500;
