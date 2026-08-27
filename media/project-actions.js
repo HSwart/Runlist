@@ -6,6 +6,24 @@
     root.RunlistProjectActions = api;
   }
 }(typeof globalThis === 'object' ? globalThis : this, () => {
+  function projectHasLiveFolderStatus(project = {}) {
+    const status = String(project.status || 'stopped');
+    return project.forceClosing === true
+      || project.handoffInProgress === true
+      || ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active', 'stopping']
+        .includes(status);
+  }
+
+  function projectCanRelinkFolder(project = {}) {
+    if (project.reviewRequired || project.folderAccessible !== false) {
+      return false;
+    }
+    if (typeof project.composePath === 'string' && project.composePath.trim()) {
+      return false;
+    }
+    return !projectHasLiveFolderStatus(project);
+  }
+
   function projectPrimaryAction(project = {}) {
     const name = String(project.name || 'project');
     const status = String(project.status || 'stopped');
@@ -18,7 +36,7 @@
         mode: 'review'
       };
     }
-    if (project.lifecycleBlocked) {
+    if (project.lifecycleBlocked && project.folderAccessible !== false) {
       return {
         action: 'start',
         disabled: true,
@@ -78,10 +96,31 @@
     const stopsProject = (Boolean(project.stopFailure) && status !== 'stopped' && status !== 'stopping')
       || ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active']
         .includes(status);
-    const primary = stopsProject
-      ? { action: 'stop', disabled: busy, label: `Stop ${name}`, mode: 'stop' }
-      : { action: 'start', disabled: busy, label: `Start ${name}`, mode: 'start' };
-    return composeStartGate(project, primary);
+    if (stopsProject) {
+      return { action: 'stop', disabled: busy, label: `Stop ${name}`, mode: 'stop' };
+    }
+    if (project.folderAccessible === false) {
+      if (typeof project.composePath === 'string' && project.composePath.trim()) {
+        return {
+          action: 'edit',
+          disabled: busy,
+          label: `Edit ${name} to update its folder`,
+          mode: 'review'
+        };
+      }
+      return {
+        action: 'relink-folder',
+        disabled: busy,
+        label: `Choose a new folder for ${name}`,
+        mode: 'relink'
+      };
+    }
+    return composeStartGate(project, {
+      action: 'start',
+      disabled: busy,
+      label: `Start ${name}`,
+      mode: 'start'
+    });
   }
 
   function composeStartGate(project, primary) {
@@ -98,5 +137,5 @@
     };
   }
 
-  return { projectPrimaryAction };
+  return { projectCanRelinkFolder, projectHasLiveFolderStatus, projectPrimaryAction };
 }));

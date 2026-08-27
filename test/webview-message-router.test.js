@@ -53,6 +53,9 @@ test('validates commands sent from the webview before routing', async () => {
   assert.equal(validateWebviewCommand({ type: 'registerAgent', agent: 'unknown' }), undefined);
   assert.equal(validateWebviewCommand({ type: 'startWorkspaceScript', script: 'build' }), undefined);
   assert.equal(validateWebviewCommand({ type: 'startWorkspaceScript', script: 'dev' })?.script, 'dev');
+  assert.equal(validateWebviewCommand({ type: 'relinkProjectFolder', id: 'project-1' })?.type, 'relinkProjectFolder');
+  assert.equal(validateWebviewCommand({ type: 'relinkProjectFolder', id: '' }), undefined);
+  assert.ok(WEBVIEW_COMMAND_TYPES.has('relinkProjectFolder'));
   assert.equal(validateWebviewCommand({ type: 'setTagFilter', tag: 'frontend' })?.tag, 'frontend');
   assert.equal(validateWebviewCommand({ type: 'setTagFilter', tag: 'x'.repeat(33) }), undefined);
 
@@ -69,6 +72,7 @@ test('maps validated webview commands to the provider boundary', async () => {
   const calls = [];
   const host = {
     forceCloseProjectPorts: async (id, intent) => calls.push(['force-close', id, intent]),
+    relinkProjectFolder: async (id) => calls.push(['relink', id]),
     showAddProject: async (focus) => calls.push(['add', focus]),
     showProjectTransferLoadStack: async () => calls.push(['load-stack']),
     startProject: async (id) => calls.push(['start', id]),
@@ -82,6 +86,8 @@ test('maps validated webview commands to the provider boundary', async () => {
   assert.equal(await route({ type: 'loadWorkspaceStack' }), true);
   assert.equal(await route({ type: 'startWorkspaceScript', script: 'dev' }), true);
   assert.equal(await route({ type: 'startProject', id: 'project-1' }), true);
+  assert.equal(await route({ type: 'relinkProjectFolder', id: 'project-3' }), true);
+  assert.equal(await route({ type: 'relinkProjectFolder' }), false);
   assert.equal(await route({ type: 'forceCloseProjectPorts', id: 'project-1' }), true);
   assert.equal(await route({ type: 'forceCloseProjectPortsAndStart', id: 'project-2' }), true);
   assert.equal(await route({ type: 'copyServiceUrl', id: 'project-1', port: '4310' }), true);
@@ -92,6 +98,7 @@ test('maps validated webview commands to the provider boundary', async () => {
     ['load-stack'],
     ['start-script', 'dev'],
     ['start', 'project-1'],
+    ['relink', 'project-3'],
     ['force-close', 'project-1', 'stop'],
     ['force-close', 'project-2', 'start'],
     ['copy-service', 'project-1', 4310],

@@ -31,7 +31,7 @@ test('running row keeps status and port on one second line', () => {
 test('running row shows Stop and Restart as row actions', () => {
   assert.match(
     webview,
-    /class="run-button \$\{reviewRequired \? 'review' : blocked \? 'blocked' : primaryAction\.mode\}" data-action="\$\{primaryAction\.action\}"/
+    /class="run-button \$\{reviewRequired \|\| primaryAction\.action === 'edit' \? 'review' : primaryAction\.action === 'relink-folder' \? 'relink' : blocked \? 'blocked' : primaryAction\.mode\}" data-action="\$\{primaryAction\.action\}"/
   );
   assert.match(
     webview,

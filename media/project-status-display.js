@@ -81,6 +81,18 @@
     return String(project.stopFailure || '').trim();
   }
 
+  function projectShowsMissingFolder(project = {}) {
+    if (project.folderAccessible !== false || project.reviewRequired) {
+      return false;
+    }
+    if (project.forceClosing || project.handoffInProgress) {
+      return false;
+    }
+    const code = projectStatusCode(project);
+    return !['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active', 'stopping']
+      .includes(code);
+  }
+
   function projectDisplayedStatus(project = {}) {
     const fullLabels = projectStatusFullLabels(project);
     const conflictOwnerName = project.portConflict?.ownerName || 'Another app';
@@ -89,6 +101,9 @@
     }
     if (project.handoffInProgress) {
       return `Switching from ${conflictOwnerName}…`;
+    }
+    if (projectShowsMissingFolder(project)) {
+      return 'Folder missing';
     }
     const stopFailure = projectStopFailureText(project);
     if (stopFailure) {
@@ -182,6 +197,7 @@
   return {
     projectDisplayedStatus,
     projectPrimaryStatusCode,
+    projectShowsMissingFolder,
     projectStartFailureText,
     projectStatusAnnouncement,
     projectStatusCode,

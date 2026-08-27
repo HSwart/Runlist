@@ -1377,3 +1377,94 @@ test('stop honesty keeps Stop and does not say Stopped while a port is up', () =
   assert.doesNotMatch(result.app.innerHTML, />Stopped</);
   assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
 });
+
+test('missing folder shows Folder missing and Choose folder without Start', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/moved-app',
+    folderAccessible: false,
+    id: 'moved',
+    launchProfiles: [],
+    name: 'Moved App',
+    openPorts: [],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [],
+    status: 'stopped',
+    tags: []
+  }]);
+
+  assert.match(
+    result.app.innerHTML,
+    /class="project-status status-folder-missing"[^>]*>[\s\S]*<span>Folder missing<\/span>/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /class="run-button relink"[^>]*data-action="relink-folder"[^>]*aria-label="Choose a new folder for Moved App"/
+  );
+  assert.match(result.app.innerHTML, /data-action="relink-folder"[^>]*role="menuitem"[^>]*>[\s\S]*Choose folder/);
+  assert.match(result.app.innerHTML, /data-action="delete"[^>]*role="menuitem"/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="start"/);
+  assert.doesNotMatch(result.app.innerHTML, /class="run-button restart"/);
+  assert.doesNotMatch(result.app.innerHTML, />Stopped</);
+});
+
+test('Compose missing-folder rows keep Edit project instead of Choose folder', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    composePath: '/Users/shared/Projects/compose-app/compose.yaml',
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/compose-app',
+    folderAccessible: false,
+    id: 'compose',
+    launchProfiles: [],
+    name: 'Compose App',
+    openPorts: [],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [],
+    status: 'stopped',
+    tags: []
+  }]);
+
+  assert.match(
+    result.app.innerHTML,
+    /class="project-status status-folder-missing"[^>]*>[\s\S]*<span>Folder missing<\/span>/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /class="run-button review"[^>]*data-action="edit"[^>]*aria-label="Edit Compose App to update its folder"/
+  );
+  assert.doesNotMatch(result.app.innerHTML, /data-action="relink-folder"/);
+  assert.match(result.app.innerHTML, /data-action="delete"[^>]*role="menuitem"/);
+});
+
+test('running rows with a missing folder keep Stop instead of Choose folder', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/live-moved',
+    folderAccessible: false,
+    id: 'live-moved',
+    launchProfiles: [],
+    name: 'Live Moved',
+    openPorts: [3000],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 3000 }],
+    status: 'running',
+    tags: []
+  }]);
+
+  assert.match(result.app.innerHTML, /<span>Running<\/span>/);
+  assert.match(result.app.innerHTML, /data-action="stop"[^>]*aria-label="Stop Live Moved"/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="relink-folder"/);
+  assert.doesNotMatch(result.app.innerHTML, />Folder missing</);
+});

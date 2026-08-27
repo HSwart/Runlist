@@ -2806,11 +2806,14 @@ class RunlistViewProvider {
     }
 
     if (!projectFolderIsAccessible(fs, project.folder)) {
+      const canRelink = !project.reviewRequired && !isComposeManagedProject(project);
       const selection = await vscode.window.showErrorMessage(
         `Could not open a terminal for ${project.name}: its saved folder is missing or inaccessible.`,
-        'Edit project'
+        ...(canRelink ? ['Choose folder', 'Edit project'] : ['Edit project'])
       );
-      if (selection === 'Edit project') {
+      if (selection === 'Choose folder') {
+        await this.relinkProjectFolder(id);
+      } else if (selection === 'Edit project') {
         this.showEditProject(id);
       } else {
         this.focusTarget = { type: 'project-menu', id };
@@ -2843,6 +2846,117 @@ class RunlistViewProvider {
       this.focusTarget = { type: 'project-menu', id };
       this.renderProjectList();
     }
+  }
+
+  projectFolderRelinkBlocked(project, id) {
+    if (!project || project.reviewRequired || isComposeManagedProject(project)) {
+      return true;
+    }
+    if (this.forceClosingProjectIds.has(id)
+      || this.handoffProjectIds.has(id)
+      || this.processes.has(id)
+      || this.startAttempts.has(id)
+      || this.stoppingProjectIds.has(id)) {
+      return true;
+    }
+    return ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active', 'stopping']
+      .includes(this.getProjectStatus(id));
+  }
+
+  async relinkProjectFolder(id) {
+    const project = this.projects.find((item) => item.id === id);
+    if (!project) {
+      return false;
+    }
+    if (project.reviewRequired) {
+      vscode.window.showWarningMessage(
+        `Review and approve ${project.name}'s setup before changing its folder.`
+      );
+      this.showEditProject(id);
+      return false;
+    }
+    if (isComposeManagedProject(project)) {
+      vscode.window.showWarningMessage(
+        `Edit ${project.name} to update its folder. Choosing a new folder here would leave its Compose file pointing at the old location.`
+      );
+      this.focusTarget = { type: 'project-menu', id };
+      this.renderProjectList();
+      return false;
+    }
+    if (this.projectFolderRelinkBlocked(project, id)) {
+      vscode.window.showWarningMessage(`Stop ${project.name} before choosing a new folder.`);
+      this.focusTarget = { type: 'project-control', id };
+      this.renderProjectList();
+      return false;
+    }
+
+    const selection = await vscode.window.showOpenDialog({
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      openLabel: 'Use this folder'
+    });
+    if (!selection?.[0]) {
+      this.focusTarget = { type: 'project-control', id };
+      this.renderProjectList();
+      return false;
+    }
+
+    const pickedFolder = selection[0].fsPath;
+    if (!projectFolderIsAccessible(fs, pickedFolder)) {
+      vscode.window.showErrorMessage('Runlist could not use that folder.');
+      this.focusTarget = { type: 'project-control', id };
+      this.renderProjectList();
+      return false;
+    }
+
+    const latestBeforeSave = this.projects.find((item) => item.id === id);
+    if (!latestBeforeSave) {
+      vscode.window.showErrorMessage(`Could not update ${project.name}: it is no longer saved.`);
+      this.renderProjectList();
+      return false;
+    }
+    if (this.projectFolderRelinkBlocked(latestBeforeSave, id)
+      || JSON.stringify(latestBeforeSave) !== JSON.stringify(project)) {
+      vscode.window.showWarningMessage(
+        latestBeforeSave && JSON.stringify(latestBeforeSave) !== JSON.stringify(project)
+          ? `${project.name} changed in another VS Code window. Nothing was updated.`
+          : `Stop ${project.name} before choosing a new folder.`
+      );
+      this.focusTarget = { type: 'project-control', id };
+      this.renderProjectList();
+      return false;
+    }
+
+    try {
+      await withProjectStoreLockAsync(this.projectsFile, () => {
+        upsertProject(this.projectsFile, {
+          ...project,
+          folder: pickedFolder
+        }, {
+          allowStoredName: true,
+          expectedProject: project,
+          lockHeld: true,
+          reviewRequired: project.reviewRequired
+        });
+      });
+    } catch (error) {
+      const message = error?.code === 'FOLDER_IN_USE'
+        ? error.message
+        : error?.code === 'STALE_PROJECT'
+          ? `${project.name} changed in another VS Code window. Nothing was updated.`
+          : /does not exist or is not a directory/i.test(String(error?.message || ''))
+            ? 'Runlist could not use that folder.'
+            : (error?.message || 'Could not update this project.');
+      vscode.window.showErrorMessage(message);
+      this.focusTarget = { type: 'project-control', id };
+      this.renderProjectList();
+      return false;
+    }
+
+    this.focusTarget = { type: 'project-control', id };
+    this.renderProjectList();
+    return true;
   }
 
   async toggleProjectPin(id) {
@@ -3291,6 +3405,12 @@ class RunlistViewProvider {
       this.showEditProject(id);
       return false;
     }
+    if (!projectFolderIsAccessible(fs, project.folder)) {
+      vscode.window.showErrorMessage(
+        `Could not start ${project.name} because its folder is missing.`
+      );
+      return false;
+    }
 
     if (isComposeManagedProject(project)) {
       const availability = await probeComposeAvailability();
@@ -3332,6 +3452,13 @@ class RunlistViewProvider {
       this.processOwnership.release(id);
       vscode.window.showWarningMessage(`Review and approve ${project.name}'s setup before running its commands.`);
       this.showEditProject(id);
+      return false;
+    }
+    if (!projectFolderIsAccessible(fs, project.folder)) {
+      this.processOwnership.release(id);
+      vscode.window.showErrorMessage(
+        `Could not start ${project.name} because its folder is missing.`
+      );
       return false;
     }
 
@@ -5117,6 +5244,7 @@ class RunlistViewProvider {
           project.folder,
           vscode.workspace.workspaceFolders
         ),
+        folderAccessible: projectFolderIsAccessible(fs, project.folder),
         openPorts,
         portConflict: this.projectPortConflicts.get(project.id),
         listenerOwner: this.projectListenerOwners.get(project.id),

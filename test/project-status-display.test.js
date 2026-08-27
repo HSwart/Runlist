@@ -3,6 +3,7 @@ const test = require('node:test');
 const {
   projectDisplayedStatus,
   projectPrimaryStatusCode,
+  projectShowsMissingFolder,
   projectStatusAnnouncement,
   projectStatusDetailText
 } = require('../media/project-status-display');
@@ -192,4 +193,39 @@ test('shows Stop honesty on line 2 instead of Stopped', () => {
     }),
     'App: Stop failed'
   );
+});
+
+test('shows Folder missing on stopped rows without waiting for Start', () => {
+  assert.equal(projectShowsMissingFolder({
+    name: 'App',
+    status: 'stopped',
+    folderAccessible: false
+  }), true);
+  assert.equal(projectDisplayedStatus({
+    name: 'App',
+    status: 'stopped',
+    folderAccessible: false
+  }), 'Folder missing');
+  assert.equal(projectDisplayedStatus({
+    name: 'App',
+    status: 'stopped',
+    folderAccessible: false,
+    failureSummary: { title: 'Start failed', message: 'ENOENT' }
+  }), 'Folder missing');
+  assert.equal(projectShowsMissingFolder({
+    name: 'App',
+    status: 'running',
+    folderAccessible: false
+  }), false);
+  assert.equal(projectDisplayedStatus({
+    name: 'App',
+    status: 'running',
+    folderAccessible: false
+  }), 'Running');
+  assert.equal(projectDisplayedStatus({
+    name: 'App',
+    status: 'stopped',
+    folderAccessible: false,
+    reviewRequired: true
+  }), 'Review setup');
 });

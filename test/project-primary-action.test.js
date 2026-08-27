@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { projectPrimaryAction } = require('../media/project-actions');
+const { projectCanRelinkFolder, projectPrimaryAction } = require('../media/project-actions');
 
 test('turns detected external apps into a confirmed close-ports Stop action', () => {
   assert.deepEqual(projectPrimaryAction({
@@ -104,4 +104,87 @@ test('disables lifecycle actions when the project environment cannot be verified
     label: 'Local projects only.',
     mode: 'start'
   });
+});
+
+test('turns a missing folder into Choose folder while Start stays off', () => {
+  assert.deepEqual(projectPrimaryAction({
+    name: 'Moved app',
+    status: 'stopped',
+    folderAccessible: false
+  }), {
+    action: 'relink-folder',
+    disabled: false,
+    label: 'Choose a new folder for Moved app',
+    mode: 'relink'
+  });
+  assert.equal(projectCanRelinkFolder({
+    name: 'Moved app',
+    status: 'stopped',
+    folderAccessible: false
+  }), true);
+});
+
+test('keeps Stop when a running project’s folder goes missing', () => {
+  assert.equal(projectPrimaryAction({
+    name: 'Moved app',
+    status: 'running',
+    folderAccessible: false
+  }).action, 'stop');
+  assert.equal(projectCanRelinkFolder({
+    name: 'Moved app',
+    status: 'running',
+    folderAccessible: false
+  }), false);
+  assert.equal(projectPrimaryAction({
+    name: 'Moved app',
+    status: 'starting',
+    folderAccessible: false
+  }).action, 'stop');
+  assert.equal(projectPrimaryAction({
+    name: 'Moved app',
+    status: 'stopping',
+    folderAccessible: false
+  }).action, 'stop');
+});
+
+test('does not offer Choose folder for Compose or review-required projects', () => {
+  assert.deepEqual(projectPrimaryAction({
+    name: 'Compose app',
+    status: 'stopped',
+    folderAccessible: false,
+    composePath: '/tmp/compose.yaml'
+  }), {
+    action: 'edit',
+    disabled: false,
+    label: 'Edit Compose app to update its folder',
+    mode: 'review'
+  });
+  assert.equal(projectCanRelinkFolder({
+    name: 'Compose app',
+    status: 'stopped',
+    folderAccessible: false,
+    composePath: '/tmp/compose.yaml'
+  }), false);
+  assert.equal(projectPrimaryAction({
+    name: 'Agent app',
+    status: 'stopped',
+    folderAccessible: false,
+    reviewRequired: true
+  }).action, 'edit');
+  assert.equal(projectCanRelinkFolder({
+    name: 'Agent app',
+    status: 'stopped',
+    folderAccessible: false,
+    reviewRequired: true
+  }), false);
+});
+
+test('still offers Choose folder when local lifecycle is unavailable', () => {
+  assert.equal(projectPrimaryAction({
+    name: 'Remote app',
+    status: 'stopped',
+    folderAccessible: false,
+    lifecycleBlocked: true,
+    lifecycleBlockedReason: 'Local projects only.'
+  }).action, 'relink-folder');
 });

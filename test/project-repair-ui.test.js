@@ -35,6 +35,9 @@ function renderRepairComparison(comparison) {
       }
     },
     RunlistProjectActions: {
+      projectCanRelinkFolder() {
+        return false;
+      },
       projectPrimaryAction() {
         return { action: 'start', disabled: false, label: 'Start', mode: 'start' };
       }

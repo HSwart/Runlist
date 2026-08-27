@@ -1,9 +1,10 @@
 const vscode = acquireVsCodeApi();
 const state = window.runlistState;
 const { createWebviewMessageRouter } = window.RunlistMessageRouter;
-const { projectPrimaryAction } = window.RunlistProjectActions;
+const { projectCanRelinkFolder, projectPrimaryAction } = window.RunlistProjectActions;
 const {
   projectDisplayedStatus,
+  projectShowsMissingFolder,
   projectStartFailureText,
   projectStatusAnnouncement,
   projectStatusFullLabels,
@@ -59,6 +60,7 @@ let selectedGroupFilter = String(persistedWebviewState.groupFilter || '');
 let runGroupDraft = undefined;
 let outputFollowLatest = true;
 let announcedProjectStatuses = new Map();
+let announcedFolderAccess = new Map();
 let announcedPreviewFailures = new Map();
 let previewLoadGeneration = 0;
 let previewLoadTimer;
@@ -1125,6 +1127,7 @@ function renderList() {
         const ownershipLostWithoutStop = projectStatus === 'ownership-lost' && !project.stopCommand;
         const stopState = ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active'].includes(projectStatus);
         const canRestart = !reviewRequired
+          && project.folderAccessible !== false
           && ['running', 'not-ready', 'not-responding', 'ownership-lost', 'active'].includes(projectStatus)
           && !detectedWithoutStop
           && !ownershipLostWithoutStop;
@@ -1177,10 +1180,12 @@ function renderList() {
         const displayedStatus = projectDisplayedStatus(project);
         const startFailureText = projectStartFailureText(project);
         const stopFailureText = projectStopFailureText(project);
+        const folderMissing = projectShowsMissingFolder(project);
         const rowStatusTitle = statusTitle
+          || (folderMissing ? 'The saved folder is missing or cannot be opened.' : '')
           || (startFailureText ? escapeHtml(startFailureText) : '')
           || (stopFailureText ? escapeHtml(stopFailureText) : '');
-        const statusDotClass = startFailureText || stopFailureText
+        const statusDotClass = folderMissing || startFailureText || stopFailureText
           ? 'conflict'
           : ['running', 'active'].includes(statusClass)
           && !(projectStatus === 'active' && project.httpUnresponsive)
@@ -1188,7 +1193,9 @@ function renderList() {
           : ['port-in-use', 'port-in-use-unknown', 'not-ready', 'not-responding', 'review-required', 'ownership-lost'].includes(statusClass)
             ? 'conflict'
             : '';
-        const rowStatusClass = startFailureText
+        const rowStatusClass = folderMissing
+          ? 'folder-missing'
+          : startFailureText
           ? 'start-failed'
           : stopFailureText
             ? 'stop-failed'
@@ -1240,8 +1247,8 @@ function renderList() {
                       ${launchProfiles.map((profile) => `<button data-action="select-launch-profile" data-id="${projectId}" data-profile-id="${escapeHtml(profile.id)}" role="menuitemradio" aria-checked="${profile.id === project.activeLaunchProfileId}"><span class="profile-check" aria-hidden="true">${profile.id === project.activeLaunchProfileId ? '✓' : ''}</span><span>${escapeHtml(profile.name)}</span></button>`).join('')}
                     </div>
                   </div>` : ''}
-                <button class="run-button ${reviewRequired ? 'review' : blocked ? 'blocked' : primaryAction.mode}" data-action="${primaryAction.action}" data-id="${projectId}" aria-label="${actionTitle}" title="${actionTitle}" ${primaryAction.disabled ? 'disabled' : ''}>
-                  ${reviewRequired ? icon('edit') : productIcon(primaryAction.mode === 'stop' ? 'stop' : 'play')}
+                <button class="run-button ${reviewRequired || primaryAction.action === 'edit' ? 'review' : primaryAction.action === 'relink-folder' ? 'relink' : blocked ? 'blocked' : primaryAction.mode}" data-action="${primaryAction.action}" data-id="${projectId}" aria-label="${actionTitle}" title="${actionTitle}" ${primaryAction.disabled ? 'disabled' : ''}>
+                  ${primaryAction.action === 'edit' ? icon('edit') : primaryAction.action === 'relink-folder' ? icon('folder') : productIcon(primaryAction.mode === 'stop' ? 'stop' : 'play')}
                 </button>
                 ${canRestart ? `
                 <button class="run-button restart" data-action="restart" data-id="${projectId}" aria-label="Restart ${projectName}" title="Restart ${projectName}" ${transitioning ? 'disabled' : ''}>
@@ -1276,6 +1283,10 @@ function renderList() {
                   <button data-action="import-compose" data-id="${projectId}" role="menuitem" title="Review Compose services for ${projectName}">
                     ${icon('layers', 'menu-icon')}<span>Import Compose services…</span>
                   </button>
+                  ${projectCanRelinkFolder(project) ? `
+                  <button data-action="relink-folder" data-id="${projectId}" role="menuitem" title="Choose a new folder for ${projectName}" aria-label="Choose a new folder for ${projectName}">
+                    ${icon('folder', 'menu-icon')}<span>Choose folder</span>
+                  </button>` : ''}
                   <button data-action="edit" data-id="${projectId}" role="menuitem">
                     ${icon('edit', 'menu-icon')}<span>${reviewRequired ? 'Review setup' : 'Edit project'}</span>
                   </button>
@@ -1345,16 +1356,36 @@ function announceProjectStatusChanges(projects) {
     String(project.id),
     projectStatusAnnouncement(project)
   ]));
-  if (announcedProjectStatuses.size) {
-    const changes = [...next]
-      .filter(([id, label]) => announcedProjectStatuses.get(id) !== label)
+  const nextFolderAccess = new Map((projects || []).map((project) => [
+    String(project.id),
+    project.folderAccessible !== false
+  ]));
+  if (announcedProjectStatuses.size || announcedFolderAccess.size) {
+    const folderChanges = [];
+    const folderChangedIds = new Set();
+    for (const project of projects || []) {
+      const id = String(project.id);
+      const wasAccessible = announcedFolderAccess.get(id);
+      const isAccessible = project.folderAccessible !== false;
+      if (wasAccessible === true && isAccessible === false) {
+        folderChanges.push(`Folder missing for ${project.name}`);
+        folderChangedIds.add(id);
+      } else if (wasAccessible === false && isAccessible === true) {
+        folderChanges.push(`${project.name} folder updated`);
+        folderChangedIds.add(id);
+      }
+    }
+    const statusChanges = [...next]
+      .filter(([id, label]) => announcedProjectStatuses.get(id) !== label && !folderChangedIds.has(id))
       .map(([, label]) => label);
+    const changes = [...folderChanges, ...statusChanges];
     const status = document.getElementById('project-lifecycle-status');
     if (status && changes.length) {
       status.textContent = changes.join('. ');
     }
   }
   announcedProjectStatuses = next;
+  announcedFolderAccess = nextFolderAccess;
 }
 
 function applyProjectFilter(query) {
@@ -2915,6 +2946,10 @@ app.addEventListener('click', (event) => {
     'copy-project-path': () => {
       closeMenus();
       vscode.postMessage({ type: 'copyProjectPath', id: button.dataset.id });
+    },
+    'relink-folder': () => {
+      closeMenus();
+      vscode.postMessage({ type: 'relinkProjectFolder', id: button.dataset.id });
     },
     output: () => {
       closeMenus();
