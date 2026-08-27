@@ -1063,6 +1063,30 @@ class ProcessOwnershipStore {
     return { kind: 'uncertain' };
   }
 
+  holdForDeletion(projectId) {
+    const conflict = this.reserve(projectId);
+    if (!conflict) {
+      return undefined;
+    }
+    const ownership = conflict.ownership;
+    if (conflict.kind === 'owned'
+      && validOwnership(ownership, projectId)
+      && ownership.hostPid === this.pid
+      && this.hostIdentityMatches(ownership, { fresh: true })) {
+      this.owned.set(projectId, {
+        ownershipPath: this.ownershipPath(projectId),
+        token: ownership.token
+      });
+      this.diagnose('reserve.acquired', {
+        projectId,
+        reasonCode: 'deletion-hold-adopted',
+        identityDecision: 'match'
+      });
+      return undefined;
+    }
+    return conflict;
+  }
+
   diagnose(event, details) {
     try {
       this.onDiagnostic?.(event, details);

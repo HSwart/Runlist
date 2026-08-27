@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.0.13 — Delete when this window still holds ownership
+
+- Fix Delete falsely reporting that a project “started in another VS Code window” when this window still held a leftover ownership lock after Stop or a failed Start.
+- Adopt that local ownership for the delete critical section, then release it; keep blocking only when another live window truly owns the project.
+
 ## 0.0.12 — Ownership probe timeout
 
 - Raise Windows/macOS ownership identity probes from 1s to 10s so cold PowerShell/ps startups do not block Start or Delete with “cannot safely verify who owns …”.

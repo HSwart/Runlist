@@ -2602,6 +2602,32 @@ test('does not create ownership when host identity capture throws', (t) => {
   assert.equal(fs.existsSync(owner.ownershipPath('project-1')), false);
 });
 
+test('holds deletion ownership when this window already owns a stopped project', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-delete-hold-'));
+  const alive = new Set([101]);
+  const owner = new ProcessOwnershipStore(directory, {
+    pid: 101,
+    platform: 'linux',
+    isProcessAlive: (pid) => alive.has(pid)
+  });
+  const otherWindow = new ProcessOwnershipStore(directory, {
+    pid: 202,
+    platform: 'linux',
+    isProcessAlive: (pid) => alive.has(pid)
+  });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  assert.equal(owner.reserve('project-1'), undefined);
+  // Simulate a failed Start / incomplete Stop that left ownership heartbeating
+  // with no live child — the Delete path must still take the deletion lock.
+  assert.equal(owner.reserve('project-1').kind, 'owned');
+  assert.equal(owner.holdForDeletion('project-1'), undefined);
+  assert.equal(owner.isCurrentOwner('project-1'), true);
+  assert.equal(otherWindow.holdForDeletion('project-1').kind, 'owned');
+  assert.equal(owner.release('project-1'), true);
+  assert.equal(fs.existsSync(owner.ownershipPath('project-1')), false);
+});
+
 test('does not release ownership after the local host identity changes', (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-release-identity-'));
   const alive = new Set([101]);

@@ -2900,11 +2900,13 @@ class RunlistViewProvider {
       vscode.window.showErrorMessage(`Could not stop ${project.name}: ${error.message}`);
       return;
     }
-    const deletionConflict = this.processOwnership.reserve(id);
+    const deletionConflict = this.processOwnership.holdForDeletion
+      ? this.processOwnership.holdForDeletion(id)
+      : this.processOwnership.reserve(id);
     if (deletionConflict) {
-      vscode.window.showErrorMessage(
-        `Could not delete ${project.name}: it started in another VS Code window while deletion was in progress.`
-      );
+      vscode.window.showErrorMessage(deletionConflict.kind === 'uncertain'
+        ? `Could not delete ${project.name}: Runlist cannot safely verify who owns its previous process. Nothing was deleted.`
+        : `Could not delete ${project.name}: it is running in another VS Code window.`);
       return;
     }
 
