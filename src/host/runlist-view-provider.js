@@ -3086,6 +3086,9 @@ class RunlistViewProvider {
     if (isComposeManagedProject(project)) {
       const availability = await probeComposeAvailability();
       if (!availability.ok) {
+        this.projectOutputs.set(id, '');
+        this.projectFailureSummaries.delete(id);
+        this.projectFailureDetails.delete(id);
         this.showStartFailure(project, { detail: availability.message });
         this.renderProjectList();
         return false;
@@ -4329,12 +4332,18 @@ class RunlistViewProvider {
       openPorts,
       webPort: project?.services?.[0]?.port
     });
-    if (message) {
+    if (message && processActive) {
       this.projectStopFailures?.set(id, message);
       this.finishStopping(id, false);
       return false;
     }
     this.finishStopping(id, true, portGeneration);
+    if (message) {
+      this.projectStopFailures?.set(id, message);
+      this.projectStatuses.set(id, 'active');
+      this.renderProjectList();
+      return false;
+    }
     return true;
   }
 

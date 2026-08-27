@@ -90,7 +90,10 @@ test('host Start probes Compose availability and records Compose ownership field
   assert.match(host, /composeLaunchCommands\(/);
   assert.match(host, /ownershipKind: 'compose'/);
   assert.match(host, /composeServices: composeLaunch\.composeServices/);
-  assert.match(host, /this\.showStartFailure\(project, \{ detail: availability\.message \}\)/);
+  assert.match(
+    host,
+    /if \(!availability\.ok\) \{[\s\S]*this\.projectOutputs\.set\(id, ''\);[\s\S]*this\.projectFailureSummaries\.delete\(id\);[\s\S]*this\.projectFailureDetails\.delete\(id\);[\s\S]*this\.showStartFailure\(project, \{ detail: availability\.message \}\)/
+  );
   assert.match(host, /composeProcessArgv\(launchProject, 'up'/);
   assert.match(host, /composeProcessArgv\(project, 'stop'/);
   assert.match(host, /withDockerCliPath\(/);
@@ -218,5 +221,8 @@ test('composeProcessArgv spawns docker compose without shell quoting', () => {
   const stop = composeProcessArgv(project, 'stop', {
     dockerCommand: '/usr/local/bin/docker'
   });
-  assert.deepEqual(stop.args.slice(-2), ['stop', 'web']);
+  assert.deepEqual(stop, {
+    file: '/usr/local/bin/docker',
+    args: ['compose', '-f', path.resolve(composePath), 'stop', 'web']
+  });
 });

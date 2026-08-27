@@ -1347,9 +1347,60 @@ test('does not mark Stopped until the owned process and configured ports are dow
   assert.ok(finishOwned >= 0);
   assert.match(body, /waitUntilServicesStopped/);
   assert.match(body, /stopHonestyMessage\(/);
+  assert.match(body, /if \(message && processActive\)/);
   assert.match(body, /finishStopping\(id, false\)/);
   assert.match(body, /finishStopping\(id, true, portGeneration\)/);
   assert.match(body, /Port :\$\{port\} is still up|stopHonestyMessage/);
+});
+
+test('releases dead process ownership when a configured port remains open', async () => {
+  const messages = [];
+  const Provider = loadRunlistProvider(() => {}, messages, {
+    './src/lifecycle/project-status': {
+      servicePortStatus: async () => ({ anyOpen: true, openPorts: [3000] })
+    }
+  });
+  const provider = Object.create(Provider.prototype);
+  const project = {
+    id: 'project-1',
+    name: 'App',
+    services: [{ name: 'Web', port: 3000 }]
+  };
+  const portGeneration = new Map([[3000, 'port-token']]);
+  const finishCalls = [];
+  provider.lifecycle = { waitUntilServicesStopped: async () => false };
+  provider.projectStopFailures = new Map();
+  provider.projectStatuses = new Map([['project-1', 'stopping']]);
+  provider.finishStopping = (...args) => {
+    finishCalls.push(args);
+  };
+  provider.renderProjectList = () => {};
+
+  assert.equal(
+    await provider.finishOwnedStop('project-1', project, portGeneration, {
+      processActive: false
+    }),
+    false
+  );
+  assert.equal(finishCalls.length, 1);
+  assert.equal(finishCalls[0][0], 'project-1');
+  assert.equal(finishCalls[0][1], true);
+  assert.equal(finishCalls[0][2], portGeneration);
+  assert.equal(provider.projectStopFailures.get('project-1'), 'Port :3000 is still up');
+  assert.equal(provider.projectStatuses.get('project-1'), 'active');
+
+  finishCalls.length = 0;
+  provider.projectStopFailures.clear();
+  provider.projectStatuses.set('project-1', 'stopping');
+  assert.equal(
+    await provider.finishOwnedStop('project-1', project, portGeneration, {
+      processActive: true
+    }),
+    false
+  );
+  assert.equal(finishCalls.length, 1);
+  assert.equal(finishCalls[0][1], false);
+  assert.equal(provider.projectStopFailures.get('project-1'), 'Stop failed');
 });
 
 test('reports a lost detached Stop claim without executing the custom command', () => {
