@@ -6,10 +6,13 @@ const {
   buildComposeStartCommand,
   buildComposeStopCommand,
   composeLaunchCommands,
+  composeProcessArgv,
   isComposeManagedProject,
   probeComposeAvailability,
   quoteShellArg,
-  serviceNamesFromComposeCommand
+  resolveDockerCli,
+  serviceNamesFromComposeCommand,
+  withDockerCliPath
 } = require('../src/compose/compose-runtime');
 
 const host = fs.readFileSync(
@@ -61,7 +64,8 @@ test('probeComposeAvailability fails closed when the daemon is down', async () =
     execFileAsync: async (command, args) => {
       call += 1;
       if (call === 1) {
-        assert.deepEqual([command, ...args], ['docker', 'compose', 'version']);
+        assert.match(String(command), /(^|[/\\])docker(\.exe)?$/i);
+        assert.deepEqual(args, ['compose', 'version']);
         return { stdout: 'Docker Compose version v2.29.0\n', stderr: '' };
       }
       const error = new Error('Cannot connect to the Docker daemon');
@@ -86,6 +90,13 @@ test('host Start probes Compose availability and records Compose ownership field
   assert.match(host, /composeLaunchCommands\(/);
   assert.match(host, /ownershipKind: 'compose'/);
   assert.match(host, /composeServices: composeLaunch\.composeServices/);
+  assert.match(
+    host,
+    /if \(!availability\.ok\) \{[\s\S]*this\.projectOutputs\.set\(id, ''\);[\s\S]*this\.projectFailureSummaries\.delete\(id\);[\s\S]*this\.projectFailureDetails\.delete\(id\);[\s\S]*this\.showStartFailure\(project, \{ detail: availability\.message \}\)/
+  );
+  assert.match(host, /composeProcessArgv\(launchProject, 'up'/);
+  assert.match(host, /composeProcessArgv\(project, 'stop'/);
+  assert.match(host, /withDockerCliPath\(/);
   assert.match(processSource, /ownershipKind: 'compose'/);
   assert.match(processSource, /composePath:/);
   assert.match(processSource, /composeServices:/);
@@ -135,4 +146,83 @@ test('Windows Compose shell quoting escapes backslashes before quotes', () => {
     quote.indexOf("replace(/\\\\/g") < quote.indexOf('replace(/"/g'),
     'backslash escape must run before quote escape'
   );
+});
+
+test('resolveDockerCli finds Docker Desktop when PATH does not include docker', () => {
+  const darwin = resolveDockerCli({
+    platform: 'darwin',
+    env: { PATH: '/usr/bin:/bin', HOME: '/Users/ada' },
+    fs: {
+      existsSync: (candidate) => candidate === '/usr/local/bin/docker',
+      statSync: () => ({ isFile: () => true })
+    }
+  });
+  assert.equal(darwin, '/usr/local/bin/docker');
+
+  const windows = resolveDockerCli({
+    platform: 'win32',
+    env: {
+      Path: 'C:\\Windows\\System32',
+      ProgramFiles: 'C:\\Program Files',
+      'ProgramFiles(x86)': 'C:\\Program Files (x86)',
+      LOCALAPPDATA: 'C:\\Users\\ada\\AppData\\Local'
+    },
+    fs: {
+      existsSync: (candidate) => (
+        candidate === 'C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe'
+      ),
+      statSync: () => ({ isFile: () => true })
+    }
+  });
+  assert.equal(
+    windows,
+    'C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe'
+  );
+});
+
+test('withDockerCliPath prepends Docker Desktop directories for GUI PATH', () => {
+  const darwin = withDockerCliPath(
+    { PATH: '/usr/bin:/bin', HOME: '/Users/ada' },
+    {
+      platform: 'darwin',
+      dockerCommand: '/usr/local/bin/docker'
+    }
+  );
+  assert.match(darwin.PATH, /^\/usr\/local\/bin:/);
+  assert.match(darwin.PATH, /\/Applications\/Docker\.app\/Contents\/Resources\/bin/);
+
+  const windows = withDockerCliPath(
+    { Path: 'C:\\Windows\\System32', ProgramFiles: 'C:\\Program Files' },
+    {
+      platform: 'win32',
+      dockerCommand: 'C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe'
+    }
+  );
+  assert.match(
+    windows.Path,
+    /^C:\\Program Files\\Docker\\Docker\\resources\\bin;/
+  );
+});
+
+test('composeProcessArgv spawns docker compose without shell quoting', () => {
+  const composePath = '/tmp/my stack/compose.yaml';
+  const project = {
+    composePath,
+    services: [{ name: 'web', port: 4310 }]
+  };
+  const argv = composeProcessArgv(project, 'up', {
+    dockerCommand: '/usr/local/bin/docker'
+  });
+  assert.deepEqual(argv, {
+    file: '/usr/local/bin/docker',
+    args: ['compose', '-f', path.resolve(composePath), 'up', 'web']
+  });
+  assert.equal(argv.args[2].includes(' '), true);
+  const stop = composeProcessArgv(project, 'stop', {
+    dockerCommand: '/usr/local/bin/docker'
+  });
+  assert.deepEqual(stop, {
+    file: '/usr/local/bin/docker',
+    args: ['compose', '-f', path.resolve(composePath), 'stop', 'web']
+  });
 });

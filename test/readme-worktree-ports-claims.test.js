@@ -5,9 +5,14 @@ const test = require('node:test');
 
 const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
 
-test('README worktree port claims match sticky vs baseline behavior', () => {
-  assert.match(readme, /Git worktrees with port variables get sticky temporary ports/i);
-  assert.match(readme, /saved baseline ports stay put/i);
-  assert.match(readme, /non-git folders keep current behavior/i);
+test('Marketplace README locks the signed listing without the worktree-port essay', () => {
+  assert.match(readme, /Start, stop, and switch local apps from one sidebar\./);
+  assert.doesNotMatch(readme, /## Everyday use/);
+  assert.doesNotMatch(readme, /## Power features/);
+  assert.doesNotMatch(readme, /Git worktrees with port variables get sticky temporary ports/i);
+  assert.doesNotMatch(readme, /saved baseline ports stay put/i);
+  assert.doesNotMatch(readme, /non-git folders keep current behavior/i);
   assert.doesNotMatch(readme, /create worktrees|delete worktrees|manages? git worktrees/i);
+  assert.doesNotMatch(readme, /raw\.githubusercontent\.com/);
+  assert.doesNotMatch(readme, /\/raw\/HEAD\//);
 });

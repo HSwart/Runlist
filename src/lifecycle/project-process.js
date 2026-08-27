@@ -54,19 +54,35 @@ function spawnProjectCommand(command, options = {}) {
     platform = process.platform,
     spawnProcess = spawn,
     supervisorPath = path.join(__dirname, 'process-supervisor.js'),
+    argv,
     ...spawnOptions
   } = options;
   const processOptions = {
     ...spawnOptions,
     ...projectProcessSpawnOptions(platform)
   };
+  const useArgv = Boolean(
+    argv
+    && typeof argv.file === 'string'
+    && argv.file
+    && Array.isArray(argv.args)
+  );
   if (platform === 'darwin' || platform === 'win32') {
-    return spawnProcess(execPath, [supervisorPath, command], {
+    const supervisorArgs = useArgv
+      ? [supervisorPath, '--', argv.file, ...argv.args]
+      : [supervisorPath, command];
+    return spawnProcess(execPath, supervisorArgs, {
       ...processOptions,
       shell: false,
       ...(platform === 'win32'
         ? { stdio: supervisorStdio(processOptions.stdio) }
         : {})
+    });
+  }
+  if (useArgv) {
+    return spawnProcess(argv.file, argv.args, {
+      ...processOptions,
+      shell: false
     });
   }
   return spawnProcess(command, {

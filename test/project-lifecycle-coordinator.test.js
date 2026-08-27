@@ -79,6 +79,30 @@ test('waits for readiness and stop completion using provider state', async () =>
   assert.equal(host.projectStatuses.get('project-1'), 'stopped');
 });
 
+test('does not mark Stopped while a configured port is still listening', async () => {
+  const host = {
+    projects: [{ id: 'project-1', services: [{ name: 'Web', port: 3000 }] }],
+    processOwnership: { snapshot: () => new Map() },
+    portReservations: { snapshot: () => new Map() },
+    remoteStopRequests: new Map(),
+    stoppingProjectIds: new Set(['project-1']),
+    managedProjectIds: new Set(['project-1']),
+    projectStatuses: new Map([['project-1', 'stopping']]),
+    projectStopFailures: new Map()
+  };
+  let now = 0;
+  const lifecycle = new ProjectLifecycleCoordinator(host, {
+    now: () => now,
+    delay: async (milliseconds) => { now += milliseconds; },
+    remoteStopTimeoutMs: 50,
+    servicePortStatus: async () => ({ anyOpen: true, openPorts: [3000] })
+  });
+
+  assert.equal(await lifecycle.waitUntilStopped('project-1', 50), false);
+  assert.equal(host.projectStatuses.get('project-1'), 'stopping');
+  assert.equal(host.stoppingProjectIds.has('project-1'), true);
+});
+
 test('restarts only after the owned project is confirmed stopped', async () => {
   const calls = [];
   const host = {

@@ -4,8 +4,10 @@ const { createWebviewMessageRouter } = window.RunlistMessageRouter;
 const { projectPrimaryAction } = window.RunlistProjectActions;
 const {
   projectDisplayedStatus,
+  projectStartFailureText,
   projectStatusAnnouncement,
-  projectStatusFullLabels
+  projectStatusFullLabels,
+  projectStopFailureText
 } = window.RunlistProjectStatus;
 const app = document.getElementById('app');
 const persistedWebviewState = vscode.getState() || {};
@@ -1128,12 +1130,23 @@ function renderList() {
               ? `${escapedConflictOwnerName} is using port :${conflict?.port || 'unknown'}.`
               : '';
         const displayedStatus = projectDisplayedStatus(project);
-        const statusDotClass = ['running', 'active'].includes(statusClass)
+        const startFailureText = projectStartFailureText(project);
+        const stopFailureText = projectStopFailureText(project);
+        const rowStatusTitle = statusTitle
+          || ((startFailureText || stopFailureText) ? escapeHtml(displayedStatus) : '');
+        const statusDotClass = startFailureText || stopFailureText
+          ? 'conflict'
+          : ['running', 'active'].includes(statusClass)
           && !(projectStatus === 'active' && project.httpUnresponsive)
           ? 'running'
           : ['port-in-use', 'port-in-use-unknown', 'not-ready', 'not-responding', 'review-required', 'ownership-lost'].includes(statusClass)
             ? 'conflict'
             : '';
+        const rowStatusClass = startFailureText
+          ? 'start-failed'
+          : stopFailureText
+            ? 'stop-failed'
+            : statusClass;
         const rowPort = projectRowPort(project);
         const portLabel = rowPort ? `:${rowPort}` : '';
         const rowElapsedStartedAt = projectRowElapsedStartedAt(project);
@@ -1157,7 +1170,7 @@ function renderList() {
                   </h2>
                 </div>
                 <div class="project-meta">
-                  <div class="project-status status-${statusClass}"${statusTitle ? ` title="${statusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : `<span class="status-dot ${statusDotClass}" aria-hidden="true"></span>`}<span>${escapeHtml(displayedStatus)}</span></div>
+                  <div class="project-status status-${rowStatusClass}"${rowStatusTitle ? ` title="${rowStatusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : `<span class="status-dot ${statusDotClass}" aria-hidden="true"></span>`}<span>${escapeHtml(displayedStatus)}</span></div>
                   ${Number.isFinite(rowElapsedStartedAt) ? `
                     <span class="project-row-elapsed" data-row-elapsed data-started-at="${rowElapsedStartedAt}" aria-label="Running for ${escapeHtml(rowElapsedLabel)}">${escapeHtml(rowElapsedLabel)}</span>` : ''}
                   ${rowPort ? `

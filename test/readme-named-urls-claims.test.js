@@ -6,12 +6,17 @@ const { createPhoneHandoff } = require('../src/webview/phone-handoff');
 
 const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
 
-test('README named URL claims stay within shipped name+port behavior', () => {
-  assert.match(readme, /name\.localhost/);
-  assert.match(readme, /falls back to `localhost:port`/i);
-  assert.match(readme, /Not a local reverse proxy/i);
-  assert.match(readme, /phone handoff uses your LAN address/i);
+test('Marketplace README locks signed open-in-browser copy without the named-URL essay', () => {
+  assert.match(readme, /Open the app in your browser/);
+  assert.doesNotMatch(readme, /## Everyday use/);
+  assert.doesNotMatch(readme, /## Power features/);
+  assert.doesNotMatch(readme, /name\.localhost/);
+  assert.doesNotMatch(readme, /falls back to `localhost:port`/i);
+  assert.doesNotMatch(readme, /Not a local reverse proxy/i);
+  assert.doesNotMatch(readme, /phone handoff uses your LAN address/i);
   assert.doesNotMatch(readme, /full Portless|Caddy feature parity|puma-dev parity/i);
+  assert.doesNotMatch(readme, /raw\.githubusercontent\.com/);
+  assert.doesNotMatch(readme, /\/raw\/HEAD\//);
 });
 
 test('phone handoff rewrites *.localhost service URLs to LAN', () => {

@@ -261,9 +261,13 @@ function startFailureSummary(output, details = {}) {
 
   const explicitDetail = cleanFailureLine(details.detail);
   const outcome = failureOutcome(details.code, details.signal);
+  const hasProcessOutcome = (details.code !== undefined && details.code !== null)
+    || Boolean(details.signal);
   return {
     title: 'Start failed',
-    message: selected || explicitDetail || outcome || 'The start command stopped unexpectedly.',
+    message: explicitDetail && !hasProcessOutcome
+      ? explicitDetail
+      : (selected || explicitDetail || outcome || 'Start failed'),
     outcome: (selected || explicitDetail) ? outcome : ''
   };
 }

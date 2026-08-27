@@ -89,7 +89,7 @@ test('compares canonical identities while remaining safe during persisted-format
   );
 });
 
-test('gives Windows and Darwin identity probes enough time for cold process inspection', () => {
+test('gives Windows, Darwin, and Linux identity probes enough time for cold process inspection', () => {
   const {
     PROCESS_IDENTITY_PROBE_TIMEOUT_MS,
     darwinIdentityCommandOptions
@@ -112,16 +112,29 @@ test('gives Windows and Darwin identity probes enough time for cold process insp
     PROCESS_IDENTITY_PROBE_TIMEOUT_MS
   );
 
-  const ownershipSource = require('node:fs').readFileSync(
-    require('node:path').join(__dirname, '..', 'src', 'lifecycle', 'project-process.js'),
-    'utf8'
-  );
-  const heartbeatMatch = ownershipSource.match(/const OWNER_HEARTBEAT_TIMEOUT_MS = (\d+);/);
-  assert.ok(heartbeatMatch, 'ownership heartbeat budget must stay explicit');
-  assert.ok(
-    Number(heartbeatMatch[1]) > PROCESS_IDENTITY_PROBE_TIMEOUT_MS,
-    'Owner heartbeat must outlast a full sync identity probe so reserve cannot reclaim a live owner'
-  );
+  let linuxPsTimeout;
+  readProcessIdentitySync(303, 'freebsd', {
+    execFileSync: (_file, _args, options) => {
+      linuxPsTimeout = options.timeout;
+      return 'Thu Jan  1 00:00:00 2026';
+    }
+  });
+  assert.equal(linuxPsTimeout, PROCESS_IDENTITY_PROBE_TIMEOUT_MS);
+
+  const fs = require('node:fs');
+  const path = require('node:path');
+  for (const relativePath of [
+    'src/lifecycle/project-process.js',
+    'src/ports/port-gate.js'
+  ]) {
+    const source = fs.readFileSync(path.join(__dirname, '..', relativePath), 'utf8');
+    const heartbeatMatch = source.match(/const OWNER_HEARTBEAT_TIMEOUT_MS = (\d+);/);
+    assert.ok(heartbeatMatch, `${relativePath} ownership heartbeat budget must stay explicit`);
+    assert.ok(
+      Number(heartbeatMatch[1]) > PROCESS_IDENTITY_PROBE_TIMEOUT_MS,
+      `${relativePath} owner heartbeat must outlast a full sync identity probe so reserve cannot reclaim a live owner`
+    );
+  }
 });
 
 test('validates and captures current identity through the shared boundary', () => {

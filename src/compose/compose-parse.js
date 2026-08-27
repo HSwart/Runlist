@@ -1,5 +1,6 @@
 const path = require('path');
 const { ComposeFileError } = require('./compose-file');
+const { normalizeEnvFile } = require('../projects/launch-env');
 
 /**
  * Parse a Compose document into reviewable Runlist service proposals.
@@ -83,6 +84,7 @@ function parseComposeServices(contents, options = {}) {
 
   return {
     composePath: typeof options.composePath === 'string' ? options.composePath : undefined,
+    envFile: composeImportEnvFile(document, servicesNode),
     services
   };
 }
@@ -104,7 +106,7 @@ function buildComposeImportProposal(options = {}) {
     for (const port of service.ports) {
       runlistServices.push({
         name: service.ports.length > 1 ? `${service.name}:${port}` : service.name,
-        port: String(port),
+        port: coerceComposeImportPort(port),
         url: '',
         composeService: service.name,
         profiles: service.profiles
@@ -130,18 +132,60 @@ function buildComposeImportProposal(options = {}) {
       folder,
       startCommand,
       stopCommand,
-      services: runlistServices.map((service) => ({
-        name: service.name,
-        port: service.port,
-        url: service.url
-      })),
+      services: composeImportServicesForSave(runlistServices),
       ...(composePath ? { composePath } : {}),
+      ...(parsed.envFile ? { envFile: parsed.envFile } : {}),
       reviewRequired: false
     },
     warnings: parsed.services
       .filter((service) => !service.ports.length)
       .map((service) => `${service.name} has no published host port, so it will not become a Runlist service row yet.`)
   };
+}
+
+function composeImportEnvFile(document, servicesNode) {
+  const candidates = [
+    ...composeEnvFileEntries(document?.env_file),
+    ...Object.values(servicesNode && typeof servicesNode === 'object' && !Array.isArray(servicesNode)
+      ? servicesNode
+      : {}).flatMap((definition) => (
+      definition && typeof definition === 'object' && !Array.isArray(definition)
+        ? composeEnvFileEntries(definition.env_file)
+        : []
+    ))
+  ];
+  for (const candidate of candidates) {
+    try {
+      const normalized = normalizeEnvFile(candidate);
+      if (normalized) {
+        return normalized;
+      }
+    } catch {
+      // Invalid paths stay out of the existing envFile field.
+    }
+  }
+  return undefined;
+}
+
+function composeEnvFileEntries(node) {
+  if (node === undefined || node === null) {
+    return [];
+  }
+  const entries = Array.isArray(node) ? node : [node];
+  const paths = [];
+  for (const entry of entries) {
+    if (typeof entry === 'string' && entry.trim()) {
+      paths.push(entry.trim());
+      continue;
+    }
+    if (entry && typeof entry === 'object' && !Array.isArray(entry) && typeof entry.path === 'string') {
+      const value = entry.path.trim();
+      if (value) {
+        paths.push(value);
+      }
+    }
+  }
+  return paths;
 }
 
 function assertSafeComposeYaml(text) {
@@ -487,7 +531,33 @@ function composeError(code, message, options) {
   return new ComposeFileError(code, message, options);
 }
 
+function coerceComposeImportPort(value) {
+  if (typeof value === 'number' && Number.isInteger(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (/^[1-9]\d*$/.test(trimmed)) {
+      const port = Number(trimmed);
+      if (Number.isInteger(port) && port >= 1 && port <= 65535) {
+        return port;
+      }
+    }
+  }
+  return value;
+}
+
+function composeImportServicesForSave(services) {
+  return (Array.isArray(services) ? services : []).map((service) => ({
+    name: service.name,
+    port: coerceComposeImportPort(service.port),
+    url: service.url || ''
+  }));
+}
+
 module.exports = {
   buildComposeImportProposal,
+  coerceComposeImportPort,
+  composeImportServicesForSave,
   parseComposeServices
 };

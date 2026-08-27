@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.0.14 — Extra cut: README, fail/Stop honesty, Compose import
+
+- Land the signed short Marketplace README.
+- Show the start fail reason on line 2 of a failed row.
+- Keep Stop honest when the process or configured port is still up.
+- Save Compose imports with integer ports.
+- Fill Compose env_file into the existing envFile field on import.
+- Keep ownership identity and process-group probes at 10s and heartbeats at 30s.
+- Fix Delete falsely reporting that a project “started in another VS Code window” when this window still held a leftover ownership lock after Stop or a failed Start.
+- Adopt that local ownership for the delete critical section only when it matches the ownership token observed before Stop, so a concurrent Restart cannot be deleted away; then release the hold.
+
 ## 0.0.13 — Delete when this window still holds ownership
 
 - Fix Delete falsely reporting that a project “started in another VS Code window” when this window still held a leftover ownership lock after Stop or a failed Start.

@@ -46,3 +46,20 @@ test('Compose-style start failures produce a useful failure summary', () => {
   });
   assert.match(daemon.message, /Docker is not running/i);
 });
+
+test('prefers the current Compose preflight detail over leftover launch output', () => {
+  const leftover = [
+    'starting server',
+    '/bin/sh: vite: command not found'
+  ].join('\n');
+  const preflight = startFailureSummary(leftover, {
+    detail: 'Docker is not available. Install Docker Desktop or Engine, then try again.'
+  });
+  assert.equal(
+    preflight.message,
+    'Docker is not available. Install Docker Desktop or Engine, then try again.'
+  );
+
+  const processExit = startFailureSummary(leftover, { code: 127 });
+  assert.equal(processExit.message, '/bin/sh: vite: command not found');
+});

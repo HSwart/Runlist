@@ -105,3 +105,83 @@ test('moves uncommon lifecycle phrases off the capsule without renaming them as 
     /external process python · PID 88/
   );
 });
+
+test('shows the start fail reason on line 2 instead of Stopped', () => {
+  assert.equal(
+    projectDisplayedStatus({
+      name: 'App',
+      status: 'stopped',
+      failureSummary: { title: 'Start failed', message: '/bin/sh: vite: command not found' }
+    }),
+    '/bin/sh: vite: command not found'
+  );
+  assert.equal(
+    projectDisplayedStatus({
+      name: 'App',
+      status: 'stopped',
+      failureSummary: { title: 'Start failed' }
+    }),
+    'Start failed'
+  );
+  assert.equal(projectDisplayedStatus({ name: 'App', status: 'stopped' }), 'Stopped');
+  assert.notEqual(
+    projectDisplayedStatus({
+      name: 'App',
+      status: 'stopped',
+      failureSummary: { title: 'Start failed' }
+    }),
+    'Stopped'
+  );
+  assert.equal(
+    projectDisplayedStatus({
+      name: 'App',
+      status: 'running',
+      failureSummary: { title: 'Start failed', message: 'stale' }
+    }),
+    'Running'
+  );
+  assert.equal(
+    projectStatusAnnouncement({
+      name: 'App',
+      status: 'stopped',
+      failureSummary: { message: 'Process exited with code 1.' }
+    }),
+    'App: Process exited with code 1.'
+  );
+});
+
+test('shows Stop honesty on line 2 instead of Stopped', () => {
+  assert.equal(
+    projectDisplayedStatus({
+      name: 'App',
+      status: 'running',
+      stopFailure: 'Stop failed'
+    }),
+    'Stop failed'
+  );
+  assert.equal(
+    projectDisplayedStatus({
+      name: 'App',
+      status: 'active',
+      openPorts: [3000],
+      stopFailure: 'Port :3000 is still up'
+    }),
+    'Port :3000 is still up'
+  );
+  assert.equal(
+    projectDisplayedStatus({
+      name: 'App',
+      status: 'stopped',
+      stopFailure: 'Stop failed'
+    }),
+    'Stopped'
+  );
+  assert.equal(
+    projectStatusAnnouncement({
+      name: 'App',
+      status: 'running',
+      stopFailure: 'Stop failed'
+    }),
+    'App: Stop failed'
+  );
+});

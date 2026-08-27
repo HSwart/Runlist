@@ -9,7 +9,7 @@ const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
 
 test('running row keeps status and port on one second line', () => {
   assert.match(webview, /class="project-meta"/);
-  assert.match(webview, /class="project-status status-\$\{statusClass\}"/);
+  assert.match(webview, /class="project-status status-\$\{rowStatusClass\}"/);
   assert.match(webview, /class="project-port-chip" data-action="open"/);
   assert.match(webview, /class="project-row-elapsed" data-row-elapsed/);
   assert.match(webview, /const rowPort = projectRowPort\(project\)/);
@@ -20,6 +20,8 @@ test('running row keeps status and port on one second line', () => {
   assert.match(styles, /\.project-actions \{[\s\S]*gap: 6px;/);
   assert.doesNotMatch(styles, /Inter|fonts\.googleapis|@font-face/);
   assert.doesNotMatch(webview, /class="project-services-summary"/);
+  assert.match(styles, /\.project-status\.status-start-failed/);
+  assert.match(styles, /\.project-status span \{[\s\S]*text-overflow: ellipsis;/);
 });
 
 test('running row shows Stop and Restart as row actions', () => {

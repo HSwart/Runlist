@@ -165,23 +165,37 @@ class ProjectLifecycleCoordinator {
   }
 
   async waitUntilStopped(id, timeoutMs = this.remoteStopTimeoutMs + 1000) {
-    const deadline = Date.now() + timeoutMs;
-    while (this.host.processOwnership.snapshot().has(id)
-      || this.host.portReservations.snapshot().has(id)) {
-      if (Date.now() >= deadline) {
+    const deadline = this.now() + timeoutMs;
+    while (true) {
+      const ownershipPresent = this.host.processOwnership.snapshot().has(id)
+        || this.host.portReservations.snapshot().has(id);
+      const project = (this.host.projects || []).find((item) => item.id === id);
+      if (!ownershipPresent) {
+        const remainingMs = Math.max(0, deadline - this.now());
+        const servicesStopped = await this.waitUntilServicesStopped(
+          project,
+          Math.min(remainingMs, 100)
+        );
+        if (servicesStopped) {
+          this.host.remoteStopRequests.delete(id);
+          this.host.stoppingProjectIds.delete(id);
+          this.host.managedProjectIds.delete(id);
+          this.host.projectStatuses.set(id, 'stopped');
+          if (this.host.projectStopFailures instanceof Map) {
+            this.host.projectStopFailures.delete(id);
+          }
+          return true;
+        }
+      }
+      if (this.now() >= deadline) {
         return false;
       }
       await this.delay(100);
     }
-    this.host.remoteStopRequests.delete(id);
-    this.host.stoppingProjectIds.delete(id);
-    this.host.managedProjectIds.delete(id);
-    this.host.projectStatuses.set(id, 'stopped');
-    return true;
   }
 
   async waitUntilServicesStopped(project, timeoutMs = 20000) {
-    if (!project?.services?.length) {
+    if (!project?.services?.length || typeof this.servicePortStatus !== 'function') {
       return true;
     }
     const deadline = this.now() + timeoutMs;
