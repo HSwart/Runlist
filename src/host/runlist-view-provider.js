@@ -2897,6 +2897,9 @@ class RunlistViewProvider {
       return;
     }
     const latestSharedOwnership = latestProcessRuntime.get(id);
+    const deletionOwnershipToken = typeof latestSharedOwnership?.token === 'string'
+      ? latestSharedOwnership.token
+      : undefined;
     const portGeneration = this.portReservations.captureShared(id);
     const hadTrackedProcess = this.processes.has(id);
     const hadDetachedProcess = this.detachedProjectIds.has(id);
@@ -2925,11 +2928,13 @@ class RunlistViewProvider {
       vscode.window.showErrorMessage(`Could not stop ${project.name}: ${error.message}`);
       return;
     }
-    const deletionConflict = this.processOwnership.reserve(id);
+    const deletionConflict = this.processOwnership.holdForDeletion
+      ? this.processOwnership.holdForDeletion(id, { expectedToken: deletionOwnershipToken })
+      : this.processOwnership.reserve(id);
     if (deletionConflict) {
-      vscode.window.showErrorMessage(
-        `Could not delete ${project.name}: it started in another VS Code window while deletion was in progress.`
-      );
+      vscode.window.showErrorMessage(deletionConflict.kind === 'uncertain'
+        ? `Could not delete ${project.name}: Runlist cannot safely verify who owns its previous process. Nothing was deleted.`
+        : `Could not delete ${project.name}: it is running in another VS Code window.`);
       return;
     }
 
