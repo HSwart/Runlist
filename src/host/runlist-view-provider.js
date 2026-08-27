@@ -50,6 +50,13 @@ const {
 } = require('../ports/port-recovery');
 const { customStopPostcondition, stopHonestyMessage } = require('../lifecycle/custom-stop-recovery');
 const {
+  emptyStartCommandDetail,
+  hungStartFailureDetail,
+  hungStartShouldFail,
+  hungStoppingShouldResolve,
+  isEmptyStartCommand
+} = require('../lifecycle/lifecycle-honesty');
+const {
   availableProjectDetailTabs,
   preferredProjectDetailTab
 } = require('../webview/project-detail-tabs');
@@ -365,6 +372,7 @@ class RunlistViewProvider {
     this.handoffProjectIds = new Set();
     this.forceClosingProjectIds = new Set();
     this.stoppingProjectIds = new Set();
+    this.stoppingStartedAt = new Map();
     this.stoppingOperations = new Map();
     this.remoteStopRequests = new Map();
     this.statusRefreshInFlight = false;
@@ -1013,6 +1021,24 @@ class RunlistViewProvider {
     );
   }
 
+  startAttemptToken(id) {
+    const entry = this.startAttempts.get(id);
+    if (!entry) {
+      return undefined;
+    }
+    return entry && typeof entry === 'object' && Object.prototype.hasOwnProperty.call(entry, 'token')
+      ? entry.token
+      : entry;
+  }
+
+  startAttemptAgeMs(id, now = Date.now()) {
+    const entry = this.startAttempts.get(id);
+    if (!entry || typeof entry !== 'object' || !Number.isFinite(entry.startedAt)) {
+      return undefined;
+    }
+    return Math.max(0, now - entry.startedAt);
+  }
+
   getProjectStatus(id) {
     if (this.stoppingProjectIds.has(id)) {
       return 'stopping';
@@ -1025,7 +1051,7 @@ class RunlistViewProvider {
   }
 
   rowStartFailureSummary(id, status) {
-    if (status !== 'stopped') {
+    if (!['stopped', 'port-in-use', 'port-in-use-unknown'].includes(status)) {
       return undefined;
     }
     const summary = this.projectFailureSummaries.get(id);
@@ -1394,9 +1420,11 @@ class RunlistViewProvider {
         if (!ownership) {
           this.remoteStopRequests.delete(id);
           this.stoppingProjectIds.delete(id);
+          this.stoppingStartedAt.delete(id);
         } else if (ownership.state !== 'stopping') {
           this.remoteStopRequests.delete(id);
           this.stoppingProjectIds.delete(id);
+          this.stoppingStartedAt.delete(id);
           vscode.window.showErrorMessage(
             `Could not confirm that ${request.projectName} stopped: its launching VS Code window left the process ownership unchanged.`
           );
@@ -1405,6 +1433,7 @@ class RunlistViewProvider {
           this.processOwnership.cancelStopRequest(id);
           this.remoteStopRequests.delete(id);
           this.stoppingProjectIds.delete(id);
+          this.stoppingStartedAt.delete(id);
           this.projectStopFailures?.set(id, 'Stop failed');
           vscode.window.showErrorMessage(
             `Could not confirm that ${request.projectName} stopped: its launching VS Code window did not respond. Runlist left the process ownership unchanged.`
@@ -1532,6 +1561,23 @@ class RunlistViewProvider {
       }
 
       const projectsById = new Map(projects.map((project) => [project.id, project]));
+      for (const [id, status] of checks.map(([checkId, checkStatus]) => [checkId, checkStatus])) {
+        const ownership = processRuntime.get(id);
+        const processActive = this.processes.has(id) || Boolean(ownership?.processActive);
+        if (!hungStartShouldFail({
+          processActive,
+          readinessTimedOut: status === 'not-ready',
+          startAttemptAgeMs: this.startAttemptAgeMs(id, now),
+          startBoundMs: START_READINESS_TIMEOUT_MS
+        })) {
+          continue;
+        }
+        this.failHungStart(id, projectsById.get(id));
+        const index = checks.findIndex((entry) => entry[0] === id);
+        if (index >= 0) {
+          checks[index] = [id, 'stopped', undefined, [], [], [], [], checks[index][7] || {}];
+        }
+      }
       for (const [id, status, , , , , , readinessDetails] of checks) {
         if (status === 'stopped') {
           this.managedProjectIds.delete(id);
@@ -1605,6 +1651,29 @@ class RunlistViewProvider {
           id,
           serviceUrls.map(({ port, url }) => ({ port, url }))
         ]));
+      for (const id of [...this.stoppingProjectIds]) {
+        const openPorts = nextOpenPorts.get(id) || [];
+        const ownership = processRuntime.get(id);
+        const processActive = this.processes.has(id) || Boolean(ownership?.processActive);
+        const startedAt = this.stoppingStartedAt.get(id);
+        const resolution = hungStoppingShouldResolve({
+          processActive,
+          portsOpen: openPorts.length > 0,
+          stoppingAgeMs: Number.isFinite(startedAt) ? now - startedAt : undefined,
+          stopBoundMs: REMOTE_STOP_TIMEOUT_MS
+        });
+        if (resolution === 'stopping') {
+          continue;
+        }
+        const resolved = this.resolveHungStopping(id, projectsById.get(id), resolution, {
+          processActive,
+          openPorts
+        });
+        nextStatuses.set(id, resolved === 'stopped' ? 'stopped' : this.projectStatuses.get(id));
+        if (resolved === 'stopped') {
+          nextOpenPorts.set(id, []);
+        }
+      }
       const listenerPorts = [...new Set(
         [...nextOpenPorts.values()]
           .flat()
@@ -2087,15 +2156,98 @@ class RunlistViewProvider {
     if (this.mode === 'output' && this.selectedProjectId === project.id) {
       this.outputUpdateScheduler.schedule(project.id);
     }
-    void vscode.window.showErrorMessage(
-      `Could not start ${project.name}: ${summary.message}`,
-      'View output'
-    ).then((choice) => {
-      if (choice === 'View output') {
-        this.showProjectOutput(project.id);
-      }
-    });
+    if (normalizedDetails.notify !== false) {
+      void vscode.window.showErrorMessage(
+        `Could not start ${project.name}: ${summary.message}`,
+        'View output'
+      ).then((choice) => {
+        if (choice === 'View output') {
+          this.showProjectOutput(project.id);
+        }
+      });
+    }
     return true;
+  }
+
+  failHungStart(id, project, { projectRevision } = {}) {
+    this.statusRevision += 1;
+    this.startAttempts.delete(id);
+    this.managedProjectIds.delete(id);
+    this.detachedProjectIds.delete(id);
+    this.startReadinessDeadlines.delete(id);
+    this.readinessWarnings.delete(id);
+    try {
+      this.processOwnership.release(id);
+    } catch {
+      // Ownership may already be gone when a start attempt never spawned.
+    }
+    try {
+      this.releaseStartReservation(id);
+    } catch {
+      // Port reservation may already be gone.
+    }
+    this.projectRuntime.delete(id);
+    this.projectAttemptMetadata.delete(id);
+    this.projectStatuses.set(id, 'stopped');
+    if (project) {
+      this.showStartFailure(project, {
+        detail: hungStartFailureDetail(),
+        ...(projectRevision ? { projectRevision } : {})
+      });
+    }
+    return true;
+  }
+
+  resolveHungStopping(id, project, resolution, { processActive = false, openPorts = [] } = {}) {
+    if (resolution === 'stopped') {
+      this.stoppingProjectIds.delete(id);
+      this.stoppingStartedAt.delete(id);
+      this.projectStopFailures?.delete(id);
+      try {
+        this.processOwnership.release(id);
+      } catch {
+        // Ownership may already be cleared when the process exited first.
+      }
+      try {
+        this.releaseStartReservation(id);
+      } catch {
+        // Reservation may already be cleared.
+      }
+      this.managedProjectIds.delete(id);
+      this.detachedProjectIds.delete(id);
+      this.projectRuntime.delete(id);
+      this.projectStatuses.set(id, 'stopped');
+      return 'stopped';
+    }
+    if (resolution === 'stop-failed') {
+      this.stoppingProjectIds.delete(id);
+      this.stoppingStartedAt.delete(id);
+      const message = stopHonestyMessage({
+        processActive,
+        openPorts,
+        webPort: project?.services?.[0]?.port
+      }) || 'Stop failed';
+      this.projectStopFailures?.set(id, message);
+      const ownership = this.processOwnership.snapshot().get(id);
+      const state = processActive
+        ? (project?.services?.length ? 'not-ready' : 'running')
+        : 'active';
+      if (ownership && !ownership.detached) {
+        try {
+          transitionOwnedRuntimeState(
+            this.processOwnership,
+            this.portReservations,
+            id,
+            state
+          );
+        } catch {
+          // Best-effort leave Stopping so line 2 can show the stop failure.
+        }
+      }
+      this.projectStatuses.set(id, state);
+      return 'stop-failed';
+    }
+    return 'stopping';
   }
 
   persistStartFailure(project, details, summary) {
@@ -3183,6 +3335,16 @@ class RunlistViewProvider {
         composeServices: composeLaunch.composeServices
       };
     }
+    if (!composeLaunch && isEmptyStartCommand(launchProject.startCommand)) {
+      this.processOwnership.release(id);
+      this.projectStatuses.set(id, 'stopped');
+      this.showStartFailure(project, {
+        detail: emptyStartCommandDetail(),
+        projectRevision: savedProjectRevision
+      });
+      this.renderProjectList();
+      return false;
+    }
     const processRuntime = this.processOwnership.snapshot();
     const effectiveProjects = projects.map((candidate) => projectStopStrategy(
       candidate,
@@ -3255,7 +3417,7 @@ class RunlistViewProvider {
 
     const attempt = Symbol(id);
     this.statusRevision += 1;
-    this.startAttempts.set(id, attempt);
+    this.startAttempts.set(id, { token: attempt, startedAt: Date.now() });
     this.projectPortConflicts.delete(id);
     this.projectOpenPorts.delete(id);
     this.projectRespondingPorts.delete(id);
@@ -3270,7 +3432,7 @@ class RunlistViewProvider {
     const portStatus = launchProject.services?.length
       ? await servicePortStatus(launchProject.services)
       : { allOpen: false, anyOpen: false, openPorts: [] };
-    if (this.startAttempts.get(id) !== attempt) {
+    if (this.startAttemptToken(id) !== attempt) {
       return false;
     }
     if (portStatus.anyOpen) {
@@ -3639,6 +3801,11 @@ class RunlistViewProvider {
       this.projectStatuses.set(id, 'stopped');
       this.startReadinessDeadlines.delete(id);
       this.readinessWarnings.delete(id);
+      if (stoppedIntentionally) {
+        this.stoppingProjectIds.delete(id);
+        this.stoppingStartedAt.delete(id);
+        this.projectStopFailures?.delete(id);
+      }
     }
     if (startFailed) {
       this.showStartFailure(project, {
@@ -4057,6 +4224,17 @@ class RunlistViewProvider {
         } else if (outcome) {
           vscode.window.showErrorMessage(outcome.text);
         }
+        if (intent === 'start') {
+          this.projectStatuses.set(id, result.status === 'still-open'
+            ? 'port-in-use-unknown'
+            : (this.projectStatuses.get(id) || 'port-in-use-unknown'));
+          this.showStartFailure(savedProject, {
+            detail: outcome?.text
+              || `Port ${formatPortList(result.ports || [])} is still in use.`,
+            notify: false
+          });
+          this.renderProjectList();
+        }
         return false;
       }
 
@@ -4322,6 +4500,7 @@ class RunlistViewProvider {
 
   beginStopping(id, options = {}) {
     this.stoppingProjectIds.add(id);
+    this.stoppingStartedAt.set(id, Date.now());
     this.projectStopFailures?.delete(id);
     if (options.detachedStopClaim) {
       this.portReservations.setStateShared(id, 'stopping', options.portGeneration);
@@ -4340,6 +4519,7 @@ class RunlistViewProvider {
 
   finishStopping(id, succeeded, portGeneration, detachedStopClaim) {
     this.stoppingProjectIds.delete(id);
+    this.stoppingStartedAt.delete(id);
     this.statusRevision += 1;
     let succeededCleanup = succeeded;
     if (succeeded) {
@@ -4487,6 +4667,13 @@ class RunlistViewProvider {
       }
       try {
         this.stoppingProjectIds.delete(id);
+      } catch (stateError) {
+        cleanupErrors.push(stateError);
+      }
+      try {
+        if (this.stoppingStartedAt instanceof Map) {
+          this.stoppingStartedAt.delete(id);
+        }
       } catch (stateError) {
         cleanupErrors.push(stateError);
       }

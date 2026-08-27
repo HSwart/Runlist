@@ -179,6 +179,9 @@ class ProjectLifecycleCoordinator {
         if (servicesStopped) {
           this.host.remoteStopRequests.delete(id);
           this.host.stoppingProjectIds.delete(id);
+          if (this.host.stoppingStartedAt instanceof Map) {
+            this.host.stoppingStartedAt.delete(id);
+          }
           this.host.managedProjectIds.delete(id);
           this.host.projectStatuses.set(id, 'stopped');
           if (this.host.projectStopFailures instanceof Map) {
@@ -316,6 +319,12 @@ class ProjectLifecycleCoordinator {
 
     if (!succeeded && failureMessage) {
       this.showErrorMessage(failureMessage);
+      if (typeof this.host.showStartFailure === 'function') {
+        this.host.showStartFailure(requestedProject, {
+          detail: failureMessage,
+          notify: false
+        });
+      }
     }
     this.host.focusTarget = succeeded
       ? { type: 'project-control', id }

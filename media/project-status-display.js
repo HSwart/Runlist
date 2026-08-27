@@ -60,7 +60,8 @@
     if (project.forceClosing || project.handoffInProgress || project.reviewRequired) {
       return '';
     }
-    if (projectStatusCode(project) !== 'stopped') {
+    const code = projectStatusCode(project);
+    if (!['stopped', 'port-in-use', 'port-in-use-unknown'].includes(code)) {
       return '';
     }
     const summary = project.failureSummary;

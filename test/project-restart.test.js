@@ -1645,7 +1645,7 @@ test('rolls back ownership and start state when port reservation throws', () => 
   const source = readShippedHostSource();
   const reserve = source.indexOf('this.portReservations.reserve(launchProject)');
   const reserveTry = source.lastIndexOf('try {', reserve);
-  const startAttempt = source.indexOf('this.startAttempts.set(id, attempt)', reserve);
+  const startAttempt = source.indexOf('this.startAttempts.set(id, { token: attempt, startedAt: Date.now() })', reserve);
   const showError = source.indexOf('Could not start ${project.name}: ${error.message}', reserve);
   const releaseOwnership = source.indexOf('this.processOwnership.release(id)', reserve);
   const releaseStart = source.indexOf('this.releaseStartReservation(id)', reserve);
@@ -1662,7 +1662,7 @@ test('rolls back ownership and start state when port reservation throws', () => 
 test('keeps start rollback and the original reservation error primary when cleanup throws', () => {
   const source = readShippedHostSource();
   const reserve = source.indexOf('this.portReservations.reserve(launchProject)');
-  const startAttempt = source.indexOf('this.startAttempts.set(id, attempt)', reserve);
+  const startAttempt = source.indexOf('this.startAttempts.set(id, { token: attempt, startedAt: Date.now() })', reserve);
   const rollback = source.slice(source.lastIndexOf('try {', reserve), startAttempt);
 
   assert.match(rollback, /const cleanupErrors = \[\]/);
