@@ -96,13 +96,17 @@ test('shows the handoff only for an eligible preview and copies its exact URL', 
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
   const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
 
-  assert.match(extension, /const phoneHandoff = previewExpanded\s*\? createPhoneHandoff\(previewService\.url\)/);
+  assert.match(extension, /const phoneHandoff = previewService\?\.url\s*\?\s*createPhoneHandoff\(previewService\.url\)/);
   assert.match(webview, /project\.phoneHandoff \? `[\s\S]*Open on phone[\s\S]*project\.phoneHandoff\.qrSvg/);
   assert.match(webview, /<code>\$\{escapeHtml\(project\.phoneHandoff\.url\)\}<\/code>/);
   assert.match(webview, /data-url="\$\{escapeHtml\(project\.phoneHandoff\.url\)\}"/);
   assert.match(extension, /phoneHandoff\.url !== requestedUrl[\s\S]*clipboard\.writeText\(phoneHandoff\.url\)/);
   assert.match(webview, /aria-expanded="\$\{phoneHandoffOpen\}"[\s\S]*aria-controls="phone-handoff-/);
   assert.match(webview, /data-action="open-on-phone"/);
+  assert.match(webview, /canOpenOnPhone = Boolean\(project\.phoneHandoff\)/);
+  assert.match(webview, /\$\{canOpenOnPhone \? '' : 'disabled'\}/);
+  assert.match(webview, /focusAction: 'focus-phone-handoff'/);
+  assert.match(webview, /target\.action === 'focus-phone-handoff'/);
   assert.match(webview, /'open-on-phone':/);
   assert.doesNotMatch(webview, /class="[^"]*share-(?:section|strip|band)/);
   assert.doesNotMatch(styles, /\.share-(?:section|strip|band)\b/);
