@@ -3345,19 +3345,8 @@ class RunlistViewProvider {
         return false;
       }
       const windowsIssues = windowsStartCommandIssues(launchProject.startCommand, process.platform);
-      if (windowsIssues.length) {
-        this.managedProjectIds.delete(id);
-        this.processOwnership.release(id);
-        this.releaseStartReservation(id);
-        this.projectStatuses.set(id, 'stopped');
-        this.startReadinessDeadlines.delete(id);
-        this.projectAttemptMetadata.delete(id);
-        this.showStartFailure(project, {
-          detail: windowsIssues[0],
-          projectRevision: savedProjectRevision
-        });
-        this.renderProjectList();
-        return false;
+      for (const issue of windowsIssues) {
+        this.addProjectOutput(id, `Runlist: ${issue}\n`, savedProjectRevision);
       }
       try {
         const explicitRequired = resolveExplicitRequiredEnvKeys(launchProject);
@@ -3489,22 +3478,24 @@ class RunlistViewProvider {
     } catch (error) {
       this.statusRevision += 1;
       this.startAttempts.delete(id);
-      const rollback = await rollbackStartedProcess(
-        this.processes,
-        id,
-        this.processOwnership,
-        this.portReservations
-      );
       const verificationOnly = /could not verify the launched Windows process (?:tree|identity)/i
         .test(error?.message || '');
-      if (!rollback.stopped && verificationOnly) {
+      const liveChild = this.processes.get(id);
+      // Inspection failures must not kill a still-running Start. Keep the app and
+      // mark verification degraded instead of rolling back a healthy process.
+      if (verificationOnly && liveChild && Number.isInteger(liveChild.pid) && liveChild.pid > 0) {
+        liveChild.runlistProcessTreeDegraded = true;
         const state = launchProject.services?.length ? 'not-ready' : 'running';
-        transitionOwnedRuntimeState(
-          this.processOwnership,
-          this.portReservations,
-          id,
-          state
-        );
+        try {
+          transitionOwnedRuntimeState(
+            this.processOwnership,
+            this.portReservations,
+            id,
+            state
+          );
+        } catch {
+          // Ownership transition is best-effort once the process is already live.
+        }
         this.projectRuntime = this.processOwnership.snapshot();
         this.projectStatuses.set(id, state);
         this.addProjectOutput(
@@ -3518,6 +3509,12 @@ class RunlistViewProvider {
         this.renderProjectList();
         return true;
       }
+      const rollback = await rollbackStartedProcess(
+        this.processes,
+        id,
+        this.processOwnership,
+        this.portReservations
+      );
       if (rollback.stopped) {
         this.forgetProjectMetrics(id);
         this.projectRuntime.delete(id);

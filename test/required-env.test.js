@@ -59,7 +59,7 @@ test('suggests attaching reviewed .env.local when present and unused', () => {
   assert.equal(envLocalAttachHint(undefined, false), undefined);
 });
 
-test('host Start never hard-fails on .env.example alone', () => {
+test('host Start never hard-fails on .env.example alone or nested PowerShell lint', () => {
   const { readShippedHostSource } = require('./helpers/extension-source');
   const extension = readShippedHostSource();
   assert.match(extension, /resolveExplicitRequiredEnvKeys\(launchProject\)/);
@@ -68,4 +68,14 @@ test('host Start never hard-fails on .env.example alone', () => {
   assert.match(extension, /formatEnvPresenceWarnings/);
   assert.doesNotMatch(extension, /Missing required environment variables from \.env\.example/);
   assert.doesNotMatch(extension, /requiredEnvKeysFromExample/);
+  // Nested PowerShell is advisory only — must not showStartFailure / return false.
+  assert.match(extension, /windowsStartCommandIssues\(launchProject\.startCommand/);
+  assert.doesNotMatch(
+    extension,
+    /windowsStartCommandIssues[\s\S]{0,400}showStartFailure/
+  );
+  assert.match(
+    extension,
+    /verificationOnly[\s\S]{0,200}liveChild/
+  );
 });

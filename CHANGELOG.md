@@ -1,10 +1,14 @@
 # Changelog
 
-## 0.0.16 — Soften env preflight
+## 0.0.16 — Soften Start preflights
 
 - Stop blocking Start on `.env.example` keys. Only explicitly configured `requiredEnvKeys` for the selected launch profile can hard-fail (names only).
 - Treat missing `.env.example` entries as advisory Start output, with Playwright/test-only keys called out separately.
 - When `.env.local` exists and is not the reviewed env file, hint that it can be attached through the launch profile’s env file field.
+- Strip npm/pnpm/yarn `--silent`/`-s` only on those managers — never rewrite `npx concurrently -s` or flags after `--`.
+- Nested PowerShell `-Command` quoting is a Start warning, not a hard block.
+- Windows lifecycle verification failures keep a still-running app as degraded instead of killing it.
+- Dual Python+Node folder markers classify as `unknown` instead of inventing Node.
 
 ## 0.0.15 — Monorepo start showstoppers
 
