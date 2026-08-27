@@ -55,6 +55,60 @@ function defaultLocalHostname(project = {}) {
   return slugifyLocalHostname(project.name);
 }
 
+function allocateLocalHostname(baseName, taken = []) {
+  const base = slugifyLocalHostname(baseName);
+  if (!base) {
+    return undefined;
+  }
+  const used = new Set(
+    (Array.isArray(taken) ? taken : [])
+      .map((value) => normalizeLocalHostname(value) || slugifyLocalHostname(value))
+      .filter(Boolean)
+  );
+  if (!used.has(base)) {
+    return base;
+  }
+  for (let suffix = 2; suffix < 10000; suffix += 1) {
+    const marker = `-${suffix}`;
+    const truncated = base.slice(0, Math.max(1, MAX_LOCAL_HOSTNAME_LENGTH - marker.length));
+    const candidate = `${truncated.replace(/-+$/g, '')}${marker}`;
+    if (!LOCAL_HOSTNAME_PATTERN.test(candidate)) {
+      continue;
+    }
+    if (!used.has(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+function resolveDistinctLocalHostnames(projects = [], enabledProjectIds = null) {
+  const list = Array.isArray(projects) ? projects : [];
+  const enabled = enabledProjectIds instanceof Set
+    ? enabledProjectIds
+    : enabledProjectIds
+      ? new Set(enabledProjectIds)
+      : null;
+  const assignments = new Map();
+  const taken = [];
+  const ordered = [...list].sort((left, right) => String(left.id).localeCompare(String(right.id)));
+  for (const project of ordered) {
+    if (enabled && !enabled.has(project.id)) {
+      continue;
+    }
+    const preferred = project.localHostname
+      ? normalizeLocalHostname(project.localHostname)
+      : slugifyLocalHostname(project.name);
+    const label = allocateLocalHostname(preferred || project.name, taken);
+    if (!label) {
+      continue;
+    }
+    assignments.set(project.id, label);
+    taken.push(label);
+  }
+  return assignments;
+}
+
 function buildNamedLocalUrl({ hostname, port, pathname = '/' } = {}) {
   const label = normalizeLocalHostname(hostname) || slugifyLocalHostname(hostname);
   if (!label || !Number.isInteger(port) || port < 1 || port > 65535) {
@@ -64,21 +118,28 @@ function buildNamedLocalUrl({ hostname, port, pathname = '/' } = {}) {
   return safeServiceUrl(`http://${label}.localhost:${port}${path === '/' ? '/' : path}`);
 }
 
-function preferredServiceOpenUrl({ project, service, port } = {}) {
+function preferredServiceOpenUrl({
+  project,
+  service,
+  port,
+  useNamedLocalhost = false,
+  hostname
+} = {}) {
   const override = typeof service?.url === 'string' ? service.url.trim() : '';
   if (override) {
     return safeServiceUrl(override);
   }
   const effectivePort = Number.isInteger(port) ? port : service?.port;
-  const hostname = defaultLocalHostname(project);
-  if (hostname) {
-    const named = buildNamedLocalUrl({ hostname, port: effectivePort });
+  if (!Number.isInteger(effectivePort) || effectivePort < 1 || effectivePort > 65535) {
+    return undefined;
+  }
+  if (useNamedLocalhost) {
+    const label = hostname
+      || defaultLocalHostname(project);
+    const named = buildNamedLocalUrl({ hostname: label, port: effectivePort });
     if (named) {
       return named;
     }
-  }
-  if (!Number.isInteger(effectivePort) || effectivePort < 1 || effectivePort > 65535) {
-    return undefined;
   }
   return safeServiceUrl(`http://localhost:${effectivePort}/`);
 }
@@ -97,11 +158,13 @@ function findLocalHostnameCollisions(projects, hostname, excludeProjectId) {
 }
 
 module.exports = {
+  allocateLocalHostname,
   buildNamedLocalUrl,
   defaultLocalHostname,
   findLocalHostnameCollisions,
   localHostnameValidationMessage,
   normalizeLocalHostname,
   preferredServiceOpenUrl,
+  resolveDistinctLocalHostnames,
   slugifyLocalHostname
 };

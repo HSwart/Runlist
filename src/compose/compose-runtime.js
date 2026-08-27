@@ -65,8 +65,11 @@ function buildComposeCommand(project, action) {
   const services = composeServiceNames(project);
   const fileArg = quoteShellArg(path.resolve(composePath));
   const serviceArgs = services.map(quoteShellArg).join(' ');
+  const noDeps = action === 'up' && (project.composeAutoRow === true || project.composeNoDeps === true)
+    ? ' --no-deps'
+    : '';
   return serviceArgs
-    ? `docker compose -f ${fileArg} ${action} ${serviceArgs}`
+    ? `docker compose -f ${fileArg} ${action}${noDeps} ${serviceArgs}`
     : `docker compose -f ${fileArg} ${action}`;
 }
 

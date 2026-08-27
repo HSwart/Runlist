@@ -187,8 +187,24 @@ const { detectStackContract, parseStackContract } = require('../projects/stack-c
 const {
   findLocalHostnameCollisions,
   preferredServiceOpenUrl,
+  resolveDistinctLocalHostnames,
   slugifyLocalHostname
 } = require('../services/local-hostname');
+const {
+  createOffLanShareUrl
+} = require('../services/off-lan-share');
+const {
+  canObserveHttp,
+  createHttpInspectorStore,
+  pickInspectorUpstreamPort,
+  waitForLocalPort
+} = require('../services/http-inspector');
+const {
+  attachDebuggerToProcess,
+  canAttachDebugger
+} = require('../debug/attach-debugger');
+const { mergeComposeAutoRows } = require('../compose/compose-service-rows');
+const { createProjectTerminalLauncher } = require('../lifecycle/project-terminal-launcher');
 const { detectWorktreeIdentity } = require('../ports/worktree-identity');
 const {
   WorktreePortsError,
@@ -303,6 +319,31 @@ class RunlistViewProvider {
     this.outputUpdateScheduler = createOutputUpdateScheduler((id) => this.sendProjectOutput(id));
     this.managedProjectIds = new Set();
     this.detachedProjectIds = new Set();
+    this.namedLocalhostEnabled = new Set();
+    this.offLanShareByProject = new Map();
+    this.httpInspector = createHttpInspectorStore();
+    this.projectTerminals = createProjectTerminalLauncher(vscode, {
+      onTerminalClosed: async (projectId) => {
+        if (this.disposed) {
+          return;
+        }
+        if (this.managedProjectIds.has(projectId) || this.processes.has(projectId)) {
+          this.statusRevision += 1;
+          this.processes.delete(projectId);
+          this.forgetProjectMetrics(projectId);
+          this.projectRuntime.delete(projectId);
+          this.managedProjectIds.delete(projectId);
+          this.namedLocalhostEnabled.delete(projectId);
+          await this.clearOffLanShare(projectId);
+          this.httpInspector.clear(projectId);
+          this.processOwnership.release(projectId);
+          this.releaseStartReservation?.(projectId);
+          this.projectStatuses.set(projectId, 'stopped');
+          this.startReadinessDeadlines.delete(projectId);
+          this.renderProjectList();
+        }
+      }
+    });
     this.portReservations = new PortReservationStore(
       path.join(path.dirname(projectsFile), 'port-reservations'),
       {
@@ -858,6 +899,10 @@ class RunlistViewProvider {
   }
 
   get projects() {
+    return mergeComposeAutoRows(pinnedProjectsFirst(readProjects(this.projectsFile)));
+  }
+
+  get savedProjects() {
     return pinnedProjectsFirst(readProjects(this.projectsFile));
   }
 
@@ -1746,6 +1791,12 @@ class RunlistViewProvider {
     if (!project) {
       return;
     }
+    if (project.composeAutoRow) {
+      vscode.window.showInformationMessage(
+        `${project.name} comes from the Compose file in this folder. Edit the Compose file, not a Runlist project form.`
+      );
+      return;
+    }
 
     this.mode = 'edit';
     this.routeNotice = undefined;
@@ -2275,19 +2326,154 @@ class RunlistViewProvider {
   }
 
   namedServiceUrls(project, reachableUrls = []) {
+    const useNamedLocalhost = this.namedLocalhostEnabled?.has(project?.id) === true;
+    const hostnames = useNamedLocalhost
+      ? resolveDistinctLocalHostnames(
+        this.projects,
+        this.namedLocalhostEnabled
+      )
+      : new Map();
     return (reachableUrls || []).map((entry) => {
       const service = (project?.services || []).find((item) => item.port === entry.port)
         || { port: entry.port };
       const preferred = preferredServiceOpenUrl({
         project,
         service,
-        port: entry.port
+        port: entry.port,
+        useNamedLocalhost,
+        hostname: hostnames.get(project?.id)
       });
       return {
         ...entry,
         url: preferred || entry.url
       };
     });
+  }
+
+  async toggleNamedLocalhost(id) {
+    const project = this.projects.find((item) => item.id === id);
+    if (!project) {
+      return false;
+    }
+    const status = this.getProjectStatus(id);
+    const hasWeb = Boolean(this.projectWebPorts.get(id)?.length || project.services?.some((service) => {
+      const port = Number(service.port);
+      return Number.isInteger(port) && port >= 1 && port <= 65535;
+    }));
+    if (!['running', 'starting', 'not-ready', 'not-responding', 'active'].includes(status) || !hasWeb) {
+      vscode.window.showInformationMessage(`Start ${project.name} with a web port before using a named localhost URL.`);
+      return false;
+    }
+    if (this.namedLocalhostEnabled.has(id)) {
+      this.namedLocalhostEnabled.delete(id);
+    } else {
+      this.namedLocalhostEnabled.add(id);
+    }
+    this.renderProjectList();
+    return true;
+  }
+
+  async attachProjectDebugger(id) {
+    const project = this.projects.find((item) => item.id === id);
+    if (!project) {
+      return false;
+    }
+    const status = this.getProjectStatus(id);
+    const ownership = this.processOwnership.snapshot().get(id);
+    const processHandle = this.processes.get(id);
+    const pid = Number(processHandle?.pid || ownership?.childPid || 0);
+    const eligibility = canAttachDebugger(project, {
+      status,
+      pid,
+      managed: this.managedProjectIds.has(id) || this.processes.has(id),
+      detected: status === 'active',
+      ownershipLost: status === 'ownership-lost'
+    });
+    if (!eligibility.ok) {
+      vscode.window.showWarningMessage(`${project.name}: ${eligibility.reason}`);
+      return false;
+    }
+    const result = await attachDebuggerToProcess(vscode, {
+      folder: project.folder,
+      pid: eligibility.pid,
+      name: project.name
+    });
+    if (!result.ok) {
+      vscode.window.showErrorMessage(`${project.name}: ${result.message}`);
+      return false;
+    }
+    return true;
+  }
+
+  async toggleOffLanShare(id) {
+    const project = this.projects.find((item) => item.id === id);
+    if (!project) {
+      return false;
+    }
+    if (this.offLanShareByProject.has(id)) {
+      await this.clearOffLanShare(id);
+      this.renderProjectList();
+      return true;
+    }
+    const status = this.getProjectStatus(id);
+    if (!['running', 'not-ready', 'not-responding', 'active'].includes(status)) {
+      vscode.window.showInformationMessage(`Start ${project.name} before sharing it off your LAN.`);
+      return false;
+    }
+    const previewService = projectPreviewService(
+      project,
+      status,
+      this.projectServiceUrls.get(id),
+      this.projectPortConflicts.has(id)
+    );
+    const localUrl = previewService?.url
+      || preferredServiceOpenUrl({
+        project,
+        service: project.services?.[0],
+        port: Number(project.services?.[0]?.port),
+        useNamedLocalhost: false
+      });
+    if (!localUrl) {
+      vscode.window.showErrorMessage(`${project.name}: No web URL is available to share.`);
+      return false;
+    }
+    const shared = await createOffLanShareUrl(vscode, localUrl, {
+      tryForwardPort: async () => {
+        try {
+          await vscode.commands.executeCommand(
+            'remote.tunnel.forwardCommandPalette'
+          );
+        } catch {
+          // Optional; asExternalUri may still succeed after tunnel login.
+        }
+      }
+    });
+    if (!shared.ok) {
+      vscode.window.showErrorMessage(`${project.name}: ${shared.message}`);
+      return false;
+    }
+    this.offLanShareByProject.set(id, {
+      url: shared.url,
+      localUrl
+    });
+    try {
+      await vscode.env.clipboard.writeText(shared.url);
+    } catch {
+      // Clipboard failure must not keep a fake share session.
+    }
+    vscode.window.showInformationMessage(`Sharing on: ${shared.url} (copied)`);
+    this.renderProjectList();
+    return true;
+  }
+
+  async clearOffLanShare(id) {
+    const existing = this.offLanShareByProject.get(id);
+    this.offLanShareByProject.delete(id);
+    if (!existing) {
+      return;
+    }
+    // VS Code owns tunnel lifetime; clearing Runlist state ends our share UX.
+    // Do not claim the public URL still serves after Stop/off.
   }
 
   async openProject(id) {
@@ -2819,6 +3005,12 @@ class RunlistViewProvider {
     if (!project) {
       return;
     }
+    if (project.composeAutoRow) {
+      vscode.window.showInformationMessage(
+        `${project.name} comes from the Compose file. Remove the service there to hide this row.`
+      );
+      return;
+    }
 
     const processRuntime = this.processOwnership.snapshot();
     if (hasUnownedPortReservation(id, {
@@ -2916,6 +3108,10 @@ class RunlistViewProvider {
       const adjacentProject = remainingProjects[projectIndex] || remainingProjects[projectIndex - 1];
       this.managedProjectIds.delete(id);
       this.detachedProjectIds.delete(id);
+      this.namedLocalhostEnabled.delete(id);
+      void this.clearOffLanShare(id);
+      this.httpInspector.clear(id);
+      this.projectTerminals.dispose(id);
       this.statusRevision += 1;
       this.portReservations.releaseShared(id, portGeneration);
       this.releaseStartReservation(id);
@@ -3062,7 +3258,9 @@ class RunlistViewProvider {
       const availability = await probeComposeAvailability();
       if (!availability.ok) {
         vscode.window.showErrorMessage(
-          `Could not start ${project.name}: ${availability.message}`
+          availability.code === 'DOCKER_MISSING' || availability.code === 'COMPOSE_MISSING'
+            ? 'Docker Compose not available.'
+            : `Could not start ${project.name}: ${availability.message}`
         );
         return false;
       }
@@ -3293,11 +3491,34 @@ class RunlistViewProvider {
         this.renderProjectList();
         return false;
       }
-      const child = spawnProjectCommand(launchProject.startCommand, {
-        cwd: launchProject.folder,
-        stdio: ['ignore', 'pipe', 'pipe'],
+
+      // Optional inbound HTTP inspector: proxy configured port → upstream PORT.
+      this.httpInspector.clear(id);
+      const webPorts = (launchProject.services || [])
+        .map((service) => Number(service.port))
+        .filter((port) => Number.isInteger(port) && port >= 1 && port <= 65535);
+      let inspectorUpstream;
+      if (webPorts.length === 1) {
+        const usedPorts = (Array.isArray(portOverrides) ? portOverrides : [])
+          .map((entry) => Number(entry.port))
+          .filter((port) => Number.isInteger(port));
+        inspectorUpstream = pickInspectorUpstreamPort(webPorts[0], usedPorts);
+        if (inspectorUpstream) {
+          launchEnvironment = {
+            ...launchEnvironment,
+            PORT: String(inspectorUpstream)
+          };
+        }
+      }
+
+      const started = await this.projectTerminals.start({
+        projectId: id,
+        name: launchProject.name,
+        folder: launchProject.folder,
+        command: launchProject.startCommand,
         env: launchEnvironment
       });
+      const child = started.handle;
 
       this.processes.set(id, child);
       try {
@@ -3305,7 +3526,7 @@ class RunlistViewProvider {
       } catch {
         // Last-started order is optional and must never block Start.
       }
-      listenToProjectOutput(child, (chunk) => this.addProjectOutput(id, chunk, savedProjectRevision));
+      // I/O lives in the named Terminal tab; do not open Output on Start.
       child.once('error', (error) => {
         if (this.processes.get(id) !== child) {
           return;
@@ -3315,6 +3536,9 @@ class RunlistViewProvider {
         this.forgetProjectMetrics(id);
         this.projectRuntime.delete(id);
         this.managedProjectIds.delete(id);
+        this.namedLocalhostEnabled.delete(id);
+        void this.clearOffLanShare(id);
+        this.httpInspector.clear(id);
         this.processOwnership.release(id);
         this.releaseStartReservation(id);
         this.projectStatuses.set(id, 'stopped');
@@ -3322,7 +3546,7 @@ class RunlistViewProvider {
         this.readinessWarnings.delete(id);
         const composeDetail = isComposeManagedProject(project)
           && (error?.code === 'ENOENT' || /ENOENT|not found/i.test(error?.message || ''))
-          ? 'Docker is not available. Install Docker Desktop or Engine, then try again.'
+          ? 'Docker Compose not available.'
           : error.message;
         this.showStartFailure(project, {
           detail: composeDetail,
@@ -3342,11 +3566,27 @@ class RunlistViewProvider {
           signal
         });
       });
+      if (inspectorUpstream && webPorts.length === 1) {
+        const upstreamReady = await waitForLocalPort(inspectorUpstream, 10000);
+        if (upstreamReady) {
+          await this.httpInspector.startProxy(id, {
+            configuredPort: webPorts[0],
+            upstreamPort: inspectorUpstream,
+            onChange: () => {
+              if (this.expandedPreviewProjectId === id) {
+                this.renderProjectList();
+              }
+            }
+          });
+        }
+      }
       if (!hasServices) {
         this.projectAttemptMetadata.get(id).readyAt = launchedAt;
       }
       this.projectMetrics.delete(id);
-      this.ownedProcessMetrics.track(id, child.pid);
+      if (Number.isInteger(child.pid) && child.pid > 0) {
+        this.ownedProcessMetrics.track(id, child.pid);
+      }
       await recordStartedProcess(this.processOwnership, this.portReservations, launchProject, child, {
         state: hasServices ? 'starting' : 'running',
         readinessDeadline,
@@ -4213,6 +4453,9 @@ class RunlistViewProvider {
       if (succeededCleanup) {
         this.managedProjectIds.delete(id);
         this.detachedProjectIds.delete(id);
+        this.namedLocalhostEnabled.delete(id);
+        void this.clearOffLanShare(id);
+        this.httpInspector.clear(id);
         this.projectRuntime.delete(id);
         this.projectAttemptMetadata.delete(id);
         this.projectTimelineFailures.delete(id);
@@ -4656,10 +4899,27 @@ class RunlistViewProvider {
         servicesAvailable: runtimeProject.services.length > 0,
         outputAvailable: outputPeek !== undefined,
         previewAvailable: previewExpanded,
-        historyAvailable: startupHistory.length > 0
+        historyAvailable: startupHistory.length > 0,
+        httpInspectorAvailable: canObserveHttp(runtimeProject, {
+          managed: this.managedProjectIds.has(project.id) || this.processes.has(project.id),
+          status,
+          webPorts,
+          observing: this.httpInspector.isObserving(project.id)
+        })
       });
       const locallyOwned = this.processes.has(project.id);
       const lifecycleCapability = this.lifecycleCapabilityFor(project);
+      const debuggerEligibility = canAttachDebugger(runtimeProject, {
+        status,
+        pid: Number(this.processes.get(project.id)?.pid || runtime?.childPid || 0),
+        managed: this.managedProjectIds.has(project.id) || this.processes.has(project.id),
+        detected: status === 'active',
+        ownershipLost: status === 'ownership-lost'
+      });
+      const shareState = this.offLanShareByProject.get(project.id);
+      const httpRequests = this.httpInspector.isObserving(project.id)
+        ? this.httpInspector.list(project.id)
+        : undefined;
       return {
         ...runtimeProject,
         launchProfiles: profiles.map((profile) => ({ id: profile.id, name: profile.name })),
@@ -4697,6 +4957,13 @@ class RunlistViewProvider {
         projectIncarnation: this.projectIncarnations.get(project.id),
         timelineExpanded: timelineVisible && detailsExpanded,
         previewExpanded,
+        useNamedLocalhost: this.namedLocalhostEnabled.has(project.id),
+        canDebug: debuggerEligibility.ok,
+        debugDisabledReason: debuggerEligibility.ok ? undefined : debuggerEligibility.reason,
+        offLanSharing: Boolean(shareState?.url),
+        offLanShareUrl: shareState?.url,
+        httpRequests,
+        composeAutoRow: project.composeAutoRow === true,
         previewPort: previewService?.port,
         previewUrl: previewService?.url,
         phoneHandoff,

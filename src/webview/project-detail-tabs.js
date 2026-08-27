@@ -1,6 +1,7 @@
 const PROJECT_DETAIL_TABS = Object.freeze({
   overview: 'overview',
   services: 'services',
+  requests: 'requests',
   output: 'output',
   preview: 'preview',
   history: 'history'
@@ -10,11 +11,13 @@ function availableProjectDetailTabs({
   servicesAvailable = false,
   outputAvailable = false,
   previewAvailable = false,
-  historyAvailable = false
+  historyAvailable = false,
+  httpInspectorAvailable = false
 } = {}) {
   return [
     PROJECT_DETAIL_TABS.overview,
     ...(servicesAvailable ? [PROJECT_DETAIL_TABS.services] : []),
+    ...(httpInspectorAvailable ? [PROJECT_DETAIL_TABS.requests] : []),
     ...(outputAvailable ? [PROJECT_DETAIL_TABS.output] : []),
     ...(previewAvailable ? [PROJECT_DETAIL_TABS.preview] : []),
     ...(historyAvailable ? [PROJECT_DETAIL_TABS.history] : [])

@@ -2997,3 +2997,61 @@ select[aria-invalid='true'] {
     transform: rotate(360deg);
   }
 }
+.http-request-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.http-request-toggle {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto auto;
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+  min-height: 24px;
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.http-request-method,
+.http-request-status,
+.http-request-duration {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.http-request-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 12px;
+}
+
+.http-request-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 6px 8px;
+}
+
+.http-request-header-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 6px;
+  font-size: 11px;
+}
+
+.http-request-payload {
+  margin: 0;
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+}

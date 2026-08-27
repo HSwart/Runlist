@@ -6,8 +6,10 @@ const { createPhoneHandoff } = require('../src/webview/phone-handoff');
 
 const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
 
-test('README named URL claims stay within shipped name+port behavior', () => {
+test('README named URL claims stay within shipped toggle behavior', () => {
   assert.match(readme, /name\.localhost/);
+  assert.match(readme, /Named localhost toggle/i);
+  assert.match(readme, /default off/i);
   assert.match(readme, /falls back to `localhost:port`/i);
   assert.match(readme, /Not a local reverse proxy/i);
   assert.match(readme, /phone handoff uses your LAN address/i);

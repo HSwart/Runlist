@@ -66,6 +66,9 @@
     'toggleProjectPin',
     'toggleProjectPreview',
     'toggleProjectServices',
+    'toggleNamedLocalhost',
+    'toggleOffLanShare',
+    'attachDebugger',
     'updateDraft',
     'useCurrentWorkspace'
   ]);
@@ -91,7 +94,10 @@
     'stopRunGroup',
     'toggleProjectPin',
     'toggleProjectPreview',
-    'toggleProjectServices'
+    'toggleProjectServices',
+    'toggleNamedLocalhost',
+    'toggleOffLanShare',
+    'attachDebugger'
   ]);
 
   function validateWebviewCommand(value) {

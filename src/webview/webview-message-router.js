@@ -161,6 +161,9 @@ function createRunlistWebviewRouter(host, adapters = {}) {
       toggleProjectPin: (message) => host.toggleProjectPin(message.id),
       toggleProjectPreview: (message) => host.toggleProjectPreview(message.id),
       toggleProjectServices: (message) => host.toggleProjectPreview(message.id, 'open-services'),
+      toggleNamedLocalhost: (message) => host.toggleNamedLocalhost(message.id),
+      toggleOffLanShare: (message) => host.toggleOffLanShare(message.id),
+      attachDebugger: (message) => host.attachProjectDebugger(message.id),
       updateDraft: (message) => {
         if (['add', 'edit'].includes(host.mode)) {
           host.draft = adapters.projectFormValues(message.draft);

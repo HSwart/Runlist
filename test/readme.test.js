@@ -57,9 +57,10 @@ test('keeps a Marketplace listing that sells shipped behavior', () => {
   assert.match(readme, /## Everyday use/);
   assert.match(readme, /## Power features/);
   assert.match(readme, /Start, stop, and restart from the running row/);
-  assert.match(readme, /Port chip opens the app at a stable `name\.localhost` URL/);
+  assert.match(readme, /Port chip opens the app; turn on \*\*Named localhost\*\*/);
   assert.match(readme, /Launch profiles, tags, and run groups/);
   assert.match(readme, /Live preview, recent output, and open-on-phone/);
+  assert.match(readme, /Start runs in a VS Code terminal named after the project/);
   assert.match(readme, /Import or export project setups/);
   assert.match(readme, /Windows, macOS, and Linux/);
   assert.match(

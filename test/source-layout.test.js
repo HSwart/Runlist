@@ -18,6 +18,7 @@ test('keeps the root entrypoint separate from organized source modules', () => {
   assert.deepEqual(rootJavaScriptFiles, ['eslint.config.js', 'extension.js']);
   assert.deepEqual(sourceDirectories, [
     'compose',
+    'debug',
     'groups',
     'host',
     'integrations',

@@ -17,9 +17,9 @@ const parse = fs.readFileSync(
   'utf8'
 );
 
-test('Compose start keeps attached output pipes and bounded Recent Output', () => {
-  assert.match(host, /listenToProjectOutput\(child/);
-  assert.match(host, /stdio: \['ignore', 'pipe', 'pipe'\]/);
+test('Compose start uses the named Terminal and does not follow docker compose logs', () => {
+  assert.match(host, /projectTerminals\.start\(/);
+  assert.match(host, /I\/O lives in the named Terminal tab/);
   assert.doesNotMatch(host, /docker compose logs -f|compose logs --follow/);
   assert.doesNotMatch(parse, /docker compose up -d/);
   const flooded = 'x'.repeat(MAX_PROJECT_OUTPUT_CHARS + 5000);
