@@ -202,8 +202,9 @@ test('withDockerCliPath prepends Docker Desktop directories for GUI PATH', () =>
 });
 
 test('composeProcessArgv spawns docker compose without shell quoting', () => {
+  const composePath = '/tmp/my stack/compose.yaml';
   const project = {
-    composePath: '/tmp/my stack/compose.yaml',
+    composePath,
     services: [{ name: 'web', port: 4310 }]
   };
   const argv = composeProcessArgv(project, 'up', {
@@ -211,8 +212,9 @@ test('composeProcessArgv spawns docker compose without shell quoting', () => {
   });
   assert.deepEqual(argv, {
     file: '/usr/local/bin/docker',
-    args: ['compose', '-f', '/tmp/my stack/compose.yaml', 'up', 'web']
+    args: ['compose', '-f', path.resolve(composePath), 'up', 'web']
   });
+  assert.equal(argv.args[2].includes(' '), true);
   const stop = composeProcessArgv(project, 'stop', {
     dockerCommand: '/usr/local/bin/docker'
   });
