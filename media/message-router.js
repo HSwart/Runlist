@@ -39,6 +39,7 @@
     'registerAgent',
     'rejectProjectRepair',
     'resolveServicePort',
+    'choosePortResolve',
     'restartProject',
     'retryProjectRepair',
     'saveProject',
@@ -55,6 +56,7 @@
     'refreshPortListening',
     'copyPortListeningDetails',
     'revealPortOwnerProject',
+    'loadWorkspaceStack',
     'showDiagnosis',
     'showEdit',
     'showOutput',
@@ -156,6 +158,10 @@
       && (!Number.isInteger(Number(value.port))
         || Number(value.port) < 1
         || Number(value.port) > 65535)) {
+      return undefined;
+    }
+    if (value.type === 'choosePortResolve'
+      && !['start', 'handoff', 'close', 'temporary'].includes(value.action)) {
       return undefined;
     }
     if (value.type === 'forceCloseProjectPorts'

@@ -1903,8 +1903,56 @@ button.project-listener-owner:hover {
 .agent-screen,
 .diagnosis-screen,
 .output-screen,
-.port-listening-screen {
+.port-listening-screen,
+.port-resolve-screen {
   padding: 10px 12px;
+}
+
+.port-resolve-choices {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.port-resolve-choice {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  text-align: left;
+  white-space: normal;
+}
+
+.port-resolve-choice strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.port-resolve-choice span {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.summary-attention {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  color: var(--vscode-textLink-foreground);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.summary-attention:hover {
+  color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground));
 }
 
 .port-listening-list {

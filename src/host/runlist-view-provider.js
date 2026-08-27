@@ -287,6 +287,7 @@ class RunlistViewProvider {
     this.routeNotice = undefined;
     this.approvedRepairProjectId = undefined;
     this.portListeningReport = undefined;
+    this.portResolve = undefined;
     this.composeImport = undefined;
     this.composeAvailability = undefined;
     this.composeNotice = undefined;
@@ -452,6 +453,7 @@ class RunlistViewProvider {
     this.routeNotice = undefined;
     this.diagnosisProjectIncarnation = undefined;
     this.portListeningReport = undefined;
+    this.portResolve = undefined;
     this.draft = {};
     this.focusTarget = { type: 'action', action: 'close-screen' };
     this.returnFocus = this.defaultListFocusTarget();
@@ -467,6 +469,7 @@ class RunlistViewProvider {
     this.mode = 'port-listening';
     this.routeNotice = undefined;
     this.diagnosisProjectIncarnation = undefined;
+    this.portResolve = undefined;
     this.draft = {};
     this.focusTarget = { type: 'action', action: 'close-screen' };
     this.returnFocus = this.defaultListFocusTarget();
@@ -535,6 +538,7 @@ class RunlistViewProvider {
     this.mode = 'list';
     this.routeNotice = undefined;
     this.portListeningReport = undefined;
+    this.portResolve = undefined;
     this.composeImport = undefined;
     this.diagnosisProjectIncarnation = undefined;
     this.selectedProjectId = undefined;
@@ -600,6 +604,7 @@ class RunlistViewProvider {
       this.routeNotice = undefined;
       this.diagnosisProjectIncarnation = undefined;
       this.portListeningReport = undefined;
+      this.portResolve = undefined;
       this.draft = {};
       this.composeImport = {
         ...proposal,
@@ -1894,6 +1899,7 @@ class RunlistViewProvider {
     this.diagnosisProjectIncarnation = undefined;
     this.approvedRepairProjectId = undefined;
     this.portListeningReport = undefined;
+    this.portResolve = undefined;
     this.composeImport = undefined;
     this.returnFocus = undefined;
     this.focusTarget = returnFocus;
@@ -3690,20 +3696,43 @@ class RunlistViewProvider {
   }
 
   async resolveServicePort(id, savedPort) {
+    const resolve = await this.buildPortResolve(id, savedPort);
+    if (!resolve) {
+      return false;
+    }
+    if (!await this.confirmDiscardProjectChanges()) {
+      return false;
+    }
+    this.mode = 'port-resolve';
+    this.routeNotice = undefined;
+    this.diagnosisProjectIncarnation = undefined;
+    this.portListeningReport = undefined;
+    this.composeImport = undefined;
+    this.portResolve = resolve;
+    this.draft = {};
+    this.focusTarget = { type: 'action', action: 'close-screen' };
+    this.returnFocus = { type: 'project-control', id };
+    this.selectedProjectId = id;
+    await this.revealRunlistView();
+    this.render();
+    return true;
+  }
+
+  async buildPortResolve(id, savedPort) {
     const storedProject = this.projects.find((candidate) => candidate.id === id);
     const savedProject = storedProject ? resolveLaunchProfile(storedProject) : undefined;
     const savedService = savedProject?.services?.find((service) => service.port === savedPort);
     if (!savedProject || !savedService || savedProject.reviewRequired) {
-      return false;
+      return undefined;
     }
     if (!this.showLifecycleBlocked(savedProject)) {
-      return false;
+      return undefined;
     }
     const displayedStatus = this.getProjectStatus(id);
     const displayedConflict = this.projectPortConflicts.get(id);
     if (['port-in-use', 'port-in-use-unknown'].includes(displayedStatus)
       && displayedConflict?.port !== savedPort) {
-      return false;
+      return undefined;
     }
 
     const processRuntime = this.processOwnership.snapshot();
@@ -3711,7 +3740,7 @@ class RunlistViewProvider {
     const project = projectStopStrategy(savedProject, ownership);
     const service = project.services?.find((candidate) => candidate.name === savedService.name);
     if (!service) {
-      return false;
+      return undefined;
     }
 
     const portStatus = await servicePortStatus([service]);
@@ -3757,23 +3786,56 @@ class RunlistViewProvider {
       action: 'temporary'
     });
 
-    const choice = await vscode.window.showQuickPick(choices, {
-      title: `Resolve ${savedProject.name} - ${savedService.name} :${service.port}`,
-      placeHolder: 'Choose how Runlist should handle this service port'
-    });
-    if (!choice) {
+    return {
+      projectId: id,
+      projectName: savedProject.name,
+      serviceName: savedService.name,
+      port: service.port,
+      managed,
+      choices
+    };
+  }
+
+  async choosePortResolve(action) {
+    const resolve = this.portResolve;
+    if (this.mode !== 'port-resolve' || !resolve) {
       return false;
     }
-    if (choice.action === 'start') {
+    const allowed = new Set((resolve.choices || []).map((choice) => choice.action));
+    if (!allowed.has(action)) {
+      return false;
+    }
+    const id = resolve.projectId;
+    const savedPort = resolve.port;
+    const returnFocus = this.returnFocus || { type: 'project-control', id };
+    this.mode = 'list';
+    this.portResolve = undefined;
+    this.selectedProjectId = undefined;
+    this.returnFocus = undefined;
+    this.focusTarget = returnFocus;
+    this.render();
+
+    if (action === 'start') {
       return this.startProject(id, { allowPortConflict: true });
     }
-    if (choice.action === 'handoff') {
+    if (action === 'handoff') {
       return this.handoffProject(id);
     }
-    if (choice.action === 'close') {
+    if (action === 'close') {
       return this.forceCloseProjectPorts(id, 'start', { servicePort: savedPort });
     }
-    return this.startWithTemporaryServicePort(savedProject, savedService, ownership, managed);
+    if (action === 'temporary') {
+      const storedProject = this.projects.find((candidate) => candidate.id === id);
+      const savedProject = storedProject ? resolveLaunchProfile(storedProject) : undefined;
+      const savedService = savedProject?.services?.find((service) => service.port === savedPort);
+      if (!savedProject || !savedService) {
+        return false;
+      }
+      const ownership = this.processOwnership.snapshot().get(id);
+      const managed = this.processes.has(id) || Boolean(ownership?.processActive);
+      return this.startWithTemporaryServicePort(savedProject, savedService, ownership, managed);
+    }
+    return false;
   }
 
   async startWithTemporaryServicePort(project, service, ownership, restart) {
@@ -5032,6 +5094,9 @@ class RunlistViewProvider {
       } : undefined,
       portListening: this.mode === 'port-listening'
         ? (this.portListeningReport || { scannedAt: Date.now(), rows: [], empty: true })
+        : undefined,
+      portResolve: this.mode === 'port-resolve'
+        ? (this.portResolve || undefined)
         : undefined,
       composeImport: this.mode === 'compose-import' ? this.composeImport : undefined,
       projects: stateProjects,
