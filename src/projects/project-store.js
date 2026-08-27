@@ -854,7 +854,9 @@ function normalizeProjectInput(input, options = {}) {
   const existing = options.existing;
   const folder = options.normalizedFolder || normalizeFolder(input.folder);
   const startCommand = normalizeCommand(input.startCommand, 'startCommand');
-  const stopCommand = normalizeOptionalCommand(input.stopCommand, 'stopCommand');
+  const stopCommand = input.stopCommand === undefined
+    ? existing?.stopCommand
+    : normalizeOptionalCommand(input.stopCommand, 'stopCommand');
   const providedServices = input.services === undefined
     ? undefined
     : normalizeServices(input.services);

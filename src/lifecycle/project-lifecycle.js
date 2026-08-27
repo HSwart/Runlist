@@ -167,10 +167,11 @@ class ProjectLifecycleCoordinator {
   async waitUntilStopped(id, timeoutMs = this.remoteStopTimeoutMs + 1000) {
     const deadline = this.now() + timeoutMs;
     while (true) {
+      const localProcessPresent = Boolean(this.host.processes?.has?.(id));
       const ownershipPresent = this.host.processOwnership.snapshot().has(id)
         || this.host.portReservations.snapshot().has(id);
       const project = (this.host.projects || []).find((item) => item.id === id);
-      if (!ownershipPresent) {
+      if (!localProcessPresent && !ownershipPresent) {
         const remainingMs = Math.max(0, deadline - this.now());
         const servicesStopped = await this.waitUntilServicesStopped(
           project,

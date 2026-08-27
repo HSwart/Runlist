@@ -1127,3 +1127,45 @@ test('migrates schema version 7 documents that omit launch env fields', (t) => {
   assert.equal(projects[0].localHostname, 'legacy');
   assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).schemaVersion, 10);
 });
+
+test('preserves existing stopCommand when upsert omits it; empty string clears', (t) => {
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-stop-preserve-'));
+  const projectFolder = path.join(temporaryRoot, 'sample-app');
+  const projectsFile = path.join(temporaryRoot, 'projects.json');
+  fs.mkdirSync(projectFolder);
+  t.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
+
+  const created = upsertProject(projectsFile, {
+    folder: projectFolder,
+    startCommand: 'npm run dev',
+    stopCommand: 'docker compose down',
+    services: [{ name: 'web', port: 3000 }]
+  });
+  assert.equal(created.project.stopCommand, 'docker compose down');
+
+  const omitted = upsertProject(projectsFile, {
+    id: created.project.id,
+    folder: projectFolder,
+    startCommand: 'npm run dev -- --host',
+    services: [{ name: 'web', port: 3000 }]
+  });
+  assert.equal(omitted.project.stopCommand, 'docker compose down');
+  assert.equal(readProjects(projectsFile)[0].stopCommand, 'docker compose down');
+
+  const normalized = normalizeProjectInput({
+    folder: projectFolder,
+    startCommand: 'npm run dev',
+    services: [{ name: 'web', port: 3000 }]
+  }, { existing: created.project });
+  assert.equal(normalized.stopCommand, 'docker compose down');
+
+  const cleared = upsertProject(projectsFile, {
+    id: created.project.id,
+    folder: projectFolder,
+    startCommand: 'npm run dev -- --host',
+    stopCommand: '',
+    services: [{ name: 'web', port: 3000 }]
+  });
+  assert.equal(Object.hasOwn(cleared.project, 'stopCommand'), false);
+  assert.equal(Object.hasOwn(readProjects(projectsFile)[0], 'stopCommand'), false);
+});

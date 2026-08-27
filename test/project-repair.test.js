@@ -708,3 +708,80 @@ test('refuses a legacy proposal without an immutable review identity', (t) => {
   );
   assert.equal(fs.readFileSync(projectsFile, 'utf8'), beforeApproval);
 });
+
+test('revision covers env and related fields so approve rejects after env change', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-repair-env-revision-'));
+  const projectsFile = path.join(root, 'projects.json');
+  const folder = path.join(root, 'app');
+  const composePath = path.join(root, 'docker-compose.yml');
+  fs.mkdirSync(folder);
+  fs.writeFileSync(composePath, 'services: {}\n');
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const base = {
+    name: 'App',
+    folder,
+    startCommand: 'npm run dev',
+    services: [{ name: 'web', port: 3000 }],
+    env: { API_TOKEN: 'proposal-time-secret' },
+    envFile: '.env',
+    requiredEnvKeys: ['API_TOKEN'],
+    composePath,
+    localHostname: 'app'
+  };
+  const withEnvChanged = {
+    ...base,
+    env: { API_TOKEN: 'later-secret' }
+  };
+  assert.notEqual(
+    projectConfigurationRevision(base),
+    projectConfigurationRevision(withEnvChanged)
+  );
+  assert.notEqual(
+    projectConfigurationRevision(base),
+    projectConfigurationRevision({ ...base, envFile: '.env.local' })
+  );
+  assert.notEqual(
+    projectConfigurationRevision(base),
+    projectConfigurationRevision({ ...base, requiredEnvKeys: ['API_TOKEN', 'DB_URL'] })
+  );
+  assert.notEqual(
+    projectConfigurationRevision(base),
+    projectConfigurationRevision({ ...base, composePath: path.join(root, 'compose.yml') })
+  );
+  assert.notEqual(
+    projectConfigurationRevision(base),
+    projectConfigurationRevision({ ...base, localHostname: 'other' })
+  );
+  assert.equal(
+    projectConfigurationRevision({ ...base, env: { Z: '1', A: '2' } }),
+    projectConfigurationRevision({ ...base, env: { A: '2', Z: '1' } })
+  );
+
+  const project = upsertProject(projectsFile, base, { reviewRequired: false }).project;
+  const projectRevision = projectConfigurationRevision(project);
+  writeProjectDiagnostics(projectsFile, project.id, {
+    summary: { message: 'Start failed' },
+    failedAt: 1234,
+    projectRevision
+  });
+  const proposal = createProjectRepairProposal(projectsFile, {
+    projectId: project.id,
+    projectRevision,
+    failedAt: 1234,
+    proposal: { startCommand: 'npm run fixed' }
+  });
+
+  upsertProject(projectsFile, {
+    ...project,
+    env: { API_TOKEN: 'later-secret' }
+  }, { reviewRequired: false });
+  const afterEnvChange = fs.readFileSync(projectsFile, 'utf8');
+
+  assert.throws(
+    () => approveProjectRepairProposal(projectsFile, project.id, proposal.proposalId),
+    /changed after the failed start/i
+  );
+  assert.equal(fs.readFileSync(projectsFile, 'utf8'), afterEnvChange);
+  assert.deepEqual(readProjects(projectsFile)[0].env, { API_TOKEN: 'later-secret' });
+});

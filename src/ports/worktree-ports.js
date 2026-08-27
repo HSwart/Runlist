@@ -1,6 +1,8 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { currentProcessIdentity } = require('../lifecycle/process-identity');
+const { processLockRecordIsAbandoned } = require('../lifecycle/process-lock');
 const { writeFileAtomically } = require('../projects/project-store');
 
 const WORKTREE_PORT_BASE = 21000;
@@ -8,7 +10,10 @@ const WORKTREE_PORT_SPAN = 20000;
 const MAX_ALLOCATION_ATTEMPTS = 64;
 const LOCK_MAX_ATTEMPTS = 200;
 const LOCK_RETRY_MS = 5;
-const LOCK_STALE_MS = 2000;
+
+function worktreeLockProcessIdentity() {
+  return currentProcessIdentity({ allowRuntimeFallback: true });
+}
 
 class WorktreePortsError extends Error {
   constructor(code, message, options) {
@@ -22,21 +27,26 @@ function readWorktreePortLedger(filePath) {
   if (!filePath || !fs.existsSync(filePath)) {
     return { schemaVersion: 1, entries: [] };
   }
+  let value;
   try {
-    const value = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      return { schemaVersion: 1, entries: [] };
-    }
-    if (!Array.isArray(value.entries)) {
-      return { schemaVersion: 1, entries: [] };
-    }
-    return {
-      schemaVersion: 1,
-      entries: value.entries.filter((entry) => entry && typeof entry === 'object')
-    };
-  } catch {
-    return { schemaVersion: 1, entries: [] };
+    value = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (error) {
+    throw new WorktreePortsError(
+      'LEDGER_CORRUPT',
+      'Runlist could not read worktree port reservations because the saved file is damaged. Fix or remove worktree-ports.json and try Start again.',
+      { cause: error }
+    );
   }
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !Array.isArray(value.entries)) {
+    throw new WorktreePortsError(
+      'LEDGER_CORRUPT',
+      'Runlist could not read worktree port reservations because the saved file is damaged. Fix or remove worktree-ports.json and try Start again.'
+    );
+  }
+  return {
+    schemaVersion: 1,
+    entries: value.entries.filter((entry) => entry && typeof entry === 'object')
+  };
 }
 
 function writeWorktreePortLedger(filePath, ledger) {
@@ -119,19 +129,27 @@ function allocateWorktreePortOverrides(options = {}) {
 function withLedgerLock(filePath, operation) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const lockPath = `${filePath}.lock`;
+  const processIdentity = worktreeLockProcessIdentity();
   let fd;
   for (let attempt = 0; attempt < LOCK_MAX_ATTEMPTS; attempt += 1) {
     try {
       fd = fs.openSync(lockPath, 'wx', 0o600);
-      fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, createdAt: Date.now() }));
+      fs.writeFileSync(fd, JSON.stringify({
+        pid: process.pid,
+        ...(processIdentity ? { processIdentity } : {}),
+        createdAt: Date.now()
+      }));
       break;
     } catch (error) {
       if (error?.code !== 'EEXIST') {
         throw error;
       }
       try {
-        const age = Date.now() - Number(JSON.parse(fs.readFileSync(lockPath, 'utf8')).createdAt || 0);
-        if (age > LOCK_STALE_MS) {
+        const record = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+        if (processLockRecordIsAbandoned(record, {
+          allowRuntime: true,
+          currentProcessIdentity: processIdentity
+        })) {
           fs.unlinkSync(lockPath);
           continue;
         }

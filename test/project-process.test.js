@@ -2043,7 +2043,7 @@ test('terminates surviving POSIX descendants after their tracked root exits', as
 
   assert.equal(await terminateTrackedProcess(processes, 'project', {
     platform: 'linux',
-    readProcessIdentity: async () => undefined,
+    readProcessIdentity: async () => '614:original',
     kill: (pid, signal) => {
       if (signal === 0) {
         if (groupAlive) {
@@ -2261,6 +2261,7 @@ test('reconciles an exited POSIX child with no identity only after proving its p
     assert.equal(await terminateTrackedProcess(processes, 'project', {
       platform,
       isProcessAlive: () => false,
+      readProcessGroup: async () => [],
       kill: (pid, signal) => {
         if (signal === 0) {
           const error = new Error('gone');
@@ -2289,6 +2290,7 @@ test('does not let a pending POSIX identity probe delay empty-group reconciliati
       exitedIdentityWaitMs: 5,
       platform: 'linux',
       isProcessAlive: () => false,
+      readProcessGroup: async () => [],
       kill: (pid, signal) => {
         if (pid === -625 && signal === 0) {
           const error = new Error('gone');
