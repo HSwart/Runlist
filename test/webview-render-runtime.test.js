@@ -1087,6 +1087,7 @@ test('empty state offers Add this folder when a workspace folder is present', ()
   assert.match(result.app.innerHTML, /aria-label="Run `npm run dev` for this folder"/);
   assert.doesNotMatch(result.app.innerHTML, />Add project</);
   assert.doesNotMatch(result.app.innerHTML, /Load stack/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="use-draft-start-script"/);
 });
 
 test('empty state shows Load stack when a stack contract is pending', () => {
@@ -1198,6 +1199,85 @@ test('shows launch profiles when editing or when alternatives already exist', ()
   assert.match(addWithProfiles.app.innerHTML, /class="launch-profile-editor"/);
 });
 
+test('Add form shows Start and Dev chips that fill the command without starting', () => {
+  const result = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      mode: 'add',
+      draft: projectFormDraft({ startCommand: '' }),
+      draftStartScripts: [
+        { name: 'start', startCommand: 'npm start' },
+        { name: 'dev', startCommand: 'npm run dev' }
+      ],
+      draftStartCommandNotice: 'Start command set to npm start.',
+      formErrors: {}
+    }
+  });
+
+  assert.match(result.app.innerHTML, /<h2>Add project<\/h2>/);
+  assert.match(result.app.innerHTML, /id="start-command"/);
+  assert.match(result.app.innerHTML, /class="empty-start-chips draft-start-chips"/);
+  assert.match(result.app.innerHTML, /role="group" aria-label="Suggested start commands for this folder"/);
+  assert.match(result.app.innerHTML, /data-action="use-draft-start-script" data-script="start"/);
+  assert.match(result.app.innerHTML, /data-action="use-draft-start-script" data-script="dev"/);
+  assert.match(result.app.innerHTML, /aria-label="Use npm start for the start command"/);
+  assert.match(result.app.innerHTML, /aria-label="Use npm run dev for the start command"/);
+  assert.match(result.app.innerHTML, /title="Use \u201Cnpm start\u201D"/);
+  assert.match(result.app.innerHTML, />\s*Start\s*</);
+  assert.match(result.app.innerHTML, />\s*Dev\s*</);
+  assert.match(result.app.innerHTML, /role="status">Start command set to npm start\.</);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="start-workspace-script"/);
+  assert.doesNotMatch(result.app.innerHTML, /class="empty-state"/);
+});
+
+test('Add form hides Start/Dev chips when the folder has no npm scripts', () => {
+  const result = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      mode: 'add',
+      draft: projectFormDraft({ startCommand: '' }),
+      draftStartScripts: [],
+      formErrors: {}
+    }
+  });
+
+  assert.match(result.app.innerHTML, /<h2>Add project<\/h2>/);
+  assert.doesNotMatch(result.app.innerHTML, /draft-start-chips/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="use-draft-start-script"/);
+  assert.doesNotMatch(result.app.innerHTML, /Suggested start commands for this folder/);
+});
+
+test('Edit and Review setup screens do not show Add-form start chips', () => {
+  const edit = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      mode: 'edit',
+      reviewRequired: false,
+      draft: projectFormDraft({ id: 'example', name: 'Example' }),
+      draftStartScripts: [
+        { name: 'start', startCommand: 'npm start' },
+        { name: 'dev', startCommand: 'npm run dev' }
+      ],
+      formErrors: {}
+    }
+  });
+  assert.match(edit.app.innerHTML, /<h2>Edit project<\/h2>/);
+  assert.doesNotMatch(edit.app.innerHTML, /draft-start-chips/);
+  assert.doesNotMatch(edit.app.innerHTML, /data-action="use-draft-start-script"/);
+
+  const review = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      mode: 'edit',
+      reviewRequired: true,
+      draft: projectFormDraft({ id: 'example', name: 'Example' }),
+      draftStartScripts: [
+        { name: 'start', startCommand: 'npm start' }
+      ],
+      formErrors: {}
+    }
+  });
+  assert.match(review.app.innerHTML, /<h2>Review project setup<\/h2>/);
+  assert.doesNotMatch(review.app.innerHTML, /draft-start-chips/);
+  assert.doesNotMatch(review.app.innerHTML, /data-action="use-draft-start-script"/);
+});
+
 test('renders everyday project rows without a competing folder path', () => {
   const result = renderNonEmptyProjectList([{
     activeLaunchProfileId: 'default',
@@ -1215,7 +1295,13 @@ test('renders everyday project rows without a competing folder path', () => {
     status: 'running',
     tags: []
   }], {
-    stateOverrides: { stopAllCount: 2 }
+    stateOverrides: {
+      stopAllCount: 2,
+      workspaceStartScripts: [
+        { name: 'start', startCommand: 'npm start' },
+        { name: 'dev', startCommand: 'npm run dev' }
+      ]
+    }
   });
 
   assert.match(result.app.innerHTML, /<h2 id="project-northstar"[^>]*>[\s\S]*Northstar Dashboard\s*<\/h2>/);
@@ -1226,6 +1312,8 @@ test('renders everyday project rows without a competing folder path', () => {
   assert.match(result.app.innerHTML, /class="visually-hidden">\/Users\/shared\/Projects\/northstar-dashboard/);
   assert.match(result.app.innerHTML, /data-action="stop-all"/);
   assert.match(result.app.innerHTML, /Stop all \(2\)/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="start-workspace-script"/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="use-draft-start-script"/);
   assert.doesNotMatch(result.app.innerHTML, /class="detail-row"/);
   assert.doesNotMatch(result.app.innerHTML, /Services · 1/);
   assert.doesNotMatch(result.app.innerHTML, /web :4310/);

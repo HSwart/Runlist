@@ -276,6 +276,7 @@ class RunlistViewProvider {
     this.searchSelectionEnd = 0;
     this.searchFocused = false;
     this.draft = {};
+    this.draftStartCommandNotice = undefined;
     this.formBaseline = {};
     this.formProjectSnapshot = undefined;
     this.formErrors = {};
@@ -422,7 +423,7 @@ class RunlistViewProvider {
     );
   }
 
-  async selectPreferredWorkspaceFolder(folder) {
+  async selectPreferredWorkspaceFolder(folder, draft) {
     const resolved = resolveWorkspaceFolderPath(
       vscode.workspace.workspaceFolders,
       folder
@@ -434,7 +435,10 @@ class RunlistViewProvider {
     }
     this.preferredWorkspaceFolder = resolved;
     if (['add', 'edit'].includes(this.mode)) {
-      this.draft = { ...this.draft, folder: resolved };
+      const incomingDraft = draft && typeof draft === 'object' && !Array.isArray(draft)
+        ? draft
+        : {};
+      this.draft = { ...this.draft, ...incomingDraft, folder: resolved };
       this.formErrors = {};
       this.focusTarget = { type: 'field', id: 'start-command' };
     } else {
@@ -761,6 +765,44 @@ class RunlistViewProvider {
     this.focusTarget = { type: 'project-control', id: project.id };
     this.render();
     return this.startProject(project.id);
+  }
+
+  async useDraftStartScript(scriptName, draft = {}) {
+    if (this.mode !== 'add') {
+      return false;
+    }
+    if (draft && typeof draft === 'object' && !Array.isArray(draft)) {
+      this.draft = { ...this.draft, ...draft };
+    }
+    const chip = workspaceStartDevScripts(String(this.draft.folder || ''))
+      .find((script) => script.name === scriptName);
+    if (!chip) {
+      this.draftStartCommandNotice = undefined;
+      this.render();
+      return false;
+    }
+    const editingId = String(
+      this.draft.editingLaunchProfileId
+      || this.draft.selectedLaunchProfileId
+      || 'default'
+    );
+    if (editingId === 'default') {
+      this.draft = { ...this.draft, startCommand: chip.startCommand };
+    } else {
+      this.draft = {
+        ...this.draft,
+        launchProfiles: (Array.isArray(this.draft.launchProfiles) ? this.draft.launchProfiles : [])
+          .map((profile) => (
+            String(profile?.id) === editingId
+              ? { ...profile, startCommand: chip.startCommand }
+              : profile
+          ))
+      };
+    }
+    this.draftStartCommandNotice = `Start command set to ${chip.startCommand}.`;
+    this.focusTarget = { type: 'field', id: 'start-command', caret: 'end' };
+    this.render();
+    return true;
   }
 
   async showProjectTransfer() {
@@ -5225,6 +5267,12 @@ class RunlistViewProvider {
       workspaceStartScripts: workspaceStartDevScripts(
         this.workspaceRoot() || ''
       ),
+      draftStartScripts: this.mode === 'add'
+        ? workspaceStartDevScripts(String(this.draft?.folder || ''))
+        : [],
+      draftStartCommandNotice: this.mode === 'add'
+        ? this.draftStartCommandNotice
+        : undefined,
       stackContractPending: this.stackContractPendingForEmptyState(),
       focusTarget: this.focusTarget || this.lastFocusTarget,
       formErrors: this.formErrors,
@@ -5316,6 +5364,7 @@ class RunlistViewProvider {
         </body>
       </html>`;
     this.focusTarget = undefined;
+    this.draftStartCommandNotice = undefined;
     this.syncResourceSampling(expandedPreview?.id);
     this.syncHttpResponsePulseTarget(
       expandedPreview?.id,

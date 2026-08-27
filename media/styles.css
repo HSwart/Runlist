@@ -3049,6 +3049,14 @@ select[aria-invalid='true'] {
   gap: 6px;
 }
 
+.draft-start-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 100%;
+  margin: 4px 0 8px;
+}
+
 .empty-workspace-choices,
 .workspace-folder-choices {
   display: flex;
@@ -3213,6 +3221,12 @@ select[aria-invalid='true'] {
   .run-button,
   .more-button {
     flex: 0 0 auto;
+  }
+
+  .draft-start-chips {
+    display: flex;
+    flex-wrap: wrap;
+    max-width: 100%;
   }
 }
 

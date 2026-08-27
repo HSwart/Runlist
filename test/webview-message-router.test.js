@@ -53,6 +53,19 @@ test('validates commands sent from the webview before routing', async () => {
   assert.equal(validateWebviewCommand({ type: 'registerAgent', agent: 'unknown' }), undefined);
   assert.equal(validateWebviewCommand({ type: 'startWorkspaceScript', script: 'build' }), undefined);
   assert.equal(validateWebviewCommand({ type: 'startWorkspaceScript', script: 'dev' })?.script, 'dev');
+  assert.equal(validateWebviewCommand({ type: 'useDraftStartScript', script: 'build' }), undefined);
+  assert.equal(validateWebviewCommand({ type: 'useDraftStartScript', script: 'start' })?.script, 'start');
+  assert.equal(validateWebviewCommand({
+    type: 'useDraftStartScript',
+    script: 'dev',
+    draft: { folder: '/tmp/app', name: 'App' }
+  })?.draft.folder, '/tmp/app');
+  assert.equal(validateWebviewCommand({
+    type: 'useDraftStartScript',
+    script: 'dev',
+    draft: 'nope'
+  }), undefined);
+  assert.ok(WEBVIEW_COMMAND_TYPES.has('useDraftStartScript'));
   assert.equal(validateWebviewCommand({ type: 'setTagFilter', tag: 'frontend' })?.tag, 'frontend');
   assert.equal(validateWebviewCommand({ type: 'setTagFilter', tag: 'x'.repeat(33) }), undefined);
 
@@ -73,6 +86,7 @@ test('maps validated webview commands to the provider boundary', async () => {
     showProjectTransferLoadStack: async () => calls.push(['load-stack']),
     startProject: async (id) => calls.push(['start', id]),
     startWorkspaceScript: async (script) => calls.push(['start-script', script]),
+    useDraftStartScript: async (script, draft) => calls.push(['draft-script', script, draft]),
     copyServiceUrl: async (id, port) => calls.push(['copy-service', id, port]),
     resolveServicePort: async (id, port) => calls.push(['resolve-service', id, port])
   };
@@ -81,6 +95,12 @@ test('maps validated webview commands to the provider boundary', async () => {
   assert.equal(await route({ type: 'showAdd' }), true);
   assert.equal(await route({ type: 'loadWorkspaceStack' }), true);
   assert.equal(await route({ type: 'startWorkspaceScript', script: 'dev' }), true);
+  assert.equal(await route({
+    type: 'useDraftStartScript',
+    script: 'start',
+    draft: { folder: '/tmp/app', startCommand: 'echo old' }
+  }), true);
+  assert.equal(await route({ type: 'useDraftStartScript', script: 'build' }), false);
   assert.equal(await route({ type: 'startProject', id: 'project-1' }), true);
   assert.equal(await route({ type: 'forceCloseProjectPorts', id: 'project-1' }), true);
   assert.equal(await route({ type: 'forceCloseProjectPortsAndStart', id: 'project-2' }), true);
@@ -91,6 +111,7 @@ test('maps validated webview commands to the provider boundary', async () => {
     ['add', { type: 'action', action: 'show-add' }],
     ['load-stack'],
     ['start-script', 'dev'],
+    ['draft-script', 'start', { folder: '/tmp/app', startCommand: 'echo old' }],
     ['start', 'project-1'],
     ['force-close', 'project-1', 'stop'],
     ['force-close', 'project-2', 'start'],

@@ -61,7 +61,7 @@ test('Load stack opens a sidebar stack-review overlay instead of Quick Pick conf
 test('multi-root workspace folders are chosen in the sidebar, not Quick Pick', () => {
   assert.match(webview, /data-action="select-workspace-folder"/);
   assert.match(webview, /empty-workspace-choices/);
-  assert.match(router, /selectWorkspaceFolder: \(message\) => host\.selectPreferredWorkspaceFolder\(message\.folder\)/);
+  assert.match(router, /selectWorkspaceFolder: \(message\) => host\.selectPreferredWorkspaceFolder\(message\.folder, message\.draft\)/);
   assert.match(host, /async selectPreferredWorkspaceFolder\(/);
   assert.match(host, /workspaceFolders: workspaceFolderChoices\(/);
   assert.equal(validateWebviewCommand({

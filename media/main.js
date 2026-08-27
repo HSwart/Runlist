@@ -1801,6 +1801,7 @@ function renderProjectForm(mode) {
 
         <label for="start-command">Start command</label>
         <input id="start-command" name="startCommand" value="${escapeHtml(activeProfile.startCommand || '')}" placeholder="npm run dev" ${errorAttributes('start-command')}>
+        ${draftStartScriptChipsHtml()}
         ${fieldError('start-command')}
 
         <label for="stop-command">Custom stop command <span class="optional-label">Optional</span></label>
@@ -1833,6 +1834,37 @@ function renderProjectForm(mode) {
         ${reviewing ? '<p class="form-hint">Approving makes Start and Stop available for this project.</p>' : editing ? '<p class="form-hint">Changes apply the next time you start this project.</p>' : ''}
       </form>
     </section>`;
+}
+
+function draftStartScriptChipsHtml() {
+  if (state.mode !== 'add') {
+    return '';
+  }
+  const scripts = Array.isArray(state.draftStartScripts)
+    ? state.draftStartScripts.filter((script) => script
+      && ['start', 'dev'].includes(script.name)
+      && typeof script.startCommand === 'string'
+      && script.startCommand.trim())
+    : [];
+  const notice = state.draftStartCommandNotice
+    ? `<p class="visually-hidden" role="status">${escapeHtml(String(state.draftStartCommandNotice))}</p>`
+    : '';
+  if (!scripts.length) {
+    return notice;
+  }
+  return `
+        <div class="empty-start-chips draft-start-chips" role="group" aria-label="Suggested start commands for this folder">
+          ${scripts.map((script) => {
+            const chipLabel = script.name === 'dev' ? 'Dev' : 'Start';
+            const chipHint = `Use \u201C${script.startCommand}\u201D`;
+            const chipName = `Use ${script.startCommand} for the start command`;
+            return `
+            <button type="button" class="empty-start-chip" data-action="use-draft-start-script" data-script="${escapeHtml(script.name)}" title="${escapeHtml(chipHint)}" aria-label="${escapeHtml(chipName)}">
+              ${escapeHtml(chipLabel)}
+            </button>`;
+          }).join('')}
+        </div>
+        ${notice}`;
 }
 
 function renderAgentSetup() {
@@ -2559,12 +2591,18 @@ app.addEventListener('click', (event) => {
     'load-workspace-stack': () => vscode.postMessage({ type: 'loadWorkspaceStack' }),
     'select-workspace-folder': () => vscode.postMessage({
       type: 'selectWorkspaceFolder',
-      folder: button.dataset.folder
+      folder: button.dataset.folder,
+      draft: document.getElementById('project-form') ? currentDraft() : undefined
     }),
     'approve-stack-review': () => vscode.postMessage({ type: 'approveStackReview' }),
     'start-workspace-script': () => vscode.postMessage({
       type: 'startWorkspaceScript',
       script: button.dataset.script
+    }),
+    'use-draft-start-script': () => vscode.postMessage({
+      type: 'useDraftStartScript',
+      script: button.dataset.script,
+      draft: currentDraft()
     }),
     'close-screen': () => {
       clearRunGroupDraft();
@@ -3570,7 +3608,16 @@ function applyInitialFocus() {
       `.menu-trigger[data-menu-target="${CSS.escape(hiddenMenu.dataset.menuId)}"]`
     );
   }
-  requestAnimationFrame(() => element?.focus());
+  requestAnimationFrame(() => {
+    element?.focus();
+    if (target.caret === 'end'
+      && element
+      && typeof element.value === 'string'
+      && typeof element.setSelectionRange === 'function') {
+      const length = element.value.length;
+      element.setSelectionRange(length, length);
+    }
+  });
 }
 
 if (state.mode === 'list') {

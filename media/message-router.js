@@ -73,7 +73,8 @@
     'toggleProjectPreview',
     'toggleProjectServices',
     'updateDraft',
-    'useCurrentWorkspace'
+    'useCurrentWorkspace',
+    'useDraftStartScript'
   ]);
   const ID_COMMAND_TYPES = new Set([
     'copyProjectPath',
@@ -113,7 +114,7 @@
       && !validId(value.id)) {
       return undefined;
     }
-    if (['closeScreen', 'pickFolder', 'useCurrentWorkspace'].includes(value.type)
+    if (['closeScreen', 'pickFolder', 'useCurrentWorkspace', 'useDraftStartScript'].includes(value.type)
       && value.draft !== undefined
       && !isRecord(value.draft)) {
       return undefined;
@@ -154,10 +155,19 @@
       && !['start', 'dev'].includes(value.script)) {
       return undefined;
     }
+    if (value.type === 'useDraftStartScript'
+      && !['start', 'dev'].includes(value.script)) {
+      return undefined;
+    }
     if (value.type === 'selectWorkspaceFolder'
       && (typeof value.folder !== 'string'
         || !value.folder.trim()
         || value.folder.length > 4096)) {
+      return undefined;
+    }
+    if (value.type === 'selectWorkspaceFolder'
+      && value.draft !== undefined
+      && !isRecord(value.draft)) {
       return undefined;
     }
     if (['copyServiceUrl', 'openServiceUrl'].includes(value.type)
