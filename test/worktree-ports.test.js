@@ -53,6 +53,26 @@ function twinWorktrees(t) {
   };
 }
 
+function staleProcessLockIdentity(liveIdentity, pid) {
+  const darwinV2 = String(liveIdentity).match(
+    new RegExp(`^${pid}:darwin:v2:(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}):([a-f0-9]{64})$`)
+  );
+  if (darwinV2) {
+    const hash = darwinV2[2];
+    const flipped = `${hash[0] === '0' ? '1' : '0'}${hash.slice(1)}`;
+    return `${pid}:darwin:v2:${darwinV2[1]}:${flipped}`;
+  }
+  if (new RegExp(`^${pid}:runtime:\\d+$`).test(liveIdentity)) {
+    return liveIdentity.replace(/:runtime:(\d+)$/, (_, ticks) => `:runtime:${BigInt(ticks) + 1n}`);
+  }
+  const linuxOrWindows = String(liveIdentity).match(new RegExp(`^${pid}:(?:linux:)?(\\d+)$`));
+  if (linuxOrWindows) {
+    const prefix = String(liveIdentity).includes(':linux:') ? `${pid}:linux:` : `${pid}:`;
+    return `${prefix}${BigInt(linuxOrWindows[1]) + 1n}`;
+  }
+  throw new Error(`cannot derive a stale lock identity from ${liveIdentity}`);
+}
+
 test('reuses sticky ports for the same worktree and separates linked worktrees', (t) => {
   const fixture = twinWorktrees(t);
   const mainId = detectWorktreeIdentity(fixture.main);
@@ -246,7 +266,7 @@ test('reclaims a ledger lock when a reused pid fails identity match', (t) => {
   const { currentProcessIdentity } = require('../src/lifecycle/process-identity');
   const liveIdentity = currentProcessIdentity({ allowRuntimeFallback: true });
   assert.ok(liveIdentity, 'current process identity must be available for this lock test');
-  const staleIdentity = liveIdentity.replace(/(\d+)$/, (digits) => String(BigInt(digits) + 1n));
+  const staleIdentity = staleProcessLockIdentity(liveIdentity, process.pid);
   assert.notEqual(staleIdentity, liveIdentity);
   fs.mkdirSync(path.dirname(fixture.ledgerFile), { recursive: true });
   fs.writeFileSync(lockPath, JSON.stringify({
