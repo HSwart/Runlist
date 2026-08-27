@@ -56,7 +56,6 @@
     'refreshPortListening',
     'copyPortListeningDetails',
     'revealPortOwnerProject',
-    'loadWorkspaceStack',
     'showDiagnosis',
     'showEdit',
     'showOutput',
