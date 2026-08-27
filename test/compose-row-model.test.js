@@ -57,7 +57,7 @@ test('project store persists composePath on schema 6 without inventing nested si
   }).project;
   assert.equal(saved.composePath, path.join(folder, 'compose.yaml'));
   const document = JSON.parse(fs.readFileSync(projectsFile, 'utf8'));
-  assert.equal(document.schemaVersion, 9);
+  assert.equal(document.schemaVersion, 10);
   assert.equal(readProjects(projectsFile)[0].composePath, saved.composePath);
 });
 

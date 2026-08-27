@@ -113,8 +113,11 @@ const {
   windowsStartCommandIssues
 } = require('../projects/command-display');
 const {
+  envLocalAttachHint,
+  exampleEnvAdvisoryMissing,
+  formatEnvPresenceWarnings,
   missingRequiredEnvKeys,
-  requiredEnvKeysFromExample
+  resolveExplicitRequiredEnvKeys
 } = require('../projects/required-env');
 const { detectRuntimeDrift } = require('../projects/runtime-drift');
 const { redactSensitiveText } = require('../projects/project-diagnostics');
@@ -3357,27 +3360,36 @@ class RunlistViewProvider {
         return false;
       }
       try {
+        const explicitRequired = resolveExplicitRequiredEnvKeys(launchProject);
+        const requiredMissing = missingRequiredEnvKeys(explicitRequired, launchEnvironment);
+        if (requiredMissing.length) {
+          this.managedProjectIds.delete(id);
+          this.processOwnership.release(id);
+          this.releaseStartReservation(id);
+          this.projectStatuses.set(id, 'stopped');
+          this.startReadinessDeadlines.delete(id);
+          this.projectAttemptMetadata.delete(id);
+          this.showStartFailure(project, {
+            detail: `Missing required environment variables for this launch profile: ${requiredMissing.join(', ')}.`,
+            projectRevision: savedProjectRevision
+          });
+          this.renderProjectList();
+          return false;
+        }
         const examplePath = path.join(launchProject.folder, '.env.example');
-        if (fs.existsSync(examplePath)) {
-          const exampleText = fs.readFileSync(examplePath, 'utf8');
-          const missing = missingRequiredEnvKeys(
-            requiredEnvKeysFromExample(exampleText),
-            launchEnvironment
-          );
-          if (missing.length) {
-            this.managedProjectIds.delete(id);
-            this.processOwnership.release(id);
-            this.releaseStartReservation(id);
-            this.projectStatuses.set(id, 'stopped');
-            this.startReadinessDeadlines.delete(id);
-            this.projectAttemptMetadata.delete(id);
-            this.showStartFailure(project, {
-              detail: `Missing required environment variables from .env.example: ${missing.join(', ')}.`,
-              projectRevision: savedProjectRevision
-            });
-            this.renderProjectList();
-            return false;
-          }
+        const localEnvPath = path.join(launchProject.folder, '.env.local');
+        const advisory = fs.existsSync(examplePath)
+          ? exampleEnvAdvisoryMissing(fs.readFileSync(examplePath, 'utf8'), launchEnvironment)
+          : { requiredMissing: [], advisoryMissing: [] };
+        const warnings = formatEnvPresenceWarnings({
+          advisoryMissing: advisory.advisoryMissing,
+          envLocalHint: envLocalAttachHint(
+            launchProject.envFile,
+            fs.existsSync(localEnvPath)
+          )
+        });
+        for (const warning of warnings) {
+          this.addProjectOutput(id, `Runlist: ${warning}\n`, savedProjectRevision);
         }
       } catch {
         // Env presence is best-effort and must not crash Start on unreadable examples.

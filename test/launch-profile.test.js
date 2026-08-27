@@ -58,6 +58,19 @@ test('applies profile envFile and env independently of the default project', () 
   }).envFile, undefined);
 });
 
+test('applies profile requiredEnvKeys independently of the default project', () => {
+  const withRequired = {
+    ...project,
+    requiredEnvKeys: ['DEFAULT_KEY'],
+    launchProfiles: [{
+      ...project.launchProfiles[0],
+      requiredEnvKeys: ['PROFILE_KEY']
+    }]
+  };
+  assert.deepEqual(resolveLaunchProfile(withRequired).requiredEnvKeys, ['PROFILE_KEY']);
+  assert.deepEqual(resolveLaunchProfile(withRequired, 'default').requiredEnvKeys, ['DEFAULT_KEY']);
+});
+
 test('falls back to Default when a saved selection no longer exists', () => {
   const stale = { ...project, selectedLaunchProfileId: 'missing' };
 
