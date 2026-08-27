@@ -8,6 +8,7 @@
 - Add a Named localhost toggle (default off) so Open and the port chip can use `name.localhost`.
 - Detect a folder-root Compose file and add one Start/Stop row per service with `up --no-deps`.
 - Run Start in a VS Code terminal tab named after the project; Stop keeps the tab.
+- Give Windows/macOS ownership identity probes 10s (was 1s) so slow PowerShell/ps startups do not block Start or Delete as “cannot verify”.
 
 ## 0.0.11 — Everyday running row and clearer listing
 
