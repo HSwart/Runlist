@@ -2166,6 +2166,20 @@ button.project-listener-owner:hover {
     flex-direction: column;
     align-items: stretch;
   }
+
+  .agent-card-heading {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .agent-card-heading .connection-label {
+    align-self: flex-start;
+  }
+
+  .agent-register-button {
+    width: 100%;
+  }
 }
 
 .screen-header {
@@ -2547,6 +2561,8 @@ select[aria-invalid='true'] {
 }
 
 .agent-list {
+  display: grid;
+  gap: 0;
   border-top: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-widget-border));
 }
 

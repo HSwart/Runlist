@@ -34,6 +34,7 @@ test('Global overflow hub is always available and does not add a Tools section',
   assert.match(JSON.stringify(overflowItems), /copySupportDiagnostics/);
   assert.doesNotMatch(webview, /class="[^"]*tools-(?:section|strip|accordion)/);
   assert.doesNotMatch(webview, />\s*Tools\s*</);
+  assert.doesNotMatch(webview, /class="[^"]*agents-(?:section|strip|band)/);
   assert.doesNotMatch(host, /showTitlebarExtras/);
   assert.doesNotMatch(host, /syncTitlebarContext/);
 });
