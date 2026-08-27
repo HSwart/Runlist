@@ -70,6 +70,18 @@ if (typeof command !== 'string' || !command || command.includes('\0')) {
   }
 
   if (child?.stdin && process.stdin) {
+    // Forward Terminal PTY keystrokes without keeping the supervisor alive after
+    // the command exits (piped stdin would otherwise pin the event loop).
+    try {
+      process.stdin.unref();
+    } catch {
+      // Ignore platforms that cannot unref stdin.
+    }
+    try {
+      child.stdin.unref();
+    } catch {
+      // Ignore.
+    }
     process.stdin.on('data', (chunk) => {
       try {
         child.stdin.write(chunk);

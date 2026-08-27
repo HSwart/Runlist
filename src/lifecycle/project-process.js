@@ -60,18 +60,24 @@ function spawnProjectCommand(command, options = {}) {
     ...projectProcessSpawnOptions(platform)
   };
   if (platform === 'darwin' || platform === 'win32') {
+    // Windows keeps an identity-gated IPC channel. Darwin keeps the exec-stable
+    // supervisor without IPC so Start/Stop semantics stay unchanged there.
     const child = spawnProcess(execPath, [supervisorPath, command], {
       ...processOptions,
       shell: false,
-      stdio: supervisorStdio(processOptions.stdio)
+      ...(platform === 'win32'
+        ? { stdio: supervisorStdio(processOptions.stdio) }
+        : {})
     });
-    child.on?.('message', (message) => {
-      if (message?.type === 'runlistCommandStarted'
-        && Number.isInteger(message.pid)
-        && message.pid > 0) {
-        child.runlistCommandPid = message.pid;
-      }
-    });
+    if (platform === 'win32') {
+      child.on?.('message', (message) => {
+        if (message?.type === 'runlistCommandStarted'
+          && Number.isInteger(message.pid)
+          && message.pid > 0) {
+          child.runlistCommandPid = message.pid;
+        }
+      });
+    }
     return child;
   }
   return spawnProcess(command, {

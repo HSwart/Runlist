@@ -1042,7 +1042,7 @@ test('keeps the Darwin process-group root behind an exec-stable supervisor', () 
       detached: true,
       env: { PORT: '4310' },
       shell: false,
-      stdio: ['ignore', 'pipe', 'pipe', 'ipc']
+      stdio: ['ignore', 'pipe', 'pipe']
     }
   ]]);
 });
@@ -1121,6 +1121,37 @@ test('releases a completed supervisor when its identity owner disconnects', asyn
   supervisor.disconnect();
   const [code, signal] = await once(supervisor, 'exit');
   assert.equal(code, 0);
+  assert.equal(signal, null);
+});
+
+test('exits after identity release even when Terminal stdin forwarding is active', async (t) => {
+  const supervisor = require('node:child_process').spawn(process.execPath, [
+    path.join(__dirname, '..', 'src', 'lifecycle', 'process-supervisor.js'),
+    `"${process.execPath}" -e "process.stderr.write('controlled smoke failure\\n');process.exitCode=7"`
+  ], {
+    // Mirror Start: piped stdin for Extension PTY keystrokes.
+    stdio: ['pipe', 'pipe', 'pipe', 'ipc']
+  });
+  t.after(() => {
+    if (supervisor.exitCode == null && supervisor.signalCode == null) {
+      supervisor.kill('SIGKILL');
+    }
+  });
+
+  await once(supervisor, 'message');
+  await once(supervisor.stderr, 'data');
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(supervisor.exitCode, null);
+
+  supervisor.send({ type: 'runlistIdentityCaptured' });
+  const [code, signal] = await Promise.race([
+    once(supervisor, 'exit'),
+    new Promise((_, reject) => setTimeout(
+      () => reject(new Error('Supervisor stayed alive after identity release with stdin forwarding.')),
+      1500
+    ))
+  ]);
+  assert.equal(code, 7);
   assert.equal(signal, null);
 });
 
