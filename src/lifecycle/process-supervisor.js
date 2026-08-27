@@ -42,19 +42,39 @@ if (identityGated) {
   process.once('disconnect', releaseIdentityHold);
 }
 
-if (typeof command !== 'string' || !command || command.includes('\0')) {
+const argvMode = process.argv[2] === '--';
+const file = argvMode ? process.argv[3] : command;
+const args = argvMode ? process.argv.slice(4) : undefined;
+const invalidArgv = argvMode && (
+  typeof file !== 'string'
+  || !file
+  || file.includes('\0')
+  || !Array.isArray(args)
+  || args.some((arg) => typeof arg !== 'string' || arg.includes('\0'))
+);
+const invalidCommand = !argvMode && (typeof command !== 'string' || !command || command.includes('\0'));
+
+if (invalidArgv || invalidCommand) {
   process.stderr.write('Runlist could not launch an invalid start command.\n');
   complete({ code: 1 });
 } else {
   let child;
   try {
-    child = spawn(command, {
-      cwd: process.cwd(),
-      env: process.env,
-      shell: true,
-      stdio: ['ignore', 'inherit', 'inherit'],
-      windowsHide: true
-    });
+    child = argvMode
+      ? spawn(file, args, {
+        cwd: process.cwd(),
+        env: process.env,
+        shell: false,
+        stdio: ['ignore', 'inherit', 'inherit'],
+        windowsHide: true
+      })
+      : spawn(command, {
+        cwd: process.cwd(),
+        env: process.env,
+        shell: true,
+        stdio: ['ignore', 'inherit', 'inherit'],
+        windowsHide: true
+      });
   } catch (error) {
     process.stderr.write(`Runlist could not launch the start command: ${error.message}\n`);
     complete({ code: 1 });

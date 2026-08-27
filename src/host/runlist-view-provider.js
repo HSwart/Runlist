@@ -119,7 +119,8 @@ const {
   PortReservationStore
 } = require('../ports/port-gate');
 const {
-  buildComposeImportProposal
+  buildComposeImportProposal,
+  composeImportServicesForSave
 } = require('../compose/compose-parse');
 const {
   ComposeFileError,
@@ -129,8 +130,10 @@ const {
 } = require('../compose/compose-file');
 const {
   composeLaunchCommands,
+  composeProcessArgv,
   isComposeManagedProject,
-  probeComposeAvailability
+  probeComposeAvailability,
+  withDockerCliPath
 } = require('../compose/compose-runtime');
 const {
   buildPortListeningReport,
@@ -626,6 +629,7 @@ class RunlistViewProvider {
       const saved = await withProjectStoreLockAsync(this.projectsFile, () => (
         upsertProject(this.projectsFile, {
           ...draft.proposedProject,
+          services: composeImportServicesForSave(draft.proposedProject.services),
           ...(existing ? {
             id: existing.id,
             name: existing.name,
@@ -3299,6 +3303,9 @@ class RunlistViewProvider {
           process.env,
           portOverrides
         );
+        if (isComposeManagedProject(launchProject)) {
+          launchEnvironment = withDockerCliPath(launchEnvironment);
+        }
         this.projectLaunchSecrets.set(id, collectLaunchEnvSecretValues(launchProject));
       } catch (error) {
         this.managedProjectIds.delete(id);
@@ -3317,10 +3324,14 @@ class RunlistViewProvider {
         this.renderProjectList();
         return false;
       }
+      const composeArgv = isComposeManagedProject(launchProject)
+        ? composeProcessArgv(launchProject, 'up', { env: launchEnvironment })
+        : undefined;
       const child = spawnProjectCommand(launchProject.startCommand, {
         cwd: launchProject.folder,
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: launchEnvironment
+        env: launchEnvironment,
+        ...(composeArgv ? { argv: composeArgv } : {})
       });
 
       this.processes.set(id, child);
@@ -4465,6 +4476,9 @@ class RunlistViewProvider {
         process.env,
         effectiveProjectPortOverrides(project)
       );
+      if (isComposeManagedProject(project)) {
+        environment = withDockerCliPath(environment);
+      }
     } catch (error) {
       return Promise.resolve({
         succeeded: false,
@@ -4479,7 +4493,10 @@ class RunlistViewProvider {
       stopProcess = spawnProjectCommand(project.stopCommand, {
         cwd: project.folder,
         env: environment,
-        ...customStopSpawnOptions()
+        ...customStopSpawnOptions(),
+        ...(isComposeManagedProject(project)
+          ? { argv: composeProcessArgv(project, 'stop', { env: environment }) }
+          : {})
       });
     } catch (error) {
       return Promise.reject(error);

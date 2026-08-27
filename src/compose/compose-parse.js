@@ -104,7 +104,7 @@ function buildComposeImportProposal(options = {}) {
     for (const port of service.ports) {
       runlistServices.push({
         name: service.ports.length > 1 ? `${service.name}:${port}` : service.name,
-        port: String(port),
+        port: coerceComposeImportPort(port),
         url: '',
         composeService: service.name,
         profiles: service.profiles
@@ -130,11 +130,7 @@ function buildComposeImportProposal(options = {}) {
       folder,
       startCommand,
       stopCommand,
-      services: runlistServices.map((service) => ({
-        name: service.name,
-        port: service.port,
-        url: service.url
-      })),
+      services: composeImportServicesForSave(runlistServices),
       ...(composePath ? { composePath } : {}),
       reviewRequired: false
     },
@@ -487,7 +483,33 @@ function composeError(code, message, options) {
   return new ComposeFileError(code, message, options);
 }
 
+function coerceComposeImportPort(value) {
+  if (typeof value === 'number' && Number.isInteger(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (/^[1-9]\d*$/.test(trimmed)) {
+      const port = Number(trimmed);
+      if (Number.isInteger(port) && port >= 1 && port <= 65535) {
+        return port;
+      }
+    }
+  }
+  return value;
+}
+
+function composeImportServicesForSave(services) {
+  return (Array.isArray(services) ? services : []).map((service) => ({
+    name: service.name,
+    port: coerceComposeImportPort(service.port),
+    url: service.url || ''
+  }));
+}
+
 module.exports = {
   buildComposeImportProposal,
+  coerceComposeImportPort,
+  composeImportServicesForSave,
   parseComposeServices
 };

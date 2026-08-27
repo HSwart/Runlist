@@ -33,7 +33,7 @@ services:
   assert.equal(proposal.proposedProject.name, 'Acme');
   assert.equal(proposal.proposedProject.composePath, '/tmp/acme/compose.yaml');
   assert.deepEqual(proposal.proposedProject.services, [
-    { name: 'web', port: '4310', url: '' }
+    { name: 'web', port: 4310, url: '' }
   ]);
   assert.match(proposal.proposedProject.startCommand, /docker compose up web worker/);
 });

@@ -1200,6 +1200,127 @@ test('preserves existing shell launch behavior on Linux', () => {
   ]]);
 });
 
+test('spawns Compose argv without a shell on Linux and through the supervisor on macOS/Windows', () => {
+  const argv = {
+    file: '/usr/local/bin/docker',
+    args: ['compose', '-f', '/tmp/my stack/compose.yaml', 'up', 'web']
+  };
+
+  const linuxCalls = [];
+  spawnProjectCommand('docker compose up web', {
+    platform: 'linux',
+    argv,
+    spawnProcess: (...args) => {
+      linuxCalls.push(args);
+      return {};
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  assert.deepEqual(linuxCalls, [[
+    '/usr/local/bin/docker',
+    ['compose', '-f', '/tmp/my stack/compose.yaml', 'up', 'web'],
+    { detached: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'] }
+  ]]);
+
+  const darwinCalls = [];
+  spawnProjectCommand('docker compose up web', {
+    cwd: '/project',
+    env: { PATH: '/usr/bin' },
+    execPath: '/runtime/node',
+    platform: 'darwin',
+    argv,
+    spawnProcess: (...args) => {
+      darwinCalls.push(args);
+      return {};
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+    supervisorPath: '/extension/process-supervisor.js'
+  });
+  assert.deepEqual(darwinCalls, [[
+    '/runtime/node',
+    [
+      '/extension/process-supervisor.js',
+      '--',
+      '/usr/local/bin/docker',
+      'compose',
+      '-f',
+      '/tmp/my stack/compose.yaml',
+      'up',
+      'web'
+    ],
+    {
+      cwd: '/project',
+      detached: true,
+      env: { PATH: '/usr/bin' },
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe']
+    }
+  ]]);
+
+  const windowsCalls = [];
+  spawnProjectCommand('docker compose up web', {
+    cwd: 'C:\\project',
+    execPath: 'C:\\runtime\\node.exe',
+    platform: 'win32',
+    argv: {
+      file: 'C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe',
+      args: ['compose', '-f', 'C:\\my stack\\compose.yaml', 'stop', 'web']
+    },
+    spawnProcess: (...args) => {
+      windowsCalls.push(args);
+      return {};
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+    supervisorPath: 'C:\\extension\\process-supervisor.js'
+  });
+  assert.deepEqual(windowsCalls, [[
+    'C:\\runtime\\node.exe',
+    [
+      'C:\\extension\\process-supervisor.js',
+      '--',
+      'C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe',
+      'compose',
+      '-f',
+      'C:\\my stack\\compose.yaml',
+      'stop',
+      'web'
+    ],
+    {
+      cwd: 'C:\\project',
+      detached: false,
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      windowsHide: true
+    }
+  ]]);
+});
+
+test('holds a completed argv-supervised command until process identity capture is released', async (t) => {
+  const supervisor = require('node:child_process').spawn(process.execPath, [
+    path.join(__dirname, '..', 'src', 'lifecycle', 'process-supervisor.js'),
+    '--',
+    process.execPath,
+    '-e',
+    "process.stdout.write('finished\\n');process.exit(7)"
+  ], {
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc']
+  });
+  t.after(() => {
+    if (supervisor.exitCode == null && supervisor.signalCode == null) {
+      supervisor.kill('SIGKILL');
+    }
+  });
+
+  await once(supervisor.stdout, 'data');
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(supervisor.exitCode, null);
+
+  supervisor.send({ type: 'runlistIdentityCaptured' });
+  const [code, signal] = await once(supervisor, 'exit');
+  assert.equal(code, 7);
+  assert.equal(signal, null);
+});
+
 test('runs explicit custom stop commands through the platform shell', () => {
   assert.deepEqual(customStopSpawnOptions('linux'), {
     detached: true,

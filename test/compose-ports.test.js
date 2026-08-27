@@ -35,8 +35,8 @@ services:
 `
   });
   assert.deepEqual(proposal.proposedProject.services, [
-    { name: 'web', port: '4310', url: '' },
-    { name: 'api', port: '7071', url: '' }
+    { name: 'web', port: 4310, url: '' },
+    { name: 'api', port: 7071, url: '' }
   ]);
   assert.match(webview, /project-port-chip/);
   assert.match(webview, /data-action="open"/);

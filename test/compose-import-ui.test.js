@@ -21,6 +21,7 @@ test('Compose import review is read-only until save and never runs docker compos
   assert.match(host, /async showComposeImport\(/);
   assert.match(host, /async approveComposeImport\(/);
   assert.match(host, /buildComposeImportProposal\(/);
+  assert.match(host, /composeImportServicesForSave\(/);
   assert.doesNotMatch(host, /spawn\(.*docker|execFile\(.*docker|docker compose up/);
   assert.match(router, /showComposeImport: \(message\) => host\.showComposeImport\(message\.id\)/);
   assert.match(router, /approveComposeImport: \(\) => host\.approveComposeImport\(\)/);
