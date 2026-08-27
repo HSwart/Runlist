@@ -52,70 +52,32 @@ async function run() {
     .map((pid) => fixtureProcess(fixtureProcesses, pid));
   const customStopProcess = fixtureProcess(fixtureProcesses, customStopPid);
   assert.equal(
-    (await Promise.all(preReloadProcesses.map(exactProcessIsAlive))).every(Boolean),
+    (await Promise.all(preReloadProcesses.map(exactProcessIsAlive))).every((alive) => !alive),
     true,
-    `Reload stopped part of the owned process tree: ${JSON.stringify({
+    `Closing the first extension host left part of its owned process tree running: ${JSON.stringify({
       ownership: api.provider.processOwnership.snapshot().get(ready.id),
-      reservation: api.provider.portReservations.snapshot().get(ready.id),
-      status: api.provider.getProjectStatus(ready.id)
+      reservation: api.provider.portReservations.snapshot().get(ready.id)
     })}`
   );
   assert.equal(
     await exactProcessIsAlive(customStopProcess),
-    true,
-    'Reload stopped the custom Stop fixture.'
+    false,
+    'Reload shutdown left the custom Stop fixture running.'
   );
   assert.equal(
     fs.existsSync(path.join(smokeRoot, 'custom-stop.used')),
-    false,
-    'Reload ran the explicit custom stop command.'
-  );
-  await waitFor(
-    async () => {
-      await api.provider.refreshProjectStatuses();
-      return api.provider.getProjectStatus(ready.id) === 'running'
-        && api.provider.processOwnership.isCurrentOwner(ready.id)
-        && api.provider.portReservations.snapshot().has(ready.id);
-    },
-    () => `The reloaded extension host did not reattach the live process as Running: ${JSON.stringify(
-      lifecycleEvidence(api.provider, ready.id)
-    )}`
-  );
-  assert.equal(
-    await api.provider.stopProject(ready.id),
     true,
-    'Stop after reload did not end the owned process.'
+    'Reload shutdown bypassed the explicit custom stop command.'
   );
   await waitFor(
     async () => {
       await api.provider.refreshProjectStatuses();
-      return (await Promise.all(preReloadProcesses.map(exactProcessIsAlive))).every((alive) => !alive)
-        && lifecycleIsStopped(api.provider, ready.id);
+      return lifecycleIsStopped(api.provider, ready.id);
     },
-    () => `Stop after reload did not clear the adopted lifecycle: ${JSON.stringify(
+    () => `The reloaded extension host did not observe a fully stopped lifecycle: ${JSON.stringify(
       lifecycleEvidence(api.provider, ready.id)
     )}`
   );
-  const confirmCustomStopCommand = api.provider.confirmCustomStopCommand;
-  api.provider.confirmCustomStopCommand = async (project) => project.id === customStop.id;
-  try {
-    assert.equal(
-      await api.provider.stopProject(customStop.id),
-      true,
-      'Stop after reload did not run the custom stop.'
-    );
-    await waitFor(
-      async () => {
-        await api.provider.refreshProjectStatuses();
-        return !(await exactProcessIsAlive(customStopProcess))
-          && lifecycleIsStopped(api.provider, customStop.id)
-          && fs.existsSync(path.join(smokeRoot, 'custom-stop.used'));
-      },
-      'Stop after reload did not honor the saved custom stop command.'
-    );
-  } finally {
-    api.provider.confirmCustomStopCommand = confirmCustomStopCommand;
-  }
   fs.rmSync(fixturePidPath, { force: true });
   fs.rmSync(childPidPath, { force: true });
   fs.rmSync(grandchildPidPath, { force: true });
@@ -601,12 +563,6 @@ async function run() {
       if (['running', 'starting', 'not-ready', 'not-responding', 'stopping']
         .includes(api.provider.getProjectStatus(ready.id))) {
         await api.provider.stopProject(ready.id);
-      }
-    });
-    await settleCleanup(async () => {
-      if (['running', 'starting', 'not-ready', 'not-responding', 'stopping']
-        .includes(api.provider.getProjectStatus(customStop.id))) {
-        await api.provider.stopProject(customStop.id, undefined, { approvedLaunchStop: true });
       }
     });
     await settleCleanup(async () => {

@@ -8,7 +8,6 @@ const test = require('node:test');
 const {
   cleanupTrackedProcessForDeletion,
   customStopSpawnOptions,
-  detachTrackedProcesses,
   detachedServiceIdentityDecision,
   markOwnedRuntimeDetached,
   ProcessOwnershipStore: RealProcessOwnershipStore,
@@ -950,56 +949,7 @@ test('recovers a shared ownership update marker after its host PID is reused', (
   assert.equal(fs.existsSync(`${ownershipPath}.update`), false);
 });
 
-test('reload detach leaves ownership and the live child in place', async (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-process-detach-'));
-  const ownership = new ProcessOwnershipStore(path.join(root, 'ownership'), {
-    pid: 101,
-    isProcessAlive: () => true
-  });
-  const reservations = new PortReservationStore(path.join(root, 'ports'), {
-    pid: 101,
-    isProcessAlive: () => true
-  });
-  const project = { id: 'project-1', services: [{ name: 'web', port: 4310 }] };
-  const child = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
-    detached: true,
-    stdio: 'ignore'
-  });
-  t.after(() => {
-    try {
-      process.kill(child.pid, 'SIGKILL');
-    } catch {
-      // The test may already have terminated the child.
-    }
-    fs.rmSync(root, { recursive: true, force: true });
-  });
-  const processes = new Map([['project-1', child]]);
-
-  ownership.reserve(project.id);
-  ownership.setProcess(project.id, child.pid);
-  reservations.reserve(project);
-
-  assert.deepEqual(detachTrackedProcesses(processes), ['project-1']);
-  assert.equal(processes.size, 0);
-  process.kill(child.pid, 0);
-  assert.equal(ownership.snapshot().has(project.id), true);
-  assert.equal(reservations.snapshot().has(project.id), true);
-});
-
-test('reload detach does not terminate or release when a tracked handle has no pid', () => {
-  const released = [];
-  const processes = new Map([['project-1', { unref() {}, removeAllListeners() {} }]]);
-  const ownership = { release: (id) => released.push(['ownership', id]) };
-  const reservations = { release: (id) => released.push(['ports', id]) };
-
-  assert.deepEqual(detachTrackedProcesses(processes), ['project-1']);
-  assert.equal(processes.size, 0);
-  assert.deepEqual(released, []);
-  assert.equal(typeof ownership.release, 'function');
-  assert.equal(typeof reservations.release, 'function');
-});
-
-test('keeps ownership and port reservations until an explicit stop confirms the process stopped', async (t) => {
+test('keeps ownership and port reservations until reload shutdown confirms the process stopped', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-process-shutdown-'));
   const ownership = new ProcessOwnershipStore(path.join(root, 'ownership'), {
     pid: 101,
@@ -1201,10 +1151,10 @@ test('releases adopted ownership after the live child exits', (t) => {
   assert.equal(reloaded.isCurrentOwner('project-1'), false);
 });
 
-test('launches owned processes detached so a window reload does not stop them', () => {
+test('launches POSIX commands in an owned process group and keeps Windows launches attached', () => {
   assert.deepEqual(projectProcessSpawnOptions('linux'), { detached: true });
   assert.deepEqual(projectProcessSpawnOptions('darwin'), { detached: true });
-  assert.deepEqual(projectProcessSpawnOptions('win32'), { detached: true, windowsHide: true });
+  assert.deepEqual(projectProcessSpawnOptions('win32'), { detached: false, windowsHide: true });
 });
 
 test('gives POSIX process-group ownership probes enough time under load', () => {
@@ -1265,7 +1215,7 @@ test('keeps the Windows process-tree root behind an identity-gated supervisor', 
     ['C:\\extension\\process-supervisor.js', 'node failure.js'],
     {
       cwd: 'C:\\project',
-      detached: true,
+      detached: false,
       env: { PORT: '4310' },
       shell: false,
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
@@ -1318,30 +1268,6 @@ test('releases a completed supervisor when its identity owner disconnects', asyn
   const [code, signal] = await once(supervisor, 'exit');
   assert.equal(code, 0);
   assert.equal(signal, null);
-});
-
-test('keeps a supervised command alive after parent stdio closes', async (t) => {
-  const supervisor = require('node:child_process').spawn(process.execPath, [
-    path.join(__dirname, '..', 'src', 'lifecycle', 'process-supervisor.js'),
-    '--',
-    process.execPath,
-    '-e',
-    'setInterval(() => { process.stdout.write("tick\\n"); }, 20);'
-  ], {
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
-  t.after(() => {
-    if (supervisor.exitCode == null && supervisor.signalCode == null) {
-      supervisor.kill('SIGKILL');
-    }
-  });
-
-  await once(supervisor.stdout, 'data');
-  supervisor.stdout.destroy();
-  supervisor.stderr.destroy();
-  await new Promise((resolve) => setTimeout(resolve, 150));
-  assert.equal(supervisor.exitCode, null);
-  assert.equal(supervisor.signalCode, null);
 });
 
 test('keeps a fast Windows launch alive through the complete identity-recording handshake', async (t) => {
@@ -1507,7 +1433,7 @@ test('spawns Compose argv without a shell on Linux and through the supervisor on
     ],
     {
       cwd: 'C:\\project',
-      detached: true,
+      detached: false,
       shell: false,
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
       windowsHide: true
@@ -1553,7 +1479,7 @@ test('runs explicit custom stop commands through the platform shell', () => {
     stdio: ['ignore', 'pipe', 'pipe']
   });
   assert.deepEqual(customStopSpawnOptions('win32'), {
-    detached: true,
+    detached: false,
     shell: true,
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true

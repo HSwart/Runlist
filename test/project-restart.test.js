@@ -785,7 +785,7 @@ test('backs off scheduled refreshes after a failed status probe', async () => {
   }
 });
 
-test('waits for an in-flight status refresh before reload detach', async () => {
+test('waits for an in-flight status refresh before shutdown cleanup', async () => {
   let releaseProbe;
   let probeStarted;
   const probeStartedPromise = new Promise((resolve) => { probeStarted = resolve; });
@@ -801,10 +801,6 @@ test('waits for an in-flight status refresh before reload detach', async () => {
         }
       },
       './src/lifecycle/project-process': {
-        detachTrackedProcesses: () => {
-          shutdownCalls.push('detach');
-          return [];
-        },
         shutdownTrackedProcesses: async () => {
           shutdownCalls.push('cleanup');
           return [];
@@ -830,10 +826,7 @@ test('waits for an in-flight status refresh before reload detach', async () => {
   provider.lifecycle = {
     beginShutdown: () => shutdownCalls.push('begin'),
     waitForIdle: async () => shutdownCalls.push('idle'),
-    stop: async () => {
-      shutdownCalls.push('stop');
-      return true;
-    }
+    stop: async () => true
   };
   provider.stopResourceSampling = () => shutdownCalls.push('sampling');
   provider.runGroupCoordinator = { dispose: () => shutdownCalls.push('groups') };
@@ -852,8 +845,9 @@ test('waits for an in-flight status refresh before reload detach', async () => {
     'begin',
     'sampling',
     'idle',
+    'idle',
     'groups',
-    'detach'
+    'cleanup'
   ]);
   assert.equal(provider.statusRefreshInFlight, false);
   assert.equal(provider.disposed, true);
@@ -1302,26 +1296,17 @@ test('verifies the custom stop shell identity before timeout cleanup', () => {
   assert.match(source, /terminateProcessTree\(stopProcess\.pid, \{[\s\S]*expectedIdentity,[\s\S]*readProcessIdentity/);
 });
 
-test('uses the saved custom stop during an explicit Stop without opening a deactivation modal', () => {
+test('uses the saved custom stop during awaited shutdown without opening a deactivation modal', () => {
   const source = readShippedHostSource();
 
   assert.match(
     source,
     /const confirmed = options\.approvedLaunchStop === true\s*\|\|\s*isComposeManagedProject\(stopProject\)\s*\|\|\s*await this\.confirmCustomStopCommand\(stopProject\)/
   );
-});
-
-test('reload dispose detaches owned processes instead of stopping them', () => {
-  const source = readShippedHostSource();
-  const dispose = source.indexOf('\n  dispose() {');
-  const nextMethod = source.indexOf('\n}', dispose + 1);
-  const body = source.slice(dispose, nextMethod);
-
-  assert.ok(dispose >= 0);
-  assert.match(body, /detachTrackedProcesses\(this\.processes\)/);
-  assert.doesNotMatch(body, /shutdownTrackedProcesses/);
-  assert.doesNotMatch(body, /this\.lifecycle\.stop\(/);
-  assert.doesNotMatch(body, /approvedLaunchStop: true/);
+  assert.match(
+    source,
+    /this\.lifecycle\.stop\(id, \{ \.\.\.project, reviewRequired: false \}, \{\s*approvedLaunchStop: true/
+  );
 });
 
 test('routes remote custom stops through the launching VS Code window', () => {
@@ -1709,7 +1694,6 @@ test('reload honesty reports Running before the first status poll when the proce
   assert.equal(provider.getProjectStatus('project-1'), 'running');
   assert.equal(provider.managedProjectIds.has('project-1'), true);
   assert.equal(reloaded.isCurrentOwner('project-1'), true);
-  assert.equal(provider.projectRuntime.get('project-1')?.childPid, 303);
 });
 
 test('reload honesty recovers live ownership after identity reconcile', () => {
