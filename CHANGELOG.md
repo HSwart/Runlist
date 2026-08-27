@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.0.13 — Extra cut: README, fail/Stop honesty, Compose import
+
+- Land the signed short Marketplace README.
+- Show the start fail reason on line 2 of a failed row.
+- Keep Stop honest when the process or configured port is still up.
+- Save Compose imports with integer ports.
+- Fill Compose env_file into the existing envFile field on import.
+- Keep ownership identity and process-group probes at 10s and heartbeats at 30s.
+
 ## 0.0.12 — Ownership probe timeout
 
 - Raise Windows/macOS ownership identity probes from 1s to 10s so cold PowerShell/ps startups do not block Start or Delete with “cannot safely verify who owns …”.
