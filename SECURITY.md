@@ -8,7 +8,8 @@ Security updates are provided for the latest published version of Runlist.
 
 | Version | Supported |
 | --- | --- |
-| 0.0.15 | Yes |
+| 0.0.16 | Yes |
+| 0.0.15 | No |
 | 0.0.14 | No |
 | 0.0.13 | No |
 | 0.0.12 | No |

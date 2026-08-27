@@ -232,6 +232,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
     'src/projects/project-repair.js',
     'src/projects/project-runtime.js',
     'src/projects/command-display.js',
+    'src/projects/required-env.js',
     'src/projects/project-store.js',
     'src/projects/project-tags.js',
     'src/services/external-url.js',

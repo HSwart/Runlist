@@ -113,8 +113,11 @@ const {
   windowsStartCommandIssues
 } = require('../projects/command-display');
 const {
+  envLocalAttachHint,
+  exampleEnvAdvisoryMissing,
+  formatEnvPresenceWarnings,
   missingRequiredEnvKeys,
-  requiredEnvKeysFromExample
+  resolveExplicitRequiredEnvKeys
 } = require('../projects/required-env');
 const { detectRuntimeDrift } = require('../projects/runtime-drift');
 const { redactSensitiveText } = require('../projects/project-diagnostics');
@@ -3342,42 +3345,40 @@ class RunlistViewProvider {
         return false;
       }
       const windowsIssues = windowsStartCommandIssues(launchProject.startCommand, process.platform);
-      if (windowsIssues.length) {
-        this.managedProjectIds.delete(id);
-        this.processOwnership.release(id);
-        this.releaseStartReservation(id);
-        this.projectStatuses.set(id, 'stopped');
-        this.startReadinessDeadlines.delete(id);
-        this.projectAttemptMetadata.delete(id);
-        this.showStartFailure(project, {
-          detail: windowsIssues[0],
-          projectRevision: savedProjectRevision
-        });
-        this.renderProjectList();
-        return false;
+      for (const issue of windowsIssues) {
+        this.addProjectOutput(id, `Runlist: ${issue}\n`, savedProjectRevision);
       }
       try {
+        const explicitRequired = resolveExplicitRequiredEnvKeys(launchProject);
+        const requiredMissing = missingRequiredEnvKeys(explicitRequired, launchEnvironment);
+        if (requiredMissing.length) {
+          this.managedProjectIds.delete(id);
+          this.processOwnership.release(id);
+          this.releaseStartReservation(id);
+          this.projectStatuses.set(id, 'stopped');
+          this.startReadinessDeadlines.delete(id);
+          this.projectAttemptMetadata.delete(id);
+          this.showStartFailure(project, {
+            detail: `Missing required environment variables for this launch profile: ${requiredMissing.join(', ')}.`,
+            projectRevision: savedProjectRevision
+          });
+          this.renderProjectList();
+          return false;
+        }
         const examplePath = path.join(launchProject.folder, '.env.example');
-        if (fs.existsSync(examplePath)) {
-          const exampleText = fs.readFileSync(examplePath, 'utf8');
-          const missing = missingRequiredEnvKeys(
-            requiredEnvKeysFromExample(exampleText),
-            launchEnvironment
-          );
-          if (missing.length) {
-            this.managedProjectIds.delete(id);
-            this.processOwnership.release(id);
-            this.releaseStartReservation(id);
-            this.projectStatuses.set(id, 'stopped');
-            this.startReadinessDeadlines.delete(id);
-            this.projectAttemptMetadata.delete(id);
-            this.showStartFailure(project, {
-              detail: `Missing required environment variables from .env.example: ${missing.join(', ')}.`,
-              projectRevision: savedProjectRevision
-            });
-            this.renderProjectList();
-            return false;
-          }
+        const localEnvPath = path.join(launchProject.folder, '.env.local');
+        const advisory = fs.existsSync(examplePath)
+          ? exampleEnvAdvisoryMissing(fs.readFileSync(examplePath, 'utf8'), launchEnvironment)
+          : { requiredMissing: [], advisoryMissing: [] };
+        const warnings = formatEnvPresenceWarnings({
+          advisoryMissing: advisory.advisoryMissing,
+          envLocalHint: envLocalAttachHint(
+            launchProject.envFile,
+            fs.existsSync(localEnvPath)
+          )
+        });
+        for (const warning of warnings) {
+          this.addProjectOutput(id, `Runlist: ${warning}\n`, savedProjectRevision);
         }
       } catch {
         // Env presence is best-effort and must not crash Start on unreadable examples.
@@ -3477,22 +3478,24 @@ class RunlistViewProvider {
     } catch (error) {
       this.statusRevision += 1;
       this.startAttempts.delete(id);
-      const rollback = await rollbackStartedProcess(
-        this.processes,
-        id,
-        this.processOwnership,
-        this.portReservations
-      );
       const verificationOnly = /could not verify the launched Windows process (?:tree|identity)/i
         .test(error?.message || '');
-      if (!rollback.stopped && verificationOnly) {
+      const liveChild = this.processes.get(id);
+      // Inspection failures must not kill a still-running Start. Keep the app and
+      // mark verification degraded instead of rolling back a healthy process.
+      if (verificationOnly && liveChild && Number.isInteger(liveChild.pid) && liveChild.pid > 0) {
+        liveChild.runlistProcessTreeDegraded = true;
         const state = launchProject.services?.length ? 'not-ready' : 'running';
-        transitionOwnedRuntimeState(
-          this.processOwnership,
-          this.portReservations,
-          id,
-          state
-        );
+        try {
+          transitionOwnedRuntimeState(
+            this.processOwnership,
+            this.portReservations,
+            id,
+            state
+          );
+        } catch {
+          // Ownership transition is best-effort once the process is already live.
+        }
         this.projectRuntime = this.processOwnership.snapshot();
         this.projectStatuses.set(id, state);
         this.addProjectOutput(
@@ -3506,6 +3509,12 @@ class RunlistViewProvider {
         this.renderProjectList();
         return true;
       }
+      const rollback = await rollbackStartedProcess(
+        this.processes,
+        id,
+        this.processOwnership,
+        this.portReservations
+      );
       if (rollback.stopped) {
         this.forgetProjectMetrics(id);
         this.projectRuntime.delete(id);

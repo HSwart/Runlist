@@ -3,6 +3,7 @@ const test = require('node:test');
 const {
   decodePowerShellEncodedCommand,
   formatCommandForDisplay,
+  stripPackageManagerSilentFlags,
   windowsStartCommandIssues
 } = require('../src/projects/command-display');
 
@@ -31,4 +32,19 @@ test('flags nested PowerShell quoting hazards on Windows start commands', () => 
     'powershell -Command "powershell -Command \\"npm start\\""',
     'linux'
   ), []);
+});
+
+test('strips only npm/pnpm/yarn silent flags and preserves concurrently -s', () => {
+  assert.equal(stripPackageManagerSilentFlags('npm run dev --silent'), 'npm run dev');
+  assert.equal(stripPackageManagerSilentFlags('npm -s start'), 'npm start');
+  assert.equal(stripPackageManagerSilentFlags('pnpm --silent start'), 'pnpm start');
+  assert.equal(
+    stripPackageManagerSilentFlags('npx concurrently -k -s first "npm:web" "npm:api"'),
+    'npx concurrently -k -s first "npm:web" "npm:api"'
+  );
+  assert.equal(
+    stripPackageManagerSilentFlags('npm run start -- --silent'),
+    'npm run start -- --silent'
+  );
+  assert.equal(stripPackageManagerSilentFlags('python app.py --silent'), 'python app.py --silent');
 });

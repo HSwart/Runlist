@@ -38,12 +38,23 @@ function windowsStartCommandIssues(command, platform = process.platform) {
 
 function stripPackageManagerSilentFlags(command) {
   const text = String(command || '');
-  if (!/^\s*(?:npm|pnpm|yarn|npx)\b/i.test(text)) {
+  // Only rewrite npm/pnpm/yarn themselves. Never touch `npx …` — that often wraps
+  // tools like concurrently whose `-s` means `--success`, not npm --silent.
+  const match = text.match(/^(\s*)(npm|pnpm|yarn)\b(.*)$/i);
+  if (!match) {
     return text;
   }
-  return text
+  const manager = `${match[1]}${match[2]}`;
+  const rest = match[3];
+  const passthroughAt = rest.search(/(?:^|\s)--(?:\s|$)/);
+  const head = passthroughAt >= 0 ? rest.slice(0, passthroughAt) : rest;
+  const tail = passthroughAt >= 0 ? rest.slice(passthroughAt) : '';
+  const cleanedHead = head
     .replace(/(^|\s)--silent\b/g, '$1')
     .replace(/(^|\s)-s\b(?=\s|$)/g, '$1')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return `${manager}${cleanedHead ? ` ${cleanedHead}` : ''}${tail}`
     .replace(/\s{2,}/g, ' ')
     .trim();
 }

@@ -56,7 +56,7 @@ function classifyProjectRuntime(folder, options = {}) {
   const hasNodeMarkers = packageJsonHasScripts(root, readFileSync);
 
   // Monorepo roots often have package.json workspaces beside a Python worker.
-  // Prefer explicit Python markers over inventing a Node runtime.
+  // Prefer explicit Python-only markers; never invent Node when both exist.
   if (hasPythonMarkers && !hasNodeMarkers) {
     return 'python';
   }
@@ -65,6 +65,7 @@ function classifyProjectRuntime(folder, options = {}) {
     if (worker === 'python') {
       return 'azure-functions-python';
     }
+    return 'unknown';
   }
   if (hasNodeMarkers) {
     return 'node';
@@ -108,7 +109,7 @@ function packageJsonHasScripts(folder, readFileSync = fs.readFileSync) {
 }
 
 function runtimeAllowsNpmStartChips(runtime) {
-  return runtime === 'node' || runtime === 'unknown' || runtime === 'azure-functions-node';
+  return runtime === 'node' || runtime === 'azure-functions-node';
 }
 
 module.exports = {

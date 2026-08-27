@@ -53,6 +53,16 @@ test('classifies Python when requirements exist without Node scripts', (t) => {
   assert.equal(classifyProjectRuntime(root), 'python');
 });
 
+test('does not invent Node when Python and package.json scripts both exist', (t) => {
+  const root = temporaryFolder(t);
+  fs.writeFileSync(path.join(root, 'requirements.txt'), 'flask\n');
+  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({
+    scripts: { start: 'echo frontend' }
+  }));
+  assert.equal(classifyProjectRuntime(root), 'unknown');
+  assert.equal(runtimeAllowsNpmStartChips('unknown'), false);
+});
+
 test('normalizes known runtimes and rejects unknown values', () => {
   assert.equal(normalizeProjectRuntime(' Node '), 'node');
   assert.equal(normalizeProjectRuntime(''), undefined);

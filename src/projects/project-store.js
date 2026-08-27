@@ -17,13 +17,14 @@ const {
   classifyProjectRuntime,
   normalizeProjectRuntime
 } = require('./project-runtime');
+const { normalizeRequiredEnvKeys } = require('./required-env');
 const {
   DEFAULT_LAUNCH_PROFILE_ID,
   DEFAULT_LAUNCH_PROFILE_NAME,
   MAX_ALTERNATE_LAUNCH_PROFILES
 } = require('./launch-profile');
 
-const PROJECT_STORE_SCHEMA_VERSION = 9;
+const PROJECT_STORE_SCHEMA_VERSION = 10;
 const ATOMIC_RENAME_MAX_ATTEMPTS = 5;
 const ATOMIC_RENAME_RETRY_DELAY_MS = 10;
 const ATOMIC_RENAME_WAIT = new Int32Array(new SharedArrayBuffer(4));
@@ -385,7 +386,7 @@ function parseProjectDocument(contents) {
   if (!Object.hasOwn(value, 'schemaVersion')) {
     throw projectStoreError('INVALID_STORAGE', 'Runlist project storage does not have a schema version.');
   }
-  if (![1, 2, 3, 4, 5, 6, 7, 8, PROJECT_STORE_SCHEMA_VERSION].includes(value.schemaVersion)) {
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, PROJECT_STORE_SCHEMA_VERSION].includes(value.schemaVersion)) {
     throw projectStoreError(
       'UNSUPPORTED_VERSION',
       `Runlist project storage version ${value.schemaVersion} is not supported.`
@@ -466,6 +467,7 @@ function validateStoredProjects(value, options = {}) {
   const supportsLocalHostname = options.schemaVersion === undefined || options.schemaVersion >= 7;
   const supportsLaunchEnv = options.schemaVersion === undefined || options.schemaVersion >= 8;
   const supportsRuntime = options.schemaVersion === undefined || options.schemaVersion >= 9;
+  const supportsRequiredEnvKeys = options.schemaVersion === undefined || options.schemaVersion >= 10;
   if (!Array.isArray(value)) {
     throw projectStoreError('INVALID_STORAGE', 'Runlist project storage does not contain a valid project list.');
   }
@@ -489,6 +491,7 @@ function validateStoredProjects(value, options = {}) {
       ...(supportsLocalHostname ? ['localHostname'] : []),
       ...(supportsLaunchEnv ? ['envFile', 'env'] : []),
       ...(supportsRuntime ? ['runtime'] : []),
+      ...(supportsRequiredEnvKeys ? ['requiredEnvKeys'] : []),
       'pinned',
       'reviewRequired'
     ]);
@@ -518,7 +521,8 @@ function validateStoredProjects(value, options = {}) {
     const launchProfiles = supportsLaunchProfiles
       ? validateStoredLaunchProfiles(project.launchProfiles, index, {
           supportsHealthChecks,
-          supportsLaunchEnv
+          supportsLaunchEnv,
+          supportsRequiredEnvKeys
         })
       : [];
     if (supportsLaunchProfiles && project.selectedLaunchProfileId !== undefined) {
@@ -604,6 +608,17 @@ function validateStoredProjects(value, options = {}) {
         throw projectStoreError('INVALID_STORAGE', `Runlist project ${index + 1} has an invalid runtime.`);
       }
     }
+    let requiredEnvKeys;
+    if (supportsRequiredEnvKeys && project.requiredEnvKeys !== undefined) {
+      try {
+        requiredEnvKeys = normalizeRequiredEnvKeys(project.requiredEnvKeys);
+      } catch {
+        throw projectStoreError('INVALID_STORAGE', `Runlist project ${index + 1} has invalid required env keys.`);
+      }
+      if (!requiredEnvKeys || JSON.stringify(requiredEnvKeys) !== JSON.stringify(project.requiredEnvKeys)) {
+        throw projectStoreError('INVALID_STORAGE', `Runlist project ${index + 1} has invalid required env keys.`);
+      }
+    }
 
     const projectWithoutTags = { ...project };
     delete projectWithoutTags.tags;
@@ -616,6 +631,7 @@ function validateStoredProjects(value, options = {}) {
       ...(envFile ? { envFile } : {}),
       ...(env ? { env } : {}),
       ...(runtime ? { runtime } : {}),
+      ...(requiredEnvKeys ? { requiredEnvKeys } : {}),
       reviewRequired
     };
   });
@@ -640,7 +656,8 @@ function validateStoredLaunchProfiles(value, projectIndex, options = {}) {
       'startCommand',
       'stopCommand',
       'services',
-      ...(options.supportsLaunchEnv ? ['envFile', 'env'] : [])
+      ...(options.supportsLaunchEnv ? ['envFile', 'env'] : []),
+      ...(options.supportsRequiredEnvKeys ? ['requiredEnvKeys'] : [])
     ];
     if (Object.keys(profile).some((key) => !allowedProfileKeys.includes(key))) {
       throw projectStoreError('INVALID_STORAGE', `Runlist launch profile ${profileIndex + 1} contains unsupported data.`);
@@ -687,6 +704,23 @@ function validateStoredLaunchProfiles(value, projectIndex, options = {}) {
         }
       }
     }
+    let requiredEnvKeys;
+    if (options.supportsRequiredEnvKeys && profile.requiredEnvKeys !== undefined) {
+      try {
+        requiredEnvKeys = normalizeRequiredEnvKeys(profile.requiredEnvKeys);
+      } catch {
+        throw projectStoreError(
+          'INVALID_STORAGE',
+          `Runlist launch profile ${profileIndex + 1} has invalid required env keys.`
+        );
+      }
+      if (!requiredEnvKeys || JSON.stringify(requiredEnvKeys) !== JSON.stringify(profile.requiredEnvKeys)) {
+        throw projectStoreError(
+          'INVALID_STORAGE',
+          `Runlist launch profile ${profileIndex + 1} has invalid required env keys.`
+        );
+      }
+    }
     const normalizedName = profile.name.toLocaleLowerCase();
     if (ids.has(profile.id) || names.has(normalizedName)) {
       throw projectStoreError('INVALID_STORAGE', 'Runlist launch profiles must have unique names and identifiers.');
@@ -706,6 +740,11 @@ function validateStoredLaunchProfiles(value, projectIndex, options = {}) {
       next.env = env;
     } else {
       delete next.env;
+    }
+    if (requiredEnvKeys) {
+      next.requiredEnvKeys = requiredEnvKeys;
+    } else {
+      delete next.requiredEnvKeys;
     }
     return next;
   });
@@ -858,6 +897,9 @@ function normalizeProjectInput(input, options = {}) {
   const runtime = input.runtime === undefined
     ? (existing?.runtime || classifyProjectRuntime(folder))
     : normalizeProjectRuntime(input.runtime);
+  const requiredEnvKeys = input.requiredEnvKeys === undefined
+    ? existing?.requiredEnvKeys
+    : normalizeRequiredEnvKeys(input.requiredEnvKeys);
 
   const selectedProfile = input.selectedLaunchProfileId === undefined
     ? existing?.selectedLaunchProfileId
@@ -886,6 +928,7 @@ function normalizeProjectInput(input, options = {}) {
     ...(envFile ? { envFile } : {}),
     ...(env ? { env } : {}),
     ...(runtime ? { runtime } : {}),
+    ...(requiredEnvKeys ? { requiredEnvKeys } : {}),
     reviewRequired: options.reviewRequired === undefined
       ? Boolean(existing?.reviewRequired)
       : Boolean(options.reviewRequired)
@@ -903,7 +946,7 @@ function normalizeLaunchProfiles(value) {
       throw new Error(`launchProfiles[${index}] must be an object.`);
     }
     const unsupported = Object.keys(profile)
-      .filter((key) => !['id', 'name', 'startCommand', 'stopCommand', 'services', 'envFile', 'env'].includes(key));
+      .filter((key) => !['id', 'name', 'startCommand', 'stopCommand', 'services', 'envFile', 'env', 'requiredEnvKeys'].includes(key));
     if (unsupported.length) {
       throw new Error(`launchProfiles[${index}] has unsupported field: ${unsupported.join(', ')}`);
     }
@@ -923,6 +966,7 @@ function normalizeLaunchProfiles(value) {
     const stopCommand = normalizeOptionalCommand(profile.stopCommand, `launchProfiles[${index}].stopCommand`);
     const envFile = normalizeEnvFile(profile.envFile);
     const env = normalizeEnvMap(profile.env);
+    const requiredEnvKeys = normalizeRequiredEnvKeys(profile.requiredEnvKeys);
     return {
       id,
       name,
@@ -930,6 +974,7 @@ function normalizeLaunchProfiles(value) {
       ...(stopCommand ? { stopCommand } : {}),
       ...(envFile ? { envFile } : {}),
       ...(env ? { env } : {}),
+      ...(requiredEnvKeys ? { requiredEnvKeys } : {}),
       services: normalizeServices(profile.services || [])
     };
   });

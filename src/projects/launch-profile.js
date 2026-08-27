@@ -12,6 +12,9 @@ function launchProfileOptions(project = {}) {
       ...(project.stopCommand ? { stopCommand: project.stopCommand } : {}),
       ...(project.envFile ? { envFile: project.envFile } : {}),
       ...(project.env ? { env: { ...project.env } } : {}),
+      ...(Array.isArray(project.requiredEnvKeys) && project.requiredEnvKeys.length
+        ? { requiredEnvKeys: [...project.requiredEnvKeys] }
+        : {}),
       services: Array.isArray(project.services) ? project.services : []
     },
     ...(Array.isArray(project.launchProfiles) ? project.launchProfiles : [])
@@ -60,6 +63,11 @@ function resolveLaunchProfile(project = {}, profileId) {
     resolved.env = { ...profile.env };
   } else {
     delete resolved.env;
+  }
+  if (Array.isArray(profile.requiredEnvKeys) && profile.requiredEnvKeys.length) {
+    resolved.requiredEnvKeys = [...profile.requiredEnvKeys];
+  } else {
+    delete resolved.requiredEnvKeys;
   }
   return resolved;
 }
