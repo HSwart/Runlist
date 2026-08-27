@@ -61,6 +61,11 @@ button:active:not(:disabled) {
   font-size: 11px;
 }
 
+#project-count {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .summary strong {
   color: var(--vscode-foreground);
   font-weight: 600;
@@ -71,7 +76,9 @@ button:active:not(:disabled) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .summary-trailing {
@@ -81,6 +88,40 @@ button:active:not(:disabled) {
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.summary-attention-slot:empty {
+  display: none;
+}
+
+.summary-attention {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 3px 12px 4px;
+  color: var(--vscode-textLink-foreground);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-widget-border));
+  border-radius: 0;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.summary-attention:hover {
+  color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground));
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.summary-attention:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
 }
 
 .run-groups {
@@ -1903,8 +1944,35 @@ button.project-listener-owner:hover {
 .agent-screen,
 .diagnosis-screen,
 .output-screen,
-.port-listening-screen {
+.port-listening-screen,
+.port-resolve-screen {
   padding: 10px 12px;
+}
+
+.port-resolve-choices {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.port-resolve-choice {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  text-align: left;
+  white-space: normal;
+}
+
+.port-resolve-choice strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.port-resolve-choice span {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .port-listening-list {

@@ -47,6 +47,10 @@ test('collects temporary port settings on the fly without editing the project', 
 
   assert.match(extension, /label: managed \? 'Restart with a temporary port' : 'Use a temporary port'/);
   assert.doesNotMatch(extension, /Configure temporary ports/);
+  const resolveFn = extension.match(/async resolveServicePort\([\s\S]*?\n  async buildPortResolve/);
+  assert.ok(resolveFn);
+  assert.doesNotMatch(resolveFn[0], /showQuickPick/);
+  assert.match(extension, /this\.mode = 'port-resolve'/);
   assert.match(extension, /prompt: `Port environment variable used by \$\{service\.name\}\. This applies to this launch only\.`/);
   assert.match(extension, /placeHolder: 'For example, API_PORT'/);
   assert.match(extension, /prompt: `Temporary port for \$\{service\.name\}\. The saved port remains :\$\{service\.port\}\.`/);

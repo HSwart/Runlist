@@ -818,6 +818,22 @@ function projectDetailTabsHtml(project, projectName) {
     </div>`;
 }
 
+function projectNeedsAttention(project) {
+  if (!project || project.status === 'unsupported') {
+    return false;
+  }
+  if (project.reviewRequired) {
+    return true;
+  }
+  if (['port-in-use', 'port-in-use-unknown', 'ownership-lost', 'not-responding'].includes(project.status)) {
+    return true;
+  }
+  if (project.status === 'active' && project.httpUnresponsive) {
+    return true;
+  }
+  return Boolean(projectStartFailureText(project) || projectStopFailureText(project));
+}
+
 function statusSummaryHtml(projects) {
   const reviewCount = projects.filter((project) => project.reviewRequired).length;
   const runningCount = projects
@@ -843,6 +859,13 @@ function statusSummaryHtml(projects) {
       && ['port-in-use', 'port-in-use-unknown'].includes(project.status)).length;
   const unsupportedCount = projects.filter((project) => project.status === 'unsupported').length;
   return `<span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running${startingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${startingCount} starting` : ''}${notReadyCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notReadyCount} taking longer` : ''}${notRespondingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notRespondingCount} not responding` : ''}${stoppingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${stoppingCount} stopping` : ''}${ownershipLostCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${ownershipLostCount} control unavailable` : ''} <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped${reviewCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${reviewCount} to review` : ''}${conflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${conflictCount} unavailable` : ''}${unsupportedCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${unsupportedCount} local only` : ''}`;
+}
+
+function attentionSummaryHtml(projects) {
+  if (!projects.some((project) => projectNeedsAttention(project))) {
+    return '';
+  }
+  return `<button type="button" class="summary-attention" data-action="focus-attention" aria-label="Focus first project that needs attention">Needs attention</button>`;
 }
 
 function runGroupsHtml() {
@@ -1023,6 +1046,7 @@ function renderList() {
           </button>` : ''}
       </span>
     </header>
+    <div id="summary-attention-slot" class="summary-attention-slot">${attentionSummaryHtml(state.projects)}</div>
     <span id="project-lifecycle-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span>
     ${state.routeNotice ? `
       <section id="route-notice" class="diagnosis-notice" role="status" aria-live="polite" aria-atomic="true">
@@ -1138,7 +1162,8 @@ function renderList() {
         const startFailureText = projectStartFailureText(project);
         const stopFailureText = projectStopFailureText(project);
         const rowStatusTitle = statusTitle
-          || ((startFailureText || stopFailureText) ? escapeHtml(displayedStatus) : '');
+          || (startFailureText ? escapeHtml(startFailureText) : '')
+          || (stopFailureText ? escapeHtml(stopFailureText) : '');
         const statusDotClass = startFailureText || stopFailureText
           ? 'conflict'
           : ['running', 'active'].includes(statusClass)
@@ -1344,6 +1369,10 @@ function applyProjectFilter(query) {
   const summaryStatus = document.getElementById('summary-status');
   if (summaryStatus) {
     summaryStatus.innerHTML = statusSummaryHtml(matchingProjects);
+  }
+  const attentionSlot = document.getElementById('summary-attention-slot');
+  if (attentionSlot) {
+    attentionSlot.innerHTML = attentionSummaryHtml(matchingProjects);
   }
 
   const emptyState = document.querySelector('[data-search-empty]');
@@ -1944,6 +1973,40 @@ function renderPortListening() {
     </section>`;
 }
 
+function renderPortResolve() {
+  const resolve = state.portResolve;
+  if (!resolve || !Array.isArray(resolve.choices) || !resolve.choices.length) {
+    app.innerHTML = `
+      <section class="diagnosis-screen port-resolve-screen" aria-label="Resolve port">
+        <header class="screen-header">
+          <h2>Resolve port</h2>
+          <button class="icon-button" data-action="close-screen" aria-label="Close resolve port">${icon('close')}</button>
+        </header>
+        <p class="screen-copy">This port resolve is no longer available.</p>
+      </section>`;
+    return;
+  }
+  const projectName = escapeHtml(resolve.projectName || 'Project');
+  const serviceName = escapeHtml(resolve.serviceName || 'service');
+  const portLabel = `:${Number(resolve.port)}`;
+  app.innerHTML = `
+    <section class="diagnosis-screen port-resolve-screen" aria-label="Resolve port for ${projectName}">
+      <header class="screen-header">
+        <h2>Resolve port</h2>
+        <button class="icon-button" data-action="close-screen" aria-label="Close resolve port">${icon('close')}</button>
+      </header>
+      <p class="screen-copy"><strong>${projectName}</strong> · ${serviceName} ${escapeHtml(portLabel)}</p>
+      <p class="screen-copy">Choose how Runlist should handle this service port. Closing an external listener still asks for confirmation with the exact port and PID.</p>
+      <div class="port-resolve-choices" role="list">
+        ${resolve.choices.map((choice, index) => `
+          <button type="button" class="port-resolve-choice ${index === 0 ? 'primary-button' : 'secondary-button'}" data-action="choose-port-resolve" data-resolve-action="${escapeHtml(choice.action)}" role="listitem">
+            <strong>${escapeHtml(choice.label)}</strong>
+            <span>${escapeHtml(choice.description || '')}</span>
+          </button>`).join('')}
+      </div>
+    </section>`;
+}
+
 function renderProjectDiagnosis() {
   const diagnosis = state.diagnosis;
   if (!diagnosis) {
@@ -2433,6 +2496,29 @@ app.addEventListener('click', (event) => {
         id: button.dataset.id,
         port: Number(button.dataset.port)
       });
+    },
+    'choose-port-resolve': () => {
+      vscode.postMessage({
+        type: 'choosePortResolve',
+        action: button.dataset.resolveAction
+      });
+    },
+    'focus-attention': () => {
+      const project = (state.projects || []).find((item) => {
+        if (!projectNeedsAttention(item)) {
+          return false;
+        }
+        const row = document.querySelector(`.project-row[data-project-id="${CSS.escape(String(item.id))}"]`);
+        return row && row.hidden !== true;
+      });
+      if (!project) {
+        return;
+      }
+      const projectId = String(project.id);
+      const row = document.querySelector(`.project-row[data-project-id="${CSS.escape(projectId)}"]`);
+      row?.scrollIntoView({ block: 'nearest' });
+      const control = document.querySelector(`.run-button[data-id="${CSS.escape(projectId)}"]`);
+      control?.focus();
     },
     'copy-phone-url': () => vscode.postMessage({
       type: 'copyPhoneUrl',
@@ -3159,6 +3245,8 @@ if (state.mode === 'list') {
   renderProjectDiagnosis();
   } else if (state.mode === 'port-listening') {
   renderPortListening();
+  } else if (state.mode === 'port-resolve') {
+  renderPortResolve();
   } else if (state.mode === 'compose-import') {
   renderComposeImport();
   } else {

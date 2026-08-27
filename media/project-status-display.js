@@ -96,7 +96,8 @@
     }
     const startFailure = projectStartFailureText(project);
     if (startFailure) {
-      return startFailure;
+      const title = String(project.failureSummary?.title || '').trim();
+      return title || 'Start failed';
     }
     const code = projectStatusCode(project);
     const primaryCode = projectPrimaryStatusCode(project);

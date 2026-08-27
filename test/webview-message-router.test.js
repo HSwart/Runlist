@@ -30,6 +30,8 @@ test('validates commands sent from the webview before routing', async () => {
   assert.ok(WEBVIEW_COMMAND_TYPES.has('startProject'));
   assert.ok(WEBVIEW_COMMAND_TYPES.has('loadWorkspaceStack'));
   assert.ok(WEBVIEW_COMMAND_TYPES.has('showPortListening'));
+  assert.ok(WEBVIEW_COMMAND_TYPES.has('choosePortResolve'));
+  assert.ok(WEBVIEW_COMMAND_TYPES.has('loadWorkspaceStack'));
   assert.ok(WEBVIEW_COMMAND_TYPES.has('refreshPortListening'));
   assert.ok(WEBVIEW_COMMAND_TYPES.has('copyPortListeningDetails'));
   assert.ok(WEBVIEW_COMMAND_TYPES.has('revealPortOwnerProject'));
@@ -42,6 +44,9 @@ test('validates commands sent from the webview before routing', async () => {
   assert.equal(validateWebviewCommand({ type: 'copyServiceUrl', id: 'project-1', port: 70000 }), undefined);
   assert.equal(validateWebviewCommand({ type: 'resolveServicePort', id: 'project-1', port: 0 }), undefined);
   assert.equal(validateWebviewCommand({ type: 'resolveServicePort', id: 'project-1', port: 4310 })?.port, 4310);
+  assert.equal(validateWebviewCommand({ type: 'choosePortResolve', action: 'temporary' })?.action, 'temporary');
+  assert.equal(validateWebviewCommand({ type: 'choosePortResolve', action: 'nope' }), undefined);
+  assert.equal(validateWebviewCommand({ type: 'loadWorkspaceStack' })?.type, 'loadWorkspaceStack');
   assert.equal(validateWebviewCommand({ type: 'openServiceUrl', id: 'project-1', port: 4310 })?.port, 4310);
   assert.equal(validateWebviewCommand({ type: 'registerAgent', agent: 'unknown' }), undefined);
   assert.equal(validateWebviewCommand({ type: 'startWorkspaceScript', script: 'build' }), undefined);

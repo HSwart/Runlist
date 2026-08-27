@@ -117,6 +117,7 @@ function createRunlistWebviewRouter(host, adapters = {}) {
       registerAgent: (message) => host.registerAgent(message.agent),
       rejectProjectRepair: () => host.rejectProjectRepair(),
       resolveServicePort: (message) => host.resolveServicePort(message.id, Number(message.port)),
+      choosePortResolve: (message) => host.choosePortResolve(message.action),
       revealPortOwnerProject: (message) => host.revealPortOwnerProject(message.id),
       showComposeImport: (message) => host.showComposeImport(message.id),
       restartProject: (message) => host.restartProject(message.id),
