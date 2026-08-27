@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.0.12 — Debug, share, requests, named localhost, Compose rows, terminal Start
 
 - Attach the VS Code debugger from ⋯ on a Runlist-started running row.
 - Share a running web app off-LAN through VS Code’s tunnel/port-forward, with teardown on Stop or toggle off.
