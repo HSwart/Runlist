@@ -72,7 +72,8 @@ test('workspace-folder listener rerenders and is disposed with the provider', as
     },
     window: {
       showErrorMessage: () => Promise.resolve(undefined),
-      showWarningMessage: () => Promise.resolve(undefined)
+      showWarningMessage: () => Promise.resolve(undefined),
+      showInformationMessage: () => Promise.resolve(undefined)
     },
     workspace: {
       workspaceFolders: [],

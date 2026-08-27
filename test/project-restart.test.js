@@ -35,7 +35,8 @@ function loadRunlistProvider(spawnImplementation, messages, moduleOverrides = {}
         messages.push(message);
         return Promise.resolve(undefined);
       },
-      showWarningMessage: () => Promise.resolve(undefined)
+      showWarningMessage: () => Promise.resolve(undefined),
+      showInformationMessage: () => Promise.resolve(undefined)
     },
     env: { remoteName: undefined }
   };
@@ -127,6 +128,9 @@ function createStatusMonitorProvider(Provider, owner, portReservations, services
   provider.projectTimelineFailures = new Map();
   provider.startReadinessDeadlines = new Map();
   provider.readinessWarnings = new Set();
+  provider.readyOpenOffered = new Map();
+  provider.readyOpenPending = new Map();
+  provider.readyOpenOpened = new Map();
   provider.httpResponseHistory = { currentTarget: () => undefined };
   provider.renderProjectList = () => {};
   provider.notifyServiceNotReady = () => {};

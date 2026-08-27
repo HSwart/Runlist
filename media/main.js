@@ -2848,16 +2848,11 @@ app.addEventListener('click', (event) => {
       phoneHandoffState[id] = true;
       detailTabState[id] = 'preview';
       saveWebviewState();
-      if (!project.detailsExpanded) {
-        vscode.postMessage({
-          type: 'toggleProjectPreview',
-          id,
-          focusAction: 'focus-phone-handoff'
-        });
-        return;
-      }
-      renderList();
-      requestAnimationFrame(() => document.getElementById(`phone-handoff-${String(id)}`)?.focus());
+      vscode.postMessage({
+        type: 'toggleProjectPreview',
+        id,
+        focusAction: 'focus-phone-handoff'
+      });
     },
     'show-startup-failure': () => showStartupFailure(button.dataset.id, button.dataset.entryKey),
     'close-startup-failure': () => closeStartupFailure(button.dataset.id, button.dataset.entryKey),

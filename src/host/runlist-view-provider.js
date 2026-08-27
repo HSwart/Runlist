@@ -29,6 +29,10 @@ const {
   stoppableProjectIds
 } = require('../lifecycle/project-status');
 const {
+  readyOpenMessage,
+  shouldOfferReadyOpen
+} = require('../lifecycle/ready-open-offer');
+const {
   copyProjectPath: writeProjectPathToClipboard,
   openProjectInNewWindow,
   openProjectTerminal,
@@ -363,6 +367,9 @@ class RunlistViewProvider {
     this.projectTimelineFailures = new Map();
     this.startReadinessDeadlines = new Map();
     this.readinessWarnings = new Set();
+    this.readyOpenOffered = new Map();
+    this.readyOpenPending = new Map();
+    this.readyOpenOpened = new Map();
     this.restartingProjectIds = new Set();
     this.handoffProjectIds = new Set();
     this.forceClosingProjectIds = new Set();
@@ -1850,6 +1857,7 @@ class RunlistViewProvider {
           metadata.readyAt = readyAt;
         }
       }
+      void this.offerReadyOpenNotifications(projects, processRuntime);
       if (changed) {
         this.renderProjectList();
       }
@@ -2216,6 +2224,97 @@ class RunlistViewProvider {
     }
   }
 
+  readyOpenGeneration(id) {
+    this.ensureReadyOpenState();
+    return this.projectRuntime.get(id)?.token
+      || this.processOwnership.snapshot().get(id)?.token;
+  }
+
+  ensureReadyOpenState() {
+    if (!(this.readyOpenOffered instanceof Map)) {
+      this.readyOpenOffered = new Map();
+    }
+    if (!(this.readyOpenPending instanceof Map)) {
+      this.readyOpenPending = new Map();
+    }
+    if (!(this.readyOpenOpened instanceof Map)) {
+      this.readyOpenOpened = new Map();
+    }
+  }
+
+  noteReadyOpenOpened(id) {
+    this.ensureReadyOpenState();
+    const generation = this.readyOpenGeneration(id);
+    if (!generation) {
+      return;
+    }
+    this.readyOpenOpened.set(id, generation);
+  }
+
+  offerReadyOpenNotifications(projects, processRuntime) {
+    this.ensureReadyOpenState();
+    if (this.disposed) {
+      return Promise.resolve();
+    }
+    const offers = [];
+    for (const savedProject of projects || []) {
+      const ownership = processRuntime?.get(savedProject.id);
+      const project = projectStopStrategy(savedProject, ownership);
+      if (!project) {
+        continue;
+      }
+      const status = this.getProjectStatus(project.id);
+      const previewService = projectPreviewService(
+        project,
+        status,
+        this.projectServiceUrls.get(project.id),
+        this.projectPortConflicts.has(project.id)
+      );
+      const generation = ownership?.token;
+      const locallyOwned = this.processes.has(project.id)
+        && Boolean(generation)
+        && ownership?.ownerAvailable !== false;
+      if (!shouldOfferReadyOpen({
+        status,
+        previewUrl: previewService?.url,
+        locallyOwned,
+        alreadyOpened: this.readyOpenOpened.get(project.id) === generation,
+        generation,
+        offeredGeneration: this.readyOpenOffered.get(project.id),
+        pending: this.readyOpenPending.get(project.id) === generation
+      })) {
+        continue;
+      }
+      this.readyOpenOffered.set(project.id, generation);
+      this.readyOpenPending.set(project.id, generation);
+      offers.push(this.showReadyOpenOffer(project, generation));
+    }
+    return Promise.all(offers);
+  }
+
+  async showReadyOpenOffer(project, generation) {
+    try {
+      if (this.disposed) {
+        return;
+      }
+      const choice = await vscode.window.showInformationMessage(
+        readyOpenMessage(project.name),
+        'Open'
+      );
+      if (this.disposed) {
+        return;
+      }
+      if (choice === 'Open') {
+        this.noteReadyOpenOpened(project.id);
+        await this.openProject(project.id);
+      }
+    } finally {
+      if (this.readyOpenPending.get(project.id) === generation) {
+        this.readyOpenPending.delete(project.id);
+      }
+    }
+  }
+
   notifyServiceNotReady(project, status = 'not-ready', readinessDetails = {}) {
     if (this.readinessWarnings.has(project.id)) {
       return;
@@ -2548,6 +2647,7 @@ class RunlistViewProvider {
       await this.refreshProjectStatuses();
       return;
     }
+    this.noteReadyOpenOpened(id);
     const opened = await vscode.env.openExternal(vscode.Uri.parse(reachable.url));
     if (!opened) {
       vscode.window.showErrorMessage(`Could not open ${project.name} at ${reachable.url}.`);
@@ -2605,6 +2705,7 @@ class RunlistViewProvider {
       await this.refreshProjectStatuses();
       return;
     }
+    this.noteReadyOpenOpened(id);
     const opened = await vscode.env.openExternal(vscode.Uri.parse(reachable.url));
     if (!opened) {
       vscode.window.showErrorMessage(`Could not open ${service.name} at ${reachable.url}.`);
@@ -2643,6 +2744,7 @@ class RunlistViewProvider {
       return;
     }
 
+    this.noteReadyOpenOpened(id);
     await vscode.env.clipboard.writeText(phoneHandoff.url);
     vscode.window.showInformationMessage('Copied phone URL.');
   }
@@ -2666,8 +2768,18 @@ class RunlistViewProvider {
       return;
     }
 
-    if (this.expandedPreviewProjectId === id
-      && (!previewService || this.expandedPreviewServicePort === previewService.port)) {
+    const phoneHandoffFocus = focusAction === 'focus-phone-handoff';
+    if (phoneHandoffFocus) {
+      this.noteReadyOpenOpened(id);
+    }
+    const alreadyExpanded = this.expandedPreviewProjectId === id
+      && (!previewService || this.expandedPreviewServicePort === previewService.port);
+    if (alreadyExpanded && phoneHandoffFocus) {
+      this.focusTarget = { type: 'action', action: focusAction, id };
+      this.renderProjectList();
+      return;
+    }
+    if (alreadyExpanded) {
       this.expandedPreviewProjectId = undefined;
       this.expandedPreviewServicePort = undefined;
     } else {
