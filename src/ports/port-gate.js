@@ -418,58 +418,6 @@ class PortReservationStore {
     return removed;
   }
 
-  adoptAbandonedLiveReservations(projectIds) {
-    const ids = projectIds instanceof Set
-      ? projectIds
-      : new Set(Array.isArray(projectIds) ? projectIds : []);
-    if (ids.size === 0 || !stableProcessIdentity(this.hostIdentity)) {
-      return [];
-    }
-    return this.withReservationTransaction(() => {
-      const adopted = [];
-      for (const filename of this.lockFiles()) {
-        const lockPath = path.join(this.directory, filename);
-        const lock = readLock(lockPath);
-        const port = Number(filename.match(/\d+/)?.[0]);
-        if (!lock?.projectId
-          || !ids.has(lock.projectId)
-          || lock.detached === true
-          || !Number.isInteger(port)) {
-          continue;
-        }
-        if (lock.pid === this.pid && this.hostIdentityDecision(lock) === 'match') {
-          this.locks.set(port, { projectId: lock.projectId, token: lock.token });
-          adopted.push(lock.projectId);
-          continue;
-        }
-        const hostState = this.hostOwnerState(lock);
-        if (hostState === 'available' || hostState === 'uncertain') {
-          continue;
-        }
-        if (!updateLock(
-          lockPath,
-          (current) => current?.token === lock.token
-            && current.projectId === lock.projectId
-            && current.detached !== true
-            && this.hostOwnerState(current) !== 'available'
-            && this.hostOwnerState(current) !== 'uncertain',
-          (current) => ({
-            ...current,
-            pid: this.pid,
-            hostIdentity: this.hostIdentity,
-            platform: this.platform,
-            heartbeatAt: this.now()
-          })
-        )) {
-          continue;
-        }
-        this.locks.set(port, { projectId: lock.projectId, token: lock.token });
-        adopted.push(lock.projectId);
-      }
-      return adopted;
-    });
-  }
-
   snapshot() {
     return this.withReservationTransaction(() => this.snapshotUnlocked());
   }

@@ -723,29 +723,6 @@ test('removes an unavailable host reservation when its child PID identity was re
   assert.equal(observer.snapshot().has('alpha'), false);
 });
 
-test('adopts abandoned live port locks after a window reload so Stop can release them', (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-port-adopt-'));
-  const alive = new Set([101, 202, 303]);
-  const owner = new PortReservationStore(directory, {
-    pid: 101,
-    isProcessAlive: (pid) => alive.has(pid)
-  });
-  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
-
-  owner.reserve(projects[0]);
-  owner.setProcess('alpha', 303, '303:original', owner.capture('alpha'));
-  alive.delete(101);
-
-  const reloaded = new PortReservationStore(directory, {
-    pid: 202,
-    isProcessAlive: (pid) => alive.has(pid)
-  });
-  assert.equal(reloaded.snapshot().has('alpha'), true);
-  assert.deepEqual(reloaded.adoptAbandonedLiveReservations(new Set(['alpha'])), ['alpha']);
-  reloaded.release('alpha');
-  assert.equal(reloaded.snapshot().has('alpha'), false);
-});
-
 test('keeps an abandoned macOS port lock for the matching strong identity and rejects reuse', async (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-port-darwin-identity-'));
   let now = 1000;
