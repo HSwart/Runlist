@@ -253,6 +253,9 @@ async function runProjectTransferWorkflow(options) {
       });
     }
     if (choice.action === 'load-stack') {
+      if (typeof options.loadStack === 'function') {
+        return options.loadStack();
+      }
       return await runStackContractLoadWorkflow({
         isProjectActive,
         onImported,
@@ -467,28 +470,20 @@ async function runStackContractLoadWorkflow(options) {
     withProjectStoreLock
   } = options;
   try {
-    if (!workspaceRoot) {
-      await window.showErrorMessage(
-        'Open a folder in VS Code to load a Runlist stack file from this workspace.'
-      );
-      return { status: 'error' };
+    const prepared = prepareStackContractLoad({
+      isProjectActive,
+      projectsFile,
+      workspaceRoot
+    });
+    if (prepared.status === 'error') {
+      await window.showErrorMessage(prepared.message);
+      return { status: 'error', error: prepared.error };
     }
-    const contractPath = detectStackContract(workspaceRoot);
-    if (!contractPath) {
-      await window.showInformationMessage(
-        'No Runlist stack file found. Expected runlist.json or .runlist/projects.json in this workspace.'
-      );
+    if (prepared.status === 'missing') {
+      await window.showInformationMessage(prepared.message);
       return { status: 'missing' };
     }
-    const contents = fs.readFileSync(contractPath);
-    const parsed = parseStackContract(contents, {
-      workspaceRoot,
-      contractPath
-    });
-    const preview = previewProjectImport(readProjects(projectsFile), parsed.projects, {
-      isProjectActive,
-      replaceOptionalMetadata: false
-    });
+    const { preview, parsed } = prepared;
     const groupDetail = formatContractGroupPreview(parsed.groups);
     const detail = [formatProjectImportPreview(preview.entries), groupDetail]
       .filter(Boolean)
@@ -515,16 +510,14 @@ async function runStackContractLoadWorkflow(options) {
       return { status: 'cancelled', preview };
     }
 
-    const applyImport = () => {
-      const projects = applyProjectImport(projectsFile, preview, {
-        reserveUpdatedProjects
-      });
-      syncRunGroupsFromContract(projectsFile, projects, parsed.groups, workspaceRoot);
-      return projects;
-    };
-    const projects = withProjectStoreLock
-      ? await withProjectStoreLock(applyImport)
-      : applyImport();
+    const projects = await commitStackContractLoad({
+      parsed,
+      preview,
+      projectsFile,
+      reserveUpdatedProjects,
+      workspaceRoot,
+      withProjectStoreLock
+    });
     await onImported?.(projects);
     await window.showInformationMessage(
       `Loaded ${label}. Review each changed setup before running its commands.`
@@ -537,6 +530,71 @@ async function runStackContractLoadWorkflow(options) {
     await window.showErrorMessage(message);
     return { status: 'error', error };
   }
+}
+
+function prepareStackContractLoad(options) {
+  const {
+    isProjectActive,
+    projectsFile,
+    workspaceRoot
+  } = options;
+  try {
+    if (!workspaceRoot) {
+      return {
+        status: 'error',
+        message: 'Open a folder in VS Code to load a Runlist stack file from this workspace.'
+      };
+    }
+    const contractPath = detectStackContract(workspaceRoot);
+    if (!contractPath) {
+      return {
+        status: 'missing',
+        message: 'No Runlist stack file found. Expected runlist.json or .runlist/projects.json in this workspace.'
+      };
+    }
+    const contents = fs.readFileSync(contractPath);
+    const parsed = parseStackContract(contents, {
+      workspaceRoot,
+      contractPath
+    });
+    const preview = previewProjectImport(readProjects(projectsFile), parsed.projects, {
+      isProjectActive,
+      replaceOptionalMetadata: false
+    });
+    return {
+      status: 'ready',
+      contractPath,
+      parsed,
+      preview,
+      workspaceRoot
+    };
+  } catch (error) {
+    const message = error instanceof StackContractError || error instanceof ProjectTransferError
+      ? error.message
+      : boundedMessage(error);
+    return { status: 'error', message, error };
+  }
+}
+
+async function commitStackContractLoad(options) {
+  const {
+    parsed,
+    preview,
+    projectsFile,
+    reserveUpdatedProjects,
+    workspaceRoot,
+    withProjectStoreLock
+  } = options;
+  const applyImport = () => {
+    const projects = applyProjectImport(projectsFile, preview, {
+      reserveUpdatedProjects
+    });
+    syncRunGroupsFromContract(projectsFile, projects, parsed.groups, workspaceRoot);
+    return projects;
+  };
+  return withProjectStoreLock
+    ? withProjectStoreLock(applyImport)
+    : applyImport();
 }
 
 async function runStackContractExportWorkflow(options) {
@@ -653,10 +711,12 @@ function formatContractGroupPreview(groups) {
 
 module.exports = {
   applyProjectImport,
+  commitStackContractLoad,
   exportProjectDocument,
   MAX_IMPORT_BYTES,
   MAX_IMPORT_PROJECTS,
   parseImportDocument,
+  prepareStackContractLoad,
   previewProjectImport,
   ProjectTransferError,
   runProjectTransferWorkflow,

@@ -35,8 +35,34 @@ function currentWorkspaceFolderPath(workspaceFolders) {
   return folders.length === 1 ? folders[0].uri.fsPath : undefined;
 }
 
-function starterDraftForCurrentWorkspace(workspaceFolders) {
-  const folder = currentWorkspaceFolderPath(workspaceFolders);
+function workspaceFolderChoices(workspaceFolders) {
+  return localWorkspaceFolders(workspaceFolders).map((workspaceFolder) => ({
+    name: workspaceFolder.name,
+    folder: workspaceFolder.uri.fsPath
+  }));
+}
+
+function resolveWorkspaceFolderPath(workspaceFolders, preferredFolder, platform = process.platform) {
+  const folders = localWorkspaceFolders(workspaceFolders);
+  if (!folders.length) {
+    return undefined;
+  }
+  if (typeof preferredFolder === 'string' && preferredFolder.trim()) {
+    const match = folders.find((workspaceFolder) => (
+      foldersReferToSamePath(workspaceFolder.uri.fsPath, preferredFolder, platform)
+    ));
+    if (match) {
+      return match.uri.fsPath;
+    }
+  }
+  if (folders.length === 1) {
+    return folders[0].uri.fsPath;
+  }
+  return undefined;
+}
+
+function starterDraftForCurrentWorkspace(workspaceFolders, preferredFolder) {
+  const folder = resolveWorkspaceFolderPath(workspaceFolders, preferredFolder);
   return folder ? { folder } : {};
 }
 
@@ -142,7 +168,7 @@ function workspaceStartDevScripts(folder, readFileSync = fs.readFileSync) {
   return chips;
 }
 
-async function selectCurrentWorkspaceFolder(vscode) {
+async function selectCurrentWorkspaceFolder(vscode, options = {}) {
   const workspaceFolders = localWorkspaceFolders(vscode.workspace.workspaceFolders);
   if (workspaceFolders.length === 0) {
     return undefined;
@@ -150,20 +176,7 @@ async function selectCurrentWorkspaceFolder(vscode) {
   if (workspaceFolders.length === 1) {
     return workspaceFolders[0].uri.fsPath;
   }
-
-  const selection = await vscode.window.showQuickPick(
-    workspaceFolders.map((workspaceFolder) => ({
-      description: workspaceFolder.uri.fsPath,
-      folder: workspaceFolder.uri.fsPath,
-      label: workspaceFolder.name
-    })),
-    {
-      matchOnDescription: true,
-      placeHolder: 'Choose the workspace folder to use for this project',
-      title: 'Use current workspace'
-    }
-  );
-  return selection?.folder;
+  return resolveWorkspaceFolderPath(workspaceFolders, options.preferredFolder);
 }
 
 module.exports = {
@@ -174,9 +187,11 @@ module.exports = {
   orderSidebarProjects,
   projectForCurrentWindow,
   projectLastStartedAt,
+  resolveWorkspaceFolderPath,
   selectCurrentWorkspaceFolder,
   startThisFolderDecision,
   starterDraftForCurrentWorkspace,
+  workspaceFolderChoices,
   workspaceFolderMatchesProject,
   workspaceStartDevScripts
 };

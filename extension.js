@@ -118,6 +118,10 @@ function activate(context) {
     vscode.commands.registerCommand('runlist.transferProjects', () => provider.showProjectTransfer()),
     vscode.commands.registerCommand('runlist.manageGroups', () => provider.showRunGroupManager()),
     vscode.commands.registerCommand(
+      'runlist.loadWorkspaceStack',
+      () => provider.showProjectTransferLoadStack()
+    ),
+    vscode.commands.registerCommand(
       'runlist.showPortListening',
       () => provider.showPortListeningDiagnosis()
     ),

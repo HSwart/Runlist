@@ -64,6 +64,7 @@ test('contributes Add and a Global overflow submenu on the Runlist view title', 
     [
       'runlist.showAgentSetup',
       'runlist.transferProjects',
+      'runlist.loadWorkspaceStack',
       'runlist.manageGroups',
       'runlist.showPortListening',
       'runlist.copySupportDiagnostics'
@@ -82,6 +83,7 @@ test('view title commands use plain-language icon titles', () => {
   assert.equal(byId['runlist.showAgentSetup'], 'Set Up Agents');
   assert.equal(byId['runlist.transferProjects'], 'Import or Export');
   assert.equal(byId['runlist.manageGroups'], 'Manage Groups');
+  assert.equal(byId['runlist.loadWorkspaceStack'], 'Load Stack');
   assert.equal(byId['runlist.showPortListening'], "What's Listening");
   assert.equal(byId['runlist.importCompose'], 'Import Compose Services');
   assert.equal(byId['runlist.copySupportDiagnostics'], 'Copy Support Info');

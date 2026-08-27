@@ -28,6 +28,7 @@ test('Global overflow hub is always available and does not add a Tools section',
   );
   assert.match(JSON.stringify(overflowItems), /showAgentSetup/);
   assert.match(JSON.stringify(overflowItems), /transferProjects/);
+  assert.match(JSON.stringify(overflowItems), /loadWorkspaceStack/);
   assert.match(JSON.stringify(overflowItems), /manageGroups/);
   assert.match(JSON.stringify(overflowItems), /showPortListening/);
   assert.match(JSON.stringify(overflowItems), /copySupportDiagnostics/);

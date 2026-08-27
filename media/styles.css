@@ -2036,7 +2036,8 @@ button.project-listener-owner:hover {
 .output-screen,
 .port-listening-screen,
 .port-resolve-screen,
-.run-groups-screen {
+.run-groups-screen,
+.stack-review-screen {
   padding: 10px 12px;
 }
 
@@ -3009,6 +3010,67 @@ select[aria-invalid='true'] {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.empty-workspace-choices,
+.workspace-folder-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+  max-width: 100%;
+}
+
+.empty-workspace-choice {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stack-review-list {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.stack-review-row {
+  min-width: 0;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--vscode-widget-border, transparent);
+}
+
+.stack-review-topline {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stack-review-topline strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.stack-review-status {
+  flex: 0 0 auto;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.stack-review-folder,
+.stack-review-reason,
+.stack-review-groups {
+  margin: 2px 0 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.stack-review-groups {
+  padding-left: 18px;
 }
 
 .empty-start-chip {

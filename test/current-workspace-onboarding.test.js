@@ -39,7 +39,7 @@ test('Add Project prefills the open workspace folder and focuses the remaining r
   const addEnd = extension.indexOf('async showAgentSetup()');
   const addProject = extension.slice(addStart, addEnd);
 
-  assert.match(addProject, /starterDraftForCurrentWorkspace\(vscode\.workspace\.workspaceFolders\)/);
+  assert.match(addProject, /starterDraftForCurrentWorkspace\(vscode\.workspace\.workspaceFolders, this\.preferredWorkspaceFolder\)/);
   assert.match(addProject, /id: 'start-command'/);
   assert.match(addProject, /id: 'project-name'/);
 });
@@ -47,7 +47,7 @@ test('Add Project prefills the open workspace folder and focuses the remaining r
 test('sidebar state marks and sorts the This-window project', () => {
   assert.match(extension, /currentWorkspace: workspaceFolderMatchesProject\(/);
   assert.match(extension, /orderSidebarProjects\(projects\.map/);
-  assert.match(extension, /currentWorkspaceFolder: currentWorkspaceFolderPath\(/);
+  assert.match(extension, /currentWorkspaceFolder: this\.workspaceRoot\(\)/);
 });
 
 test('workspace-folder changes rerender This window and Add this folder from the provider', () => {

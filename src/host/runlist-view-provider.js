@@ -66,11 +66,12 @@ const {
 } = require('../lifecycle/startup-history');
 const {
   canUseCurrentWorkspace,
-  currentWorkspaceFolderPath,
   orderSidebarProjects,
+  resolveWorkspaceFolderPath,
   selectCurrentWorkspaceFolder,
   startThisFolderDecision,
   starterDraftForCurrentWorkspace,
+  workspaceFolderChoices,
   workspaceFolderMatchesProject,
   workspaceStartDevScripts
 } = require('../projects/project-workspace');
@@ -197,7 +198,7 @@ const {
   projectRepairComparison,
   readProjectRepairProposal
 } = require('../projects/project-repair');
-const { runProjectTransferWorkflow, runStackContractLoadWorkflow, previewProjectImport } = require('../projects/project-transfer');
+const { runProjectTransferWorkflow, prepareStackContractLoad, commitStackContractLoad, previewProjectImport } = require('../projects/project-transfer');
 const { detectStackContract, parseStackContract } = require('../projects/stack-contract');
 const {
   findLocalHostnameCollisions,
@@ -290,7 +291,8 @@ class RunlistViewProvider {
     this.composeImport = undefined;
     this.composeAvailability = undefined;
     this.composeNotice = undefined;
-    this.stackContractPrompted = false;
+    this.stackReview = undefined;
+    this.preferredWorkspaceFolder = undefined;
     this.expandedPreviewProjectId = undefined;
     this.expandedPreviewServicePort = undefined;
     this.processes = new Map();
@@ -411,7 +413,36 @@ class RunlistViewProvider {
 
     view.webview.onDidReceiveMessage((message) => this.handleMessage(message));
     this.render();
-    void this.maybeOfferStackContractLoad();
+  }
+
+  workspaceRoot() {
+    return resolveWorkspaceFolderPath(
+      vscode.workspace.workspaceFolders,
+      this.preferredWorkspaceFolder
+    );
+  }
+
+  async selectPreferredWorkspaceFolder(folder) {
+    const resolved = resolveWorkspaceFolderPath(
+      vscode.workspace.workspaceFolders,
+      folder
+    );
+    if (!resolved) {
+      vscode.window.showWarningMessage('That workspace folder is no longer open.');
+      this.render();
+      return false;
+    }
+    this.preferredWorkspaceFolder = resolved;
+    if (['add', 'edit'].includes(this.mode)) {
+      this.draft = { ...this.draft, folder: resolved };
+      this.formErrors = {};
+      this.focusTarget = { type: 'field', id: 'start-command' };
+    } else {
+      this.mode = 'list';
+      this.focusTarget = { type: 'action', action: 'show-add' };
+    }
+    this.render();
+    return true;
   }
 
   async revealRunlistView() {
@@ -431,7 +462,7 @@ class RunlistViewProvider {
     this.mode = 'add';
     this.routeNotice = undefined;
     this.diagnosisProjectIncarnation = undefined;
-    this.draft = starterDraftForCurrentWorkspace(vscode.workspace.workspaceFolders);
+    this.draft = starterDraftForCurrentWorkspace(vscode.workspace.workspaceFolders, this.preferredWorkspaceFolder);
     this.formBaseline = projectFormValues(this.draft);
     this.formProjectSnapshot = undefined;
     this.formErrors = {};
@@ -698,7 +729,7 @@ class RunlistViewProvider {
     if (!await this.confirmDiscardProjectChanges()) {
       return false;
     }
-    const folder = currentWorkspaceFolderPath(vscode.workspace.workspaceFolders);
+    const folder = this.workspaceRoot();
     const chip = workspaceStartDevScripts(folder)
       .find((script) => script.name === scriptName);
     if (!folder || !chip) {
@@ -736,13 +767,14 @@ class RunlistViewProvider {
     let lockSnapshot;
     return runProjectTransferWorkflow({
       projectsFile: this.projectsFile,
-      workspaceRoot: currentWorkspaceFolderPath(vscode.workspace.workspaceFolders),
+      workspaceRoot: this.workspaceRoot(),
       withProjectStoreLock: (operation) => withProjectStoreLockAsync(
         this.projectsFile,
         operation
       ),
       window: vscode.window,
       workspace: vscode.workspace,
+      loadStack: () => this.showProjectTransferLoadStack(),
       isProjectActive: (project) => {
         lockSnapshot ||= {
           localProcessIds: [...this.processes.keys()],
@@ -758,51 +790,14 @@ class RunlistViewProvider {
   }
 
   async maybeOfferStackContractLoad() {
-    if (this.stackContractPrompted) {
-      return;
-    }
-    // Empty sidebar surfaces Load stack on the empty state — avoid a toast there.
-    if (this.projects.length === 0) {
-      return;
-    }
-    const workspaceRoot = currentWorkspaceFolderPath(vscode.workspace.workspaceFolders);
-    if (!workspaceRoot) {
-      return;
-    }
-    const contractPath = detectStackContract(workspaceRoot);
-    if (!contractPath) {
-      return;
-    }
-    this.stackContractPrompted = true;
-    let parsed;
-    try {
-      parsed = parseStackContract(fs.readFileSync(contractPath), { workspaceRoot, contractPath });
-    } catch {
-      return;
-    }
-    const preview = previewProjectImport(this.projects, parsed.projects, {
-      replaceOptionalMetadata: false,
-      isProjectActive: (project) => this.getProjectStatus(project.id) === 'active'
-    });
-    if (!preview.changeCount) {
-      return;
-    }
-    const review = 'Review stack file';
-    const choice = await vscode.window.showInformationMessage(
-      'This workspace has a Runlist stack file with setups that are not in your sidebar yet.',
-      review,
-      'Not now'
-    );
-    if (choice === review) {
-      await this.showProjectTransferLoadStack();
-    }
+    // Stack discovery is empty-state / Global ⋯ only — no toast above the list.
   }
 
   stackContractPendingForEmptyState() {
     if (this.projects.length > 0) {
       return false;
     }
-    const workspaceRoot = currentWorkspaceFolderPath(vscode.workspace.workspaceFolders);
+    const workspaceRoot = this.workspaceRoot();
     if (!workspaceRoot) {
       return false;
     }
@@ -823,15 +818,13 @@ class RunlistViewProvider {
   }
 
   async showProjectTransferLoadStack() {
+    if (!await this.confirmDiscardProjectChanges()) {
+      return { status: 'cancelled' };
+    }
     let lockSnapshot;
-    return runStackContractLoadWorkflow({
+    const prepared = prepareStackContractLoad({
       projectsFile: this.projectsFile,
-      workspaceRoot: currentWorkspaceFolderPath(vscode.workspace.workspaceFolders),
-      withProjectStoreLock: (operation) => withProjectStoreLockAsync(
-        this.projectsFile,
-        operation
-      ),
-      window: vscode.window,
+      workspaceRoot: this.workspaceRoot(),
       isProjectActive: (project) => {
         lockSnapshot ||= {
           localProcessIds: [...this.processes.keys()],
@@ -840,10 +833,99 @@ class RunlistViewProvider {
         };
         return this.getProjectStatus(project.id) === 'active'
           || this.projectSetupLocked(project.id, lockSnapshot);
-      },
-      reserveUpdatedProjects: (ids) => this.reserveProjectUpdates(ids),
-      onImported: () => this.renderProjectList()
+      }
     });
+    if (prepared.status !== 'ready') {
+      const message = prepared.message || 'Could not load the workspace stack file.';
+      if (prepared.status === 'missing') {
+        vscode.window.showInformationMessage(message);
+      } else {
+        vscode.window.showErrorMessage(message);
+      }
+      return prepared;
+    }
+
+    const groups = Array.isArray(prepared.parsed.groups)
+      ? prepared.parsed.groups.map((group) => ({
+        name: group.name,
+        projectFolders: group.projectFolders,
+        startMode: group.startMode
+      }))
+      : [];
+    this.mode = 'stack-review';
+    this.routeNotice = undefined;
+    this.diagnosisProjectIncarnation = undefined;
+    this.portListeningReport = undefined;
+    this.portResolve = undefined;
+    this.composeImport = undefined;
+    this.runGroupsEditorFocusId = undefined;
+    this.draft = {};
+    this.stackReview = {
+      contractPath: prepared.contractPath,
+      workspaceRoot: prepared.workspaceRoot,
+      changeCount: prepared.preview.changeCount,
+      entries: prepared.preview.entries.map((entry) => ({
+        status: entry.status,
+        name: entry.name,
+        folder: entry.folder,
+        reason: entry.reason || ''
+      })),
+      groups,
+      prepared
+    };
+    this.focusTarget = prepared.preview.changeCount
+      ? { type: 'action', action: 'approve-stack-review' }
+      : { type: 'action', action: 'close-screen' };
+    this.returnFocus = this.defaultListFocusTarget();
+    this.selectedProjectId = undefined;
+    await this.revealRunlistView();
+    this.render();
+    return { status: 'review', preview: prepared.preview };
+  }
+
+  async approveStackReview() {
+    const review = this.stackReview;
+    if (!review?.prepared?.preview) {
+      vscode.window.showWarningMessage('This stack review is no longer available.');
+      this.mode = 'list';
+      this.stackReview = undefined;
+      this.render();
+      return false;
+    }
+    if (!review.prepared.preview.changeCount) {
+      this.mode = 'list';
+      this.stackReview = undefined;
+      this.render();
+      return false;
+    }
+    try {
+      await commitStackContractLoad({
+        parsed: review.prepared.parsed,
+        preview: review.prepared.preview,
+        projectsFile: this.projectsFile,
+        workspaceRoot: review.prepared.workspaceRoot,
+        withProjectStoreLock: (operation) => withProjectStoreLockAsync(
+          this.projectsFile,
+          operation
+        ),
+        reserveUpdatedProjects: (ids) => this.reserveProjectUpdates(ids)
+      });
+      const label = `${review.changeCount} project setup${review.changeCount === 1 ? '' : 's'}`;
+      this.stackReview = undefined;
+      this.mode = 'list';
+      this.focusTarget = this.defaultListFocusTarget();
+      this.render();
+      vscode.window.showInformationMessage(
+        `Loaded ${label}. Review each changed setup before running its commands.`
+      );
+      return true;
+    } catch (error) {
+      vscode.window.showErrorMessage(error?.message || 'Could not load the workspace stack file.');
+      this.stackReview = undefined;
+      this.mode = 'list';
+      this.render();
+      return false;
+    }
   }
 
   async copySupportDiagnostics() {
@@ -1101,7 +1183,7 @@ class RunlistViewProvider {
     if (projectCount === 1) {
       return { type: 'project-control', id: this.projects[0].id };
     }
-    return currentWorkspaceFolderPath(vscode.workspace.workspaceFolders)
+    return this.workspaceRoot()
       ? { type: 'action', action: 'show-add' }
       : undefined;
   }
@@ -1215,7 +1297,7 @@ class RunlistViewProvider {
       ? { type: 'field', id: 'project-search' }
       : projects.length === 1
         ? { type: 'project-control', id: projects[0].id }
-        : currentWorkspaceFolderPath(vscode.workspace.workspaceFolders)
+        : this.workspaceRoot()
           ? { type: 'action', action: 'show-add' }
           : undefined;
     this.focusTarget = focusTarget;
@@ -1972,6 +2054,7 @@ class RunlistViewProvider {
     this.portListeningReport = undefined;
     this.portResolve = undefined;
     this.composeImport = undefined;
+    this.stackReview = undefined;
     this.runGroupsEditorFocusId = undefined;
     this.returnFocus = undefined;
     this.focusTarget = returnFocus;
@@ -2834,11 +2917,19 @@ class RunlistViewProvider {
 
   async useCurrentWorkspace(draft = {}) {
     this.draft = { ...this.draft, ...draft };
-    const folder = await selectCurrentWorkspaceFolder(vscode);
+    const folder = await selectCurrentWorkspaceFolder(vscode, {
+      preferredFolder: this.preferredWorkspaceFolder
+    });
     if (!folder) {
+      const choices = workspaceFolderChoices(vscode.workspace.workspaceFolders);
+      if (choices.length > 1) {
+        this.focusTarget = { type: 'action', action: 'select-workspace-folder' };
+        this.render();
+      }
       return;
     }
 
+    this.preferredWorkspaceFolder = folder;
     this.draft.folder = folder;
     this.formErrors = {};
     this.focusTarget = { type: 'field', id: 'folder' };
@@ -5125,13 +5216,14 @@ class RunlistViewProvider {
       draft: this.draft,
       canUseCurrentWorkspace: this.mode === 'add'
         && canUseCurrentWorkspace(vscode.workspace.workspaceFolders),
-      currentWorkspaceFolder: currentWorkspaceFolderPath(vscode.workspace.workspaceFolders) || '',
+      workspaceFolders: workspaceFolderChoices(vscode.workspace.workspaceFolders),
+      currentWorkspaceFolder: this.workspaceRoot() || '',
       currentWorkspaceFolderName: (() => {
-        const folder = currentWorkspaceFolderPath(vscode.workspace.workspaceFolders) || '';
+        const folder = this.workspaceRoot() || '';
         return folder ? path.basename(folder) : '';
       })(),
       workspaceStartScripts: workspaceStartDevScripts(
-        currentWorkspaceFolderPath(vscode.workspace.workspaceFolders) || ''
+        this.workspaceRoot() || ''
       ),
       stackContractPending: this.stackContractPendingForEmptyState(),
       focusTarget: this.focusTarget || this.lastFocusTarget,
@@ -5178,6 +5270,14 @@ class RunlistViewProvider {
             name: project.name,
             folder: project.folder
           }))
+        }
+        : undefined,
+      stackReview: this.mode === 'stack-review'
+        ? {
+          contractPath: this.stackReview?.contractPath || '',
+          changeCount: this.stackReview?.changeCount || 0,
+          entries: this.stackReview?.entries || [],
+          groups: this.stackReview?.groups || []
         }
         : undefined,
       composeImport: this.mode === 'compose-import' ? this.composeImport : undefined,

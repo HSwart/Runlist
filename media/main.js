@@ -994,10 +994,13 @@ function renderList() {
     const workspaceFolder = String(state.currentWorkspaceFolder || '');
     const workspaceFolderName = String(state.currentWorkspaceFolderName || '')
       || (workspaceFolder ? workspaceFolder.split(/[/\\]/).filter(Boolean).at(-1) || workspaceFolder : '');
+    const workspaceFolders = Array.isArray(state.workspaceFolders) ? state.workspaceFolders : [];
     const addLabel = 'Add this folder';
     const emptyCopy = workspaceFolder
       ? `Add ${workspaceFolderName || 'the folder'} open in this window.`
-      : 'Open a folder in this window first.';
+      : workspaceFolders.length > 1
+        ? 'Choose a folder open in this window.'
+        : 'Open a folder in this window first.';
     const startScripts = Array.isArray(state.workspaceStartScripts)
       ? state.workspaceStartScripts.filter((script) => script
         && ['start', 'dev'].includes(script.name)
@@ -1010,6 +1013,13 @@ function renderList() {
         <h2>No projects yet</h2>
         <p>${escapeHtml(emptyCopy)}</p>
         ${workspaceFolderName ? `<p class="empty-folder" title="${escapeHtml(workspaceFolder)}">${escapeHtml(workspaceFolderName)}</p>` : ''}
+        ${!workspaceFolder && workspaceFolders.length > 1 ? `
+          <div class="empty-workspace-choices" role="group" aria-label="Workspace folders in this window">
+            ${workspaceFolders.map((entry) => `
+              <button type="button" class="secondary-button empty-workspace-choice" data-action="select-workspace-folder" data-folder="${escapeHtml(entry.folder)}" title="${escapeHtml(entry.folder)}">
+                ${escapeHtml(entry.name || entry.folder)}
+              </button>`).join('')}
+          </div>` : ''}
         ${state.lifecycleWindowSupported === false ? `<p>Start and Stop work for apps on this computer. You can still save projects here. Remote SSH, Dev Containers, GitHub Codespaces, VS Code Tunnels, and Windows WSL network paths will not start or stop processes in this release.</p>` : ''}
         <div class="empty-actions">
           ${workspaceFolder ? `<button class="primary-button" data-action="show-add">${addLabel}</button>` : ''}
@@ -1750,7 +1760,16 @@ function renderProjectForm(mode) {
           <input id="folder" name="folder" value="${escapeHtml(state.draft.folder || '')}" placeholder="Choose a folder" ${errorAttributes('folder')}>
           <button class="browse-button" type="button" data-action="pick-folder">Browse</button>
         </div>
-        ${state.canUseCurrentWorkspace ? '<button class="workspace-button" type="button" data-action="use-current-workspace">Use current workspace</button>' : ''}
+        ${(() => {
+          const folders = Array.isArray(state.workspaceFolders) ? state.workspaceFolders : [];
+          if (!state.canUseCurrentWorkspace) {
+            return '';
+          }
+          if (folders.length > 1 && !state.currentWorkspaceFolder) {
+            return `<div class="workspace-folder-choices" role="group" aria-label="Workspace folders in this window">${folders.map((entry) => `<button class="workspace-button" type="button" data-action="select-workspace-folder" data-folder="${escapeHtml(entry.folder)}" title="${escapeHtml(entry.folder)}">${escapeHtml(entry.name || entry.folder)}</button>`).join('')}</div>`;
+          }
+          return '<button class="workspace-button" type="button" data-action="use-current-workspace">Use current workspace</button>';
+        })()}
         ${fieldError('folder')}
 
         ${showLaunchProfileEditor ? `
@@ -1876,6 +1895,53 @@ function renderProjectOutput() {
       outputPanel.addEventListener('scroll', handleOutputScroll, { passive: true });
     }
   });
+}
+
+function renderStackReview() {
+  const review = state.stackReview;
+  if (!review) {
+    app.innerHTML = '<section class="diagnosis-screen"><p class="screen-copy">This stack review is no longer available.</p></section>';
+    return;
+  }
+  const entries = Array.isArray(review.entries) ? review.entries : [];
+  const groups = Array.isArray(review.groups) ? review.groups : [];
+  const statusLabel = {
+    add: 'Add',
+    update: 'Update',
+    skip: 'Skip',
+    invalid: 'Invalid'
+  };
+  const rows = entries.map((entry) => `
+    <article class="stack-review-row" role="listitem">
+      <div class="stack-review-topline">
+        <strong>${escapeHtml(entry.name || 'Unnamed project')}</strong>
+        <span class="stack-review-status status-${escapeHtml(entry.status || 'skip')}">${escapeHtml(statusLabel[entry.status] || entry.status || 'Skip')}</span>
+      </div>
+      <p class="stack-review-folder">${escapeHtml(entry.folder || '')}</p>
+      ${entry.reason ? `<p class="stack-review-reason">${escapeHtml(entry.reason)}</p>` : ''}
+    </article>`).join('');
+  const groupRows = groups.length ? `
+    <h3 class="diagnosis-heading">Groups</h3>
+    <ul class="stack-review-groups">
+      ${groups.map((group) => `<li><strong>${escapeHtml(group.name)}</strong> — ${(group.projectFolders || []).map((folder) => escapeHtml(folder)).join(', ')} (${escapeHtml(group.startMode || 'sequential')})</li>`).join('')}
+    </ul>` : '';
+  const canLoad = Number(review.changeCount) > 0;
+  app.innerHTML = `
+    <section class="diagnosis-screen stack-review-screen" aria-label="Review workspace stack">
+      <header class="screen-header">
+        <h2>Review stack</h2>
+        <button class="icon-button" data-action="close-screen" aria-label="Close stack review">${icon('close')}</button>
+      </header>
+      <p class="screen-copy">From <code>${escapeHtml(review.contractPath || 'runlist.json')}</code>. Added and updated commands stay blocked until you review each setup.</p>
+      <div class="stack-review-list" role="list">
+        ${rows || '<p class="screen-copy" role="status">No project setups found.</p>'}
+      </div>
+      ${groupRows}
+      <div class="repair-actions">
+        <button class="primary-button" data-action="approve-stack-review"${canLoad ? '' : ' disabled'}>${canLoad ? `Load ${review.changeCount} setup${review.changeCount === 1 ? '' : 's'}` : 'Nothing to load'}</button>
+        <button class="secondary-button" data-action="close-screen">Cancel</button>
+      </div>
+    </section>`;
 }
 
 function renderComposeImport() {
@@ -2482,6 +2548,11 @@ app.addEventListener('click', (event) => {
   const actions = {
     'show-add': () => vscode.postMessage({ type: 'showAdd' }),
     'load-workspace-stack': () => vscode.postMessage({ type: 'loadWorkspaceStack' }),
+    'select-workspace-folder': () => vscode.postMessage({
+      type: 'selectWorkspaceFolder',
+      folder: button.dataset.folder
+    }),
+    'approve-stack-review': () => vscode.postMessage({ type: 'approveStackReview' }),
     'start-workspace-script': () => vscode.postMessage({
       type: 'startWorkspaceScript',
       script: button.dataset.script
@@ -3482,6 +3553,8 @@ if (state.mode === 'list') {
   renderPortResolve();
   } else if (state.mode === 'run-groups') {
   renderRunGroupsEditor();
+  } else if (state.mode === 'stack-review') {
+  renderStackReview();
   } else if (state.mode === 'compose-import') {
   renderComposeImport();
   } else {
