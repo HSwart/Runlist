@@ -1654,11 +1654,10 @@ class ProcessOwnershipStore {
           if (!stableProcessIdentity(expectedIdentity)) {
             throw new Error('Runlist could not verify the launched process identity after the root process exited.');
           }
+          // Root PID is dead; do not revalidate its identity or cleanup false-fails.
           await terminateProcessTree(current.childPid, {
             platform: this.platform,
-            ...options,
-            expectedIdentity,
-            readProcessIdentity: options.readProcessIdentity || this.readProcessIdentity
+            ...options
           });
         }
       }
