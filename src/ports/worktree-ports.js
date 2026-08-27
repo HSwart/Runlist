@@ -1,9 +1,11 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { currentProcessIdentity } = require('../lifecycle/process-identity');
 const { processLockRecordIsAbandoned } = require('../lifecycle/process-lock');
 const { writeFileAtomically } = require('../projects/project-store');
 
+const CURRENT_PROCESS_IDENTITY = currentProcessIdentity();
 const WORKTREE_PORT_BASE = 21000;
 const WORKTREE_PORT_SPAN = 20000;
 const MAX_ALLOCATION_ATTEMPTS = 64;
@@ -128,7 +130,11 @@ function withLedgerLock(filePath, operation) {
   for (let attempt = 0; attempt < LOCK_MAX_ATTEMPTS; attempt += 1) {
     try {
       fd = fs.openSync(lockPath, 'wx', 0o600);
-      fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, createdAt: Date.now() }));
+      fs.writeFileSync(fd, JSON.stringify({
+        pid: process.pid,
+        ...(CURRENT_PROCESS_IDENTITY ? { processIdentity: CURRENT_PROCESS_IDENTITY } : {}),
+        createdAt: Date.now()
+      }));
       break;
     } catch (error) {
       if (error?.code !== 'EEXIST') {
@@ -136,7 +142,9 @@ function withLedgerLock(filePath, operation) {
       }
       try {
         const record = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
-        if (processLockRecordIsAbandoned(record)) {
+        if (processLockRecordIsAbandoned(record, {
+          currentProcessIdentity: CURRENT_PROCESS_IDENTITY
+        })) {
           fs.unlinkSync(lockPath);
           continue;
         }

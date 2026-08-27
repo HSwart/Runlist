@@ -194,8 +194,12 @@ test('missing ledger still starts empty and allocates', (t) => {
 test('does not reclaim a live ledger lock by age alone', (t) => {
   const fixture = twinWorktrees(t);
   const lockPath = `${fixture.ledgerFile}.lock`;
+  const { currentProcessIdentity } = require('../src/lifecycle/process-identity');
+  const liveIdentity = currentProcessIdentity();
+  assert.ok(liveIdentity, 'current process identity must be available for this lock test');
   const liveLock = JSON.stringify({
     pid: process.pid,
+    processIdentity: liveIdentity,
     createdAt: Date.now() - 10_000
   });
   fs.mkdirSync(path.dirname(fixture.ledgerFile), { recursive: true });
@@ -221,6 +225,7 @@ test('reclaims an abandoned ledger lock whose owner pid is dead', (t) => {
   fs.mkdirSync(path.dirname(fixture.ledgerFile), { recursive: true });
   fs.writeFileSync(lockPath, JSON.stringify({
     pid: 2147483646,
+    processIdentity: '2147483646:linux:1000',
     createdAt: Date.now() - 10_000
   }));
   const identity = detectWorktreeIdentity(fixture.main);
@@ -233,4 +238,39 @@ test('reclaims an abandoned ledger lock whose owner pid is dead', (t) => {
   });
   assert.equal(result.overrides.length, 2);
   assert.equal(fs.existsSync(lockPath), false);
+});
+
+test('reclaims a ledger lock when a reused pid fails identity match', (t) => {
+  const fixture = twinWorktrees(t);
+  const lockPath = `${fixture.ledgerFile}.lock`;
+  const { currentProcessIdentity } = require('../src/lifecycle/process-identity');
+  const liveIdentity = currentProcessIdentity();
+  assert.ok(liveIdentity, 'current process identity must be available for this lock test');
+  fs.mkdirSync(path.dirname(fixture.ledgerFile), { recursive: true });
+  fs.writeFileSync(lockPath, JSON.stringify({
+    pid: process.pid,
+    processIdentity: `${process.pid}:stale-owner:1`,
+    createdAt: Date.now() - 10_000
+  }));
+  const identity = detectWorktreeIdentity(fixture.main);
+
+  const result = allocateWorktreePortOverrides({
+    project: fixture.project(fixture.main),
+    identity,
+    ledgerFile: fixture.ledgerFile,
+    isPortFree: () => true
+  });
+  assert.equal(result.overrides.length, 2);
+  assert.equal(fs.existsSync(lockPath), false);
+  assert.notEqual(liveIdentity, `${process.pid}:stale-owner:1`);
+});
+
+test('worktree ledger locks include processIdentity in the written record', () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'ports', 'worktree-ports.js'),
+    'utf8'
+  );
+  assert.match(source, /currentProcessIdentity/);
+  assert.match(source, /processIdentity: CURRENT_PROCESS_IDENTITY/);
+  assert.match(source, /currentProcessIdentity: CURRENT_PROCESS_IDENTITY/);
 });

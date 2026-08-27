@@ -70,3 +70,27 @@ test('compose start is disabled when composeStartBlocked is set', () => {
   assert.equal(action.disabled, true);
   assert.match(action.label, /Docker is not ready|unavailable/i);
 });
+
+test('compose start block keeps Stop available for a running project', () => {
+  const action = projectPrimaryAction({
+    name: 'Api',
+    status: 'running',
+    composeStartBlocked: true,
+    composeStartBlockedReason: 'Docker is not ready'
+  });
+  assert.equal(action.action, 'stop');
+  assert.equal(action.disabled, false);
+  assert.equal(action.mode, 'stop');
+  assert.match(action.label, /Stop Api/);
+});
+
+test('compose start block keeps Stop available while not-responding', () => {
+  const action = projectPrimaryAction({
+    name: 'Api',
+    status: 'not-responding',
+    composeStartBlocked: true,
+    composeStartBlockedReason: 'Docker is not ready'
+  });
+  assert.equal(action.action, 'stop');
+  assert.equal(action.mode, 'stop');
+});
