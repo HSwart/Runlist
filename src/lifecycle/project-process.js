@@ -194,6 +194,25 @@ async function terminateTrackedProcess(processes, id, options = {}) {
         ? 'Runlist could not verify the launched process tree after its root exited.'
         : 'Runlist could not verify the launched process group after its root exited.');
     }
+    // POSIX: kill(-pid,0) ESRCH is not sufficient without identity — the PID may not
+    // be a process-group leader. Require an explicit empty-group probe from the caller.
+    if (platform !== 'win32') {
+      if (typeof options.readProcessGroup !== 'function') {
+        throw new Error('Runlist could not verify the launched process identity after the root process exited.');
+      }
+      let members;
+      try {
+        members = await options.readProcessGroup(child.pid, {
+          ...options,
+          requireProcessGroupRoot: false
+        });
+      } catch {
+        throw new Error('Runlist could not verify the launched process identity after the root process exited.');
+      }
+      if (!Array.isArray(members) || members.length > 0) {
+        throw new Error('Runlist could not verify the launched process identity after the root process exited.');
+      }
+    }
     processes.delete(id);
     return true;
   }
@@ -234,13 +253,28 @@ async function terminateTrackedProcess(processes, id, options = {}) {
       });
     } else if (rootExited && platform !== 'win32') {
       const groupEmpty = await exitedRootHasNoRemainingProcesses(child.pid, platform, {
-        ...options,
-        readOwnedProcessTree: options.readOwnedProcessTree
+        ...options
       });
-      if (!groupEmpty) {
-        if (!expectedIdentityIsValid) {
+      if (!expectedIdentityIsValid) {
+        // Without a verified launch identity, only an explicit empty-group probe may
+        // reconcile. Default host cleanup fails closed so a live PID cannot be treated
+        // as stopped ownership.
+        if (typeof options.readProcessGroup !== 'function') {
           throw new Error('Runlist could not verify the launched process identity after the root process exited.');
         }
+        let members;
+        try {
+          members = await options.readProcessGroup(child.pid, {
+            ...options,
+            requireProcessGroupRoot: false
+          });
+        } catch {
+          throw new Error('Runlist could not verify the launched process identity after the root process exited.');
+        }
+        if (!groupEmpty || !Array.isArray(members) || members.length > 0) {
+          throw new Error('Runlist could not verify the launched process identity after the root process exited.');
+        }
+      } else if (!groupEmpty) {
         await terminateProcessTree(child.pid, {
           ...options,
           platform,
