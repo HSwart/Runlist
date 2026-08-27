@@ -1120,6 +1120,7 @@ function renderList() {
           || project.handoffInProgress
           || ['starting', 'not-ready', 'stopping'].includes(projectStatus);
         const canOpen = Boolean(project.previewUrl);
+        const canOpenOnPhone = Boolean(project.phoneHandoff);
         const detectedWithoutStop = projectStatus === 'active' && !project.stopCommand;
         const ownershipLostWithoutStop = projectStatus === 'ownership-lost' && !project.stopCommand;
         const stopState = ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active'].includes(projectStatus);
@@ -1147,6 +1148,11 @@ function renderList() {
             : stopState
               ? `${projectName} does not have a responding web service yet`
               : `Start ${projectName} before opening it`;
+        const openOnPhoneTitle = canOpenOnPhone
+          ? `Open ${projectName} on your phone`
+          : canOpen
+            ? `Phone sharing needs one private LAN address and a localhost preview for ${projectName}`
+            : openTitle;
         const statusTitle = project.lifecycleBlocked
           ? project.lifecycleBlockedReason
           : reviewRequired
@@ -1245,6 +1251,9 @@ function renderList() {
                 <div class="action-menu" data-menu-id="${projectActionMenuId}" role="menu" aria-label="Actions for ${projectName}" hidden>
                   <button data-action="open" data-id="${projectId}" role="menuitem" ${canOpen ? '' : 'disabled'} title="${openTitle}">
                     ${icon('external', 'menu-icon')}<span>Open app</span>
+                  </button>
+                  <button data-action="open-on-phone" data-id="${projectId}" role="menuitem" ${canOpenOnPhone ? '' : 'disabled'} title="${openOnPhoneTitle}">
+                    ${icon('external', 'menu-icon')}<span>Open on phone</span>
                   </button>
                   <button data-action="open-vscode" data-id="${projectId}" role="menuitem" title="Open ${projectName} in a new VS Code window">
                     ${icon('folder', 'menu-icon')}<span>Open in VS Code</span>
@@ -2829,6 +2838,27 @@ app.addEventListener('click', (event) => {
       url: button.dataset.url
     }),
     'toggle-phone-handoff': () => togglePhoneHandoff(button.dataset.id, button),
+    'open-on-phone': () => {
+      closeMenus();
+      const id = button.dataset.id;
+      const project = state.projects.find((item) => String(item.id) === String(id));
+      if (!project?.phoneHandoff) {
+        return;
+      }
+      phoneHandoffState[id] = true;
+      detailTabState[id] = 'preview';
+      saveWebviewState();
+      if (!project.detailsExpanded) {
+        vscode.postMessage({
+          type: 'toggleProjectPreview',
+          id,
+          focusAction: 'focus-phone-handoff'
+        });
+        return;
+      }
+      renderList();
+      requestAnimationFrame(() => document.getElementById(`phone-handoff-${String(id)}`)?.focus());
+    },
     'show-startup-failure': () => showStartupFailure(button.dataset.id, button.dataset.entryKey),
     'close-startup-failure': () => closeStartupFailure(button.dataset.id, button.dataset.entryKey),
     'toggle-preview': () => {
@@ -3515,20 +3545,24 @@ function applyInitialFocus() {
   } else if (target.type === 'project-control') {
     element = document.querySelector(`.run-button[data-id="${CSS.escape(target.id)}"]`);
   } else if (target.type === 'action') {
-    let selector = `[data-action="${CSS.escape(target.action)}"]`;
-    if (target.id) {
-      selector += `[data-id="${CSS.escape(target.id)}"]`;
+    if (target.action === 'focus-phone-handoff' && target.id) {
+      element = document.getElementById(`phone-handoff-${String(target.id)}`);
+    } else {
+      let selector = `[data-action="${CSS.escape(target.action)}"]`;
+      if (target.id) {
+        selector += `[data-id="${CSS.escape(target.id)}"]`;
+      }
+      if (target.agent) {
+        selector += `[data-agent="${CSS.escape(target.agent)}"]`;
+      }
+      if (target.tab) {
+        selector += `[data-tab="${CSS.escape(target.tab)}"]`;
+      }
+      if (target.port) {
+        selector += `[data-port="${CSS.escape(target.port)}"]`;
+      }
+      element = document.querySelector(selector);
     }
-    if (target.agent) {
-      selector += `[data-agent="${CSS.escape(target.agent)}"]`;
-    }
-    if (target.tab) {
-      selector += `[data-tab="${CSS.escape(target.tab)}"]`;
-    }
-    if (target.port) {
-      selector += `[data-port="${CSS.escape(target.port)}"]`;
-    }
-    element = document.querySelector(selector);
   }
   const hiddenMenu = element?.closest('.action-menu[hidden]');
   if (hiddenMenu) {

@@ -165,7 +165,12 @@ function createRunlistWebviewRouter(host, adapters = {}) {
       stopProject: (message) => host.stopProject(message.id),
       stopRunGroup: (message) => host.stopSavedRunGroup(message.id),
       toggleProjectPin: (message) => host.toggleProjectPin(message.id),
-      toggleProjectPreview: (message) => host.toggleProjectPreview(message.id),
+      toggleProjectPreview: (message) => host.toggleProjectPreview(
+        message.id,
+        typeof message.focusAction === 'string' && message.focusAction.trim()
+          ? message.focusAction.trim()
+          : 'toggle-preview'
+      ),
       toggleProjectServices: (message) => host.toggleProjectPreview(message.id, 'open-services'),
       updateDraft: (message) => {
         if (['add', 'edit'].includes(host.mode)) {

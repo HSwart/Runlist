@@ -5075,7 +5075,7 @@ class RunlistViewProvider {
       const detailsExpanded = this.expandedPreviewProjectId === project.id
         && (!canPreview || this.expandedPreviewServicePort === previewService.port);
       const previewExpanded = canPreview && detailsExpanded;
-      const phoneHandoff = previewExpanded
+      const phoneHandoff = previewService?.url
         ? createPhoneHandoff(previewService.url)
         : undefined;
       const outputPeekVisible = detailsExpanded
