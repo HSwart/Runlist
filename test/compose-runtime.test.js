@@ -86,6 +86,7 @@ test('host Start probes Compose availability and records Compose ownership field
   assert.match(host, /composeLaunchCommands\(/);
   assert.match(host, /ownershipKind: 'compose'/);
   assert.match(host, /composeServices: composeLaunch\.composeServices/);
+  assert.match(host, /this\.showStartFailure\(project, \{ detail: availability\.message \}\)/);
   assert.match(processSource, /ownershipKind: 'compose'/);
   assert.match(processSource, /composePath:/);
   assert.match(processSource, /composeServices:/);

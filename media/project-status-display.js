@@ -56,6 +56,33 @@
     return code;
   }
 
+  function projectStartFailureText(project = {}) {
+    if (project.forceClosing || project.handoffInProgress || project.reviewRequired) {
+      return '';
+    }
+    if (projectStatusCode(project) !== 'stopped') {
+      return '';
+    }
+    const summary = project.failureSummary;
+    if (!summary || typeof summary !== 'object') {
+      return '';
+    }
+    const message = String(summary.message || '').trim();
+    const title = String(summary.title || '').trim();
+    return message || title || 'Start failed';
+  }
+
+  function projectStopFailureText(project = {}) {
+    if (project.forceClosing || project.handoffInProgress || project.reviewRequired) {
+      return '';
+    }
+    const code = projectStatusCode(project);
+    if (code === 'stopped' || code === 'stopping') {
+      return '';
+    }
+    return String(project.stopFailure || '').trim();
+  }
+
   function projectDisplayedStatus(project = {}) {
     const fullLabels = projectStatusFullLabels(project);
     const conflictOwnerName = project.portConflict?.ownerName || 'Another app';
@@ -64,6 +91,14 @@
     }
     if (project.handoffInProgress) {
       return `Switching from ${conflictOwnerName}…`;
+    }
+    const stopFailure = projectStopFailureText(project);
+    if (stopFailure) {
+      return stopFailure;
+    }
+    const startFailure = projectStartFailureText(project);
+    if (startFailure) {
+      return startFailure;
     }
     const code = projectStatusCode(project);
     const primaryCode = projectPrimaryStatusCode(project);
@@ -111,7 +146,9 @@
     const fullLabels = projectStatusFullLabels(project);
     const primary = projectDisplayedStatus(project);
     const parts = [];
-    if (fullLabels[code] && fullLabels[code] !== primary) {
+    if (fullLabels[code] && fullLabels[code] !== primary
+      && !projectStartFailureText(project)
+      && !projectStopFailureText(project)) {
       parts.push(fullLabels[code]);
     }
     const readiness = serviceReadinessDetailsText(project, project.status || 'stopped');
@@ -130,7 +167,11 @@
       return `${composeLabel}${name}: ${projectDisplayedStatus(project)}`;
     }
     const fullLabels = projectStatusFullLabels(project);
-    const spokenStatus = fullLabels[projectStatusCode(project)] || projectDisplayedStatus(project) || 'Stopped';
+    const failureText = projectStopFailureText(project) || projectStartFailureText(project);
+    const spokenStatus = failureText
+      || fullLabels[projectStatusCode(project)]
+      || projectDisplayedStatus(project)
+      || 'Stopped';
     const readiness = serviceReadinessDetailsText(project, project.status || 'stopped');
     const ownerAnnouncement = typeof project.listenerOwner?.announcement === 'string'
       && project.listenerOwner.announcement.trim()
@@ -142,9 +183,11 @@
   return {
     projectDisplayedStatus,
     projectPrimaryStatusCode,
+    projectStartFailureText,
     projectStatusAnnouncement,
     projectStatusCode,
     projectStatusDetailText,
-    projectStatusFullLabels
+    projectStatusFullLabels,
+    projectStopFailureText
   };
 }));

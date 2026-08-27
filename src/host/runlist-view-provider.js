@@ -48,7 +48,7 @@ const {
   recoverProjectPorts,
   relatedPortProjectIds
 } = require('../ports/port-recovery');
-const { customStopPostcondition } = require('../lifecycle/custom-stop-recovery');
+const { customStopPostcondition, stopHonestyMessage } = require('../lifecycle/custom-stop-recovery');
 const {
   availableProjectDetailTabs,
   preferredProjectDetailTab
@@ -300,6 +300,7 @@ class RunlistViewProvider {
     this.projectOutputPeekIncarnations = new Map();
     this.projectFailureSummaries = new Map();
     this.projectFailureDetails = new Map();
+    this.projectStopFailures = new Map();
     this.outputUpdateScheduler = createOutputUpdateScheduler((id) => this.sendProjectOutput(id));
     this.managedProjectIds = new Set();
     this.detachedProjectIds = new Set();
@@ -1007,6 +1008,23 @@ class RunlistViewProvider {
       || (this.processes.has(id) ? 'running' : 'stopped');
   }
 
+  rowStartFailureSummary(id, status) {
+    if (status !== 'stopped') {
+      return undefined;
+    }
+    const summary = this.projectFailureSummaries.get(id);
+    if (!summary || typeof summary !== 'object') {
+      return undefined;
+    }
+    const message = redactSensitiveText(String(summary.message || '').trim());
+    const title = redactSensitiveText(String(summary.title || '').trim()) || 'Start failed';
+    return {
+      title,
+      message: message || 'Start failed',
+      ...(summary.outcome ? { outcome: summary.outcome } : {})
+    };
+  }
+
   isProjectRunning(id) {
     return ['running', 'active'].includes(this.getProjectStatus(id));
   }
@@ -1366,10 +1384,12 @@ class RunlistViewProvider {
           vscode.window.showErrorMessage(
             `Could not confirm that ${request.projectName} stopped: its launching VS Code window left the process ownership unchanged.`
           );
+          this.projectStopFailures?.set(id, 'Stop failed');
         } else if (now - request.requestedAt >= REMOTE_STOP_TIMEOUT_MS) {
           this.processOwnership.cancelStopRequest(id);
           this.remoteStopRequests.delete(id);
           this.stoppingProjectIds.delete(id);
+          this.projectStopFailures?.set(id, 'Stop failed');
           vscode.window.showErrorMessage(
             `Could not confirm that ${request.projectName} stopped: its launching VS Code window did not respond. Runlist left the process ownership unchanged.`
           );
@@ -1501,6 +1521,7 @@ class RunlistViewProvider {
           this.managedProjectIds.delete(id);
           this.startReadinessDeadlines.delete(id);
           this.readinessWarnings.delete(id);
+          this.projectStopFailures?.delete(id);
         } else if (status === 'running') {
           this.startReadinessDeadlines.delete(id);
           this.readinessWarnings.delete(id);
@@ -3061,9 +3082,8 @@ class RunlistViewProvider {
     if (isComposeManagedProject(project)) {
       const availability = await probeComposeAvailability();
       if (!availability.ok) {
-        vscode.window.showErrorMessage(
-          `Could not start ${project.name}: ${availability.message}`
-        );
+        this.showStartFailure(project, { detail: availability.message });
+        this.renderProjectList();
         return false;
       }
     }
@@ -3125,7 +3145,8 @@ class RunlistViewProvider {
       const message = error instanceof WorktreePortsError
         ? error.message
         : error.message;
-      vscode.window.showErrorMessage(`Could not start ${project.name}: ${message}`);
+      this.showStartFailure(project, { detail: message });
+      this.renderProjectList();
       return false;
     }
     const composeLaunch = composeLaunchCommands(launchProject);
@@ -3289,7 +3310,10 @@ class RunlistViewProvider {
         const detail = error instanceof LaunchEnvError
           ? error.message
           : error.message;
-        vscode.window.showErrorMessage(`Could not start ${project.name}: ${detail}`);
+        this.showStartFailure(project, {
+          detail,
+          projectRevision: savedProjectRevision
+        });
         this.renderProjectList();
         return false;
       }
@@ -4134,6 +4158,14 @@ class RunlistViewProvider {
           : postcondition === 'unverifiable'
           ? 'the command finished, but this project has no tracked process or configured service ports to verify'
             : `the command finished, but ${remaining}`;
+        const openPorts = servicesStopped || !stopProject.services?.length
+          ? []
+          : (await servicePortStatus(stopProject.services)).openPorts;
+        this.projectStopFailures?.set(id, stopHonestyMessage({
+          processActive: !ownershipStopped,
+          openPorts,
+          webPort: stopProject.services?.[0]?.port
+        }) || 'Stop failed');
         const cleanupErrors = this.settleCustomStop(
           id,
           false,
@@ -4155,6 +4187,7 @@ class RunlistViewProvider {
           detachedStopClaim
         );
         attachCleanupErrors(error, cleanupErrors);
+        this.projectStopFailures?.set(id, 'Stop failed');
         vscode.window.showErrorMessage(`Could not stop ${stopProject.name}: ${error.message}`);
         return false;
       }
@@ -4173,6 +4206,7 @@ class RunlistViewProvider {
 
   beginStopping(id, options = {}) {
     this.stoppingProjectIds.add(id);
+    this.projectStopFailures?.delete(id);
     if (options.detachedStopClaim) {
       this.portReservations.setStateShared(id, 'stopping', options.portGeneration);
     } else {
@@ -4258,10 +4292,39 @@ class RunlistViewProvider {
     if (succeededCleanup) {
       this.startReadinessDeadlines.delete(id);
       this.readinessWarnings.delete(id);
+      this.projectStopFailures?.delete(id);
       this.projectStatuses.set(id, 'stopped');
     }
     this.renderProjectList();
     setTimeout(() => this.refreshProjectStatuses(), 250);
+  }
+
+  async finishOwnedStop(id, project, portGeneration, { processActive = false, error } = {}) {
+    if (error) {
+      this.projectStopFailures?.set(id, 'Stop failed');
+      vscode.window.showErrorMessage(`Could not stop ${project.name}: ${error.message}`);
+      this.finishStopping(id, false);
+      return false;
+    }
+    const servicesStopped = await this.lifecycle.waitUntilServicesStopped(
+      project,
+      CUSTOM_STOP_SHUTDOWN_TIMEOUT_MS
+    );
+    const openPorts = servicesStopped || !project?.services?.length
+      ? []
+      : (await servicePortStatus(project.services)).openPorts;
+    const message = stopHonestyMessage({
+      processActive,
+      openPorts,
+      webPort: project?.services?.[0]?.port
+    });
+    if (message) {
+      this.projectStopFailures?.set(id, message);
+      this.finishStopping(id, false);
+      return false;
+    }
+    this.finishStopping(id, true, portGeneration);
+    return true;
   }
 
   settleCustomStop(id, succeeded, portGeneration, detachedStopClaim) {
@@ -4339,12 +4402,12 @@ class RunlistViewProvider {
         await terminateTrackedProcess(this.processes, id, {
           allowMissing: options.allowMissing === true
         });
-        this.finishStopping(id, true, portGeneration);
-        return true;
+        return this.finishOwnedStop(id, project, portGeneration, { processActive: false });
       } catch (error) {
-        vscode.window.showErrorMessage(`Could not stop ${project.name}: ${error.message}`);
-        this.finishStopping(id, false);
-        return false;
+        return this.finishOwnedStop(id, project, portGeneration, {
+          processActive: true,
+          error
+        });
       }
     }
 
@@ -4362,12 +4425,12 @@ class RunlistViewProvider {
         if (!stopped) {
           throw new Error('Runlist could not verify the persisted process ownership details.');
         }
-        this.finishStopping(id, true, portGeneration);
-        return true;
+        return this.finishOwnedStop(id, project, portGeneration, { processActive: false });
       } catch (error) {
-        vscode.window.showErrorMessage(`Could not stop ${project.name}: ${error.message}`);
-        this.finishStopping(id, false);
-        return false;
+        return this.finishOwnedStop(id, project, portGeneration, {
+          processActive: true,
+          error
+        });
       }
     }
     if (request.kind === 'uncertain') {
@@ -4689,6 +4752,8 @@ class RunlistViewProvider {
         lastStartedAt: lastStartedAt || undefined,
         lifecycleBlocked: !lifecycleCapability.supported,
         lifecycleBlockedReason: lifecycleCapability.reason,
+        failureSummary: this.rowStartFailureSummary(project.id, status),
+        stopFailure: this.projectStopFailures?.get(project.id),
         timeline,
         detailsExpanded,
         forceClosing: this.forceClosingProjectIds.has(project.id),

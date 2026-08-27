@@ -1331,11 +1331,25 @@ test('recovers a locally owned process when its in-memory handle is missing', ()
   const source = readShippedHostSource();
   const localRequest = source.indexOf("if (request.kind === 'local')");
   const recoverOwnedProcess = source.indexOf('this.processOwnership.terminateOwnedProcess(id)', localRequest);
-  const finishRecoveredStop = source.indexOf('this.finishStopping(id, true, portGeneration)', recoverOwnedProcess);
+  const finishRecoveredStop = source.indexOf('this.finishOwnedStop(id, project, portGeneration', recoverOwnedProcess);
 
   assert.ok(localRequest >= 0);
   assert.ok(localRequest < recoverOwnedProcess);
   assert.ok(recoverOwnedProcess < finishRecoveredStop);
+});
+
+test('does not mark Stopped until the owned process and configured ports are down', () => {
+  const source = readShippedHostSource();
+  const finishOwned = source.indexOf('async finishOwnedStop(id, project, portGeneration');
+  const nextMethod = source.indexOf('\n  async ', finishOwned + 1);
+  const body = source.slice(finishOwned, nextMethod);
+
+  assert.ok(finishOwned >= 0);
+  assert.match(body, /waitUntilServicesStopped/);
+  assert.match(body, /stopHonestyMessage\(/);
+  assert.match(body, /finishStopping\(id, false\)/);
+  assert.match(body, /finishStopping\(id, true, portGeneration\)/);
+  assert.match(body, /Port :\$\{port\} is still up|stopHonestyMessage/);
 });
 
 test('reports a lost detached Stop claim without executing the custom command', () => {

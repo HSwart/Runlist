@@ -15,7 +15,7 @@ const host = readText('src', 'host', 'runlist-view-provider.js');
 
 test('keeps the everyday list to two lines: wrapping name, then status and port', () => {
   assert.match(webview, /class="project-meta"/);
-  assert.match(webview, /class="project-status status-\$\{statusClass\}"/);
+  assert.match(webview, /class="project-status status-\$\{rowStatusClass\}"/);
   assert.match(webview, /class="project-port-chip" data-action="open"/);
   assert.match(webview, /class="run-button /);
   assert.match(webview, /aria-label="More actions for \$\{projectName\}"/);

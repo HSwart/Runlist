@@ -66,7 +66,7 @@
 
     const detectedWithoutStop = status === 'active' && !project.stopCommand;
     const ownershipLostWithoutStop = status === 'ownership-lost' && !project.stopCommand;
-    if (detectedWithoutStop || ownershipLostWithoutStop) {
+    if ((detectedWithoutStop || ownershipLostWithoutStop) && !project.stopFailure) {
       return {
         action: 'force-close-ports',
         disabled: busy,
@@ -75,8 +75,9 @@
       };
     }
 
-    const stopsProject = ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active']
-      .includes(status);
+    const stopsProject = (Boolean(project.stopFailure) && status !== 'stopped' && status !== 'stopping')
+      || ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active']
+        .includes(status);
     return stopsProject
       ? { action: 'stop', disabled: busy, label: `Stop ${name}`, mode: 'stop' }
       : { action: 'start', disabled: busy, label: `Start ${name}`, mode: 'start' };

@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { customStopPostcondition } = require('../src/lifecycle/custom-stop-recovery');
+const { customStopPostcondition, stopHonestyMessage } = require('../src/lifecycle/custom-stop-recovery');
 
 test('requires a successful command and every verifiable postcondition', () => {
   assert.equal(customStopPostcondition({
@@ -47,4 +47,14 @@ test('does not claim success without a lifecycle target to verify', () => {
     ownershipStopped: true,
     servicesStopped: true
   }), 'unverifiable');
+});
+
+test('describes Stop honesty without claiming Stopped', () => {
+  assert.equal(stopHonestyMessage({ processActive: true, openPorts: [3000] }), 'Stop failed');
+  assert.equal(stopHonestyMessage({
+    processActive: false,
+    openPorts: [3000],
+    webPort: 3000
+  }), 'Port :3000 is still up');
+  assert.equal(stopHonestyMessage({ processActive: false, openPorts: [] }), '');
 });

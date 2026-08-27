@@ -263,7 +263,7 @@ function startFailureSummary(output, details = {}) {
   const outcome = failureOutcome(details.code, details.signal);
   return {
     title: 'Start failed',
-    message: selected || explicitDetail || outcome || 'The start command stopped unexpectedly.',
+    message: selected || explicitDetail || outcome || 'Start failed',
     outcome: (selected || explicitDetail) ? outcome : ''
   };
 }

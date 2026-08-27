@@ -204,6 +204,8 @@ test('wires bounded outcomes and an accessible non-color-only ribbon into the li
   assert.match(extension, /averageReadyDurationMs: averageReadyDuration\(startupHistory\)/);
   assert.match(extension, /recordProjectLastStartedAt\(this\.projectsFile, id, launchedAt\)/);
   assert.match(extension, /lastStartedAt: lastStartedAt \|\| undefined/);
+  assert.match(extension, /failureSummary: this\.rowStartFailureSummary\(project\.id, status\)/);
+  assert.match(extension, /rowStartFailureSummary\(id, status\)[\s\S]*status !== 'stopped'[\s\S]*Start failed/);
   assert.match(webview, /class="startup-history" role="group" aria-label=/);
   assert.doesNotMatch(webview, /class="startup-history-ribbon" aria-hidden="true"/);
   assert.match(webview, /code: 'OK'[\s\S]*code: 'FAIL'[\s\S]*code: 'SLOW'/);

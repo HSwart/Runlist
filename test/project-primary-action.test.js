@@ -69,11 +69,27 @@ test('does not force-close a mixed or multi-project managed conflict', () => {
 
 test('preserves ordinary Start, Stop, custom Stop, review, and transition behavior', () => {
   assert.equal(projectPrimaryAction({ name: 'App', status: 'stopped' }).action, 'start');
+  assert.equal(projectPrimaryAction({
+    name: 'App',
+    status: 'stopped',
+    failureSummary: { title: 'Start failed', message: 'command not found' }
+  }).action, 'start');
   assert.equal(projectPrimaryAction({ name: 'App', status: 'running' }).action, 'stop');
   assert.equal(projectPrimaryAction({ name: 'App', status: 'active', stopCommand: 'docker compose down' }).action, 'stop');
   assert.equal(projectPrimaryAction({ name: 'App', status: 'stopped', reviewRequired: true }).action, 'edit');
   assert.equal(projectPrimaryAction({ name: 'App', status: 'stopping' }).disabled, true);
   assert.equal(projectPrimaryAction({ name: 'App', status: 'active', forceClosing: true }).disabled, true);
+  assert.equal(projectPrimaryAction({
+    name: 'App',
+    status: 'running',
+    stopFailure: 'Stop failed'
+  }).action, 'stop');
+  assert.equal(projectPrimaryAction({
+    name: 'App',
+    status: 'active',
+    stopCommand: '',
+    stopFailure: 'Port :3000 is still up'
+  }).action, 'stop');
 });
 
 test('disables lifecycle actions when the project environment cannot be verified', () => {

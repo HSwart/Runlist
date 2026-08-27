@@ -783,7 +783,7 @@ test('shows a clear nonresponding state without changing stop safety', () => {
   assert.match(statusDisplay, /'not-responding': 'Web service not responding'/);
   assert.match(statusDisplay, /project\.httpUnresponsive \? 'Detected, web service not responding' : 'Detected'/);
   assert.match(webview, /const statusClass = projectStatus === 'active' && project\.httpUnresponsive[\s\S]*\? 'not-responding'[\s\S]*: displayStatus/);
-  assert.match(webview, /project-status status-\$\{statusClass\}/);
+  assert.match(webview, /project-status status-\$\{rowStatusClass\}/);
   assert.match(webview, /\['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active'\]\.includes\(projectStatus\)/);
   assert.match(webview, /class="service-detail-state">\$\{details\.state\}/);
   assert.match(webview, /class="service-detail-toggle"[^>]*aria-expanded=/);

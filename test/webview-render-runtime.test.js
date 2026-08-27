@@ -161,11 +161,7 @@ function renderNonEmptyProjectList(projects = [{
         };
       }
     },
-    RunlistProjectActions: {
-      projectPrimaryAction() {
-        return { action: 'start', disabled: false, label: 'Start Example', mode: 'start' };
-      }
-    },
+    RunlistProjectActions: require('../media/project-actions'),
     RunlistProjectStatus: require('../media/project-status-display'),
     previewFrame,
     addEventListener(type, handler) {
@@ -1300,4 +1296,69 @@ test('renders Detected on the status line without a second Detected running sent
   assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
   assert.doesNotMatch(result.app.innerHTML, /class="current-window-label"/);
   assert.match(result.app.innerHTML, /role="menuitem" disabled>[\s\S]*This window/);
+});
+
+test('failed start keeps a two-line row with the reason and Start', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    failureSummary: {
+      title: 'Start failed',
+      message: '/bin/sh: vite: command not found'
+    },
+    folder: '/Users/shared/Projects/broken-app',
+    id: 'broken',
+    launchProfiles: [],
+    name: 'Broken App',
+    openPorts: [],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 3000 }],
+    status: 'stopped',
+    tags: []
+  }]);
+
+  assert.match(result.app.innerHTML, /<h2 id="project-broken"[^>]*>[\s\S]*Broken App\s*<\/h2>/);
+  assert.match(
+    result.app.innerHTML,
+    /class="project-status status-start-failed"[^>]*>[\s\S]*<span>\/bin\/sh: vite: command not found<\/span>/
+  );
+  assert.match(result.app.innerHTML, /class="run-button start"[^>]*data-action="start"[^>]*aria-label="Start Broken App"/);
+  assert.doesNotMatch(result.app.innerHTML, />Stopped</);
+  assert.doesNotMatch(result.app.innerHTML, />Running</);
+  assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="output"[^>]*class="run-button"/);
+  assert.doesNotMatch(result.app.innerHTML, /Ask your agent|copy-diagnosis-request/);
+});
+
+test('stop honesty keeps Stop and does not say Stopped while a port is up', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/live-app',
+    id: 'live',
+    launchProfiles: [],
+    name: 'Live App',
+    openPorts: [3000],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 3000 }],
+    status: 'running',
+    stopFailure: 'Port :3000 is still up',
+    tags: []
+  }]);
+
+  assert.match(result.app.innerHTML, /<h2 id="project-live"[^>]*>[\s\S]*Live App\s*<\/h2>/);
+  assert.match(
+    result.app.innerHTML,
+    /class="project-status status-stop-failed"[^>]*>[\s\S]*<span>Port :3000 is still up<\/span>/
+  );
+  assert.match(result.app.innerHTML, /class="run-button stop"[^>]*data-action="stop"[^>]*aria-label="Stop Live App"/);
+  assert.match(result.app.innerHTML, /data-action="force-close-ports"/);
+  assert.doesNotMatch(result.app.innerHTML, />Stopped</);
+  assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
 });
