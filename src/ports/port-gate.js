@@ -21,7 +21,7 @@ const {
 const { withExclusiveJsonLock } = require('../lifecycle/exclusive-json-lock');
 const { writeFileAtomically } = require('../projects/project-store');
 
-const OWNER_HEARTBEAT_TIMEOUT_MS = 10000;
+const OWNER_HEARTBEAT_TIMEOUT_MS = 30000;
 const INVALID_RECORD_GRACE_MS = 2000;
 const LOCK_UPDATE_MAX_ATTEMPTS = 200;
 const LOCK_UPDATE_RETRY_MS = 5;

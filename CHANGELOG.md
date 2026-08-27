@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.12 — Ownership probe timeout
+
+- Raise Windows/macOS ownership identity probes from 1s to 10s so cold PowerShell/ps startups do not block Start or Delete with “cannot safely verify who owns …”.
+- Raise POSIX process-group ownership probes to the same 10s budget.
+- Keep the ownership heartbeat budget at 30s so a slow identity probe cannot outlive a still-fresh owner heartbeat and let another window reclaim a live project.
+
 ## 0.0.11 — Everyday running row and clearer listing
 
 - Show Stop and Restart on the running row, and open the app from the port chip.

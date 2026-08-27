@@ -17,6 +17,10 @@ const DARWIN_IDENTITY_PS_ARGS = [
   '-o', 'sess=',
   '-o', 'command='
 ];
+// Cold PowerShell/ps startups on Windows and macOS routinely exceed 1s under load.
+// Ownership reserve/reclaim uses these sync probes; timing out becomes "uncertain"
+// and blocks Start/Delete even when the previous process is already gone.
+const PROCESS_IDENTITY_PROBE_TIMEOUT_MS = 10000;
 const RUNTIME_PROCESS_STARTED_AT = Math.round(Date.now() - (process.uptime() * 1000));
 const CURRENT_PROCESS_IDENTITIES = new Map();
 
@@ -120,19 +124,23 @@ function readProcessIdentitySync(pid, platform = process.platform, options = {})
       const startedAt = String(runFile('powershell.exe', [
         '-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
         windowsStartedAtPowerShellExpression(`(Get-Process -Id ${pid} -ErrorAction Stop)`)
-      ], { encoding: 'utf8', windowsHide: true, timeout: 1000 })).trim();
+      ], {
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: options.timeoutMs || PROCESS_IDENTITY_PROBE_TIMEOUT_MS
+      })).trim();
       return windowsProcessIdentity(pid, startedAt);
     }
     if (platform === 'darwin') {
       return parseDarwinProcessIdentity(
         pid,
-        runFile('ps', darwinIdentityPsArgs(pid), darwinIdentityCommandOptions())
+        runFile('ps', darwinIdentityPsArgs(pid), darwinIdentityCommandOptions(options))
       );
     }
     const startedAt = String(runFile('ps', ['-p', String(pid), '-o', 'lstart='], {
       encoding: 'utf8',
       env: { ...process.env, LC_ALL: 'C' },
-      timeout: 1000,
+      timeout: options.timeoutMs || PROCESS_IDENTITY_PROBE_TIMEOUT_MS,
       windowsHide: true
     })).trim();
     return startedAt ? `${pid}:${startedAt}` : undefined;
@@ -181,19 +189,21 @@ function darwinIdentityPsArgs(pid) {
   return args;
 }
 
-function darwinIdentityCommandOptions() {
+function darwinIdentityCommandOptions(options = {}) {
   return {
     encoding: 'utf8',
     env: { ...process.env, LANG: 'C', LC_ALL: 'C', TZ: 'UTC' },
     maxBuffer: 64 * 1024,
     shell: false,
-    timeout: 1000,
+    timeout: options.timeoutMs || PROCESS_IDENTITY_PROBE_TIMEOUT_MS,
     windowsHide: true
   };
 }
 
 module.exports = {
+  PROCESS_IDENTITY_PROBE_TIMEOUT_MS,
   currentProcessIdentity,
+  darwinIdentityCommandOptions,
   darwinProcessIdentityFormat,
   normalizeWindowsStartedAt,
   processIdentityDecision,

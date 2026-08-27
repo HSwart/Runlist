@@ -1017,6 +1017,12 @@ test('launches POSIX commands in an owned process group and keeps Windows launch
   assert.deepEqual(projectProcessSpawnOptions('win32'), { detached: false, windowsHide: true });
 });
 
+test('gives POSIX process-group ownership probes enough time under load', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'lifecycle', 'project-process.js'), 'utf8');
+  assert.match(source, /const PROCESS_GROUP_PROBE_TIMEOUT_MS = 10000;/);
+  assert.match(source, /processGroupProbeTimeoutMs \?\? PROCESS_GROUP_PROBE_TIMEOUT_MS/);
+});
+
 test('keeps the Darwin process-group root behind an exec-stable supervisor', () => {
   const calls = [];
   const child = {};
