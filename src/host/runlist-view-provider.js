@@ -2397,9 +2397,15 @@ class RunlistViewProvider {
       vscode.window.showWarningMessage(`${project.name}: ${eligibility.reason}`);
       return false;
     }
+    const ports = (project.services || [])
+      .map((service) => Number(service.port))
+      .filter((port) => Number.isInteger(port) && port >= 1 && port <= 65535);
     const result = await attachDebuggerToProcess(vscode, {
       folder: project.folder,
       pid: eligibility.pid,
+      commandPid: processHandle?.runlistCommandPid,
+      ports,
+      findListeningProcesses,
       name: project.name
     });
     if (!result.ok) {
@@ -2458,7 +2464,8 @@ class RunlistViewProvider {
     }
     this.offLanShareByProject.set(id, {
       url: shared.url,
-      localUrl
+      localUrl,
+      dispose: typeof shared.dispose === 'function' ? shared.dispose : undefined
     });
     try {
       await vscode.env.clipboard.writeText(shared.url);
@@ -2476,8 +2483,13 @@ class RunlistViewProvider {
     if (!existing) {
       return;
     }
-    // VS Code owns tunnel lifetime; clearing Runlist state ends our share UX.
-    // Do not claim the public URL still serves after Stop/off.
+    if (typeof existing.dispose === 'function') {
+      try {
+        await existing.dispose();
+      } catch {
+        // Proxy may already be closed.
+      }
+    }
   }
 
   async startHttpInspectorProxy(id, configuredPort, upstreamPort) {

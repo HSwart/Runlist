@@ -1042,7 +1042,7 @@ test('keeps the Darwin process-group root behind an exec-stable supervisor', () 
       detached: true,
       env: { PORT: '4310' },
       shell: false,
-      stdio: ['ignore', 'pipe', 'pipe']
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc']
     }
   ]]);
 });

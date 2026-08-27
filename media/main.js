@@ -1275,6 +1275,7 @@ function renderList() {
                   <button data-action="force-close-ports" data-id="${projectId}" role="menuitem" aria-label="Close configured ports for ${projectName}" ${canCloseConfiguredPorts && !project.lifecycleBlocked ? '' : 'disabled'} title="${project.lifecycleBlocked ? escapeHtml(project.lifecycleBlockedReason) : canCloseConfiguredPorts ? `Review and close the processes using ${projectName}'s configured ports` : 'No configured ports are currently open'}">
                     ${icon('stop', 'menu-icon')}<span>Close configured ports…</span>
                   </button>
+                  ${project.composeAutoRow ? '' : `
                   <button data-action="import-compose" data-id="${projectId}" role="menuitem" title="Review Compose services for ${projectName}">
                     ${icon('layers', 'menu-icon')}<span>Import Compose services…</span>
                   </button>
@@ -1283,14 +1284,15 @@ function renderList() {
                   </button>
                   <button data-action="toggle-pin" data-id="${projectId}" role="menuitem" aria-label="${project.pinned ? `Unpin ${projectName}` : `Pin ${projectName} to the top`}">
                     ${icon(project.pinned ? 'pinned' : 'pin', 'menu-icon')}<span>${project.pinned ? 'Unpin' : 'Pin to top'}</span>
-                  </button>
+                  </button>`}
                   ${project.currentWorkspace ? `<button role="menuitem" disabled>
                     ${icon('folder', 'menu-icon')}<span>This window</span>
                   </button>` : ''}
+                  ${project.composeAutoRow ? '' : `
                   <div class="menu-divider" role="separator"></div>
                   <button class="danger" data-action="delete" data-id="${projectId}" role="menuitem">
                     ${icon('trash', 'menu-icon')}<span>Delete project</span>
-                  </button>
+                  </button>`}
                 </div>
               </div>
             </div>

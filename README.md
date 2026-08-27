@@ -41,7 +41,7 @@ First-run stays empty until you add a folder. No setup dump.
 - **Launch profiles, tags, and run groups** for the apps you keep coming back to
 - **Named localhost toggle** on a running web row (default off); collisions get `-2`. Not a local reverse proxy — no Portless/Caddy parity
 - **Debug** attaches VS Code’s debugger to a Runlist-started process from ⋯ without restarting
-- **Share off LAN** uses VS Code’s own tunnel/port-forward; Stop or toggle off ends sharing
+- **Share off LAN** uses VS Code’s own tunnel/port-forward through a Runlist proxy; Stop or toggle off closes that proxy so the URL stops serving
 - **Requests** tab lists inbound HTTP to a Runlist-started web port while observation is available (hidden otherwise)
 - **Git worktree sticky ports** — git worktrees with port variables get sticky temporary ports per worktree (saved baseline ports stay put); non-git folders keep current behavior
 - **Launch environment** — optional env file (path relative to the project folder) and non-secret env overrides per project or launch profile; Start fails closed if a configured env file is missing; temporary port variables still win; values are redacted from Recent Output, diagnostics, and agent diagnosis

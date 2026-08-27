@@ -60,13 +60,19 @@ function spawnProjectCommand(command, options = {}) {
     ...projectProcessSpawnOptions(platform)
   };
   if (platform === 'darwin' || platform === 'win32') {
-    return spawnProcess(execPath, [supervisorPath, command], {
+    const child = spawnProcess(execPath, [supervisorPath, command], {
       ...processOptions,
       shell: false,
-      ...(platform === 'win32'
-        ? { stdio: supervisorStdio(processOptions.stdio) }
-        : {})
+      stdio: supervisorStdio(processOptions.stdio)
     });
+    child.on?.('message', (message) => {
+      if (message?.type === 'runlistCommandStarted'
+        && Number.isInteger(message.pid)
+        && message.pid > 0) {
+        child.runlistCommandPid = message.pid;
+      }
+    });
+    return child;
   }
   return spawnProcess(command, {
     ...processOptions,

@@ -52,12 +52,38 @@ if (typeof command !== 'string' || !command || command.includes('\0')) {
       cwd: process.cwd(),
       env: process.env,
       shell: true,
-      stdio: ['ignore', 'inherit', 'inherit'],
+      // Keep stdin open so the named Terminal PTY can type into the app.
+      stdio: ['pipe', 'inherit', 'inherit'],
       windowsHide: true
     });
   } catch (error) {
     process.stderr.write(`Runlist could not launch the start command: ${error.message}\n`);
     complete({ code: 1 });
+  }
+
+  if (child?.pid && typeof process.send === 'function') {
+    try {
+      process.send({ type: 'runlistCommandStarted', pid: child.pid });
+    } catch {
+      // Identity capture can continue without the command PID hint.
+    }
+  }
+
+  if (child?.stdin && process.stdin) {
+    process.stdin.on('data', (chunk) => {
+      try {
+        child.stdin.write(chunk);
+      } catch {
+        // Ignore stdin races after the command exits.
+      }
+    });
+    process.stdin.on('end', () => {
+      try {
+        child.stdin.end();
+      } catch {
+        // Ignore.
+      }
+    });
   }
 
   child?.once('error', (error) => {

@@ -3,7 +3,7 @@
 ## 0.0.12 — Debug, share, requests, named localhost, Compose rows, terminal Start
 
 - Attach the VS Code debugger from ⋯ on a Runlist-started running row.
-- Share a running web app off-LAN through VS Code’s tunnel/port-forward, with teardown on Stop or toggle off.
+- Share a running web app off-LAN through VS Code’s tunnel/port-forward behind a Runlist proxy; Stop or toggle off closes the proxy so the URL stops serving.
 - Show an inbound HTTP Requests tab while a single web port can be observed; clear on Stop.
 - Add a Named localhost toggle (default off) so Open and the port chip can use `name.localhost`.
 - Detect a folder-root Compose file and add one Start/Stop row per service with `up --no-deps`.

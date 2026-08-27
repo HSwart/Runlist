@@ -35,13 +35,14 @@ function canAttachDebugger(project = {}, options = {}) {
 
 async function attachDebuggerToProcess(vscode, options = {}) {
   const folder = typeof options.folder === 'string' ? options.folder.trim() : '';
-  const pid = Number(options.pid);
   const name = typeof options.name === 'string' && options.name.trim()
     ? options.name.trim()
     : 'project';
   if (!folder) {
     return { ok: false, message: 'No debugger available for this folder.' };
   }
+
+  const pid = await resolveAttachPid(options);
   if (!Number.isInteger(pid) || pid <= 0) {
     return { ok: false, message: 'No process ID is available to attach.' };
   }
@@ -81,7 +82,7 @@ async function attachDebuggerToProcess(vscode, options = {}) {
     try {
       const started = await vscode.debug.startDebugging(workspaceFolder, config);
       if (started) {
-        return { ok: true };
+        return { ok: true, pid };
       }
       lastError = new Error('Debugger did not start.');
     } catch (error) {
@@ -99,6 +100,32 @@ async function attachDebuggerToProcess(vscode, options = {}) {
       ? `Could not attach the debugger: ${detail}`
       : 'Could not attach the debugger.'
   };
+}
+
+async function resolveAttachPid(options = {}) {
+  const ports = Array.isArray(options.ports)
+    ? options.ports.filter((port) => Number.isInteger(port) && port > 0)
+    : [];
+  if (ports.length && typeof options.findListeningProcesses === 'function') {
+    try {
+      const listeners = await options.findListeningProcesses(ports);
+      const match = (Array.isArray(listeners) ? listeners : [])
+        .find((listener) => ports.includes(Number(listener.port))
+          && Number.isInteger(listener.pid)
+          && listener.pid > 0);
+      if (match) {
+        return match.pid;
+      }
+    } catch {
+      // Fall back to tracked process IDs.
+    }
+  }
+  const commandPid = Number(options.commandPid);
+  if (Number.isInteger(commandPid) && commandPid > 0) {
+    return commandPid;
+  }
+  const pid = Number(options.pid);
+  return Number.isInteger(pid) && pid > 0 ? pid : undefined;
 }
 
 function defaultAttachConfigurations(folder, pid, name) {
@@ -147,5 +174,6 @@ function folderLooksLikePython(folder) {
 
 module.exports = {
   attachDebuggerToProcess,
-  canAttachDebugger
+  canAttachDebugger,
+  resolveAttachPid
 };

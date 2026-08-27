@@ -1,6 +1,9 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { canAttachDebugger } = require('../src/debug/attach-debugger');
+const {
+  canAttachDebugger,
+  resolveAttachPid
+} = require('../src/debug/attach-debugger');
 
 test('debug attaches only to Runlist-started running processes with a PID', () => {
   assert.equal(canAttachDebugger({ name: 'App' }, {
@@ -27,4 +30,19 @@ test('debug attaches only to Runlist-started running processes with a PID', () =
     managed: true,
     pid: 0
   }).reason, /process ID/i);
+});
+
+test('prefers the listening app PID over the supervisor PID', async () => {
+  const pid = await resolveAttachPid({
+    pid: 100,
+    commandPid: 200,
+    ports: [3000],
+    findListeningProcesses: async () => [{ port: 3000, pid: 999 }]
+  });
+  assert.equal(pid, 999);
+});
+
+test('falls back to command PID then handle PID', async () => {
+  assert.equal(await resolveAttachPid({ pid: 100, commandPid: 200 }), 200);
+  assert.equal(await resolveAttachPid({ pid: 100 }), 100);
 });
