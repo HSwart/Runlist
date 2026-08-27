@@ -1195,6 +1195,7 @@ button:active:not(:disabled) {
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
+  gap: 4px;
   margin: 0;
   padding: 0 4px;
   color: var(--vscode-descriptionForeground);
@@ -1206,6 +1207,23 @@ button:active:not(:disabled) {
   font-weight: 400;
   line-height: 16px;
   white-space: nowrap;
+}
+
+.project-port-chip.is-openable {
+  color: var(--vscode-textLink-foreground);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.project-port-chip.is-openable:hover:not(:disabled) {
+  color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground));
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.project-open-label {
+  flex: 0 0 auto;
+  font-weight: 600;
 }
 
 .project-row-elapsed {
@@ -1247,7 +1265,7 @@ button.project-listener-owner:hover {
   text-decoration: underline;
 }
 
-.project-port-chip:hover:not(:disabled) {
+.project-port-chip:hover:not(:disabled):not(.is-openable) {
   color: var(--vscode-foreground);
   background: var(--vscode-toolbar-hoverBackground);
 }
@@ -1255,6 +1273,7 @@ button.project-listener-owner:hover {
 .project-port-chip:disabled {
   opacity: 0.7;
   cursor: default;
+  text-decoration: none;
 }
 
 .project-port-chip > span {
@@ -1262,6 +1281,10 @@ button.project-listener-owner:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.project-port-label {
+  flex: 0 1 auto;
 }
 
 .service-detail-toggle > svg {
@@ -2814,6 +2837,15 @@ select[aria-invalid='true'] {
   gap: 8px;
 }
 
+.empty-folder {
+  margin: 0;
+  color: var(--vscode-foreground);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .empty-start-chips {
   display: inline-flex;
   flex-wrap: wrap;
@@ -2901,8 +2933,13 @@ select[aria-invalid='true'] {
   .project-status span,
   .project-row-elapsed,
   .project-listener-owner,
-  .project-port-chip {
+  .project-port-chip,
+  .project-port-label {
     flex-shrink: 1;
+  }
+
+  .project-open-label {
+    flex-shrink: 0;
   }
 
   .project-status {
