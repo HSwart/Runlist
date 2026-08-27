@@ -275,11 +275,12 @@ async function terminateTrackedProcess(processes, id, options = {}) {
           throw new Error('Runlist could not verify the launched process identity after the root process exited.');
         }
       } else if (!groupEmpty) {
+        // Launch identity was captured, but the root PID is already gone so a live
+        // identity revalidation would false-fail. Terminate the remaining process
+        // group the same way pre-fix root-exit cleanup did when identity existed.
         await terminateProcessTree(child.pid, {
           ...options,
-          platform,
-          expectedIdentity,
-          readProcessIdentity: readIdentity
+          platform
         });
       }
     } else {
