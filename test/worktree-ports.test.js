@@ -195,7 +195,7 @@ test('does not reclaim a live ledger lock by age alone', (t) => {
   const fixture = twinWorktrees(t);
   const lockPath = `${fixture.ledgerFile}.lock`;
   const { currentProcessIdentity } = require('../src/lifecycle/process-identity');
-  const liveIdentity = currentProcessIdentity();
+  const liveIdentity = currentProcessIdentity({ allowRuntimeFallback: true });
   assert.ok(liveIdentity, 'current process identity must be available for this lock test');
   const liveLock = JSON.stringify({
     pid: process.pid,
@@ -244,12 +244,14 @@ test('reclaims a ledger lock when a reused pid fails identity match', (t) => {
   const fixture = twinWorktrees(t);
   const lockPath = `${fixture.ledgerFile}.lock`;
   const { currentProcessIdentity } = require('../src/lifecycle/process-identity');
-  const liveIdentity = currentProcessIdentity();
+  const liveIdentity = currentProcessIdentity({ allowRuntimeFallback: true });
   assert.ok(liveIdentity, 'current process identity must be available for this lock test');
+  const staleIdentity = liveIdentity.replace(/(\d+)$/, (digits) => String(BigInt(digits) + 1n));
+  assert.notEqual(staleIdentity, liveIdentity);
   fs.mkdirSync(path.dirname(fixture.ledgerFile), { recursive: true });
   fs.writeFileSync(lockPath, JSON.stringify({
     pid: process.pid,
-    processIdentity: `${process.pid}:stale-owner:1`,
+    processIdentity: staleIdentity,
     createdAt: Date.now() - 10_000
   }));
   const identity = detectWorktreeIdentity(fixture.main);
@@ -262,7 +264,6 @@ test('reclaims a ledger lock when a reused pid fails identity match', (t) => {
   });
   assert.equal(result.overrides.length, 2);
   assert.equal(fs.existsSync(lockPath), false);
-  assert.notEqual(liveIdentity, `${process.pid}:stale-owner:1`);
 });
 
 test('worktree ledger locks include processIdentity in the written record', () => {
@@ -270,7 +271,7 @@ test('worktree ledger locks include processIdentity in the written record', () =
     path.join(__dirname, '..', 'src', 'ports', 'worktree-ports.js'),
     'utf8'
   );
-  assert.match(source, /currentProcessIdentity/);
-  assert.match(source, /processIdentity: CURRENT_PROCESS_IDENTITY/);
-  assert.match(source, /currentProcessIdentity: CURRENT_PROCESS_IDENTITY/);
+  assert.match(source, /worktreeLockProcessIdentity|currentProcessIdentity/);
+  assert.match(source, /processIdentity/);
+  assert.match(source, /currentProcessIdentity: processIdentity/);
 });

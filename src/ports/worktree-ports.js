@@ -5,12 +5,15 @@ const { currentProcessIdentity } = require('../lifecycle/process-identity');
 const { processLockRecordIsAbandoned } = require('../lifecycle/process-lock');
 const { writeFileAtomically } = require('../projects/project-store');
 
-const CURRENT_PROCESS_IDENTITY = currentProcessIdentity();
 const WORKTREE_PORT_BASE = 21000;
 const WORKTREE_PORT_SPAN = 20000;
 const MAX_ALLOCATION_ATTEMPTS = 64;
 const LOCK_MAX_ATTEMPTS = 200;
 const LOCK_RETRY_MS = 5;
+
+function worktreeLockProcessIdentity() {
+  return currentProcessIdentity({ allowRuntimeFallback: true });
+}
 
 class WorktreePortsError extends Error {
   constructor(code, message, options) {
@@ -126,13 +129,14 @@ function allocateWorktreePortOverrides(options = {}) {
 function withLedgerLock(filePath, operation) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const lockPath = `${filePath}.lock`;
+  const processIdentity = worktreeLockProcessIdentity();
   let fd;
   for (let attempt = 0; attempt < LOCK_MAX_ATTEMPTS; attempt += 1) {
     try {
       fd = fs.openSync(lockPath, 'wx', 0o600);
       fs.writeFileSync(fd, JSON.stringify({
         pid: process.pid,
-        ...(CURRENT_PROCESS_IDENTITY ? { processIdentity: CURRENT_PROCESS_IDENTITY } : {}),
+        ...(processIdentity ? { processIdentity } : {}),
         createdAt: Date.now()
       }));
       break;
@@ -143,7 +147,8 @@ function withLedgerLock(filePath, operation) {
       try {
         const record = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
         if (processLockRecordIsAbandoned(record, {
-          currentProcessIdentity: CURRENT_PROCESS_IDENTITY
+          allowRuntime: true,
+          currentProcessIdentity: processIdentity
         })) {
           fs.unlinkSync(lockPath);
           continue;
