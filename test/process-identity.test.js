@@ -89,6 +89,30 @@ test('compares canonical identities while remaining safe during persisted-format
   );
 });
 
+test('gives Windows and Darwin identity probes enough time for cold process inspection', () => {
+  const {
+    PROCESS_IDENTITY_PROBE_TIMEOUT_MS,
+    darwinIdentityCommandOptions
+  } = require('../src/lifecycle/process-identity');
+  assert.ok(
+    PROCESS_IDENTITY_PROBE_TIMEOUT_MS >= 10000,
+    'Synchronous ownership probes must tolerate cold PowerShell/ps startups on Windows and macOS'
+  );
+
+  let windowsTimeout;
+  readProcessIdentitySync(303, 'win32', {
+    execFileSync: (_file, _args, options) => {
+      windowsTimeout = options.timeout;
+      return 'T638912345678901234';
+    }
+  });
+  assert.equal(windowsTimeout, PROCESS_IDENTITY_PROBE_TIMEOUT_MS);
+  assert.equal(
+    darwinIdentityCommandOptions().timeout,
+    PROCESS_IDENTITY_PROBE_TIMEOUT_MS
+  );
+});
+
 test('validates and captures current identity through the shared boundary', () => {
   assert.equal(stableProcessIdentity('303:linux:987654'), true);
   assert.equal(stableProcessIdentity(' 303:linux:987654 '), false);
