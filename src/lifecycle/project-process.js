@@ -927,6 +927,8 @@ class ProcessOwnershipStore {
     this.readHostProcessIdentity = options.readHostProcessIdentity
       || options.readProcessIdentitySync
       || ((pid, platform) => readProcessIdentitySync(pid, platform, options));
+    this.readChildProcessIdentitySync = options.readProcessIdentitySync
+      || ((pid, platform) => readProcessIdentitySync(pid, platform, options));
     this.now = options.now || Date.now;
     this.ownerHeartbeatTimeoutMs = options.ownerHeartbeatTimeoutMs ?? OWNER_HEARTBEAT_TIMEOUT_MS;
     this.invalidRecordGraceMs = options.invalidRecordGraceMs ?? INVALID_RECORD_GRACE_MS;
@@ -1509,6 +1511,141 @@ class ProcessOwnershipStore {
     return current?.token === owned.token
       && current.hostPid === this.pid
       && this.hostIdentityMatches(current, { fresh: options.fresh === true });
+  }
+
+  adoptAbandonedLiveProcesses() {
+    const adopted = [];
+    if (!stableProcessIdentity(this.hostIdentity)) {
+      return adopted;
+    }
+    let filenames;
+    try {
+      filenames = fs.readdirSync(this.directory);
+    } catch {
+      return adopted;
+    }
+    for (const filename of filenames.filter((name) => name.endsWith('.json'))) {
+      const ownership = readJson(path.join(this.directory, filename));
+      if (!validOwnership(ownership)) {
+        continue;
+      }
+      if (this.adoptAbandonedLiveProcess(ownership.projectId)) {
+        adopted.push(ownership.projectId);
+      }
+    }
+    return adopted;
+  }
+
+  adoptAbandonedLiveProcess(projectId) {
+    if (!stableProcessIdentity(this.hostIdentity) || typeof projectId !== 'string') {
+      return false;
+    }
+    if (this.isCurrentOwner(projectId, { fresh: true })) {
+      return true;
+    }
+    const ownershipPath = this.ownershipPath(projectId);
+    const existing = readJson(ownershipPath);
+    if (validOwnership(existing, projectId)
+      && existing.hostPid === this.pid
+      && this.hostIdentityMatches(existing, { fresh: true })
+      && existing.detached !== true) {
+      this.owned.set(projectId, { ownershipPath, token: existing.token });
+      return true;
+    }
+    if (!this.canAdoptAbandonedLiveProcess(existing, projectId)) {
+      return false;
+    }
+    const adopted = updateJsonRecord(
+      ownershipPath,
+      (current) => this.canAdoptAbandonedLiveProcess(current, projectId)
+        && current.token === existing.token
+        && current.hostPid === existing.hostPid
+        && current.childPid === existing.childPid
+        && current.childIdentity === existing.childIdentity,
+      (current) => ({
+        ...current,
+        hostPid: this.pid,
+        hostIdentity: this.hostIdentity,
+        platform: this.platform,
+        heartbeatAt: this.now()
+      })
+    );
+    if (!adopted) {
+      return false;
+    }
+    this.owned.set(projectId, { ownershipPath, token: existing.token });
+    this.diagnose('adopt.acquired', {
+      projectId,
+      reasonCode: 'abandoned-live-process',
+      identityDecision: 'match',
+      processActive: true
+    });
+    return true;
+  }
+
+  canAdoptAbandonedLiveProcess(ownership, projectId) {
+    if (!validOwnership(ownership, projectId)
+      || ownership.detached === true
+      || ownership.state === 'stopping'
+      || ownership.state === 'reclaiming'
+      || !Number.isInteger(ownership.childPid)
+      || ownership.childPid <= 0) {
+      return false;
+    }
+    if (ownership.hostPid === this.pid && this.hostIdentityMatches(ownership)) {
+      return false;
+    }
+    const hostDecision = this.hostIdentityDecision(ownership, { fresh: true });
+    if (hostDecision !== 'absent' && hostDecision !== 'mismatch') {
+      return false;
+    }
+    if (this.childProcessLiveness(ownership) !== true) {
+      return false;
+    }
+    if (!stableProcessIdentity(ownership.childIdentity)) {
+      return false;
+    }
+    let currentIdentity;
+    try {
+      currentIdentity = this.readChildProcessIdentitySync(
+        ownership.childPid,
+        ownership.platform || this.platform
+      );
+    } catch {
+      currentIdentity = undefined;
+    }
+    return processIdentityDecision(
+      ownership.childIdentity,
+      currentIdentity,
+      ownership.platform || this.platform,
+      ownership.childPid
+    ) === 'match';
+  }
+
+  releaseInactiveOwnedProcesses() {
+    const released = [];
+    for (const projectId of [...this.owned.keys()]) {
+      if (!this.isCurrentOwner(projectId)) {
+        continue;
+      }
+      const current = readJson(this.ownershipPath(projectId));
+      if (!validOwnership(current, projectId)
+        || current.detached === true
+        || current.state === 'stopping'
+        || current.state === 'reclaiming'
+        || !Number.isInteger(current.childPid)
+        || current.childPid <= 0) {
+        continue;
+      }
+      const liveness = this.childProcessLiveness(current);
+      if (liveness !== false) {
+        continue;
+      }
+      if (this.release(projectId)) {
+        released.push(projectId);
+      }
+    }
+    return released;
   }
 
   currentOwnership(projectId) {

@@ -1011,6 +1011,146 @@ test('preserves ownership and port reservations when reload shutdown cannot stop
   assert.equal(reservations.snapshot().has(project.id), true);
 });
 
+test('adopts a live abandoned process after the launching host dies so Stop stays local', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-adopt-live-'));
+  const identities = new Map([
+    [101, 'test-host:101'],
+    [202, 'test-host:202'],
+    [303, '303:original']
+  ]);
+  const alive = new Set([101, 202, 303]);
+  const owner = ProcessOwnershipStore(directory, {
+    pid: 101,
+    isProcessAlive: (pid) => alive.has(pid),
+    readProcessIdentitySync: (pid) => identities.get(pid)
+  });
+  const reloaded = ProcessOwnershipStore(directory, {
+    pid: 202,
+    isProcessAlive: (pid) => alive.has(pid),
+    readProcessIdentitySync: (pid) => identities.get(pid)
+  });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  assert.equal(owner.reserve('project-1'), undefined);
+  owner.setProcess('project-1', 303, {
+    childIdentity: '303:original',
+    identityRequired: true,
+    cwd: '/project',
+    startCommand: 'npm start',
+    stopCommand: '',
+    services: [{ name: 'web', port: 4310 }],
+    state: 'running'
+  });
+  alive.delete(101);
+
+  assert.deepEqual(reloaded.adoptAbandonedLiveProcesses(), ['project-1']);
+  assert.equal(reloaded.isCurrentOwner('project-1', { fresh: true }), true);
+  assert.equal(reloaded.snapshot().get('project-1').ownerAvailable, true);
+  assert.equal(reloaded.snapshot().get('project-1').processActive, true);
+  assert.equal(reloaded.snapshot().get('project-1').childPid, 303);
+  assert.deepEqual(reloaded.requestStop('project-1'), { kind: 'local' });
+  assert.equal(owner.release('project-1'), false);
+});
+
+test('does not steal a live process from another available VS Code window', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-adopt-live-window-'));
+  const alive = new Set([101, 202, 303]);
+  const owner = ProcessOwnershipStore(directory, {
+    pid: 101,
+    isProcessAlive: (pid) => alive.has(pid)
+  });
+  const otherWindow = ProcessOwnershipStore(directory, {
+    pid: 202,
+    isProcessAlive: (pid) => alive.has(pid)
+  });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  owner.reserve('project-1');
+  owner.setProcess('project-1', 303, { state: 'running' });
+
+  assert.deepEqual(otherWindow.adoptAbandonedLiveProcesses(), []);
+  assert.equal(otherWindow.isCurrentOwner('project-1'), false);
+  assert.equal(owner.isCurrentOwner('project-1'), true);
+});
+
+test('does not adopt detached ownership or a child whose identity changed', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-adopt-live-refuse-'));
+  const identities = new Map([
+    [101, 'test-host:101'],
+    [202, 'test-host:202'],
+    [303, '303:replacement']
+  ]);
+  const alive = new Set([101, 202, 303, 304]);
+  const owner = ProcessOwnershipStore(directory, {
+    pid: 101,
+    isProcessAlive: (pid) => alive.has(pid),
+    readProcessIdentitySync: (pid) => identities.get(pid)
+  });
+  const reloaded = ProcessOwnershipStore(directory, {
+    pid: 202,
+    isProcessAlive: (pid) => alive.has(pid),
+    readProcessIdentitySync: (pid) => identities.get(pid)
+  });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  owner.reserve('detached-project');
+  owner.setProcess('detached-project', 304, { state: 'running' });
+  assert.equal(owner.markDetached('detached-project'), true);
+
+  owner.reserve('mismatch-project');
+  owner.setProcess('mismatch-project', 303, {
+    childIdentity: '303:original',
+    identityRequired: true,
+    state: 'running'
+  });
+
+  owner.reserve('unverified-project');
+  owner.setProcess('unverified-project', 304, {
+    identityRequired: true,
+    state: 'running'
+  });
+  alive.delete(101);
+
+  assert.deepEqual(reloaded.adoptAbandonedLiveProcesses(), []);
+  assert.equal(reloaded.snapshot().get('detached-project')?.detached, true);
+  assert.equal(reloaded.isCurrentOwner('mismatch-project'), false);
+  assert.equal(reloaded.isCurrentOwner('unverified-project'), false);
+});
+
+test('releases adopted ownership after the live child exits', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-adopt-release-dead-'));
+  const identities = new Map([
+    [101, 'test-host:101'],
+    [202, 'test-host:202'],
+    [303, '303:original']
+  ]);
+  const alive = new Set([101, 202, 303]);
+  const owner = ProcessOwnershipStore(directory, {
+    pid: 101,
+    isProcessAlive: (pid) => alive.has(pid),
+    readProcessIdentitySync: (pid) => identities.get(pid)
+  });
+  const reloaded = ProcessOwnershipStore(directory, {
+    pid: 202,
+    isProcessAlive: (pid) => alive.has(pid),
+    readProcessIdentitySync: (pid) => identities.get(pid)
+  });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  owner.reserve('project-1');
+  owner.setProcess('project-1', 303, {
+    childIdentity: '303:original',
+    identityRequired: true,
+    state: 'running'
+  });
+  alive.delete(101);
+  assert.deepEqual(reloaded.adoptAbandonedLiveProcesses(), ['project-1']);
+  alive.delete(303);
+  assert.deepEqual(reloaded.releaseInactiveOwnedProcesses(), ['project-1']);
+  assert.equal(reloaded.snapshot().has('project-1'), false);
+  assert.equal(reloaded.isCurrentOwner('project-1'), false);
+});
+
 test('launches POSIX commands in an owned process group and keeps Windows launches attached', () => {
   assert.deepEqual(projectProcessSpawnOptions('linux'), { detached: true });
   assert.deepEqual(projectProcessSpawnOptions('darwin'), { detached: true });

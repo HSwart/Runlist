@@ -388,6 +388,7 @@ class RunlistViewProvider {
     this.agentConnections = Object.fromEntries(
       ['copilot', 'codex', 'claude'].map((agent) => [agent, initialAgentConnection(agent)])
     );
+    this.recoverLiveRuntimeAfterReload();
   }
 
   resolveWebviewView(view) {
@@ -1009,7 +1010,37 @@ class RunlistViewProvider {
       return 'starting';
     }
     return this.projectStatuses.get(id)
-      || (this.processes.has(id) ? 'running' : 'stopped');
+      || (this.processes.has(id) || this.processOwnership?.isCurrentOwner?.(id)
+        ? 'running'
+        : 'stopped');
+  }
+
+  recoverLiveRuntimeAfterReload() {
+    const adopted = typeof this.processOwnership?.adoptAbandonedLiveProcesses === 'function'
+      ? this.processOwnership.adoptAbandonedLiveProcesses()
+      : [];
+    if (typeof this.portReservations?.adoptAbandonedLiveReservations === 'function') {
+      this.portReservations.adoptAbandonedLiveReservations(new Set(adopted));
+    }
+    for (const id of adopted) {
+      this.managedProjectIds.add(id);
+      if (!this.projectStatuses.has(id) && !this.stoppingProjectIds.has(id)) {
+        this.projectStatuses.set(id, 'running');
+      }
+    }
+    return adopted;
+  }
+
+  releaseDeadOwnedRuntime() {
+    const released = typeof this.processOwnership.releaseInactiveOwnedProcesses === 'function'
+      ? this.processOwnership.releaseInactiveOwnedProcesses()
+      : [];
+    for (const id of released) {
+      this.portReservations.release(id);
+      this.managedProjectIds.delete(id);
+      this.detachedProjectIds.delete(id);
+    }
+    return released;
   }
 
   rowStartFailureSummary(id, status) {
@@ -1040,6 +1071,7 @@ class RunlistViewProvider {
   }
 
   startStatusMonitoring() {
+    this.recoverLiveRuntimeAfterReload();
     this.refreshProjectStatuses();
     const timer = setInterval(() => {
       if (Date.now() >= (this.statusRefreshRetryAt || 0)) {
@@ -1335,6 +1367,7 @@ class RunlistViewProvider {
         this.portReservations.reconcileProcessIdentities(),
         this.processOwnership.reconcileProcessIdentities()
       ]);
+      this.releaseDeadOwnedRuntime();
       const stopRequestIds = this.processOwnership.consumeStopRequests();
       const stopRequestFailures = typeof this.processOwnership.consumeStopRequestFailures === 'function'
         ? this.processOwnership.consumeStopRequestFailures()
