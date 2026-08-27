@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { processLockRecordIsAbandoned } = require('../lifecycle/process-lock');
 const { writeFileAtomically } = require('../projects/project-store');
 
 const WORKTREE_PORT_BASE = 21000;
@@ -8,7 +9,6 @@ const WORKTREE_PORT_SPAN = 20000;
 const MAX_ALLOCATION_ATTEMPTS = 64;
 const LOCK_MAX_ATTEMPTS = 200;
 const LOCK_RETRY_MS = 5;
-const LOCK_STALE_MS = 2000;
 
 class WorktreePortsError extends Error {
   constructor(code, message, options) {
@@ -22,21 +22,26 @@ function readWorktreePortLedger(filePath) {
   if (!filePath || !fs.existsSync(filePath)) {
     return { schemaVersion: 1, entries: [] };
   }
+  let value;
   try {
-    const value = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      return { schemaVersion: 1, entries: [] };
-    }
-    if (!Array.isArray(value.entries)) {
-      return { schemaVersion: 1, entries: [] };
-    }
-    return {
-      schemaVersion: 1,
-      entries: value.entries.filter((entry) => entry && typeof entry === 'object')
-    };
-  } catch {
-    return { schemaVersion: 1, entries: [] };
+    value = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (error) {
+    throw new WorktreePortsError(
+      'LEDGER_CORRUPT',
+      'Runlist could not read worktree port reservations because the saved file is damaged. Fix or remove worktree-ports.json and try Start again.',
+      { cause: error }
+    );
   }
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !Array.isArray(value.entries)) {
+    throw new WorktreePortsError(
+      'LEDGER_CORRUPT',
+      'Runlist could not read worktree port reservations because the saved file is damaged. Fix or remove worktree-ports.json and try Start again.'
+    );
+  }
+  return {
+    schemaVersion: 1,
+    entries: value.entries.filter((entry) => entry && typeof entry === 'object')
+  };
 }
 
 function writeWorktreePortLedger(filePath, ledger) {
@@ -130,8 +135,8 @@ function withLedgerLock(filePath, operation) {
         throw error;
       }
       try {
-        const age = Date.now() - Number(JSON.parse(fs.readFileSync(lockPath, 'utf8')).createdAt || 0);
-        if (age > LOCK_STALE_MS) {
+        const record = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+        if (processLockRecordIsAbandoned(record)) {
           fs.unlinkSync(lockPath);
           continue;
         }

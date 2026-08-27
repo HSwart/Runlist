@@ -13,7 +13,8 @@
     'stopped',
     'review-required',
     'port-in-use',
-    'port-in-use-unknown'
+    'port-in-use-unknown',
+    'not-responding'
   ]);
 
   function projectStatusFullLabels(project = {}) {
@@ -49,9 +50,6 @@
     const code = projectStatusCode(project);
     if (code === 'not-ready') {
       return 'starting';
-    }
-    if (code === 'not-responding') {
-      return 'running';
     }
     return code;
   }

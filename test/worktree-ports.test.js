@@ -5,6 +5,7 @@ const path = require('node:path');
 const test = require('node:test');
 const { execFileSync } = require('node:child_process');
 const {
+  WorktreePortsError,
   allocateWorktreePortOverrides,
   readWorktreePortLedger,
   writeWorktreePortLedger
@@ -122,4 +123,114 @@ test('ledger round-trips through disk', (t) => {
     }]
   });
   assert.equal(readWorktreePortLedger(fixture.ledgerFile).entries[0].worktreeId, 'abc');
+});
+
+test('corrupt ledger fails closed and allocate does not wipe prior entries', (t) => {
+  const fixture = twinWorktrees(t);
+  const identity = detectWorktreeIdentity(fixture.main);
+
+  fs.writeFileSync(fixture.ledgerFile, '{not-json');
+  assert.throws(
+    () => readWorktreePortLedger(fixture.ledgerFile),
+    (error) => error instanceof WorktreePortsError && error.code === 'LEDGER_CORRUPT'
+  );
+  assert.throws(
+    () => allocateWorktreePortOverrides({
+      project: fixture.project(fixture.main),
+      identity,
+      ledgerFile: fixture.ledgerFile,
+      isPortFree: () => true
+    }),
+    (error) => error instanceof WorktreePortsError && error.code === 'LEDGER_CORRUPT'
+  );
+  assert.equal(fs.readFileSync(fixture.ledgerFile, 'utf8'), '{not-json');
+
+  fs.writeFileSync(fixture.ledgerFile, '[]');
+  assert.throws(
+    () => allocateWorktreePortOverrides({
+      project: fixture.project(fixture.main),
+      identity,
+      ledgerFile: fixture.ledgerFile,
+      isPortFree: () => true
+    }),
+    (error) => error instanceof WorktreePortsError && error.code === 'LEDGER_CORRUPT'
+  );
+  assert.equal(fs.readFileSync(fixture.ledgerFile, 'utf8'), '[]');
+
+  fs.writeFileSync(fixture.ledgerFile, JSON.stringify({ schemaVersion: 1 }));
+  assert.throws(
+    () => allocateWorktreePortOverrides({
+      project: fixture.project(fixture.main),
+      identity,
+      ledgerFile: fixture.ledgerFile,
+      isPortFree: () => true
+    }),
+    (error) => error instanceof WorktreePortsError && error.code === 'LEDGER_CORRUPT'
+  );
+  assert.equal(
+    fs.readFileSync(fixture.ledgerFile, 'utf8'),
+    JSON.stringify({ schemaVersion: 1 })
+  );
+});
+
+test('missing ledger still starts empty and allocates', (t) => {
+  const fixture = twinWorktrees(t);
+  const identity = detectWorktreeIdentity(fixture.main);
+  assert.equal(fs.existsSync(fixture.ledgerFile), false);
+  assert.deepEqual(readWorktreePortLedger(fixture.ledgerFile), {
+    schemaVersion: 1,
+    entries: []
+  });
+  const result = allocateWorktreePortOverrides({
+    project: fixture.project(fixture.main),
+    identity,
+    ledgerFile: fixture.ledgerFile,
+    isPortFree: () => true
+  });
+  assert.equal(result.overrides.length, 2);
+  assert.equal(readWorktreePortLedger(fixture.ledgerFile).entries.length, 1);
+});
+
+test('does not reclaim a live ledger lock by age alone', (t) => {
+  const fixture = twinWorktrees(t);
+  const lockPath = `${fixture.ledgerFile}.lock`;
+  const liveLock = JSON.stringify({
+    pid: process.pid,
+    createdAt: Date.now() - 10_000
+  });
+  fs.mkdirSync(path.dirname(fixture.ledgerFile), { recursive: true });
+  fs.writeFileSync(lockPath, liveLock);
+  const identity = detectWorktreeIdentity(fixture.main);
+
+  assert.throws(
+    () => allocateWorktreePortOverrides({
+      project: fixture.project(fixture.main),
+      identity,
+      ledgerFile: fixture.ledgerFile,
+      isPortFree: () => true
+    }),
+    (error) => error instanceof WorktreePortsError && error.code === 'LEDGER_BUSY'
+  );
+  assert.equal(fs.readFileSync(lockPath, 'utf8'), liveLock);
+  assert.equal(fs.existsSync(fixture.ledgerFile), false);
+});
+
+test('reclaims an abandoned ledger lock whose owner pid is dead', (t) => {
+  const fixture = twinWorktrees(t);
+  const lockPath = `${fixture.ledgerFile}.lock`;
+  fs.mkdirSync(path.dirname(fixture.ledgerFile), { recursive: true });
+  fs.writeFileSync(lockPath, JSON.stringify({
+    pid: 2147483646,
+    createdAt: Date.now() - 10_000
+  }));
+  const identity = detectWorktreeIdentity(fixture.main);
+
+  const result = allocateWorktreePortOverrides({
+    project: fixture.project(fixture.main),
+    identity,
+    ledgerFile: fixture.ledgerFile,
+    isPortFree: () => true
+  });
+  assert.equal(result.overrides.length, 2);
+  assert.equal(fs.existsSync(lockPath), false);
 });

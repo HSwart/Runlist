@@ -29,6 +29,17 @@ class ProjectRepairError extends Error {
   }
 }
 
+function stableEnvFingerprint(env) {
+  if (!env || typeof env !== 'object' || Array.isArray(env)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.keys(env)
+      .sort()
+      .map((key) => [key, env[key]])
+  );
+}
+
 function projectConfigurationRevision(project) {
   const configuration = {
     name: project.name,
@@ -39,6 +50,11 @@ function projectConfigurationRevision(project) {
     reviewRequired: project.reviewRequired === true,
     launchProfiles: project.launchProfiles || [],
     tags: project.tags || [],
+    envFile: project.envFile || '',
+    env: stableEnvFingerprint(project.env),
+    requiredEnvKeys: project.requiredEnvKeys || [],
+    composePath: project.composePath || '',
+    localHostname: project.localHostname || '',
     services: (project.services || []).map((service) => ({
       name: service.name,
       port: service.port,
@@ -155,6 +171,9 @@ function approveProjectRepairProposalLocked(
   const approved = upsertProject(projectsFile, {
     ...proposal.proposedProject,
     id: projectId,
+    // Proposed snapshots omit cleared optional fields; pass '' so upsert clears
+    // instead of preserving the live project's custom Stop.
+    stopCommand: proposal.proposedProject.stopCommand || '',
     pinned: project.pinned === true,
     selectedLaunchProfileId: project.selectedLaunchProfileId || 'default'
   }, { allowStoredName: true, lockHeld: true, reviewRequired: false }).project;

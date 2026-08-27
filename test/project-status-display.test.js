@@ -50,9 +50,9 @@ test('moves uncommon lifecycle phrases off the capsule without renaming them as 
     'App: Taking longer… Ready: Web :3000. Still checking: API :4000'
   );
 
-  assert.equal(projectPrimaryStatusCode({ status: 'not-responding' }), 'running');
-  assert.equal(projectDisplayedStatus({ name: 'App', status: 'not-responding' }), 'Running');
-  assert.equal(projectStatusDetailText({ name: 'App', status: 'not-responding' }), 'Web service not responding');
+  assert.equal(projectPrimaryStatusCode({ status: 'not-responding' }), 'not-responding');
+  assert.equal(projectDisplayedStatus({ name: 'App', status: 'not-responding' }), 'Web service not responding');
+  assert.notEqual(projectDisplayedStatus({ name: 'App', status: 'not-responding' }), 'Running');
   assert.equal(
     projectStatusAnnouncement({ name: 'App', status: 'not-responding' }),
     'App: Web service not responding'

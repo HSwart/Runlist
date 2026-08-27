@@ -26,6 +26,15 @@
         mode: 'start'
       };
     }
+    if (project.composeStartBlocked) {
+      return {
+        action: 'start',
+        disabled: true,
+        label: project.composeStartBlockedReason
+          || `Start is unavailable for ${name} until Docker is ready`,
+        mode: 'start'
+      };
+    }
     if (status === 'stopping') {
       return {
         action: 'stop',

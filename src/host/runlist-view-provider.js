@@ -1020,8 +1020,14 @@ class RunlistViewProvider {
     if (this.startAttempts.has(id)) {
       return 'starting';
     }
-    return this.projectStatuses.get(id)
-      || (this.processes.has(id) ? 'running' : 'stopped');
+    if (this.processes.has(id)) {
+      const status = this.projectStatuses.get(id);
+      if (!status || status === 'stopped') {
+        return 'running';
+      }
+      return status;
+    }
+    return this.projectStatuses.get(id) || 'stopped';
   }
 
   rowStartFailureSummary(id, status) {
@@ -4138,12 +4144,15 @@ class RunlistViewProvider {
     }
 
     if (this.startAttempts.has(id)) {
-      this.statusRevision += 1;
-      this.processOwnership.release(id);
-      this.releaseStartReservation(id);
-      this.projectStatuses.set(id, 'stopped');
-      this.renderProjectList();
-      return true;
+      this.startAttempts.delete(id);
+      if (!this.processes.has(id)) {
+        this.statusRevision += 1;
+        this.processOwnership.release(id);
+        this.releaseStartReservation(id);
+        this.projectStatuses.set(id, 'stopped');
+        this.renderProjectList();
+        return true;
+      }
     }
 
     const sharedOwnership = this.processOwnership.snapshot().get(id);
@@ -4508,14 +4517,17 @@ class RunlistViewProvider {
       return false;
     }
     if (this.startAttempts.has(id)) {
-      this.processOwnership.release(id);
-      this.projectRuntime.delete(id);
-      this.projectAttemptMetadata.delete(id);
-      this.projectTimelineFailures.delete(id);
-      this.releaseStartReservation(id);
-      this.projectStatuses.set(id, 'stopped');
-      this.renderProjectList();
-      return true;
+      this.startAttempts.delete(id);
+      if (!this.processes.has(id)) {
+        this.processOwnership.release(id);
+        this.projectRuntime.delete(id);
+        this.projectAttemptMetadata.delete(id);
+        this.projectTimelineFailures.delete(id);
+        this.releaseStartReservation(id);
+        this.projectStatuses.set(id, 'stopped');
+        this.renderProjectList();
+        return true;
+      }
     }
     if (this.processes.has(id)) {
       const portGeneration = this.portReservations.captureShared(id);
@@ -4880,6 +4892,13 @@ class RunlistViewProvider {
         lastStartedAt: lastStartedAt || undefined,
         lifecycleBlocked: !lifecycleCapability.supported,
         lifecycleBlockedReason: lifecycleCapability.reason,
+        composeStartBlocked: Boolean(
+          isComposeManagedProject(runtimeProject)
+          && this.composeNotice
+        ),
+        composeStartBlockedReason: isComposeManagedProject(runtimeProject) && this.composeNotice
+          ? String(this.composeNotice).replace(/\s+/g, ' ').trim()
+          : undefined,
         failureSummary: this.rowStartFailureSummary(project.id, status),
         stopFailure: this.projectStopFailures?.get(project.id),
         timeline,

@@ -2043,7 +2043,7 @@ test('terminates surviving POSIX descendants after their tracked root exits', as
 
   assert.equal(await terminateTrackedProcess(processes, 'project', {
     platform: 'linux',
-    readProcessIdentity: async () => undefined,
+    readProcessIdentity: async () => '614:original',
     kill: (pid, signal) => {
       if (signal === 0) {
         if (groupAlive) {

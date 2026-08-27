@@ -232,11 +232,27 @@ async function terminateTrackedProcess(processes, id, options = {}) {
         knownTree,
         readProcessIdentity: readIdentity
       });
+    } else if (rootExited && platform !== 'win32') {
+      const groupEmpty = await exitedRootHasNoRemainingProcesses(child.pid, platform, {
+        ...options,
+        readOwnedProcessTree: options.readOwnedProcessTree
+      });
+      if (!groupEmpty) {
+        if (!expectedIdentityIsValid) {
+          throw new Error('Runlist could not verify the launched process identity after the root process exited.');
+        }
+        await terminateProcessTree(child.pid, {
+          ...options,
+          platform,
+          expectedIdentity,
+          readProcessIdentity: readIdentity
+        });
+      }
     } else {
       await terminateProcessTree(child.pid, {
         ...options,
         platform,
-        ...(expectedIdentityIsValid && !rootExited ? {
+        ...(expectedIdentityIsValid ? {
           expectedIdentity,
           readProcessIdentity: readIdentity
         } : {})
@@ -255,8 +271,8 @@ async function exitedRootHasNoRemainingProcesses(pid, platform, options = {}) {
     const remaining = await readTree(pid, 'win32', options);
     return Array.isArray(remaining) && remaining.length === 0;
   }
-  const liveness = await trackedProcessLiveness(pid, platform, options);
-  return liveness === false;
+  const kill = options.kill || process.kill;
+  return !(await processGroupIsAlive(pid, kill, options));
 }
 
 async function terminateExitedWindowsTree(rootPid, rootIdentity, options = {}) {
@@ -1588,6 +1604,29 @@ class ProcessOwnershipStore {
       return false;
     }
     if (!this.isProcessAlive(current.childPid)) {
+      if (this.platform !== 'win32') {
+        const kill = options.kill || process.kill;
+        const groupAlive = await processGroupIsAlive(current.childPid, kill, options);
+        if (groupAlive) {
+          const pendingIdentity = this.pendingProcessIdentities.get(projectId);
+          const persistedIdentity = Object.prototype.hasOwnProperty.call(current, 'childIdentity')
+            ? current.childIdentity
+            : undefined;
+          const pendingValue = pendingIdentity?.childPid === current.childPid
+            ? await pendingIdentity.promise
+            : undefined;
+          const expectedIdentity = persistedIdentity || pendingValue;
+          if (!stableProcessIdentity(expectedIdentity)) {
+            throw new Error('Runlist could not verify the launched process identity after the root process exited.');
+          }
+          await terminateProcessTree(current.childPid, {
+            platform: this.platform,
+            ...options,
+            expectedIdentity,
+            readProcessIdentity: options.readProcessIdentity || this.readProcessIdentity
+          });
+        }
+      }
       return true;
     }
 
