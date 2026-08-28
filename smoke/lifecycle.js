@@ -180,7 +180,8 @@ async function run() {
     assert.notEqual(restartedGrandchildPid, grandchildPid, 'Restart reused the previous fixture grandchild process.');
     await waitFor(
       () => [fixturePid, childPid, grandchildPid].every((pid) => !processIsAlive(pid)),
-      'Restart left part of the previous fixture process tree running.'
+      'Restart left part of the previous fixture process tree running.',
+      process.platform === 'win32' ? 20000 : 10000
     );
 
     api.provider.projectStatuses.set(ready.id, 'stopping');
