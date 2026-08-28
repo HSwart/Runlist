@@ -19,6 +19,7 @@
   const WEBVIEW_COMMAND_TYPES = new Set([
     'approveProjectRepair',
     'approveComposeImport',
+    'askAgent',
     'closeScreen',
     'copyDiagnosisRequest',
     'copyOutput',
@@ -80,6 +81,7 @@
     'useDraftStartScript'
   ]);
   const ID_COMMAND_TYPES = new Set([
+    'askAgent',
     'copyProjectPath',
     'deleteProject',
     'forceCloseProjectPorts',

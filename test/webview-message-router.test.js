@@ -24,6 +24,7 @@ test('allowlists the complete host-to-webview message contract', () => {
     'restoreProjectMenuFocus',
     'restoreStopAllButton'
   ]);
+  assert.ok(WEBVIEW_COMMAND_TYPES.has('askAgent'));
 });
 
 test('validates commands sent from the webview before routing', async () => {
@@ -171,6 +172,19 @@ test('forwards output peek incarnation requests without treating the token as au
     projectIncarnation: ''
   }), false);
   assert.deepEqual(calls, [['project-1', 'project-1:1']]);
+});
+
+test('maps askAgent to the host diagnosis handoff', async () => {
+  const calls = [];
+  const route = createRunlistWebviewRouter({
+    askProjectAgent: async (id) => {
+      calls.push(id);
+    }
+  });
+
+  assert.equal(await route({ type: 'askAgent', id: 'project-1' }), true);
+  assert.equal(await route({ type: 'askAgent', id: '' }), false);
+  assert.deepEqual(calls, ['project-1']);
 });
 
 test('maps showDiagnosis to the existing diagnosis screen', async () => {

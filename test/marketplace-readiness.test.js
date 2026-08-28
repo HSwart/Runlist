@@ -51,6 +51,7 @@ test('does not ship stale product branding', () => {
     'CHANGELOG.md',
     'SECURITY.md',
     'THIRD_PARTY_NOTICES.md',
+    'src/integrations/agent-handoff.js',
     'src/integrations/agent-registration.js',
     'extension.js',
     'src/host/runlist-view-provider.js',

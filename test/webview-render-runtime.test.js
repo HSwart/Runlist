@@ -1846,6 +1846,53 @@ test('row More menu includes Ask your agent only when canAskAgent is true', () =
   assert.doesNotMatch(withDiagnostics.app.innerHTML, /copy-diagnosis-request|copy-start-failure/);
 });
 
+test('diagnosis screen sends from Ask your agent when connected and copies when not', () => {
+  const connected = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      mode: 'diagnosis',
+      diagnosis: {
+        agentReady: true,
+        approved: false,
+        handoffNotice: 'Sent Broken App failure details to your agent.',
+        name: 'Broken App',
+        outputAvailable: false,
+        projectId: 'broken'
+      }
+    }
+  });
+  assert.match(
+    connected.app.innerHTML,
+    /data-action="ask-agent" data-id="broken"[^>]*>Ask your agent/
+  );
+  assert.match(connected.app.innerHTML, /data-action="copy-diagnosis-request"[^>]*>Copy diagnosis request/);
+  assert.match(connected.app.innerHTML, /Sent Broken App failure details to your agent\./);
+  assert.match(connected.app.innerHTML, /Nothing is sent automatically/);
+  assert.doesNotMatch(connected.app.innerHTML, /Need to connect an agent/);
+
+  const disconnected = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      mode: 'diagnosis',
+      diagnosis: {
+        agentReady: false,
+        approved: false,
+        name: 'Broken App',
+        outputAvailable: false,
+        projectId: 'broken'
+      }
+    }
+  });
+  assert.doesNotMatch(
+    disconnected.app.innerHTML,
+    /diagnosis-handoff-actions[\s\S]*data-action="ask-agent"/
+  );
+  assert.match(
+    disconnected.app.innerHTML,
+    /class="primary-button diagnosis-copy-button" data-action="copy-diagnosis-request"/
+  );
+  assert.match(disconnected.app.innerHTML, /Need to connect an agent/);
+  assert.match(disconnected.app.innerHTML, /Copy the request, then paste it into your agent chat\./);
+});
+
 test('missing-required-env start failure uses Fix environment as the primary row action', () => {
   const result = renderNonEmptyProjectList([{
     activeLaunchProfileId: 'default',

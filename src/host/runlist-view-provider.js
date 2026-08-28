@@ -14,6 +14,11 @@ const {
   installAgentSkill
 } = require('../integrations/skill-installation');
 const {
+  agentConnectionReady,
+  buildDiagnosisHandoffPrompt,
+  sendDiagnosisToAgentChat
+} = require('../integrations/agent-handoff');
+const {
   hasUnownedPortReservation,
   managedServiceReadinessTimedOut,
   managedRuntimeProjectIds,
@@ -292,6 +297,7 @@ class RunlistViewProvider {
     this.returnFocus = undefined;
     this.selectedProjectId = undefined;
     this.diagnosisProjectIncarnation = undefined;
+    this.diagnosisHandoffNotice = undefined;
     this.routeNotice = undefined;
     this.approvedRepairProjectId = undefined;
     this.portListeningReport = undefined;
@@ -1360,6 +1366,7 @@ class RunlistViewProvider {
     this.formErrors = {};
     this.selectedProjectId = undefined;
     this.diagnosisProjectIncarnation = undefined;
+    this.diagnosisHandoffNotice = undefined;
     this.approvedRepairProjectId = undefined;
     this.returnFocus = undefined;
     this.routeNotice = notice;
@@ -2123,9 +2130,22 @@ class RunlistViewProvider {
     this.diagnosisProjectIncarnation = projectIncarnation;
     this.selectedProjectId = id;
     this.approvedRepairProjectId = undefined;
-    this.focusTarget = { type: 'action', action: 'copy-diagnosis-request' };
+    this.focusTarget = agentConnectionReady(this.agentConnections)
+      ? { type: 'action', action: 'ask-agent', id }
+      : { type: 'action', action: 'copy-diagnosis-request' };
     this.returnFocus = { type: 'project-menu', id };
     this.render();
+  }
+
+  hasConnectedAgent() {
+    return agentConnectionReady(this.agentConnections);
+  }
+
+  diagnosisRequestText(project) {
+    return buildDiagnosisHandoffPrompt({
+      project,
+      diagnostics: readProjectDiagnostics(this.projectsFile, project.id)
+    });
   }
 
   async closeScreen(draft) {
@@ -2145,6 +2165,7 @@ class RunlistViewProvider {
     this.formErrors = {};
     this.selectedProjectId = undefined;
     this.diagnosisProjectIncarnation = undefined;
+    this.diagnosisHandoffNotice = undefined;
     this.approvedRepairProjectId = undefined;
     this.portListeningReport = undefined;
     this.portListeningFocusPort = undefined;
@@ -2500,17 +2521,41 @@ class RunlistViewProvider {
     if (!project || !readProjectDiagnostics(this.projectsFile, project.id)) {
       return;
     }
-    const request = [
-      `Use the Runlist MCP tool runlist_get_project_diagnostics with projectId "${project.id}" to inspect ${project.name}'s latest failed start.`,
-      'Explain the likely cause and the smallest safe fix.',
-      'If the saved setup should change, use runlist_propose_project_repair with the returned revision and failedAt value so I can review it in Runlist.',
-      'Do not run commands or change the saved setup yourself.'
-    ].join(' ');
-    await vscode.env.clipboard.writeText(request);
+    await vscode.env.clipboard.writeText(this.diagnosisRequestText(project));
+    this.diagnosisHandoffNotice = undefined;
     this.view?.webview.postMessage({
       type: 'diagnosisRequestCopied',
       messageToken: this.webviewMessageToken
     });
+  }
+
+  async askProjectAgent(id) {
+    const project = this.projects.find((item) => item.id === id);
+    const diagnostics = project
+      ? readProjectDiagnostics(this.projectsFile, project.id)
+      : undefined;
+    if (!project || !diagnostics) {
+      return;
+    }
+    if (this.hasConnectedAgent()) {
+      const prompt = this.diagnosisRequestText(project);
+      const sent = await sendDiagnosisToAgentChat(vscode, prompt);
+      if (sent) {
+        this.diagnosisHandoffNotice = `Sent ${project.name} failure details to your agent.`;
+        this.showProjectDiagnosis(id);
+        return;
+      }
+      await vscode.env.clipboard.writeText(prompt);
+      this.diagnosisHandoffNotice = undefined;
+      this.showProjectDiagnosis(id);
+      this.view?.webview.postMessage({
+        type: 'diagnosisRequestCopied',
+        messageToken: this.webviewMessageToken
+      });
+      return;
+    }
+    this.diagnosisHandoffNotice = undefined;
+    this.showProjectDiagnosis(id);
   }
 
   refreshProjectRepair() {
@@ -5669,9 +5714,9 @@ class RunlistViewProvider {
         projectId: outputProject.id
       } : undefined,
       diagnosis: diagnosisProject && diagnosisRecord ? {
-        agentReady: Object.values(this.agentConnections)
-          .some((connection) => connection.status === 'success'),
+        agentReady: this.hasConnectedAgent(),
         approved: this.approvedRepairProjectId === diagnosisProject.id,
+        handoffNotice: this.diagnosisHandoffNotice || undefined,
         name: diagnosisProject.name,
         outputAvailable: Boolean(diagnosisRecord.retainedOutput),
         outputTruncated: diagnosisRecord.outputTruncated === true,

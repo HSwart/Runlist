@@ -164,8 +164,9 @@ test('exposes Ask your agent on the row More menu from a host boolean only', () 
   );
   assert.match(
     webview,
-    /'ask-agent': \(\) => \{[\s\S]*closeMenus\(\);[\s\S]*type: 'showDiagnosis', id: button\.dataset\.id/
+    /'ask-agent': \(\) => \{[\s\S]*closeMenus\(\);[\s\S]*type: 'askAgent', id: button\.dataset\.id/
   );
+  assert.match(router, /askAgent: \(message\) => host\.askProjectAgent\(message\.id\)/);
   assert.match(router, /showDiagnosis: \(message\) => host\.showProjectDiagnosis\(message\.id\)/);
   assert.doesNotMatch(webview, /data-action="ask-agent"[\s\S]{0,400}copyStartFailure|copy-start-failure/);
 });

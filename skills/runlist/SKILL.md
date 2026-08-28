@@ -1,6 +1,6 @@
 ---
 name: runlist
-description: Set up or update a local development project in Runlist, or diagnose a retained failed start when the user provides a Runlist project ID. Use for Runlist setup requests and copied Runlist diagnosis requests.
+description: Set up or update a local development project in Runlist, or diagnose a retained failed start when the user provides a Runlist project ID. Use for Runlist setup requests and Runlist diagnosis requests sent from Ask your agent or copied into chat.
 ---
 
 <!-- Managed by the Runlist VS Code extension. -->
@@ -26,7 +26,7 @@ If the Runlist MCP tool is unavailable, tell the user to open **Runlist → Agen
 
 # Diagnose a failed Runlist start
 
-When the user pastes a Runlist diagnosis request containing a project ID:
+When the user provides a Runlist diagnosis request containing a project ID — including a request Runlist sent into chat with **Ask your agent**:
 
 1. Call `runlist_get_project_diagnostics` with that exact project ID. Do not substitute a name or folder and do not request diagnostics for other projects.
 2. Diagnose only the returned saved setup, platform, lifecycle result, failure summary, and sanitized retained output. Explain the likely cause and the smallest safe next step.

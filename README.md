@@ -43,7 +43,7 @@ Once an app is saved, the row is the control surface.
 - **Live preview and recent output** when you expand the project
 - **Search and pin** so the apps you touch all day stay on top
 - **Open in VS Code**, open a terminal here, or copy the project path from the More menu
-- **Ask your agent** from the project More menu when a failed start is still saved — same diagnosis screen as View output, and nothing is sent automatically
+- **Ask your agent** from the project More menu when a failed start is still saved — if an agent is connected, Runlist sends the failure details to that agent; otherwise it opens a diagnosis screen you can copy from. Nothing is sent until you choose **Ask your agent**
 
 Works on **Windows, macOS, and Linux**.
 

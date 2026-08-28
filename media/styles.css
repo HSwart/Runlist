@@ -2790,7 +2790,14 @@ select[aria-invalid='true'] {
   margin: 10px 0 14px;
 }
 
-.diagnosis-copy-button {
+.diagnosis-handoff-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.diagnosis-copy-button,
+.diagnosis-handoff-actions .primary-button,
+.diagnosis-handoff-actions .secondary-button {
   width: 100%;
   padding: 0 10px;
 }

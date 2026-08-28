@@ -2084,9 +2084,9 @@ function renderAgentSetup() {
         <button class="icon-button" data-action="close-screen" aria-label="Close agent connections screen">${icon('close')}</button>
       </header>
       <div class="agent-list" aria-label="Supported coding agents">
-        ${agentCard('copilot', 'GitHub Copilot', 'Adds /runlist. The connection is discovered automatically through VS Code.')}
-        ${agentCard('codex', 'Codex', 'Registers the connection and adds $runlist.')}
-        ${agentCard('claude', 'Claude Code', 'Registers the connection and adds /runlist.')}
+        ${agentCard('copilot', 'GitHub Copilot', 'Adds /runlist. When this is ready, Ask your agent can send a failed start to chat.')}
+        ${agentCard('codex', 'Codex', 'Registers the connection and adds $runlist. When this is ready, Ask your agent can send a failed start to chat.')}
+        ${agentCard('claude', 'Claude Code', 'Registers the connection and adds /runlist. When this is ready, Ask your agent can send a failed start to chat.')}
       </div>
     </section>`;
 }
@@ -2499,7 +2499,9 @@ function renderProjectDiagnosis() {
       <p class="screen-copy">Prepare ${escapeHtml(diagnosis.name)}'s latest failed start for diagnosis.</p>
       <div class="diagnosis-notice">
         <strong>Nothing is sent automatically</strong>
-        <p>Runlist copies a short request for you to paste into your agent. The agent can then retrieve only this project's retained failure through Runlist.</p>
+        <p>${diagnosis.agentReady
+          ? 'Ask your agent sends a short request to your connected agent. The agent can then retrieve only this project\'s retained failure through Runlist.'
+          : 'Runlist copies a short request for you to paste into your agent. The agent can then retrieve only this project\'s retained failure through Runlist.'}</p>
       </div>
       <h3 class="diagnosis-heading">Context available</h3>
       <ul class="diagnosis-context">
@@ -2511,8 +2513,11 @@ function renderProjectDiagnosis() {
         <li>Sanitized recent output${diagnosis.outputAvailable ? diagnosis.outputTruncated ? ' (latest portion)' : '' : ' (no command output was captured)'}</li>
       </ul>
       <p class="diagnosis-exclusion">Runlist does not provide environment variables, source files, shell history, process environments, or unconfigured network data.</p>
-      <button class="primary-button diagnosis-copy-button" data-action="copy-diagnosis-request">Copy diagnosis request</button>
-      <p id="diagnosis-copy-status" class="diagnosis-copy-status" aria-live="polite">Copy the request, then paste it into your agent chat.</p>
+      <div class="diagnosis-handoff-actions">
+        ${diagnosis.agentReady ? `<button class="primary-button diagnosis-copy-button" data-action="ask-agent" data-id="${escapeHtml(diagnosis.projectId)}">Ask your agent</button>` : ''}
+        <button class="${diagnosis.agentReady ? 'secondary-button' : 'primary-button diagnosis-copy-button'}" data-action="copy-diagnosis-request">Copy diagnosis request</button>
+      </div>
+      <p id="diagnosis-copy-status" class="diagnosis-copy-status" aria-live="polite">${diagnosis.handoffNotice ? escapeHtml(diagnosis.handoffNotice) : diagnosis.agentReady ? 'Ask your agent to send the request, or copy it to paste yourself.' : 'Copy the request, then paste it into your agent chat.'}</p>
       <button class="secondary-button repair-refresh-button" data-action="refresh-repair">Refresh proposal</button>
       ${repairHtml}
       ${diagnosis.agentReady ? '' : `
@@ -3151,7 +3156,7 @@ app.addEventListener('click', (event) => {
     },
     'ask-agent': () => {
       closeMenus();
-      vscode.postMessage({ type: 'showDiagnosis', id: button.dataset.id });
+      vscode.postMessage({ type: 'askAgent', id: button.dataset.id });
     },
     'copy-diagnosis-request': () => vscode.postMessage({ type: 'copyDiagnosisRequest' }),
     'refresh-repair': () => vscode.postMessage({ type: 'refreshProjectRepair' }),

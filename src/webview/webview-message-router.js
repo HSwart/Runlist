@@ -90,6 +90,7 @@ function createRunlistWebviewRouter(host, adapters = {}) {
       approveProjectRepair: (message) => host.approveProjectRepair(message.proposalId),
       approveComposeImport: () => host.approveComposeImport(),
       closeScreen: (message) => host.closeScreen(message.draft),
+      askAgent: (message) => host.askProjectAgent(message.id),
       copyDiagnosisRequest: () => host.copyDiagnosisRequest(),
       copyOutput: () => host.copyProjectOutput(),
       copyPhoneUrl: (message) => host.copyPhoneUrl(message.id, message.url),
