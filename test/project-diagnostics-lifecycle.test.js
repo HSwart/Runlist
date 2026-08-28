@@ -26,7 +26,19 @@ function loadRunlistProvider(messages) {
   providerModule.filename = providerPath;
   providerModule.paths = Module._nodeModulePaths(path.dirname(providerPath));
   const vscode = {
-    env: { remoteName: undefined },
+    env: {
+      remoteName: undefined,
+      clipboard: {
+        async writeText(text) {
+          messages.push({ type: 'clipboard', text });
+        }
+      }
+    },
+    commands: {
+      async executeCommand(...args) {
+        messages.push({ type: 'command', args });
+      }
+    },
     extensions: { getExtension: () => undefined },
     Uri: {
       joinPath: (base, ...parts) => ({ fsPath: path.join(base.fsPath, ...parts) })
@@ -452,4 +464,76 @@ test('successful repair approval invalidates old failure state and diagnosis UI'
   assert.equal(provider.readinessWarnings.has(project.id), false);
   provider.render();
   assert.doesNotMatch(view.webview.html, /"diagnosis":\{/);
+});
+
+test('Ask your agent copies a diagnosis request when no agent is connected', async (t) => {
+  const fixtureData = fixture(t);
+  const { messages, project, provider } = fixtureData;
+  seedFailure(fixtureData);
+  const posted = [];
+  provider.view.webview.postMessage = (message) => {
+    posted.push(message);
+    return Promise.resolve(true);
+  };
+  provider.selectedProjectId = project.id;
+
+  await provider.copyDiagnosisRequest();
+
+  assert.equal(posted.some((item) => item.type === 'diagnosisRequestCopied'), true);
+  assert.equal(messages.some((item) => item.type === 'clipboard' && /projectId/.test(item.text)), true);
+  assert.equal(messages.some((item) => item.type === 'command'), false);
+  assert.equal(provider.mode, 'list');
+});
+
+test('Ask your agent invokes VS Code chat when an agent is connected', async (t) => {
+  const fixtureData = fixture(t);
+  const { messages, project, provider } = fixtureData;
+  seedFailure(fixtureData);
+  const posted = [];
+  provider.view.webview.postMessage = (message) => {
+    posted.push(message);
+    return Promise.resolve(true);
+  };
+  provider.agentConnections.copilot = { status: 'success', message: 'ready' };
+
+  await provider.askAgent(project.id);
+
+  const command = messages.find((item) => item.type === 'command');
+  assert.ok(command);
+  assert.equal(command.args[0], 'workbench.action.chat.open');
+  assert.match(command.args[1].query, /projectId "/);
+  assert.match(command.args[1].query, /runlist_get_project_diagnostics/);
+  assert.doesNotMatch(command.args[1].query, /old failure output/);
+  assert.equal(posted.some((item) => item.type === 'diagnosisHandoffSent'), true);
+  assert.equal(messages.some((item) => item.type === 'clipboard'), false);
+  assert.equal(provider.mode, 'list');
+});
+
+test('Ask your agent opens the diagnosis screen when chat invoke is unavailable', async (t) => {
+  const fixtureData = fixture(t);
+  const { messages, project, provider, view } = fixtureData;
+  seedFailure(fixtureData);
+  provider.agentConnections.claude = { status: 'success', message: 'ready' };
+  messages.length = 0;
+  provider.sendDiagnosisHandoff = async () => false;
+
+  await provider.askAgent(project.id);
+
+  assert.equal(provider.mode, 'diagnosis');
+  assert.equal(renderedState(view).diagnosis.projectId, project.id);
+  assert.equal(messages.some((item) => item.type === 'clipboard'), false);
+});
+
+test('failed start does not send diagnosis to an agent automatically', (t) => {
+  const fixtureData = fixture(t);
+  const { messages, project, provider } = fixtureData;
+  seedFailure(fixtureData);
+  provider.agentConnections.codex = { status: 'success', message: 'ready' };
+  messages.length = 0;
+  provider.persistStartFailure(project, { code: 1 }, {
+    title: 'Start failed',
+    message: 'boom'
+  });
+  assert.equal(messages.some((item) => item.type === 'command'), false);
+  assert.equal(messages.some((item) => item.type === 'clipboard'), false);
 });

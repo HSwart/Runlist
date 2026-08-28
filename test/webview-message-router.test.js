@@ -15,6 +15,7 @@ const { readShippedHostSource } = require('./helpers/extension-source');
 
 test('allowlists the complete host-to-webview message contract', () => {
   assert.deepEqual([...WEBVIEW_MESSAGE_TYPES].sort(), [
+    'diagnosisHandoffSent',
     'diagnosisRequestCopied',
     'outputCopied',
     'projectHttpPulse',
@@ -173,10 +174,10 @@ test('forwards output peek incarnation requests without treating the token as au
   assert.deepEqual(calls, [['project-1', 'project-1:1']]);
 });
 
-test('maps showDiagnosis to the existing diagnosis screen', async () => {
+test('maps showDiagnosis to Ask your agent', async () => {
   const calls = [];
   const route = createRunlistWebviewRouter({
-    showProjectDiagnosis: async (id) => {
+    askAgent: async (id) => {
       calls.push(id);
     }
   });

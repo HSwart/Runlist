@@ -131,6 +131,8 @@ test('wires retained-failure diagnosis into the sidebar without sending to an ag
   assert.doesNotMatch(extension, /showProjectDiagnosis[\s\S]{0,300}projectFailureSummaries\.has/);
   assert.match(extension, /copyDiagnosisRequest[\s\S]*vscode\.env\.clipboard\.writeText/);
   assert.doesNotMatch(extension, /copyDiagnosisRequest[\s\S]{0,1000}(?:fetch\(|openExternal|spawn\()/);
+  assert.match(extension, /async askAgent\(/);
+  assert.match(extension, /invokeConnectedAgentChat/);
   assert.match(extension, /installMcpBridge[\s\S]*project-output\.js[\s\S]*project-diagnostics\.js/);
   assert.match(extension, /savedProjectRevision = projectConfigurationRevision\(project\)/);
   assert.match(extension, /projectRevision: savedProjectRevision/);
@@ -166,6 +168,6 @@ test('exposes Ask your agent on the row More menu from a host boolean only', () 
     webview,
     /'ask-agent': \(\) => \{[\s\S]*closeMenus\(\);[\s\S]*type: 'showDiagnosis', id: button\.dataset\.id/
   );
-  assert.match(router, /showDiagnosis: \(message\) => host\.showProjectDiagnosis\(message\.id\)/);
+  assert.match(router, /showDiagnosis: \(message\) => host\.askAgent\(message\.id\)/);
   assert.doesNotMatch(webview, /data-action="ask-agent"[\s\S]{0,400}copyStartFailure|copy-start-failure/);
 });

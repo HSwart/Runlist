@@ -14,6 +14,11 @@ const {
   installAgentSkill
 } = require('../integrations/skill-installation');
 const {
+  buildDiagnosisHandoffPrompt,
+  connectedAgentReady,
+  invokeConnectedAgentChat
+} = require('../integrations/agent-handoff');
+const {
   hasUnownedPortReservation,
   managedServiceReadinessTimedOut,
   managedRuntimeProjectIds,
@@ -2128,6 +2133,66 @@ class RunlistViewProvider {
     this.render();
   }
 
+  hasConnectedAgent() {
+    return connectedAgentReady(this.agentConnections);
+  }
+
+  async sendDiagnosisHandoff(project) {
+    if (!this.hasConnectedAgent()) {
+      return false;
+    }
+    const diagnostic = readProjectDiagnostics(this.projectsFile, project.id);
+    if (!diagnostic) {
+      return false;
+    }
+    const prompt = buildDiagnosisHandoffPrompt(project, diagnostic);
+    const result = await invokeConnectedAgentChat(
+      (...args) => vscode.commands.executeCommand(...args),
+      prompt
+    );
+    if (!result.ok) {
+      return false;
+    }
+    this.view?.webview.postMessage({
+      type: 'diagnosisHandoffSent',
+      name: project.name,
+      messageToken: this.webviewMessageToken
+    });
+    return true;
+  }
+
+  async askAgent(id) {
+    const project = this.projects.find((item) => item.id === id);
+    if (!project || !readProjectDiagnostics(this.projectsFile, id)) {
+      return;
+    }
+    if (await this.sendDiagnosisHandoff(project)) {
+      if (this.mode === 'list') {
+        this.focusTarget = { type: 'project-menu', id };
+      }
+      return;
+    }
+    this.showProjectDiagnosis(id);
+  }
+
+  async copyDiagnosisRequest() {
+    const project = this.projects.find((item) => item.id === this.selectedProjectId);
+    const diagnostic = project
+      ? readProjectDiagnostics(this.projectsFile, project.id)
+      : undefined;
+    if (!project || !diagnostic) {
+      return;
+    }
+    if (await this.sendDiagnosisHandoff(project)) {
+      return;
+    }
+    await vscode.env.clipboard.writeText(buildDiagnosisHandoffPrompt(project, diagnostic));
+    this.view?.webview.postMessage({
+      type: 'diagnosisRequestCopied',
+      messageToken: this.webviewMessageToken
+    });
+  }
+
   async closeScreen(draft) {
     if (draft && ['add', 'edit'].includes(this.mode)) {
       this.draft = projectFormValues(draft);
@@ -2493,24 +2558,6 @@ class RunlistViewProvider {
       // Recent output remains available in this VS Code window if diagnostics cannot be retained.
     }
     return true;
-  }
-
-  async copyDiagnosisRequest() {
-    const project = this.projects.find((item) => item.id === this.selectedProjectId);
-    if (!project || !readProjectDiagnostics(this.projectsFile, project.id)) {
-      return;
-    }
-    const request = [
-      `Use the Runlist MCP tool runlist_get_project_diagnostics with projectId "${project.id}" to inspect ${project.name}'s latest failed start.`,
-      'Explain the likely cause and the smallest safe fix.',
-      'If the saved setup should change, use runlist_propose_project_repair with the returned revision and failedAt value so I can review it in Runlist.',
-      'Do not run commands or change the saved setup yourself.'
-    ].join(' ');
-    await vscode.env.clipboard.writeText(request);
-    this.view?.webview.postMessage({
-      type: 'diagnosisRequestCopied',
-      messageToken: this.webviewMessageToken
-    });
   }
 
   refreshProjectRepair() {

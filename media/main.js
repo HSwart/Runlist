@@ -2084,9 +2084,9 @@ function renderAgentSetup() {
         <button class="icon-button" data-action="close-screen" aria-label="Close agent connections screen">${icon('close')}</button>
       </header>
       <div class="agent-list" aria-label="Supported coding agents">
-        ${agentCard('copilot', 'GitHub Copilot', 'Adds /runlist. The connection is discovered automatically through VS Code.')}
-        ${agentCard('codex', 'Codex', 'Registers the connection and adds $runlist.')}
-        ${agentCard('claude', 'Claude Code', 'Registers the connection and adds /runlist.')}
+        ${agentCard('copilot', 'GitHub Copilot', 'Adds /runlist. After setup, it can read saved project status and receive a failed-start summary when you press Ask your agent. It cannot start or stop apps.')}
+        ${agentCard('codex', 'Codex', 'Registers the connection and adds $runlist. After setup, it can read saved project status and receive a failed-start summary when you press Ask your agent. It cannot start or stop apps.')}
+        ${agentCard('claude', 'Claude Code', 'Registers the connection and adds /runlist. After setup, it can read saved project status and receive a failed-start summary when you press Ask your agent. It cannot start or stop apps.')}
       </div>
     </section>`;
 }
@@ -2499,7 +2499,9 @@ function renderProjectDiagnosis() {
       <p class="screen-copy">Prepare ${escapeHtml(diagnosis.name)}'s latest failed start for diagnosis.</p>
       <div class="diagnosis-notice">
         <strong>Nothing is sent automatically</strong>
-        <p>Runlist copies a short request for you to paste into your agent. The agent can then retrieve only this project's retained failure through Runlist.</p>
+        <p>${diagnosis.agentReady
+          ? 'Press Ask your agent to send this project\'s retained failure details to your connected agent. Repair still needs your approval here.'
+          : 'Runlist copies a short request for you to paste into your agent. The agent can then retrieve only this project\'s retained failure through Runlist.'}</p>
       </div>
       <h3 class="diagnosis-heading">Context available</h3>
       <ul class="diagnosis-context">
@@ -2511,8 +2513,11 @@ function renderProjectDiagnosis() {
         <li>Sanitized recent output${diagnosis.outputAvailable ? diagnosis.outputTruncated ? ' (latest portion)' : '' : ' (no command output was captured)'}</li>
       </ul>
       <p class="diagnosis-exclusion">Runlist does not provide environment variables, source files, shell history, process environments, or unconfigured network data.</p>
-      <button class="primary-button diagnosis-copy-button" data-action="copy-diagnosis-request">Copy diagnosis request</button>
-      <p id="diagnosis-copy-status" class="diagnosis-copy-status" aria-live="polite">Copy the request, then paste it into your agent chat.</p>
+      ${diagnosis.agentReady
+        ? `<button class="primary-button diagnosis-copy-button" data-action="copy-diagnosis-request">Ask your agent</button>
+      <p id="diagnosis-copy-status" class="diagnosis-copy-status" aria-live="polite">Runlist will send a short request to your connected agent.</p>`
+        : `<button class="primary-button diagnosis-copy-button" data-action="copy-diagnosis-request">Copy diagnosis request</button>
+      <p id="diagnosis-copy-status" class="diagnosis-copy-status" aria-live="polite">Copy the request, then paste it into your agent chat.</p>`}
       <button class="secondary-button repair-refresh-button" data-action="refresh-repair">Refresh proposal</button>
       ${repairHtml}
       ${diagnosis.agentReady ? '' : `
@@ -3435,6 +3440,22 @@ const hostMessageHandlers = {
     const status = document.getElementById('diagnosis-copy-status');
     if (status) {
       status.textContent = 'Diagnosis request copied. Paste it into your agent chat.';
+    }
+  },
+  diagnosisHandoffSent: (message) => {
+    const name = String(message.name || 'the project');
+    const text = `Sent ${name} failure details to your agent.`;
+    const diagnosisStatus = document.getElementById('diagnosis-copy-status');
+    if (diagnosisStatus) {
+      diagnosisStatus.textContent = text;
+    }
+    const lifecycleStatus = document.getElementById('project-lifecycle-status');
+    if (lifecycleStatus) {
+      lifecycleStatus.textContent = text;
+    }
+    const outputStatus = document.getElementById('output-update-status');
+    if (outputStatus) {
+      outputStatus.textContent = text;
     }
   },
   projectOutput: (message) => {

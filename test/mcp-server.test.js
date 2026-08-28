@@ -5,6 +5,7 @@ const path = require('node:path');
 const readline = require('node:readline');
 const net = require('node:net');
 const { spawn } = require('node:child_process');
+const crypto = require('node:crypto');
 const test = require('node:test');
 const { MAX_DIAGNOSTIC_OUTPUT_CHARS, writeProjectDiagnostics } = require('../src/projects/project-diagnostics');
 const { ProcessOwnershipStore } = require('../src/lifecycle/project-process');
@@ -224,9 +225,11 @@ test('serves the setup tool over MCP stdio', async (t) => {
     'src/lifecycle/process-metrics.js',
     'src/lifecycle/project-process.js',
     'src/lifecycle/runtime-process-owner.js',
+    'src/lifecycle/lifecycle-capability.js',
     'src/ports/service-port-overrides.js',
     'src/projects/launch-env.js',
     'src/projects/launch-profile.js',
+    'src/projects/mcp-project-status.js',
     'src/projects/project-output.js',
     'src/projects/project-diagnostics.js',
     'src/projects/project-repair.js',
@@ -283,9 +286,11 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.equal(initialized.result.serverInfo.name, 'runlist-mcp-server');
   assert.equal(initialized.result.serverInfo.version, require('../package.json').version);
   assert.match(initialized.result.instructions, /custom project name/i);
+  assert.match(initialized.result.instructions, /runlist_list_projects/);
+  assert.match(initialized.result.instructions, /never start, stop, restart, or close ports/);
 
   const listed = await request('tools/list');
-  assert.equal(listed.result.tools.length, 3);
+  assert.equal(listed.result.tools.length, 5);
   assert.equal(listed.result.tools[0].name, 'runlist_setup_project');
   assert.match(listed.result.tools[0].description, /custom name/i);
   assert.match(listed.result.tools[0].description, /reviews and approves/i);
@@ -299,24 +304,30 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.equal(listed.result.tools[0].inputSchema.required.includes('stopCommand'), false);
   assert.match(listed.result.tools[0].inputSchema.properties.stopCommand.description, /optional.*custom/i);
   assert.match(listed.result.tools[0].inputSchema.properties.stopCommand.description, /advanced/i);
-  assert.equal(listed.result.tools[1].name, 'runlist_get_project_diagnostics');
-  assert.ok(listed.result.tools[1].outputSchema.properties.project.properties.launchProfile);
-  assert.ok(listed.result.tools[1].outputSchema.properties.project.required.includes('launchProfile'));
+  assert.equal(listed.result.tools[1].name, 'runlist_list_projects');
   assert.equal(listed.result.tools[1].annotations.readOnlyHint, true);
   assert.equal(listed.result.tools[1].annotations.openWorldHint, false);
-  assert.deepEqual(listed.result.tools[1].inputSchema.required, ['projectId']);
-  assert.equal(listed.result.tools[1].inputSchema.properties.projectId.maxLength, 256);
-  assert.equal(listed.result.tools[2].name, 'runlist_propose_project_repair');
-  assert.equal(listed.result.tools[2].annotations.readOnlyHint, false);
-  assert.equal(listed.result.tools[2].annotations.openWorldHint, false);
+  assert.equal(listed.result.tools[2].name, 'runlist_get_project_status');
+  assert.equal(listed.result.tools[2].annotations.readOnlyHint, true);
+  assert.deepEqual(listed.result.tools[2].inputSchema.required, ['projectId']);
+  assert.equal(listed.result.tools[3].name, 'runlist_get_project_diagnostics');
+  assert.ok(listed.result.tools[3].outputSchema.properties.project.properties.launchProfile);
+  assert.ok(listed.result.tools[3].outputSchema.properties.project.required.includes('launchProfile'));
+  assert.equal(listed.result.tools[3].annotations.readOnlyHint, true);
+  assert.equal(listed.result.tools[3].annotations.openWorldHint, false);
+  assert.deepEqual(listed.result.tools[3].inputSchema.required, ['projectId']);
+  assert.equal(listed.result.tools[3].inputSchema.properties.projectId.maxLength, 256);
+  assert.equal(listed.result.tools[4].name, 'runlist_propose_project_repair');
+  assert.equal(listed.result.tools[4].annotations.readOnlyHint, false);
+  assert.equal(listed.result.tools[4].annotations.openWorldHint, false);
   assert.deepEqual(
-    listed.result.tools[2].inputSchema.required,
+    listed.result.tools[4].inputSchema.required,
     ['projectId', 'projectRevision', 'failedAt', 'proposal']
   );
-  assert.equal(listed.result.tools[2].inputSchema.properties.projectId.maxLength, 256);
+  assert.equal(listed.result.tools[4].inputSchema.properties.projectId.maxLength, 256);
   assert.equal(
     Object.hasOwn(
-      listed.result.tools[2].inputSchema.properties.proposal.properties.services.items.properties,
+      listed.result.tools[4].inputSchema.properties.proposal.properties.services.items.properties,
       'portVariable'
     ),
     false
@@ -404,6 +415,52 @@ test('serves the setup tool over MCP stdio', async (t) => {
   upsertProject(projectsFile, storedProjects[0], { reviewRequired: false });
   storedProjects = readProjects(projectsFile);
 
+  const listedProjects = await request('tools/call', { name: 'runlist_list_projects', arguments: {} });
+  assert.equal(listedProjects.result.isError, false);
+  assert.equal(listedProjects.result.structuredContent.projects.length, 1);
+  assert.equal(listedProjects.result.structuredContent.projects[0].id, storedProjects[0].id);
+  assert.equal(listedProjects.result.structuredContent.projects[0].observedLifecycleState, 'stopped');
+  assert.equal(listedProjects.result.structuredContent.projects[0].controllableInThisWindow, true);
+  assert.equal(listedProjects.result.structuredContent.truncated, false);
+  assert.match(listedProjects.result.content[0].text, /read-only/i);
+  assert.doesNotMatch(JSON.stringify(listedProjects.result), /startCommand|stopCommand|"env"/);
+
+  const missingStatusFile = await request('tools/call', {
+    name: 'runlist_get_project_status',
+    arguments: { projectId: storedProjects[0].id }
+  });
+  assert.equal(missingStatusFile.result.isError, false);
+  assert.equal(missingStatusFile.result.structuredContent.diagnosticsAvailable, false);
+  assert.equal(missingStatusFile.result.structuredContent.repairAvailable, false);
+  assert.equal(missingStatusFile.result.structuredContent.observedLifecycleState, 'stopped');
+  assert.ok(missingStatusFile.result.structuredContent.configuredPorts.includes(webPort));
+  assert.match(missingStatusFile.result.structuredContent.readinessHint, /not proof/i);
+
+  const ownershipDir = path.join(temporaryRoot, 'process-ownership');
+  fs.mkdirSync(ownershipDir, { recursive: true });
+  fs.writeFileSync(path.join(
+    ownershipDir,
+    `${crypto.createHash('sha256').update(storedProjects[0].id).digest('hex')}.json`
+  ), JSON.stringify({
+    projectId: storedProjects[0].id,
+    hostPid: 1,
+    token: 'test-token',
+    state: 'running'
+  }));
+  const listedRunning = await request('tools/call', { name: 'runlist_list_projects', arguments: {} });
+  assert.equal(listedRunning.result.structuredContent.projects[0].observedLifecycleState, 'running');
+  fs.rmSync(path.join(
+    ownershipDir,
+    `${crypto.createHash('sha256').update(storedProjects[0].id).digest('hex')}.json`
+  ), { force: true });
+
+  const unknownStatus = await request('tools/call', {
+    name: 'runlist_get_project_status',
+    arguments: { projectId: 'unknown-project' }
+  });
+  assert.equal(unknownStatus.result.isError, true);
+  assert.match(unknownStatus.result.content[0].text, /was not found/i);
+
   const missingDiagnostics = await request('tools/call', {
     name: 'runlist_get_project_diagnostics',
     arguments: { projectId: storedProjects[0].id }
@@ -460,6 +517,17 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.doesNotMatch(JSON.stringify(diagnostics.result), /command-secret|output-secret|summary-secret|\u001b/);
   assert.match(diagnostics.result.structuredContent.project.startCommand, /\[redacted\]/);
   assert.match(diagnostics.result.structuredContent.failureSummary.message, /\[redacted\]/);
+
+  const statusWithFailure = await request('tools/call', {
+    name: 'runlist_get_project_status',
+    arguments: { projectId: storedProjects[0].id }
+  });
+  assert.equal(statusWithFailure.result.isError, false);
+  assert.equal(statusWithFailure.result.structuredContent.diagnosticsAvailable, true);
+  assert.equal(statusWithFailure.result.structuredContent.projectRevision, diagnosticRevision);
+  assert.match(statusWithFailure.result.structuredContent.failureSummary.message, /\[redacted\]/);
+  assert.doesNotMatch(JSON.stringify(statusWithFailure.result), /command-secret|output-secret|summary-secret/);
+  assert.equal(Object.hasOwn(statusWithFailure.result.structuredContent, 'retainedOutput'), false);
 
   const beforeProposal = fs.readFileSync(projectsFile, 'utf8');
   const proposed = await request('tools/call', {
@@ -646,6 +714,48 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.match(unsafeUrl.result.content[0].text, /valid HTTP or HTTPS URL/);
 });
 
+test('read-only status tools fail closed without a projects file', async (t) => {
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-missing-projects-'));
+  const missingFile = path.join(temporaryRoot, 'projects.json');
+  t.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
+  const server = spawn(process.execPath, [path.join(__dirname, '..', 'mcp', 'server.js')], {
+    env: { ...process.env, RUNLIST_PROJECTS_FILE: missingFile },
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+  t.after(() => server.kill());
+  const pending = new Map();
+  const output = readline.createInterface({ input: server.stdout });
+  output.on('line', (line) => {
+    const message = JSON.parse(line);
+    pending.get(message.id)?.(message);
+    pending.delete(message.id);
+  });
+  const request = (method, params = {}) => new Promise((resolve, reject) => {
+    const id = Math.random();
+    const timeout = setTimeout(() => {
+      pending.delete(id);
+      reject(new Error(`Timed out waiting for ${method}`));
+    }, 3000);
+    pending.set(id, (message) => {
+      clearTimeout(timeout);
+      resolve(message);
+    });
+    server.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
+  });
+
+  const listed = await request('tools/call', { name: 'runlist_list_projects', arguments: {} });
+  assert.equal(listed.result.isError, true);
+  assert.match(listed.result.content[0].text, /storage is unavailable/i);
+  assert.equal(fs.existsSync(missingFile), false);
+
+  const status = await request('tools/call', {
+    name: 'runlist_get_project_status',
+    arguments: { projectId: 'project-1' }
+  });
+  assert.equal(status.result.isError, true);
+  assert.match(status.result.content[0].text, /storage is unavailable/i);
+});
+
 test('installs the complete MCP lifecycle dependency closure', () => {
   const extension = readShippedHostSource();
   for (const relativePath of [
@@ -655,7 +765,9 @@ test('installs the complete MCP lifecycle dependency closure', () => {
     'src/lifecycle/process-lock.js',
     'src/lifecycle/process-metrics.js',
     'src/lifecycle/project-process.js',
-    'src/lifecycle/runtime-process-owner.js'
+    'src/lifecycle/runtime-process-owner.js',
+    'src/lifecycle/lifecycle-capability.js',
+    'src/projects/mcp-project-status.js'
   ]) {
     assert.match(extension, new RegExp(`installMcpBridge[\\s\\S]*${relativePath.replaceAll('/', '\\/').replace('.', '\\.')}`));
   }

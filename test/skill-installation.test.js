@@ -34,6 +34,16 @@ test('bundled skill treats the custom stop command as optional', () => {
   assert.match(skill, /never invent a broad process-matching command/i);
 });
 
+test('bundled skill documents read-only list and status tools', () => {
+  const skill = fs.readFileSync(
+    path.join(__dirname, '..', 'skills', 'runlist', 'SKILL.md'),
+    'utf8'
+  );
+  assert.match(skill, /runlist_list_projects/);
+  assert.match(skill, /runlist_get_project_status/);
+  assert.match(skill, /Do \*\*not\*\* start, stop, restart, kill processes, close ports/);
+});
+
 test('managed setup guidance preserves only explicit HTTP or HTTPS service URLs', () => {
   const skill = fs.readFileSync(path.join(__dirname, '..', 'skills', 'runlist', 'SKILL.md'), 'utf8');
   assert.match(skill, /explicitly documents an HTTP or HTTPS browser URL/);

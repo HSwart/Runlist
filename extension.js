@@ -9,6 +9,7 @@ const {
 } = require('./src/projects/project-store');
 const { RunlistViewProvider } = require('./src/host/runlist-view-provider');
 const { resolveRunlistHostRole } = require('./src/host/runlist-host-role');
+const { detectLifecycleCapability } = require('./src/lifecycle/lifecycle-capability');
 
 const STORAGE_KEY = 'runlist.projects';
 
@@ -25,9 +26,11 @@ function installMcpBridge(context) {
     'src/lifecycle/process-metrics.js',
     'src/lifecycle/project-process.js',
     'src/lifecycle/runtime-process-owner.js',
+    'src/lifecycle/lifecycle-capability.js',
     'src/ports/service-port-overrides.js',
     'src/projects/launch-env.js',
     'src/projects/launch-profile.js',
+    'src/projects/mcp-project-status.js',
     'src/projects/project-output.js',
     'src/projects/project-diagnostics.js',
     'src/projects/project-repair.js',
@@ -73,6 +76,11 @@ function activate(context) {
   }
 
   const serverPath = installMcpBridge(context);
+  const lifecycleCapability = detectLifecycleCapability({
+    remoteName: vscode.env?.remoteName,
+    extensionKind: context.extension?.extensionKind,
+    platform: process.platform
+  });
   const diagnosticOutput = vscode.window.createOutputChannel('Runlist');
   const diagnostics = new RunlistDiagnostics({
     outputChannel: diagnosticOutput,
@@ -103,7 +111,8 @@ function activate(context) {
     [serverPath],
     {
       ELECTRON_RUN_AS_NODE: '1',
-      RUNLIST_PROJECTS_FILE: projectsFile
+      RUNLIST_PROJECTS_FILE: projectsFile,
+      RUNLIST_WINDOW_LIFECYCLE_SUPPORTED: lifecycleCapability.supported ? '1' : '0'
     },
     context.extension.packageJSON.version
   );
