@@ -1212,6 +1212,9 @@ function renderList() {
         const detectedWithoutStop = projectStatus === 'active' && !project.stopCommand;
         const ownershipLostWithoutStop = projectStatus === 'ownership-lost' && !project.stopCommand;
         const stopState = ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active'].includes(projectStatus);
+        const primaryTitle = primaryAction.action === 'output' && stopState
+          ? 'See recent output for details, then try Stop or Restart.'
+          : actionTitle;
         const canRestart = !reviewRequired
           && project.folderAccessible !== false
           && ['running', 'not-ready', 'not-responding', 'ownership-lost', 'active'].includes(projectStatus)
@@ -1351,7 +1354,7 @@ function renderList() {
                       ${launchProfiles.map((profile) => `<button data-action="select-launch-profile" data-id="${projectId}" data-profile-id="${escapeHtml(profile.id)}" role="menuitemradio" aria-checked="${profile.id === project.activeLaunchProfileId}"><span class="profile-check" aria-hidden="true">${profile.id === project.activeLaunchProfileId ? '✓' : ''}</span><span>${escapeHtml(profile.name)}</span></button>`).join('')}
                     </div>
                   </div>` : ''}
-                <button class="run-button ${primaryButtonClass}" data-action="${primaryAction.action}" data-id="${projectId}"${primaryAction.action === 'fix-environment' ? ' data-focus-target="env-map"' : ''}${Number.isInteger(primaryAction.port) ? ` data-port="${primaryAction.port}"` : ''} aria-label="${actionTitle}" title="${actionTitle}" ${primaryAction.disabled ? 'disabled' : ''}>
+                <button class="run-button ${primaryButtonClass}" data-action="${primaryAction.action}" data-id="${projectId}"${primaryAction.action === 'fix-environment' ? ' data-focus-target="env-map"' : ''}${Number.isInteger(primaryAction.port) ? ` data-port="${primaryAction.port}"` : ''} aria-label="${actionTitle}" title="${primaryTitle}" ${primaryAction.disabled ? 'disabled' : ''}>
                   ${primaryAction.action === 'edit'
                     || primaryAction.action === 'add-stop-command'
                     || primaryAction.action === 'fix-environment'
@@ -1386,9 +1389,13 @@ function renderList() {
                   <button data-action="output" data-id="${projectId}" role="menuitem">
                     ${icon('terminal', 'menu-icon')}<span>View output</span>
                   </button>
-                  ${primaryAction.action === 'output' ? `
+                  ${primaryAction.action === 'output' && !stopState ? `
                   <button data-action="start" data-id="${projectId}" role="menuitem" aria-label="Start ${projectName}" ${project.lifecycleBlocked || project.composeStartBlocked ? 'disabled' : ''} title="${project.lifecycleBlocked ? escapeHtml(project.lifecycleBlockedReason) : project.composeStartBlocked ? escapeHtml(project.composeStartBlockedReason || `Start is unavailable for ${projectName} until Docker is ready`) : `Start ${projectName}`}">
                     ${icon('play', 'menu-icon')}<span>Start</span>
+                  </button>` : ''}
+                  ${primaryAction.action === 'output' && stopState ? `
+                  <button data-action="stop" data-id="${projectId}" role="menuitem" aria-label="Stop ${projectName}" ${project.lifecycleBlocked ? 'disabled' : ''} title="${project.lifecycleBlocked ? escapeHtml(project.lifecycleBlockedReason) : `Stop ${projectName}`}">
+                    ${icon('stop', 'menu-icon')}<span>Stop</span>
                   </button>` : ''}
                   ${project.canAskAgent ? `
                   <button data-action="ask-agent" data-id="${projectId}" role="menuitem" aria-label="Ask your agent about ${projectName}">

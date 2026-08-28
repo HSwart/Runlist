@@ -148,6 +148,91 @@ test('turns a generic retained start failure into View output', () => {
   });
 });
 
+test('turns a not-responding row into View output instead of Stop', () => {
+  assert.deepEqual(projectPrimaryAction({
+    name: 'App',
+    status: 'not-responding'
+  }), {
+    action: 'output',
+    disabled: false,
+    label: 'View output for App',
+    mode: 'output'
+  });
+});
+
+test('turns an active row with an unresponsive web service into View output', () => {
+  assert.deepEqual(projectPrimaryAction({
+    name: 'Detected app',
+    status: 'active',
+    stopCommand: 'docker compose down',
+    httpUnresponsive: true
+  }), {
+    action: 'output',
+    disabled: false,
+    label: 'View output for Detected app',
+    mode: 'output'
+  });
+});
+
+test('keeps Stop for a running row without an unresponsive web service', () => {
+  assert.equal(projectPrimaryAction({
+    name: 'App',
+    status: 'running'
+  }).action, 'stop');
+  assert.equal(projectPrimaryAction({
+    name: 'App',
+    status: 'running',
+    httpUnresponsive: false
+  }).action, 'stop');
+});
+
+test('keeps Stop while a not-ready row is still taking longer', () => {
+  assert.equal(projectPrimaryAction({
+    name: 'App',
+    status: 'not-ready'
+  }).action, 'stop');
+});
+
+test('does not replace Stop while a not-responding row is force-closing or handing off', () => {
+  assert.deepEqual(projectPrimaryAction({
+    name: 'App',
+    status: 'not-responding',
+    forceClosing: true
+  }), {
+    action: 'stop',
+    disabled: true,
+    label: 'Stop App',
+    mode: 'stop'
+  });
+  assert.equal(projectPrimaryAction({
+    name: 'App',
+    status: 'not-responding',
+    handoffInProgress: true
+  }).action, 'stop');
+});
+
+test('leaves a retained stopFailure on a live row to Stop until that recovery rule ships', () => {
+  assert.equal(projectPrimaryAction({
+    name: 'App',
+    status: 'not-responding',
+    stopFailure: 'Port :3000 is still up'
+  }).action, 'stop');
+});
+
+test('review setup and port-conflict primaries still beat not-responding View output', () => {
+  assert.equal(projectPrimaryAction({
+    name: 'App',
+    status: 'not-responding',
+    reviewRequired: true
+  }).action, 'edit');
+  assert.equal(projectPrimaryAction({
+    name: 'App',
+    status: 'port-in-use-unknown',
+    httpUnresponsive: true,
+    portConflict: { port: 5173 }
+  }).action, 'resolve-port-conflict');
+});
+
 test('keeps Start when a stopped row has no retained failure summary', () => {
   assert.equal(projectPrimaryAction({
     name: 'App',
