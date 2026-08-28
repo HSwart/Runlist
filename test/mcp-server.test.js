@@ -224,6 +224,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
     'src/lifecycle/process-metrics.js',
     'src/lifecycle/project-process.js',
     'src/lifecycle/runtime-process-owner.js',
+    'src/lifecycle/lifecycle-capability.js',
     'src/ports/service-port-overrides.js',
     'src/projects/launch-env.js',
     'src/projects/launch-profile.js',
@@ -248,7 +249,11 @@ test('serves the setup tool over MCP stdio', async (t) => {
   t.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
 
   const server = spawn(process.execPath, [path.join(installedMcpRoot, 'server.js')], {
-    env: { ...process.env, RUNLIST_PROJECTS_FILE: projectsFile },
+    env: {
+      ...process.env,
+      RUNLIST_PROJECTS_FILE: projectsFile,
+      RUNLIST_HOST_PID: '4242'
+    },
     stdio: ['pipe', 'pipe', 'pipe']
   });
   t.after(() => server.kill());
@@ -283,9 +288,11 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.equal(initialized.result.serverInfo.name, 'runlist-mcp-server');
   assert.equal(initialized.result.serverInfo.version, require('../package.json').version);
   assert.match(initialized.result.instructions, /custom project name/i);
+  assert.match(initialized.result.instructions, /runlist_list_projects/);
+  assert.match(initialized.result.instructions, /never start, stop, restart, or close ports/i);
 
   const listed = await request('tools/list');
-  assert.equal(listed.result.tools.length, 3);
+  assert.equal(listed.result.tools.length, 5);
   assert.equal(listed.result.tools[0].name, 'runlist_setup_project');
   assert.match(listed.result.tools[0].description, /custom name/i);
   assert.match(listed.result.tools[0].description, /reviews and approves/i);
@@ -321,6 +328,31 @@ test('serves the setup tool over MCP stdio', async (t) => {
     ),
     false
   );
+  assert.equal(listed.result.tools[3].name, 'runlist_list_projects');
+  assert.equal(listed.result.tools[3].annotations.readOnlyHint, true);
+  assert.equal(listed.result.tools[3].annotations.openWorldHint, false);
+  assert.equal(listed.result.tools[3].inputSchema.additionalProperties, false);
+  assert.equal(listed.result.tools[4].name, 'runlist_get_project_status');
+  assert.equal(listed.result.tools[4].annotations.readOnlyHint, true);
+  assert.equal(listed.result.tools[4].annotations.openWorldHint, false);
+  assert.deepEqual(listed.result.tools[4].inputSchema.required, ['projectId']);
+  assert.equal(listed.result.tools[4].inputSchema.properties.projectId.maxLength, 256);
+  assert.ok(listed.result.tools[4].outputSchema.properties.controllableInThisWindow);
+  assert.ok(listed.result.tools[4].outputSchema.required.includes('projectRevision'));
+
+  const missingFileList = await request('tools/call', {
+    name: 'runlist_list_projects',
+    arguments: {}
+  });
+  assert.equal(missingFileList.result.isError, true);
+  assert.match(missingFileList.result.content[0].text, /project storage is unavailable/i);
+
+  const missingFileStatus = await request('tools/call', {
+    name: 'runlist_get_project_status',
+    arguments: { projectId: 'missing-before-save' }
+  });
+  assert.equal(missingFileStatus.result.isError, true);
+  assert.match(missingFileStatus.result.content[0].text, /project storage is unavailable/i);
 
   const rejectedLegacyServiceField = await request('tools/call', {
     name: 'runlist_setup_project',
@@ -360,6 +392,22 @@ test('serves the setup tool over MCP stdio', async (t) => {
   let storedProjects = readProjects(projectsFile);
   assert.equal(storedProjects.length, 1);
   assert.equal(storedProjects[0].reviewRequired, true);
+
+  const listedWhileReviewRequired = await request('tools/call', {
+    name: 'runlist_list_projects',
+    arguments: {}
+  });
+  assert.equal(listedWhileReviewRequired.result.isError, false);
+  assert.equal(listedWhileReviewRequired.result.structuredContent.truncated, false);
+  assert.equal(listedWhileReviewRequired.result.structuredContent.projects.length, 1);
+  assert.equal(listedWhileReviewRequired.result.structuredContent.projects[0].id, storedProjects[0].id);
+  assert.equal(listedWhileReviewRequired.result.structuredContent.projects[0].reviewRequired, true);
+  assert.equal(listedWhileReviewRequired.result.structuredContent.projects[0].controllableInThisWindow, false);
+  assert.equal(listedWhileReviewRequired.result.structuredContent.projects[0].lifecycleState, 'stopped');
+  assert.deepEqual(listedWhileReviewRequired.result.structuredContent.projects[0].services, [
+    { name: 'web', port: webPort, url: 'https://app.local/dashboard' },
+    { name: 'api', port: apiPort }
+  ]);
 
   upsertProject(projectsFile, {
     ...storedProjects[0],
@@ -403,6 +451,48 @@ test('serves the setup tool over MCP stdio', async (t) => {
 
   upsertProject(projectsFile, storedProjects[0], { reviewRequired: false });
   storedProjects = readProjects(projectsFile);
+
+  const listedApproved = await request('tools/call', {
+    name: 'runlist_list_projects',
+    arguments: {}
+  });
+  assert.equal(listedApproved.result.isError, false);
+  assert.equal(listedApproved.result.structuredContent.projects[0].reviewRequired, false);
+  assert.equal(listedApproved.result.structuredContent.projects[0].controllableInThisWindow, true);
+  assert.equal(listedApproved.result.structuredContent.projects[0].lifecycleState, 'stopped');
+
+  const statusApproved = await request('tools/call', {
+    name: 'runlist_get_project_status',
+    arguments: { projectId: storedProjects[0].id }
+  });
+  assert.equal(statusApproved.result.isError, false);
+  assert.equal(statusApproved.result.structuredContent.id, storedProjects[0].id);
+  assert.equal(statusApproved.result.structuredContent.name, 'Agent app');
+  assert.equal(statusApproved.result.structuredContent.lifecycleState, 'stopped');
+  assert.equal(statusApproved.result.structuredContent.controllableInThisWindow, true);
+  assert.equal(statusApproved.result.structuredContent.diagnosticsAvailable, false);
+  assert.equal(statusApproved.result.structuredContent.repairAvailable, false);
+  assert.equal(
+    statusApproved.result.structuredContent.projectRevision,
+    projectConfigurationRevision(storedProjects[0])
+  );
+  assert.equal(Object.hasOwn(statusApproved.result.structuredContent, 'failureSummary'), false);
+  assert.equal(Object.hasOwn(statusApproved.result.structuredContent, 'startCommand'), false);
+  assert.doesNotMatch(JSON.stringify(statusApproved.result), /API_KEY|secret/i);
+
+  const unknownStatus = await request('tools/call', {
+    name: 'runlist_get_project_status',
+    arguments: { projectId: 'unknown-project' }
+  });
+  assert.equal(unknownStatus.result.isError, true);
+  assert.match(unknownStatus.result.content[0].text, /was not found/i);
+
+  const extraListArguments = await request('tools/call', {
+    name: 'runlist_list_projects',
+    arguments: { projectId: storedProjects[0].id }
+  });
+  assert.equal(extraListArguments.result.isError, true);
+  assert.match(extraListArguments.result.content[0].text, /does not take arguments/i);
 
   const missingDiagnostics = await request('tools/call', {
     name: 'runlist_get_project_diagnostics',
@@ -460,6 +550,52 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.doesNotMatch(JSON.stringify(diagnostics.result), /command-secret|output-secret|summary-secret|\u001b/);
   assert.match(diagnostics.result.structuredContent.project.startCommand, /\[redacted\]/);
   assert.match(diagnostics.result.structuredContent.failureSummary.message, /\[redacted\]/);
+
+  const statusAfterFailure = await request('tools/call', {
+    name: 'runlist_get_project_status',
+    arguments: { projectId: storedProjects[0].id }
+  });
+  assert.equal(statusAfterFailure.result.isError, false);
+  assert.equal(statusAfterFailure.result.structuredContent.diagnosticsAvailable, true);
+  assert.equal(statusAfterFailure.result.structuredContent.repairAvailable, true);
+  assert.equal(statusAfterFailure.result.structuredContent.projectRevision, diagnosticRevision);
+  assert.match(statusAfterFailure.result.structuredContent.failureSummary.message, /\[redacted\]/);
+  assert.doesNotMatch(JSON.stringify(statusAfterFailure.result), /command-secret|output-secret|summary-secret|\u001b/);
+  assert.equal(Object.hasOwn(statusAfterFailure.result.structuredContent, 'retainedOutput'), false);
+
+  const ownership = new ProcessOwnershipStore(path.join(temporaryRoot, 'process-ownership'));
+  fs.writeFileSync(ownership.ownershipPath(storedProjects[0].id), JSON.stringify({
+    projectId: storedProjects[0].id,
+    hostPid: 4242,
+    platform: process.platform,
+    state: 'running',
+    token: 'status-token',
+    heartbeatAt: Date.now()
+  }));
+  const statusOwnedHere = await request('tools/call', {
+    name: 'runlist_get_project_status',
+    arguments: { projectId: storedProjects[0].id }
+  });
+  assert.equal(statusOwnedHere.result.isError, false);
+  assert.equal(statusOwnedHere.result.structuredContent.lifecycleState, 'running');
+  assert.equal(statusOwnedHere.result.structuredContent.controllableInThisWindow, true);
+
+  fs.writeFileSync(ownership.ownershipPath(storedProjects[0].id), JSON.stringify({
+    projectId: storedProjects[0].id,
+    hostPid: 99999,
+    platform: process.platform,
+    state: 'running',
+    token: 'other-window-token',
+    heartbeatAt: Date.now()
+  }));
+  const statusOwnedElsewhere = await request('tools/call', {
+    name: 'runlist_list_projects',
+    arguments: {}
+  });
+  assert.equal(statusOwnedElsewhere.result.isError, false);
+  assert.equal(statusOwnedElsewhere.result.structuredContent.projects[0].lifecycleState, 'running');
+  assert.equal(statusOwnedElsewhere.result.structuredContent.projects[0].controllableInThisWindow, false);
+  fs.rmSync(ownership.ownershipPath(storedProjects[0].id), { force: true });
 
   const beforeProposal = fs.readFileSync(projectsFile, 'utf8');
   const proposed = await request('tools/call', {
@@ -655,10 +791,12 @@ test('installs the complete MCP lifecycle dependency closure', () => {
     'src/lifecycle/process-lock.js',
     'src/lifecycle/process-metrics.js',
     'src/lifecycle/project-process.js',
-    'src/lifecycle/runtime-process-owner.js'
+    'src/lifecycle/runtime-process-owner.js',
+    'src/lifecycle/lifecycle-capability.js'
   ]) {
     assert.match(extension, new RegExp(`installMcpBridge[\\s\\S]*${relativePath.replaceAll('/', '\\/').replace('.', '\\.')}`));
   }
+  assert.match(extension, /RUNLIST_HOST_PID: String\(process\.pid\)/);
 });
 
 test('keeps MCP port variables launch-only and rejects stale setup fields', () => {

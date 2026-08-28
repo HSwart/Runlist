@@ -6,10 +6,15 @@ const {
   readProjectDiagnostics,
   redactSensitiveText
 } = require('../src/projects/project-diagnostics');
+const {
+  detectLifecycleCapability,
+  projectLifecycleCapability
+} = require('../src/lifecycle/lifecycle-capability');
 const { ProcessOwnershipStore } = require('../src/lifecycle/project-process');
 const {
   createProjectRepairProposal,
-  projectConfigurationRevision
+  projectConfigurationRevision,
+  readProjectRepairProposal
 } = require('../src/projects/project-repair');
 const { resolveLaunchProfile } = require('../src/projects/launch-profile');
 const { findProjectByFolder, readProjects, upsertProject } = require('../src/projects/project-store');
@@ -27,9 +32,12 @@ const SUPPORTED_PROTOCOL_VERSIONS = new Set([
   '2024-11-05'
 ]);
 const PROJECTS_FILE = process.env.RUNLIST_PROJECTS_FILE;
+const HOST_PID = Number.parseInt(process.env.RUNLIST_HOST_PID || '', 10);
+const MAX_LISTED_PROJECTS = 64;
 const processOwnership = PROJECTS_FILE
   ? new ProcessOwnershipStore(path.join(path.dirname(PROJECTS_FILE), 'process-ownership'))
   : undefined;
+const windowLifecycleCapability = detectLifecycleCapability({ platform: process.platform });
 
 const setupTool = {
   name: 'runlist_setup_project',
@@ -306,6 +314,146 @@ const repairTool = {
   }
 };
 
+const listProjectsTool = {
+  name: 'runlist_list_projects',
+  title: 'List saved Runlist projects',
+  description: 'Return a bounded, read-only snapshot of saved Runlist projects, including name, folder, services, observed lifecycle, and whether this VS Code window can start or stop them. Does not start, stop, inspect project files, environment variables, processes, or network data. Lifecycle can differ across VS Code windows.',
+  inputSchema: {
+    type: 'object',
+    properties: {},
+    additionalProperties: false
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      projects: {
+        type: 'array',
+        maxItems: MAX_LISTED_PROJECTS,
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            name: { type: 'string' },
+            folder: { type: 'string' },
+            reviewRequired: { type: 'boolean' },
+            services: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string' },
+                  port: { type: 'integer' },
+                  url: { type: 'string' }
+                },
+                required: ['name', 'port'],
+                additionalProperties: false
+              }
+            },
+            lifecycleState: { type: 'string' },
+            controllableInThisWindow: { type: 'boolean' }
+          },
+          required: [
+            'id',
+            'name',
+            'folder',
+            'reviewRequired',
+            'services',
+            'lifecycleState',
+            'controllableInThisWindow'
+          ],
+          additionalProperties: false
+        }
+      },
+      truncated: { type: 'boolean' }
+    },
+    required: ['projects', 'truncated'],
+    additionalProperties: false
+  },
+  annotations: {
+    title: 'List saved Runlist projects',
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false
+  }
+};
+
+const projectStatusTool = {
+  name: 'runlist_get_project_status',
+  title: 'Get Runlist project status',
+  description: 'Return a bounded, read-only status snapshot for one saved Runlist project: observed lifecycle, configured ports, a retained failure summary if one exists, whether diagnostics or repair are available, and the current projectRevision. Does not start, stop, inspect project files, environment variables, processes, or network data. Lifecycle can differ across VS Code windows.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      projectId: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 256,
+        description: 'Exact Runlist project ID from runlist_list_projects or the Runlist sidebar.'
+      }
+    },
+    required: ['projectId'],
+    additionalProperties: false
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      name: { type: 'string' },
+      folder: { type: 'string' },
+      reviewRequired: { type: 'boolean' },
+      lifecycleState: { type: 'string' },
+      controllableInThisWindow: { type: 'boolean' },
+      services: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            port: { type: 'integer' },
+            url: { type: 'string' }
+          },
+          required: ['name', 'port'],
+          additionalProperties: false
+        }
+      },
+      failureSummary: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          message: { type: 'string' },
+          outcome: { type: 'string' }
+        },
+        required: ['title', 'message'],
+        additionalProperties: false
+      },
+      diagnosticsAvailable: { type: 'boolean' },
+      repairAvailable: { type: 'boolean' },
+      projectRevision: { type: 'string', minLength: 64, maxLength: 64 }
+    },
+    required: [
+      'id',
+      'name',
+      'folder',
+      'reviewRequired',
+      'lifecycleState',
+      'controllableInThisWindow',
+      'services',
+      'diagnosticsAvailable',
+      'repairAvailable',
+      'projectRevision'
+    ],
+    additionalProperties: false
+  },
+  annotations: {
+    title: 'Get Runlist project status',
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false
+  }
+};
+
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
@@ -352,14 +500,16 @@ function handleRequest(message) {
           version: SERVER_VERSION,
           description: 'Adds local projects to the Runlist VS Code extension.'
         },
-        instructions: 'Use runlist_setup_project when the user asks to save a local project in Runlist. Inspect the project first, identify every service it starts, and provide the absolute folder path, exact start command, and an explicit unique port for each service. Include an optional HTTP or HTTPS service URL only when the project defines it explicitly; never guess one. Omit stopCommand for ordinary development servers so Runlist stops only the process tree it launched. Provide a custom stop command only when the project daemonizes or manages external services such as Docker or databases. You may also provide a friendly custom project name when the user requests one. Tell the user that Runlist will require them to review and approve the saved setup before its commands can run. Use runlist_get_project_diagnostics only when the user supplies a project ID copied from Runlist after a failed start. Diagnose only the returned context. If a setup change is appropriate, use runlist_propose_project_repair with the exact project ID, revision, and failedAt value. Never run the project or apply the repair yourself; Runlist shows the complete proposal for user approval.'
+        instructions: 'Use runlist_setup_project when the user asks to save a local project in Runlist. Inspect the project first, identify every service it starts, and provide the absolute folder path, exact start command, and an explicit unique port for each service. Include an optional HTTP or HTTPS service URL only when the project defines it explicitly; never guess one. Omit stopCommand for ordinary development servers so Runlist stops only the process tree it launched. Provide a custom stop command only when the project daemonizes or manages external services such as Docker or databases. You may also provide a friendly custom project name when the user requests one. Tell the user that Runlist will require them to review and approve the saved setup before its commands can run. Use runlist_list_projects when the user asks which Runlist projects are saved or what is running. Use runlist_get_project_status with an exact project ID for one project\'s observed lifecycle, configured ports, retained failure summary, and whether diagnostics or repair are available. List and status tools are read-only: never start, stop, restart, or close ports. Lifecycle can differ across VS Code windows; trust controllableInThisWindow instead of assuming this window can start or stop the project. Use runlist_get_project_diagnostics only when the user supplies a project ID copied from Runlist after a failed start. Diagnose only the returned context. If a setup change is appropriate, use runlist_propose_project_repair with the exact project ID, revision, and failedAt value. Never run the project or apply the repair yourself; Runlist shows the complete proposal for user approval.'
       });
       break;
     case 'ping':
       result(message.id, {});
       break;
     case 'tools/list':
-      result(message.id, { tools: [setupTool, diagnosticsTool, repairTool] });
+      result(message.id, {
+        tools: [setupTool, diagnosticsTool, repairTool, listProjectsTool, projectStatusTool]
+      });
       break;
     case 'tools/call':
       callTool(message);
@@ -377,6 +527,14 @@ function callTool(message) {
   }
   if (name === repairTool.name) {
     callRepairTool(message);
+    return;
+  }
+  if (name === listProjectsTool.name) {
+    callListProjectsTool(message);
+    return;
+  }
+  if (name === projectStatusTool.name) {
+    callProjectStatusTool(message);
     return;
   }
   if (name !== setupTool.name) {
@@ -472,6 +630,227 @@ function setupToolProject(project) {
       ...(service.url ? { url: service.url } : {})
     })) : []
   };
+}
+
+function requireProjectsFile(id) {
+  if (!PROJECTS_FILE) {
+    toolError(id, 'Runlist storage is unavailable. Restart VS Code and try again.');
+    return false;
+  }
+  return true;
+}
+
+function requireSavedProjects() {
+  if (!fs.existsSync(PROJECTS_FILE)) {
+    throw new Error('Runlist project storage is unavailable.');
+  }
+  return readProjects(PROJECTS_FILE);
+}
+
+function readToolArguments(message, allowedKeys) {
+  const argumentsValue = message.params?.arguments;
+  if (argumentsValue == null) {
+    if (allowedKeys.size === 0) {
+      return {};
+    }
+    throw new Error('arguments must be an object.');
+  }
+  if (!argumentsValue || typeof argumentsValue !== 'object' || Array.isArray(argumentsValue)) {
+    throw new Error('arguments must be an object.');
+  }
+  const unsupportedKeys = Object.keys(argumentsValue).filter((key) => !allowedKeys.has(key));
+  if (unsupportedKeys.length) {
+    throw new Error(allowedKeys.size === 0
+      ? 'runlist_list_projects does not take arguments.'
+      : `${[...allowedKeys][0]} is the only supported argument.`);
+  }
+  return argumentsValue;
+}
+
+function readRequestedProjectId(argumentsValue) {
+  const projectId = typeof argumentsValue.projectId === 'string'
+    ? argumentsValue.projectId.trim()
+    : '';
+  if (!projectId || projectId.length > 256) {
+    throw new Error('projectId must be the exact ID copied from Runlist.');
+  }
+  return projectId;
+}
+
+function findSavedProject(savedProjects, projectId) {
+  const project = savedProjects.find((candidate) => candidate?.id === projectId);
+  if (!project) {
+    throw new Error('That saved Runlist project was not found.');
+  }
+  return project;
+}
+
+function readOwnershipSnapshot(projectId) {
+  if (!processOwnership) {
+    return undefined;
+  }
+  try {
+    const record = JSON.parse(fs.readFileSync(processOwnership.ownershipPath(projectId), 'utf8'));
+    if (!record
+      || record.projectId !== projectId
+      || !Number.isInteger(record.hostPid)
+      || record.hostPid <= 0) {
+      return undefined;
+    }
+    return record;
+  } catch {
+    return undefined;
+  }
+}
+
+function observedLifecycleState(project) {
+  const ownership = readOwnershipSnapshot(project.id);
+  if (!ownership) {
+    return 'stopped';
+  }
+  const state = typeof ownership.state === 'string' ? ownership.state.trim().slice(0, 64) : '';
+  return state || 'unknown';
+}
+
+function projectIsControllableInThisWindow(project) {
+  if (project.reviewRequired === true) {
+    return false;
+  }
+  const capability = projectLifecycleCapability(
+    windowLifecycleCapability,
+    project,
+    process.platform
+  );
+  if (!capability.supported) {
+    return false;
+  }
+  const ownership = readOwnershipSnapshot(project.id);
+  if (!ownership) {
+    return true;
+  }
+  return Number.isInteger(HOST_PID) && HOST_PID > 0 && ownership.hostPid === HOST_PID;
+}
+
+function redactedServiceUrl(url) {
+  if (typeof url !== 'string' || !url.trim()) {
+    return undefined;
+  }
+  const redacted = redactSensitiveText(url.trim()).slice(0, 2048);
+  return redacted || undefined;
+}
+
+function statusToolServices(project) {
+  const runtimeProject = resolveLaunchProfile(project, project.selectedLaunchProfileId || 'default');
+  if (!Array.isArray(runtimeProject.services)) {
+    return [];
+  }
+  return runtimeProject.services.slice(0, 32).map((service) => {
+    const url = redactedServiceUrl(service.url);
+    return {
+      name: String(service.name || '').slice(0, 64),
+      port: service.port,
+      ...(url ? { url } : {})
+    };
+  });
+}
+
+function statusFailureSummary(diagnostic) {
+  if (!diagnostic?.failureSummary) {
+    return undefined;
+  }
+  return {
+    title: redactSensitiveText(diagnostic.failureSummary.title || 'Start failed').slice(0, 120),
+    message: redactSensitiveText(
+      diagnostic.failureSummary.message || 'The start command did not complete.'
+    ).slice(0, 1000),
+    ...(diagnostic.failureSummary.outcome
+      ? { outcome: redactSensitiveText(diagnostic.failureSummary.outcome).slice(0, 240) }
+      : {})
+  };
+}
+
+function listedProjectSnapshot(project) {
+  return {
+    id: project.id,
+    name: String(project.name || '').slice(0, 100),
+    folder: String(project.folder || '').slice(0, 4096),
+    reviewRequired: project.reviewRequired === true,
+    services: statusToolServices(project),
+    lifecycleState: observedLifecycleState(project),
+    controllableInThisWindow: projectIsControllableInThisWindow(project)
+  };
+}
+
+function projectStatusSnapshot(project) {
+  const diagnostic = readProjectDiagnostics(PROJECTS_FILE, project.id);
+  const proposal = readProjectRepairProposal(PROJECTS_FILE, project.id);
+  const projectRevision = projectConfigurationRevision(project);
+  const failureSummary = statusFailureSummary(diagnostic);
+  const diagnosticsAvailable = Boolean(diagnostic);
+  const repairAvailable = Boolean(proposal)
+    || Boolean(diagnostic && diagnostic.projectRevision === projectRevision);
+  return {
+    id: project.id,
+    name: String(project.name || '').slice(0, 100),
+    folder: String(project.folder || '').slice(0, 4096),
+    reviewRequired: project.reviewRequired === true,
+    lifecycleState: observedLifecycleState(project),
+    controllableInThisWindow: projectIsControllableInThisWindow(project),
+    services: statusToolServices(project),
+    ...(failureSummary ? { failureSummary } : {}),
+    diagnosticsAvailable,
+    repairAvailable,
+    projectRevision
+  };
+}
+
+function callListProjectsTool(message) {
+  if (!requireProjectsFile(message.id)) {
+    return;
+  }
+  try {
+    readToolArguments(message, new Set());
+    const savedProjects = requireSavedProjects();
+    const truncated = savedProjects.length > MAX_LISTED_PROJECTS;
+    const structuredContent = {
+      projects: savedProjects.slice(0, MAX_LISTED_PROJECTS).map(listedProjectSnapshot),
+      truncated
+    };
+    result(message.id, {
+      content: [{
+        type: 'text',
+        text: `Runlist returned ${structuredContent.projects.length} saved project${
+          structuredContent.projects.length === 1 ? '' : 's'
+        }. This snapshot is read-only and does not start or stop anything.\n${JSON.stringify(structuredContent)}`
+      }],
+      structuredContent,
+      isError: false
+    });
+  } catch (toolFailure) {
+    toolError(message.id, `Could not list Runlist projects: ${toolFailure.message}`);
+  }
+}
+
+function callProjectStatusTool(message) {
+  if (!requireProjectsFile(message.id)) {
+    return;
+  }
+  try {
+    const argumentsValue = readToolArguments(message, new Set(['projectId']));
+    const projectId = readRequestedProjectId(argumentsValue);
+    const project = findSavedProject(requireSavedProjects(), projectId);
+    const structuredContent = projectStatusSnapshot(project);
+    result(message.id, {
+      content: [{
+        type: 'text',
+        text: `Runlist returned a read-only status snapshot for ${structuredContent.name}. No files, environment variables, processes, or network data were inspected, and nothing was started or stopped.\n${JSON.stringify(structuredContent)}`
+      }],
+      structuredContent,
+      isError: false
+    });
+  } catch (toolFailure) {
+    toolError(message.id, `Could not get Runlist project status: ${toolFailure.message}`);
+  }
 }
 
 function callDiagnosticsTool(message) {
