@@ -36,7 +36,7 @@ First-run stays empty until you add a folder.
 
 Once an app is saved, the row is the control surface.
 
-- **Start, Stop, and Restart** stay on the project row — including while it’s running. After a failed start, **View output** is the primary action so you can see what happened; Start remains in More
+- **Start, Stop, and Restart** stay on the project row — including while it’s running. After a failed start or stop, **View output** is the primary action so you can see what happened; Start or Stop remains in More
 - **Status stays honest** — starting, ready, not responding, failed, and why
 - **Open from the port chip** when the web service is up
 - **Live preview and recent output** when you expand the project

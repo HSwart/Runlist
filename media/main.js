@@ -1273,7 +1273,9 @@ function renderList() {
                 ? 'Add the missing environment variables, then try Start again.'
                 : projectStartFailureText(project)
                   ? 'See recent output for details, then try Start again.'
-                  : '';
+                  : projectStopFailureText(project)
+                    ? 'See recent output for details, then try Stop again.'
+                    : '';
         const displayedStatus = projectDisplayedStatus(project);
         const startFailureText = projectStartFailureText(project);
         const stopFailureText = projectStopFailureText(project);
@@ -1379,9 +1381,13 @@ function renderList() {
                   <button data-action="output" data-id="${projectId}" role="menuitem">
                     ${icon('terminal', 'menu-icon')}<span>View output</span>
                   </button>
-                  ${primaryAction.action === 'output' ? `
+                  ${primaryAction.action === 'output' && projectStatus === 'stopped' ? `
                   <button data-action="start" data-id="${projectId}" role="menuitem" aria-label="Start ${projectName}" ${project.lifecycleBlocked || project.composeStartBlocked ? 'disabled' : ''} title="${project.lifecycleBlocked ? escapeHtml(project.lifecycleBlockedReason) : project.composeStartBlocked ? escapeHtml(project.composeStartBlockedReason || `Start is unavailable for ${projectName} until Docker is ready`) : `Start ${projectName}`}">
                     ${icon('play', 'menu-icon')}<span>Start</span>
+                  </button>` : ''}
+                  ${primaryAction.action === 'output' && projectStatus !== 'stopped' && projectStatus !== 'stopping' ? `
+                  <button data-action="stop" data-id="${projectId}" role="menuitem" aria-label="Stop ${projectName}" ${project.forceClosing || project.handoffInProgress ? 'disabled' : ''} title="Stop ${projectName}">
+                    ${icon('stop', 'menu-icon')}<span>Stop</span>
                   </button>` : ''}
                   ${project.canAskAgent ? `
                   <button data-action="ask-agent" data-id="${projectId}" role="menuitem" aria-label="Ask your agent about ${projectName}">
