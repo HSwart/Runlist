@@ -18,8 +18,11 @@ test('What\'s listening screen stays read-only and routes into existing close fl
   assert.match(webview, /data-action="reveal-listening-project"/);
   assert.match(webview, /Close listener…/);
   assert.doesNotMatch(webview, /auto-kill|bulk kill|kill all/i);
+  assert.match(webview, /port-listening-row\$\{port === Number\(report\.focusPort\) \? ' is-focused' : ''\}/);
   assert.match(styles, /\.port-listening-row \{/);
+  assert.match(styles, /\.port-listening-row\.is-focused \{/);
   assert.match(extension, /async showPortListeningDiagnosis\(/);
+  assert.match(extension, /portListeningFocusPort/);
   assert.match(extension, /async refreshPortListeningDiagnosis\(/);
   assert.match(extension, /buildPortListeningReport\(/);
   assert.match(extension, /forceCloseProjectPorts\(/);

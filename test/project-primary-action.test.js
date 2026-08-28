@@ -43,15 +43,46 @@ test('still lets Add stop command open Edit when lifecycle controls are blocked'
   });
 });
 
-test('turns unknown port conflicts into a confirmed close-and-start action', () => {
+test('turns unknown port conflicts into an inspect-first action', () => {
   assert.deepEqual(projectPrimaryAction({
     name: 'Attributes Finder',
     status: 'port-in-use-unknown',
     portConflict: { port: 7072 }
   }), {
-    action: 'force-close-ports-and-start',
+    action: 'resolve-port-conflict',
     disabled: false,
-    label: 'Close processes using port 7072 and start Attributes Finder',
+    label: "See what's using port 7072 for Attributes Finder",
+    mode: 'start',
+    port: 7072
+  });
+});
+
+test('does not force-close from the primary when the unknown conflict is busy', () => {
+  assert.equal(projectPrimaryAction({
+    name: 'Attributes Finder',
+    status: 'port-in-use-unknown',
+    forceClosing: true,
+    portConflict: { port: 7072 }
+  }).disabled, true);
+  assert.equal(projectPrimaryAction({
+    name: 'Attributes Finder',
+    status: 'port-in-use-unknown',
+    handoffInProgress: true,
+    portConflict: { port: 7072 }
+  }).action, 'resolve-port-conflict');
+});
+
+test('keeps compose start-gate labels for unknown port conflicts', () => {
+  assert.deepEqual(projectPrimaryAction({
+    name: 'Api',
+    status: 'port-in-use-unknown',
+    composeStartBlocked: true,
+    composeStartBlockedReason: 'Docker is not ready',
+    portConflict: { port: 3000 }
+  }), {
+    action: 'start',
+    disabled: true,
+    label: 'Docker is not ready',
     mode: 'start'
   });
 });

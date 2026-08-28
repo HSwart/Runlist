@@ -1670,6 +1670,73 @@ test('stop honesty keeps Stop and does not say Stopped while a port is up', () =
   assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
 });
 
+test('unknown port-conflict rows inspect first and keep close-and-start in More', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/api',
+    id: 'api',
+    launchProfiles: [],
+    name: 'API',
+    openPorts: [7072],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 7072 }],
+    status: 'port-in-use-unknown',
+    tags: [],
+    portConflict: { port: 7072 }
+  }]);
+
+  assert.match(
+    result.app.innerHTML,
+    /class="run-button blocked"[^>]*data-action="resolve-port-conflict"[^>]*data-id="api"[^>]*data-port="7072"[^>]*aria-label="See what&#039;s using port 7072 for API"/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /data-action="force-close-ports-and-start" data-id="api" role="menuitem"/
+  );
+  assert.doesNotMatch(
+    result.app.innerHTML,
+    /class="run-button[^"]*"[^>]*data-action="force-close-ports-and-start"/
+  );
+});
+
+test('known Runlist port owners keep handoff as the primary action', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/api',
+    id: 'api',
+    launchProfiles: [],
+    name: 'API',
+    openPorts: [7072],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 7072 }],
+    status: 'port-in-use',
+    tags: [],
+    portConflict: {
+      port: 7072,
+      ownerName: 'Other app',
+      handoffAvailable: true
+    }
+  }]);
+
+  assert.match(
+    result.app.innerHTML,
+    /class="run-button blocked"[^>]*data-action="handoff"[^>]*aria-label="Stop Other app and start API"/
+  );
+  assert.doesNotMatch(result.app.innerHTML, /data-action="resolve-port-conflict"/);
+  assert.doesNotMatch(
+    result.app.innerHTML,
+    /data-action="force-close-ports-and-start" data-id="api" role="menuitem"/
+  );
+});
+
 function sampleProject(id, name, extras = {}) {
   return {
     activeLaunchProfileId: 'default',

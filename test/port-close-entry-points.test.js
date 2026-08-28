@@ -20,6 +20,10 @@ test('diagnosis Close listener and run-row close share recoverProjectPorts confi
     /data-action="force-close-ports" data-id="\$\{projectId\}" role="menuitem"/
   );
   assert.match(webview, /'force-close-ports-and-start': \(\) => \{/);
+  assert.match(
+    webview,
+    /data-action="force-close-ports-and-start" data-id="\$\{projectId\}" role="menuitem"/
+  );
   assert.match(router, /forceCloseProjectPorts: \(message\) => \{/);
   assert.match(router, /servicePort: port/);
   assert.match(router, /forceCloseProjectPortsAndStart: \(message\) => host\.forceCloseProjectPorts\(message\.id, 'start'\)/);

@@ -1263,7 +1263,7 @@ function renderList() {
                       ${launchProfiles.map((profile) => `<button data-action="select-launch-profile" data-id="${projectId}" data-profile-id="${escapeHtml(profile.id)}" role="menuitemradio" aria-checked="${profile.id === project.activeLaunchProfileId}"><span class="profile-check" aria-hidden="true">${profile.id === project.activeLaunchProfileId ? '✓' : ''}</span><span>${escapeHtml(profile.name)}</span></button>`).join('')}
                     </div>
                   </div>` : ''}
-                <button class="run-button ${primaryButtonClass}" data-action="${primaryAction.action}" data-id="${projectId}"${primaryAction.action === 'fix-environment' ? ' data-focus-target="env-map"' : ''} aria-label="${actionTitle}" title="${actionTitle}" ${primaryAction.disabled ? 'disabled' : ''}>
+                <button class="run-button ${primaryButtonClass}" data-action="${primaryAction.action}" data-id="${projectId}"${primaryAction.action === 'fix-environment' ? ' data-focus-target="env-map"' : ''}${Number.isInteger(primaryAction.port) ? ` data-port="${primaryAction.port}"` : ''} aria-label="${actionTitle}" title="${actionTitle}" ${primaryAction.disabled ? 'disabled' : ''}>
                   ${primaryAction.action === 'edit'
                     || primaryAction.action === 'add-stop-command'
                     || primaryAction.action === 'fix-environment'
@@ -1306,6 +1306,17 @@ function renderList() {
                   <button data-action="force-close-ports" data-id="${projectId}" role="menuitem" aria-label="Close configured ports for ${projectName}" ${canCloseConfiguredPorts && !project.lifecycleBlocked ? '' : 'disabled'} title="${project.lifecycleBlocked ? escapeHtml(project.lifecycleBlockedReason) : canCloseConfiguredPorts ? `Review and close the processes using ${projectName}'s configured ports` : 'No configured ports are currently open'}">
                     ${icon('stop', 'menu-icon')}<span>Close configured ports…</span>
                   </button>
+                  ${projectStatus === 'port-in-use-unknown'
+                    && Number.isInteger(Number(conflict?.port))
+                    && !project.lifecycleBlocked
+                    && !project.composeStartBlocked
+                    && !reviewRequired
+                    && !project.forceClosing
+                    && !project.handoffInProgress
+                    && projectStatus !== 'stopping' ? `
+                  <button data-action="force-close-ports-and-start" data-id="${projectId}" role="menuitem" aria-label="Close processes using port ${escapeHtml(String(conflict.port))} and start ${projectName}" title="Review the exact process using port ${escapeHtml(String(conflict.port))} before closing it, then start ${projectName}">
+                    ${icon('play', 'menu-icon')}<span>Close processes using port ${escapeHtml(String(conflict.port))} and start</span>
+                  </button>` : ''}
                   <button data-action="import-compose" data-id="${projectId}" role="menuitem" title="Review Compose services for ${projectName}">
                     ${icon('layers', 'menu-icon')}<span>Import Compose services…</span>
                   </button>
@@ -2133,7 +2144,7 @@ function renderPortListening() {
         ? row.projectName
         : (row.configuredProjects || []).map((project) => project.name).join(', ');
       return `
-        <article class="port-listening-row" data-port="${port}">
+        <article class="port-listening-row${port === Number(report.focusPort) ? ' is-focused' : ''}" data-port="${port}">
           <div class="port-listening-topline">
             <strong class="port-listening-port">:${escapeHtml(String(port))}</strong>
             <span class="port-listening-kind kind-${escapeHtml(row.kind || 'unknown')}">${escapeHtml(kindLabel)}</span>
@@ -2167,6 +2178,11 @@ function renderPortListening() {
         ${rowHtml}
       </div>
     </section>`;
+  const focusPort = Number(report.focusPort);
+  if (Number.isInteger(focusPort) && focusPort >= 1 && focusPort <= 65535) {
+    app.querySelector?.(`.port-listening-row[data-port="${focusPort}"]`)
+      ?.scrollIntoView?.({ block: 'nearest' });
+  }
 }
 
 function renderPortResolve() {
@@ -2925,6 +2941,18 @@ app.addEventListener('click', (event) => {
         id: button.dataset.id,
         port: Number(button.dataset.port)
       });
+    },
+    'resolve-port-conflict': () => {
+      const port = Number(button.dataset.port);
+      if (Number.isInteger(port) && port >= 1 && port <= 65535) {
+        vscode.postMessage({
+          type: 'resolveServicePort',
+          id: button.dataset.id,
+          port
+        });
+        return;
+      }
+      vscode.postMessage({ type: 'showPortListening' });
     },
     'choose-port-resolve': () => {
       vscode.postMessage({

@@ -293,6 +293,7 @@ class RunlistViewProvider {
     this.routeNotice = undefined;
     this.approvedRepairProjectId = undefined;
     this.portListeningReport = undefined;
+    this.portListeningFocusPort = undefined;
     this.portResolve = undefined;
     this.composeImport = undefined;
     this.composeAvailability = undefined;
@@ -504,19 +505,34 @@ class RunlistViewProvider {
     this.render();
   }
 
-  async showPortListeningDiagnosis() {
+  async showPortListeningDiagnosis(options = {}) {
     if (!await this.confirmDiscardProjectChanges()) {
-      return;
+      return false;
     }
+    const focusPort = Number(options.focusPort);
+    const hasFocusPort = Number.isInteger(focusPort) && focusPort >= 1 && focusPort <= 65535;
     this.mode = 'port-listening';
     this.routeNotice = undefined;
     this.diagnosisProjectIncarnation = undefined;
     this.portResolve = undefined;
     this.draft = {};
-    this.focusTarget = { type: 'action', action: 'close-screen' };
-    this.returnFocus = this.defaultListFocusTarget();
+    this.portListeningFocusPort = hasFocusPort ? focusPort : undefined;
+    if (hasFocusPort) {
+      this.focusTarget = {
+        type: 'action',
+        action: 'copy-port-listening',
+        port: String(focusPort)
+      };
+      this.returnFocus = typeof options.returnProjectId === 'string' && options.returnProjectId
+        ? { type: 'project-control', id: options.returnProjectId }
+        : this.defaultListFocusTarget();
+    } else {
+      this.focusTarget = { type: 'action', action: 'close-screen' };
+      this.returnFocus = this.defaultListFocusTarget();
+    }
     this.selectedProjectId = undefined;
     await this.refreshPortListeningDiagnosis({ reveal: true });
+    return true;
   }
 
   async refreshPortListeningDiagnosis(options = {}) {
@@ -2124,6 +2140,7 @@ class RunlistViewProvider {
     this.diagnosisProjectIncarnation = undefined;
     this.approvedRepairProjectId = undefined;
     this.portListeningReport = undefined;
+    this.portListeningFocusPort = undefined;
     this.portResolve = undefined;
     this.composeImport = undefined;
     this.stackReview = undefined;
@@ -4165,7 +4182,10 @@ class RunlistViewProvider {
   async resolveServicePort(id, savedPort) {
     const resolve = await this.buildPortResolve(id, savedPort);
     if (!resolve) {
-      return false;
+      return this.showPortListeningDiagnosis({
+        focusPort: savedPort,
+        returnProjectId: id
+      });
     }
     if (!await this.confirmDiscardProjectChanges()) {
       return false;
@@ -4174,6 +4194,7 @@ class RunlistViewProvider {
     this.routeNotice = undefined;
     this.diagnosisProjectIncarnation = undefined;
     this.portListeningReport = undefined;
+    this.portListeningFocusPort = undefined;
     this.composeImport = undefined;
     this.portResolve = resolve;
     this.draft = {};
@@ -5568,7 +5589,10 @@ class RunlistViewProvider {
         } : undefined
       } : undefined,
       portListening: this.mode === 'port-listening'
-        ? (this.portListeningReport || { scannedAt: Date.now(), rows: [], empty: true })
+        ? {
+          ...(this.portListeningReport || { scannedAt: Date.now(), rows: [], empty: true }),
+          focusPort: this.portListeningFocusPort
+        }
         : undefined,
       portResolve: this.mode === 'port-resolve'
         ? (this.portResolve || undefined)
