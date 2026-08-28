@@ -1181,6 +1181,33 @@ test('hides launch profiles on first add when only Default exists', () => {
 
   assert.match(result.app.innerHTML, /<h2>Add project<\/h2>/);
   assert.doesNotMatch(result.app.innerHTML, /class="launch-profile-editor"/);
+  assert.match(result.app.innerHTML, /class="more-options"/);
+  assert.doesNotMatch(result.app.innerHTML, /class="more-options" open/);
+  assert.match(result.app.innerHTML, /id="folder"/);
+  assert.match(result.app.innerHTML, /id="start-command"/);
+  assert.ok(
+    result.app.innerHTML.indexOf('id="folder"') < result.app.innerHTML.indexOf('class="more-options"')
+  );
+  assert.ok(
+    result.app.innerHTML.indexOf('id="start-command"') < result.app.innerHTML.indexOf('class="more-options"')
+  );
+  assert.ok(
+    result.app.innerHTML.indexOf('class="more-options"') < result.app.innerHTML.indexOf('id="project-name"')
+  );
+});
+
+test('opens More options on edit so advanced fields stay visible', () => {
+  const result = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      mode: 'edit',
+      reviewRequired: false,
+      draft: projectFormDraft({ id: 'example', name: 'Example' }),
+      formErrors: {}
+    }
+  });
+  assert.match(result.app.innerHTML, /class="more-options" open/);
+  assert.match(result.app.innerHTML, /id="project-name"/);
+  assert.match(result.app.innerHTML, /class="launch-profile-editor"/);
 });
 
 test('shows launch profiles when editing or when alternatives already exist', () => {

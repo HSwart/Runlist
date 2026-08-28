@@ -29,6 +29,8 @@ test('validates Marketplace metadata for the selected publisher and release', ()
   ]);
   assert.ok(!manifest.keywords.slice(0, 5).includes('mcp'));
   assert.ok(!manifest.keywords.slice(0, 5).includes('coding agents'));
+  assert.ok(!manifest.keywords.includes('mcp'));
+  assert.ok(!manifest.keywords.includes('coding agents'));
   assert.ok(!manifest.keywords.includes('project manager'));
   assert.equal(manifest.publisher, 'hankoswart');
   assert.equal(manifest.repository.url, 'https://github.com/HSwart/Runlist.git');

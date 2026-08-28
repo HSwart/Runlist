@@ -2079,6 +2079,34 @@ button.project-listener-owner:hover {
   padding: 10px 12px;
 }
 
+.more-options {
+  margin: 8px 0 12px;
+}
+
+.more-options > summary {
+  cursor: pointer;
+  list-style: none;
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+
+.more-options > summary::-webkit-details-marker {
+  display: none;
+}
+
+.more-options > summary::before {
+  content: "▸";
+  display: inline-block;
+  width: 1em;
+  margin-right: 4px;
+}
+
+.more-options[open] > summary::before {
+  content: "▾";
+}
+
 .port-resolve-choices {
   display: grid;
   gap: 8px;

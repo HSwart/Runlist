@@ -55,7 +55,8 @@ test('empty Frame A keeps Add this folder and optional start/dev chips', () => {
   assert.match(webview, /state\.projects\.length === 0/);
   assert.match(webview, /data-action="start-workspace-script" data-script="/);
   assert.match(webview, /const chipLabel = script\.name === 'dev' \? 'Dev' : 'Start'/);
-  assert.match(webview, /Run \\`\$\{script\.startCommand\}\\` for this folder/);
+  assert.match(webview, /Save and start \\`\$\{script\.startCommand\}\\` for this folder/);
+  assert.doesNotMatch(webview, /Run \\`\$\{script\.startCommand\}\\` for this folder/);
   assert.match(webview, /state\.workspaceStartScripts/);
   assert.doesNotMatch(webview, /Task Explorer|every script|script dump/i);
   assert.match(styles, /\.empty-start-chip \{/);

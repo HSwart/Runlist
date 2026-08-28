@@ -142,6 +142,23 @@ function activate(context) {
     { dispose: () => fs.unwatchFile(projectsFile, handleProjectStoreChange) }
   );
 
+  const OPEN_TIP_KEY = 'runlist.didShowOpenTip';
+  if (
+    process.env.RUNLIST_EXTENSION_SMOKE !== '1'
+    && !context.globalState.get(OPEN_TIP_KEY)
+    && provider.projects.length === 0
+  ) {
+    void vscode.window.showInformationMessage(
+      'Open Runlist to save and control local apps.',
+      'Open Runlist'
+    ).then(async (choice) => {
+      await context.globalState.update(OPEN_TIP_KEY, true);
+      if (choice === 'Open Runlist') {
+        await provider.revealRunlistView();
+      }
+    });
+  }
+
   if (process.env.RUNLIST_EXTENSION_SMOKE === '1') {
     return { projectsFile, provider };
   }

@@ -41,7 +41,7 @@ test('Add Project prefills the open workspace folder and focuses the remaining r
 
   assert.match(addProject, /starterDraftForCurrentWorkspace\(vscode\.workspace\.workspaceFolders, this\.preferredWorkspaceFolder\)/);
   assert.match(addProject, /id: 'start-command'/);
-  assert.match(addProject, /id: 'project-name'/);
+  assert.match(addProject, /id: 'folder'/);
 });
 
 test('sidebar state marks and sorts the This-window project', () => {
