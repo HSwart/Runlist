@@ -32,7 +32,9 @@ function extractFunction(source, name) {
 
 function loadAttentionHelpers() {
   const source = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
+  const { projectShowsMissingFolder } = require('../media/project-status-display');
   const context = {
+    projectShowsMissingFolder,
     projectStartFailureText(project) {
       return project.startFailure || '';
     },
@@ -116,4 +118,110 @@ test('attentionIdentityKey changes when a project is fixed or hidden', () => {
   ];
   assert.equal(helpers.attentionIdentityKey(afterFix, allVisible), 'alpha\ngamma');
   assert.notEqual(helpers.attentionIdentityKey(afterFix, allVisible), original);
+});
+
+test('projectNeedsAttention includes folder-missing and not-ready rows', () => {
+  assert.equal(helpers.projectNeedsAttention({
+    id: 'moved',
+    status: 'stopped',
+    folderAccessible: false
+  }), true);
+  assert.equal(helpers.projectNeedsAttention({
+    id: 'slow',
+    status: 'not-ready'
+  }), true);
+});
+
+test('projectNeedsAttention does not include starting rows without not-ready', () => {
+  assert.equal(helpers.projectNeedsAttention({
+    id: 'booting',
+    status: 'starting'
+  }), false);
+});
+
+test('projectNeedsAttention excludes live rows with a missing folder until they stop', () => {
+  for (const status of ['running', 'starting', 'stopping', 'active']) {
+    assert.equal(helpers.projectNeedsAttention({
+      id: `live-${status}`,
+      status,
+      folderAccessible: false
+    }), false, status);
+  }
+  assert.equal(helpers.projectNeedsAttention({
+    id: 'closing',
+    status: 'stopped',
+    folderAccessible: false,
+    forceClosing: true
+  }), false);
+  assert.equal(helpers.projectNeedsAttention({
+    id: 'slow-moved',
+    status: 'not-ready',
+    folderAccessible: false
+  }), true);
+});
+
+test('projectNeedsAttention still counts not-responding and port-conflict rows', () => {
+  assert.equal(helpers.projectNeedsAttention({ id: 'nr', status: 'not-responding' }), true);
+  assert.equal(helpers.projectNeedsAttention({ id: 'conflict', status: 'port-in-use' }), true);
+  assert.equal(helpers.projectNeedsAttention({ id: 'unknown', status: 'port-in-use-unknown' }), true);
+});
+
+test('reviewRequired rows count once even when also missing a folder or not-ready', () => {
+  assert.equal(helpers.projectNeedsAttention({
+    id: 'review-folder',
+    status: 'stopped',
+    reviewRequired: true,
+    folderAccessible: false
+  }), true);
+  assert.equal(helpers.projectNeedsAttention({
+    id: 'review-slow',
+    status: 'not-ready',
+    reviewRequired: true
+  }), true);
+});
+
+test('Compose missing-folder rows still need attention even when primary is Edit', () => {
+  assert.equal(helpers.projectNeedsAttention({
+    id: 'compose-moved',
+    status: 'stopped',
+    folderAccessible: false,
+    composePath: '/tmp/compose.yaml'
+  }), true);
+});
+
+test('nextAttentionProject includes folder-missing and not-ready in wrap order', () => {
+  const projects = [
+    { id: 'moved', name: 'Moved', status: 'stopped', folderAccessible: false },
+    { id: 'idle', name: 'Idle', status: 'stopped' },
+    { id: 'slow', name: 'Slow', status: 'not-ready' }
+  ];
+  const isVisible = () => true;
+
+  assert.equal(helpers.nextAttentionProject(projects, '', isVisible).id, 'moved');
+  assert.equal(helpers.nextAttentionProject(projects, 'moved', isVisible).id, 'slow');
+  assert.equal(helpers.nextAttentionProject(projects, 'slow', isVisible).id, 'moved');
+});
+
+test('attentionIdentityKey resets when a folder is relinked or a not-ready row becomes ready', () => {
+  const allVisible = () => true;
+  const withMissing = [
+    { id: 'moved', name: 'Moved', status: 'stopped', folderAccessible: false },
+    { id: 'slow', name: 'Slow', status: 'not-ready' }
+  ];
+  const original = helpers.attentionIdentityKey(withMissing, allVisible);
+  assert.equal(original, 'moved\nslow');
+
+  const afterRelink = [
+    { id: 'moved', name: 'Moved', status: 'stopped', folderAccessible: true },
+    { id: 'slow', name: 'Slow', status: 'not-ready' }
+  ];
+  assert.equal(helpers.attentionIdentityKey(afterRelink, allVisible), 'slow');
+
+  const afterReady = [
+    { id: 'moved', name: 'Moved', status: 'stopped', folderAccessible: false },
+    { id: 'slow', name: 'Slow', status: 'running' }
+  ];
+  assert.equal(helpers.attentionIdentityKey(afterReady, allVisible), 'moved');
+  assert.notEqual(helpers.attentionIdentityKey(afterRelink, allVisible), original);
+  assert.notEqual(helpers.attentionIdentityKey(afterReady, allVisible), original);
 });
