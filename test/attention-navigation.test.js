@@ -117,3 +117,106 @@ test('attentionIdentityKey changes when a project is fixed or hidden', () => {
   assert.equal(helpers.attentionIdentityKey(afterFix, allVisible), 'alpha\ngamma');
   assert.notEqual(helpers.attentionIdentityKey(afterFix, allVisible), original);
 });
+
+test('projectNeedsAttention includes running-elsewhere rows that still need a stop command', () => {
+  assert.equal(helpers.projectNeedsAttention({
+    id: 'elsewhere',
+    name: 'Elsewhere',
+    status: 'active'
+  }), true);
+  assert.equal(helpers.projectNeedsAttention({
+    id: 'elsewhere-empty',
+    name: 'Elsewhere empty',
+    status: 'active',
+    stopCommand: ''
+  }), true);
+  assert.equal(helpers.projectNeedsAttention({
+    id: 'elsewhere-blank',
+    name: 'Elsewhere blank',
+    status: 'active',
+    stopCommand: '   '
+  }), true);
+});
+
+test('projectNeedsAttention includes ownership-lost rows that still need a stop command', () => {
+  assert.equal(helpers.projectNeedsAttention({
+    id: 'lost',
+    name: 'Lost',
+    status: 'ownership-lost'
+  }), true);
+  assert.equal(helpers.projectNeedsAttention({
+    id: 'lost-empty',
+    name: 'Lost empty',
+    status: 'ownership-lost',
+    stopCommand: ''
+  }), true);
+});
+
+test('projectNeedsAttention does not include detected rows that already have a stop command', () => {
+  assert.equal(helpers.projectNeedsAttention({
+    id: 'detected',
+    name: 'Detected',
+    status: 'active',
+    stopCommand: 'docker compose down'
+  }), false);
+});
+
+test('projectNeedsAttention still counts an unresponsive detected row once', () => {
+  const project = {
+    id: 'unresponsive',
+    name: 'Unresponsive',
+    status: 'active',
+    httpUnresponsive: true
+  };
+  assert.equal(helpers.projectNeedsAttention(project), true);
+  assert.equal(helpers.projectNeedsAttention({
+    ...project,
+    stopCommand: 'docker compose down'
+  }), true);
+  assert.equal(
+    helpers.attentionIdentityKey([
+      project,
+      { id: 'idle', name: 'Idle', status: 'stopped' }
+    ], () => true),
+    'unresponsive'
+  );
+});
+
+test('projectNeedsAttention does not double-count stop-failure or review rows', () => {
+  const stopFailure = {
+    id: 'stop-fail',
+    name: 'Stop fail',
+    status: 'active',
+    stopFailure: 'Port :3000 is still up'
+  };
+  const reviewRequired = {
+    id: 'review',
+    name: 'Review',
+    status: 'active',
+    reviewRequired: true
+  };
+  assert.equal(helpers.projectNeedsAttention(stopFailure), true);
+  assert.equal(helpers.projectNeedsAttention(reviewRequired), true);
+  assert.equal(
+    helpers.attentionIdentityKey([stopFailure, reviewRequired], () => true),
+    'stop-fail\nreview'
+  );
+});
+
+test('attentionIdentityKey drops a running-elsewhere row after a stop command is saved', () => {
+  const before = [{
+    id: 'elsewhere',
+    name: 'Elsewhere',
+    status: 'active',
+    stopCommand: ''
+  }];
+  const after = [{
+    ...before[0],
+    stopCommand: 'docker compose down'
+  }];
+  const allVisible = () => true;
+
+  assert.equal(helpers.attentionIdentityKey(before, allVisible), 'elsewhere');
+  assert.equal(helpers.attentionIdentityKey(after, allVisible), '');
+  assert.equal(helpers.nextAttentionProject(after, 'elsewhere', allVisible), undefined);
+});

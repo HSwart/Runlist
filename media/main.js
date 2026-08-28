@@ -853,6 +853,11 @@ function projectNeedsAttention(project) {
   if (project.status === 'active' && project.httpUnresponsive) {
     return true;
   }
+  const missingStopCommand = !String(project.stopCommand || '').trim();
+  if (missingStopCommand && !project.stopFailure
+      && (project.status === 'active' || project.status === 'ownership-lost')) {
+    return true;
+  }
   return Boolean(projectStartFailureText(project) || projectStopFailureText(project));
 }
 
