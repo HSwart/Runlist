@@ -919,6 +919,80 @@ test('not-responding row names the blocking service on line 2', () => {
   );
 });
 
+test('not-responding row uses View output as primary and keeps Stop in More', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: 'C:\\Projects\\Example',
+    id: 'example',
+    launchProfiles: [],
+    name: 'Example',
+    openPorts: [5173],
+    pinned: false,
+    previewExpanded: false,
+    previewUrl: 'http://localhost:5173',
+    reviewRequired: false,
+    services: [{ name: 'Web', port: 5173 }],
+    serviceReadiness: {
+      ready: [],
+      waiting: [],
+      notResponding: [{ name: 'Web', port: 5173 }]
+    },
+    status: 'not-responding',
+    tags: []
+  }]);
+
+  assert.match(
+    result.app.innerHTML,
+    /class="run-button output"[^>]*data-action="output"[^>]*data-id="example"[^>]*aria-label="View output for Example"/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /title="See recent output for details, then try Stop or Restart\."/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /data-action="stop" data-id="example" role="menuitem" aria-label="Stop Example"/
+  );
+  assert.match(result.app.innerHTML, /data-action="output"[^>]*role="menuitem"/);
+  assert.match(result.app.innerHTML, /data-action="restart"[^>]*role="menuitem"/);
+  assert.match(result.app.innerHTML, /data-action="open"[^>]*role="menuitem"/);
+  assert.doesNotMatch(result.app.innerHTML, /class="run-button stop"/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="start"[^>]*role="menuitem"/);
+});
+
+test('active unresponsive row matches not-responding View output primary', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: 'C:\\Projects\\Detected',
+    httpUnresponsive: true,
+    id: 'detected',
+    launchProfiles: [],
+    name: 'Detected App',
+    openPorts: [3000],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [{ name: 'Web', port: 3000 }],
+    status: 'active',
+    stopCommand: 'docker compose down',
+    tags: []
+  }]);
+
+  assert.match(
+    result.app.innerHTML,
+    /class="run-button output"[^>]*data-action="output"[^>]*data-id="detected"[^>]*aria-label="View output for Detected App"/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /data-action="stop" data-id="detected" role="menuitem" aria-label="Stop Detected App"/
+  );
+  assert.doesNotMatch(result.app.innerHTML, /class="run-button stop"/);
+});
+
 function previewFailureProject(overrides = {}) {
   return {
     activeLaunchProfileId: 'default',

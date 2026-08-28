@@ -118,6 +118,18 @@
       || ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active']
         .includes(status);
     if (stopsProject) {
+      const unresponsiveWeb = !busy
+        && !project.stopFailure
+        && (status === 'not-responding'
+          || (status === 'active' && project.httpUnresponsive));
+      if (unresponsiveWeb) {
+        return {
+          action: 'output',
+          disabled: false,
+          label: `View output for ${name}`,
+          mode: 'output'
+        };
+      }
       return { action: 'stop', disabled: busy, label: `Stop ${name}`, mode: 'stop' };
     }
     if (project.folderAccessible === false) {
