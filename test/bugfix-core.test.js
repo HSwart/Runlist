@@ -20,7 +20,7 @@ test('delete while starting cancels the start before removing the saved project'
   assert.match(cancelBlock, /startCancelledWithoutProcess = true/);
   assert.match(cancelBlock, /releaseStartReservation\(id\)/);
   assert.match(
-    source.slice(deleteProject, deleteProject + 3500),
+    source.slice(cancelStart),
     /else if \(!startCancelledWithoutProcess && \(hadDetachedProcess \|\| postCancelOwnership\)\)/
   );
 
