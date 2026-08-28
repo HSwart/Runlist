@@ -863,6 +863,11 @@ function projectNeedsAttention(project) {
   if (project.status === 'active' && project.httpUnresponsive) {
     return true;
   }
+  const missingStopCommand = !String(project.stopCommand || '').trim();
+  if (missingStopCommand && !project.stopFailure && !project.reviewRequired
+      && (project.status === 'active' || project.status === 'ownership-lost')) {
+    return true;
+  }
   if (project.status === 'not-ready') {
     return true;
   }

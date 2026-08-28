@@ -2453,6 +2453,48 @@ test('Needs attention includes folder-missing and not-ready rows in the count', 
   assert.equal(result.evaluate('lastAttentionProjectId'), 'compose-moved');
 });
 
+test('Needs attention includes running-elsewhere rows and focuses Add stop command', () => {
+  const result = renderNonEmptyProjectList([
+    sampleProject('review', 'Needs review', { reviewRequired: true }),
+    sampleProject('elsewhere', 'Running elsewhere', { status: 'active', stopCommand: '' }),
+    sampleProject('detected', 'Detected with stop', {
+      status: 'active',
+      stopCommand: 'docker compose down'
+    }),
+    sampleProject('idle', 'Idle')
+  ]);
+
+  assert.match(result.app.innerHTML, />Needs attention \(2\)</);
+  assert.match(
+    result.app.innerHTML,
+    /aria-label="Show next project that needs attention, 2 total"/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /class="run-button review"[^>]*data-action="add-stop-command"[^>]*data-id="elsewhere"/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /class="run-button stop"[^>]*data-action="stop"[^>]*data-id="detected"/
+  );
+
+  result.evaluate('focusNextAttentionProject()');
+  assert.equal(result.evaluate('lastAttentionProjectId'), 'review');
+  result.evaluate('focusNextAttentionProject()');
+  assert.equal(result.evaluate('lastAttentionProjectId'), 'elsewhere');
+  assert.equal(result.projectRows[1].runButton.focusCount, 1);
+  assert.equal(result.searchStatus.textContent, 'Focused Running elsewhere.');
+
+  result.state.projects[1].stopCommand = 'docker compose down';
+  result.evaluate('renderList()');
+  assert.match(result.app.innerHTML, />Needs attention</);
+  assert.doesNotMatch(result.app.innerHTML, /Needs attention \(/);
+  assert.doesNotMatch(
+    result.app.innerHTML,
+    /data-action="add-stop-command"[^>]*data-id="elsewhere"/
+  );
+});
+
 test('Needs attention restarts cycling when a project is fixed', () => {
   const result = renderNonEmptyProjectList([
     sampleProject('alpha', 'Alpha', { reviewRequired: true }),
