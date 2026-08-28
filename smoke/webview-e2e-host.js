@@ -163,7 +163,7 @@ async function executeBrowserCommand(command, provider, root) {
     ]) {
       fs.mkdirSync(folder, { recursive: true });
     }
-    writeGalleryHttpServer(ready.lifecyclePath, 4310);
+    writeGalleryHttpServer(ready.lifecyclePath, [4310, 4312]);
     writeGalleryHttpServer(ready.importedPath, 4311);
     writeGalleryHttpServer(marketingPath, 4313);
     const storefront = upsertProject(provider.projectsFile, {
@@ -232,11 +232,10 @@ async function executeBrowserCommand(command, provider, root) {
       'Screenshot projects did not become running after start.',
       25000
     );
-    provider.toggleProjectPreview(storefront.project.id, 'open-services');
     provider.renderProjectList();
     return {
       projectId: storefront.project.id,
-      expandProjectId: storefront.project.id,
+      expandProjectName: storefront.project.name,
       projectIds: [storefront.project.id, orders.project.id],
       name: storefront.project.name,
       status: provider.getProjectStatus(storefront.project.id),
@@ -288,17 +287,21 @@ async function waitFor(predicate, message, timeoutMs = 10000) {
   assert.fail(message);
 }
 
-function writeGalleryHttpServer(folder, port) {
+function writeGalleryHttpServer(folder, ports) {
+  const normalizedPorts = Array.isArray(ports) ? ports : [ports];
   fs.writeFileSync(path.join(folder, 'server.js'), [
     "const fs = require('node:fs');",
     "const http = require('node:http');",
     "const path = require('node:path');",
     "const marker = path.join(__dirname, 'starts.txt');",
     "fs.appendFileSync(marker, `${process.pid}\\n`);",
-    'http.createServer((request, response) => {',
+    'const handler = (request, response) => {',
     "  response.writeHead(200, { 'Content-Type': 'text/plain' });",
     "  response.end('ok');",
-    '}).listen(' + port + ", '127.0.0.1');",
+    '};',
+    `for (const port of ${JSON.stringify(normalizedPorts)}) {`,
+    "  http.createServer(handler).listen(port, '127.0.0.1');",
+    '}',
     ''
   ].join('\n'));
 }

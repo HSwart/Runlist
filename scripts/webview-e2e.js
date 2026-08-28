@@ -178,6 +178,7 @@ async function captureIdeScreenshots(browser, ready, root, extensionDevelopmentP
   await hideWorkbenchChrome(page);
   await applyMarketplaceFonts(page, browser);
   await prepareGalleryHeroLayout(browser, root, seeded);
+  await scrollGalleryListTop(browser);
   await new Promise((resolve) => setTimeout(resolve, 500));
   await applyMarketplaceFonts(page, browser);
   // Prove the webview actually resolved RunlistInter before we shoot.
@@ -232,14 +233,35 @@ async function captureIdeScreenshots(browser, ready, root, extensionDevelopmentP
 }
 
 async function prepareGalleryHeroLayout(browser, root, seeded) {
-  if (seeded.expandProjectId) {
-    await hostCommand(root, 'expand-project-preview', {
-      projectId: seeded.expandProjectId,
-      focusAction: 'open-services'
-    }).catch(() => undefined);
-  }
+  await ensureProjectServicesExpanded(browser, 'Acme Storefront');
   await expandGroupsPanel(browser);
   await scrollGalleryListTop(browser);
+}
+
+async function ensureProjectServicesExpanded(browser, projectName) {
+  await attachVsCodeWebviewTargets(browser).catch(() => undefined);
+  const frames = browser.contexts()
+    .flatMap((context) => context.pages())
+    .flatMap((page) => page.frames());
+  const webview = await findRunlistFrame(frames);
+  if (!webview) {
+    return;
+  }
+  const row = webview.locator('.project-row').filter({
+    has: webview.getByRole('heading', { name: projectName })
+  });
+  const expand = row.locator('[data-action="open-services"]').first();
+  if (!await expand.count()) {
+    return;
+  }
+  const servicesTab = row.locator('[data-action="select-detail-tab"][data-tab="services"]').first();
+  if (await expand.getAttribute('aria-expanded') !== 'true') {
+    await expand.click({ timeout: 2000 }).catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 350));
+  } else if (await servicesTab.count() && await servicesTab.getAttribute('aria-selected') !== 'true') {
+    await servicesTab.click({ timeout: 2000 }).catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
 }
 
 async function expandGroupsPanel(browser) {
@@ -267,8 +289,13 @@ async function scrollGalleryListTop(browser) {
     return;
   }
   await webview.evaluate(() => {
-    document.getElementById('app')?.scrollTo(0, 0);
-    document.querySelector('.project-list')?.scrollIntoView({ block: 'start' });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    for (const element of document.querySelectorAll('*')) {
+      if (element.scrollTop > 0) {
+        element.scrollTop = 0;
+      }
+    }
   }).catch(() => undefined);
 }
 
@@ -290,25 +317,6 @@ async function captureSidebarClip(page, filePath) {
     }
   });
   fs.writeFileSync(filePath, Buffer.from(result.data, 'base64'));
-}
-
-async function expandFirstRunGroup(browser) {
-  await attachVsCodeWebviewTargets(browser).catch(() => undefined);
-  const frames = browser.contexts()
-    .flatMap((context) => context.pages())
-    .flatMap((page) => page.frames());
-  const webview = await findRunlistFrame(frames);
-  if (!webview) {
-    return;
-  }
-  const group = webview.locator('text=Groups').first();
-  if (await group.count()) {
-    await group.click({ timeout: 2000 }).catch(() => undefined);
-  }
-  const stack = webview.locator('text=Development stack').first();
-  if (await stack.count()) {
-    await stack.click({ timeout: 2000 }).catch(() => undefined);
-  }
 }
 
 async function assertMarketplaceFontApplied(browser) {
