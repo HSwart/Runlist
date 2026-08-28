@@ -187,18 +187,26 @@ async function captureIdeScreenshots(browser, ready, root, extensionDevelopmentP
   await captureRetinaPng(page, frameBPath);
   assert.ok(fs.statSync(frameBPath).size > 10000, 'Frame B IDE screenshot was unexpectedly small.');
 
-  const sidebarSourcePath = path.join(artifactDir, 'ide-gallery-sidebar-source.png');
-  await captureSidebarClip(page, sidebarSourcePath);
-  assert.ok(fs.statSync(sidebarSourcePath).size > 10000, 'Gallery sidebar source screenshot was unexpectedly small.');
+  await page.setViewportSize({ width: 1440, height: 1080 });
+  await hostCommand(root, 'prepare-screenshot');
+  await widenSidebar(page, 500);
+  await hideWorkbenchChrome(page);
+  await applyMarketplaceFonts(page, browser);
+  await prepareGalleryHeroLayout(browser, root, seeded);
+  await scrollGalleryListTop(browser);
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  await applyMarketplaceFonts(page, browser);
+
+  const heroSourcePath = path.join(artifactDir, 'ide-gallery-hero-source.png');
+  const heroFrame = await measureWorkbenchHeroFrame(page);
+  const heroCapture = await captureRetinaPng(page, heroSourcePath);
+  heroFrame.deviceScaleFactor = heroCapture.deviceScaleFactor;
+  assert.ok(fs.statSync(heroSourcePath).size > 10000, 'Gallery hero source screenshot was unexpectedly small.');
+  fs.writeFileSync(path.join(artifactDir, 'ide-gallery-hero-frame.json'), JSON.stringify(heroFrame, null, 2));
 
   const heroOutputPath = path.join(extensionDevelopmentPath, 'media', 'gallery-01-hero.png');
-  composeGalleryHero(sidebarSourcePath, heroOutputPath);
+  composeGalleryHero(heroSourcePath, heroOutputPath, heroFrame);
   fs.copyFileSync(heroOutputPath, path.join(artifactDir, 'gallery-01-hero.png'));
-
-  // Crop-friendly full-bleed still for Marketplace gallery stills.
-  const heroSourcePath = path.join(artifactDir, 'ide-gallery-hero-source.png');
-  await captureRetinaPng(page, heroSourcePath);
-  assert.ok(fs.statSync(heroSourcePath).size > 10000, 'Gallery hero source screenshot was unexpectedly small.');
 
   await shrinkSidebar(page, 300);
   await hideWorkbenchChrome(page);
@@ -234,7 +242,7 @@ async function captureIdeScreenshots(browser, ready, root, extensionDevelopmentP
 
 async function prepareGalleryHeroLayout(browser, root, seeded) {
   await ensureProjectServicesExpanded(browser, 'Acme Storefront');
-  await expandGroupsPanel(browser);
+  await collapseGroupsPanel(browser);
   await scrollGalleryListTop(browser);
 }
 
@@ -264,7 +272,7 @@ async function ensureProjectServicesExpanded(browser, projectName) {
   }
 }
 
-async function expandGroupsPanel(browser) {
+async function collapseGroupsPanel(browser) {
   await attachVsCodeWebviewTargets(browser).catch(() => undefined);
   const frames = browser.contexts()
     .flatMap((context) => context.pages())
@@ -274,9 +282,45 @@ async function expandGroupsPanel(browser) {
     return;
   }
   const toggle = webview.locator('[data-action="toggle-group-filter"]').first();
-  if (await toggle.count() && await toggle.getAttribute('aria-expanded') !== 'true') {
+  if (await toggle.count() && await toggle.getAttribute('aria-expanded') === 'true') {
     await toggle.click({ timeout: 2000 }).catch(() => undefined);
   }
+}
+
+async function measureWorkbenchHeroFrame(page, editorPeekWidth = 380) {
+  const readBox = async (selector) => {
+    const locator = page.locator(selector).first();
+    if (!await locator.count()) {
+      return undefined;
+    }
+    return locator.boundingBox();
+  };
+  const titlebar = await readBox('.part.titlebar');
+  const activitybar = await readBox('.part.activitybar');
+  const sidebar = await readBox('.part.sidebar');
+  const editor = await readBox('.part.editor');
+  assert.ok(sidebar, 'Could not locate VS Code sidebar for gallery hero framing.');
+  const left = activitybar?.x ?? sidebar.x;
+  const top = titlebar?.y ?? Math.min(
+    sidebar.y,
+    activitybar?.y ?? sidebar.y
+  );
+  const sidebarRight = sidebar.x + sidebar.width;
+  const editorSliceRight = editor
+    ? Math.min(editor.x + editorPeekWidth, editor.x + editor.width)
+    : sidebarRight + editorPeekWidth;
+  const width = Math.max(editorSliceRight - left, sidebarRight - left + 280);
+  const bottom = Math.max(
+    sidebar.y + sidebar.height,
+    editor ? editor.y + editor.height : 0,
+    activitybar ? activitybar.y + activitybar.height : 0
+  );
+  return {
+    x: left,
+    y: top,
+    width,
+    height: bottom - top
+  };
 }
 
 async function scrollGalleryListTop(browser) {
@@ -297,26 +341,6 @@ async function scrollGalleryListTop(browser) {
       }
     }
   }).catch(() => undefined);
-}
-
-async function captureSidebarClip(page, filePath) {
-  const sidebar = page.locator('.part.sidebar');
-  const box = await sidebar.boundingBox();
-  assert.ok(box, 'Could not measure the VS Code sidebar for gallery hero capture.');
-  const client = await page.context().newCDPSession(page);
-  const result = await client.send('Page.captureScreenshot', {
-    format: 'png',
-    fromSurface: true,
-    captureBeyondViewport: false,
-    clip: {
-      x: box.x,
-      y: box.y,
-      width: box.width,
-      height: box.height,
-      scale: 2
-    }
-  });
-  fs.writeFileSync(filePath, Buffer.from(result.data, 'base64'));
 }
 
 async function assertMarketplaceFontApplied(browser) {
@@ -481,6 +505,15 @@ async function captureRetinaPng(page, filePath) {
     }
   });
   fs.writeFileSync(filePath, Buffer.from(result.data, 'base64'));
+  const { imageSizeFromPng } = require('./png-size');
+  const pixelSize = imageSizeFromPng(filePath);
+  return {
+    cssWidth: metrics.width,
+    cssHeight: metrics.height,
+    pixelWidth: pixelSize.width,
+    pixelHeight: pixelSize.height,
+    deviceScaleFactor: pixelSize.width / metrics.width
+  };
 }
 
 async function waitForWorkbenchPage(browser) {
