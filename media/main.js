@@ -1271,7 +1271,9 @@ function renderList() {
               ? `${escapedConflictOwnerName} is using port :${conflict?.port || 'unknown'}.`
               : project.failureSummary?.kind === 'missing-required-env'
                 ? 'Add the missing environment variables, then try Start again.'
-                : '';
+                : projectStartFailureText(project)
+                  ? 'See recent output for details, then try Start again.'
+                  : '';
         const displayedStatus = projectDisplayedStatus(project);
         const startFailureText = projectStartFailureText(project);
         const stopFailureText = projectStopFailureText(project);
@@ -1349,7 +1351,9 @@ function renderList() {
                     ? icon('edit')
                     : primaryAction.action === 'relink-folder'
                       ? icon('folder')
-                      : productIcon(primaryAction.mode === 'stop' ? 'stop' : 'play')}
+                      : primaryAction.action === 'output'
+                        ? icon('terminal')
+                        : productIcon(primaryAction.mode === 'stop' ? 'stop' : 'play')}
                 </button>
                 ${canRestart ? `
                 <button class="run-button restart" data-action="restart" data-id="${projectId}" aria-label="Restart ${projectName}" title="Restart ${projectName}" ${transitioning ? 'disabled' : ''}>
@@ -1375,6 +1379,10 @@ function renderList() {
                   <button data-action="output" data-id="${projectId}" role="menuitem">
                     ${icon('terminal', 'menu-icon')}<span>View output</span>
                   </button>
+                  ${primaryAction.action === 'output' ? `
+                  <button data-action="start" data-id="${projectId}" role="menuitem" aria-label="Start ${projectName}" ${project.lifecycleBlocked || project.composeStartBlocked ? 'disabled' : ''} title="${project.lifecycleBlocked ? escapeHtml(project.lifecycleBlockedReason) : project.composeStartBlocked ? escapeHtml(project.composeStartBlockedReason || `Start is unavailable for ${projectName} until Docker is ready`) : `Start ${projectName}`}">
+                    ${icon('play', 'menu-icon')}<span>Start</span>
+                  </button>` : ''}
                   ${project.canAskAgent ? `
                   <button data-action="ask-agent" data-id="${projectId}" role="menuitem" aria-label="Ask your agent about ${projectName}">
                     ${icon('comment', 'menu-icon')}<span>Ask your agent</span>
