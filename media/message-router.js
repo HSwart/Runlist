@@ -13,7 +13,8 @@
     'projectMetrics',
     'projectOutput',
     'projectOutputPeek',
-    'restoreProjectMenuFocus'
+    'restoreProjectMenuFocus',
+    'restoreStopAllButton'
   ]);
   const WEBVIEW_COMMAND_TYPES = new Set([
     'approveProjectRepair',

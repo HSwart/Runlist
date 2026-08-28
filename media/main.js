@@ -3368,6 +3368,17 @@ const hostMessageHandlers = {
   restoreProjectMenuFocus: (message) => {
     closeMenus();
     document.querySelector(`.more-button[data-id="${CSS.escape(message.id)}"]`)?.focus();
+  },
+  restoreStopAllButton: () => {
+    const button = document.querySelector('.stop-all-button[data-action="stop-all"]');
+    if (!button || !(state.stopAllCount > 1)) {
+      return;
+    }
+    button.disabled = false;
+    button.innerHTML = `${productIcon('stop', 'bulk-stop-icon')}
+            Stop all (${state.stopAllCount})`;
+    button.setAttribute('aria-label', `Stop all ${state.stopAllCount} running projects`);
+    button.focus();
   }
 };
 

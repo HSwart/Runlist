@@ -28,6 +28,7 @@ const {
   serviceTimelineStages,
   stoppableProjectIds
 } = require('../lifecycle/project-status');
+const { confirmStopAllProjects } = require('../lifecycle/confirm-stop-all');
 const {
   readyOpenMessage,
   shouldOfferReadyOpen
@@ -5251,8 +5252,57 @@ class RunlistViewProvider {
     return choice === 'Run custom Stop';
   }
 
-  stopAllProjects() {
-    this.lifecycle.stopAll();
+  currentStoppableProjects() {
+    const ownership = this.processOwnership.snapshot();
+    const runtimeProjects = this.projects.map((project) => ({
+      ...projectStopStrategy(project, ownership.get(project.id)),
+      status: this.getProjectStatus(project.id)
+    }));
+    const ids = new Set(stoppableProjectIds(runtimeProjects));
+    return runtimeProjects.filter((project) => ids.has(project.id));
+  }
+
+  restoreStopAllButton() {
+    this.view?.webview.postMessage({
+      type: 'restoreStopAllButton',
+      messageToken: this.webviewMessageToken
+    });
+  }
+
+  async stopAllProjects() {
+    if (this.stopAllConfirmInFlight) {
+      return;
+    }
+    this.stopAllConfirmInFlight = true;
+    try {
+      const stoppable = this.currentStoppableProjects();
+      if (stoppable.length <= 1) {
+        this.focusTarget = { type: 'action', action: 'stop-all' };
+        this.restoreStopAllButton();
+        this.render();
+        return;
+      }
+      const confirmed = await confirmStopAllProjects({
+        projects: stoppable,
+        count: stoppable.length,
+        showWarningMessage: (...args) => vscode.window.showWarningMessage(...args)
+      });
+      if (!confirmed) {
+        this.focusTarget = { type: 'action', action: 'stop-all' };
+        this.restoreStopAllButton();
+        return;
+      }
+      const latest = this.currentStoppableProjects();
+      if (latest.length <= 1) {
+        this.focusTarget = { type: 'action', action: 'stop-all' };
+        this.restoreStopAllButton();
+        this.render();
+        return;
+      }
+      this.lifecycle.stopAll();
+    } finally {
+      this.stopAllConfirmInFlight = false;
+    }
   }
 
   render() {
