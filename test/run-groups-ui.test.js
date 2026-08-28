@@ -88,3 +88,33 @@ test('validates saveRunGroup and removeRunGroup webview payloads', () => {
   assert.equal(validateWebviewCommand({ type: 'removeRunGroup', id: 'group-1' })?.id, 'group-1');
   assert.equal(validateWebviewCommand({ type: 'removeRunGroup', id: '' }), undefined);
 });
+
+test('failed group rows offer Show project next to the progress text', () => {
+  assert.match(extension, /runGroupProgressState\(progress, readProjects\(this\.projectsFile\)\)/);
+  assert.match(extension, /webviewRunGroup\(/);
+  assert.match(extension, /pendingRevealProjectId: this\.pendingRevealProjectId/);
+  assert.match(extension, /revealGroupFailureProject\(id\)/);
+  assert.match(webview, /data-action="reveal-group-failure-project"/);
+  assert.match(webview, /function revealGroupFailureProject\(id\)/);
+  assert.match(
+    webview,
+    /function revealGroupFailureProject\(id\) \{[\s\S]*if \(row\.hidden\) \{\s*clearProjectFilters\(\);\s*\}/
+  );
+  assert.match(
+    webview,
+    /function revealGroupFailureProject\(id\) \{[\s\S]*\.run-button\[data-id=/
+  );
+  assert.match(webview, /'reveal-group-failure-project': \(\) => revealGroupFailureProject/);
+  assert.doesNotMatch(
+    webview.slice(
+      webview.indexOf('function revealGroupFailureProject'),
+      webview.indexOf('function runningAppRows')
+    ),
+    /type: '(?:startProject|stopProject|restartProject|forceCloseProjectPorts|startRunGroup|stopRunGroup)'/
+  );
+  assert.match(styles, /\.group-choice-actions \.group-choice-reveal/);
+  assert.match(
+    styles,
+    /@media \(max-width: 300px\) \{[\s\S]*\.group-choice-row \{[\s\S]*flex-wrap: wrap/
+  );
+});

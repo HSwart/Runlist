@@ -172,6 +172,9 @@ async function startRunGroup(group, options) {
     notify(options, {
       status: 'failed',
       project: projects.get(failedProjectId),
+      projectId: failedProjectId,
+      failedProjectId,
+      failedProjectIds: failedProjectId ? [failedProjectId] : [],
       reason: failureReason,
       rollbackFailures
     });
@@ -179,16 +182,25 @@ async function startRunGroup(group, options) {
       status: 'failed',
       startedProjectIds,
       failedProjectId,
+      failedProjectIds: failedProjectId ? [failedProjectId] : [],
       failureReason,
       rollbackFailures
     };
   } catch (error) {
     const rollbackFailures = await rollbackStartedProjects(startedProjectIds, options);
-    notify(options, { status: 'failed', reason: error.message, rollbackFailures });
+    notify(options, {
+      status: 'failed',
+      projectId: failedProjectId,
+      failedProjectId,
+      failedProjectIds: failedProjectId ? [failedProjectId] : [],
+      reason: error.message,
+      rollbackFailures
+    });
     return {
       status: 'failed',
       startedProjectIds,
       failedProjectId,
+      failedProjectIds: failedProjectId ? [failedProjectId] : [],
       failureReason: error.message,
       rollbackFailures
     };
@@ -205,7 +217,15 @@ async function startRunGroupInParallel(group, options, projects, startedProjectI
     const status = options.getStatus(projectId);
     const failureReason = parallelPreflightFailure(project, status);
     if (failureReason) {
-      notify(options, { status: 'failed', project, reason: failureReason, rollbackFailures: [] });
+      notify(options, {
+        status: 'failed',
+        project,
+        projectId,
+        failedProjectId: projectId,
+        failedProjectIds: [projectId],
+        reason: failureReason,
+        rollbackFailures: []
+      });
       return {
         status: 'failed',
         startedProjectIds,
@@ -275,9 +295,13 @@ async function startRunGroupInParallel(group, options, projects, startedProjectI
   const rollbackFailures = await rollbackStartedProjects(orderedStartedIds, options);
   const firstFailure = failures
     .sort((left, right) => group.projectIds.indexOf(left.projectId) - group.projectIds.indexOf(right.projectId))[0];
+  const failedProjectIds = failures.map((failure) => failure.projectId);
   notify(options, {
     status: 'failed',
     project: projects.get(firstFailure.projectId),
+    projectId: firstFailure.projectId,
+    failedProjectId: firstFailure.projectId,
+    failedProjectIds,
     reason: firstFailure.reason,
     rollbackFailures
   });
@@ -285,7 +309,7 @@ async function startRunGroupInParallel(group, options, projects, startedProjectI
     status: 'failed',
     startedProjectIds: orderedStartedIds,
     failedProjectId: firstFailure.projectId,
-    failedProjectIds: failures.map((failure) => failure.projectId),
+    failedProjectIds,
     failureReason: firstFailure.reason,
     rollbackFailures
   };
@@ -361,16 +385,20 @@ async function stopRunGroup(group, options) {
       }
     }
     const status = failedProjectIds.length || coordinationLost ? 'failed' : 'stopped';
+    const failedProjectId = group.projectIds.find((projectId) => failedProjectIds.includes(projectId))
+      || failedProjectIds[0];
     notify(options, {
       status,
       stoppedProjectIds,
       failedProjectIds,
+      ...(failedProjectId ? { failedProjectId, projectId: failedProjectId } : {}),
       ...(coordinationLost ? { reason: groupLeaseLostReason() } : {})
     });
     return {
       status,
       stoppedProjectIds,
       failedProjectIds,
+      ...(failedProjectId ? { failedProjectId } : {}),
       ...(coordinationLost ? { failureReason: groupLeaseLostReason() } : {})
     };
   } finally {
@@ -573,9 +601,125 @@ function notify(options, progress) {
   options.onProgress?.(progress);
 }
 
+function groupFailureReveal(progress, projects = []) {
+  if (!progress || progress.status !== 'failed') {
+    return undefined;
+  }
+  const failedIds = [];
+  if (progress.failedProjectId) {
+    failedIds.push(progress.failedProjectId);
+  }
+  if (progress.projectId) {
+    failedIds.push(progress.projectId);
+  }
+  if (progress.project?.id) {
+    failedIds.push(progress.project.id);
+  }
+  for (const id of progress.failedProjectIds || []) {
+    if (id) {
+      failedIds.push(id);
+    }
+  }
+  const uniqueFailedIds = [...new Set(failedIds)];
+  const saved = new Map((projects || []).map((project) => [project.id, project]));
+  const presentFailedIds = uniqueFailedIds.filter((id) => saved.has(id));
+  const failedProjectId = presentFailedIds[0];
+  if (!failedProjectId) {
+    return undefined;
+  }
+  return {
+    failedProjectId,
+    failedProjectName: saved.get(failedProjectId).name,
+    extraFailedCount: Math.max(0, presentFailedIds.length - 1)
+  };
+}
+
+function groupFailureMessage(progress, project, extraFailedCount = 0) {
+  if (progress?.reason) {
+    return extraFailedCount > 0
+      ? `${progress.reason} ${extraFailedCount + 1} projects did not finish.`
+      : progress.reason;
+  }
+  if (project) {
+    return extraFailedCount > 0
+      ? `Blocked by ${project.name} and ${extraFailedCount} more.`
+      : `Blocked by ${project.name}.`;
+  }
+  return 'The group could not complete safely.';
+}
+
+function runGroupProgressState(progress, projects = []) {
+  const project = progress.project
+    || projects.find((candidate) => candidate.id === progress.projectId);
+  const reveal = groupFailureReveal(progress, projects);
+  const states = {
+    starting: {
+      busy: true,
+      message: `Starting ${project?.name || 'project'} (${progress.index + 1}/${progress.total})…`
+    },
+    'starting-parallel': {
+      busy: true,
+      message: `Starting ${progress.eligibleTotal} project${progress.eligibleTotal === 1 ? '' : 's'} in parallel…`
+    },
+    'parallel-progress': {
+      busy: true,
+      message: `${progress.readyCount} of ${progress.eligibleTotal} ready in parallel…`
+    },
+    skipped: {
+      busy: true,
+      message: `${project?.name || 'Project'} is already running (${progress.index + 1}/${progress.total}).`
+    },
+    ready: {
+      busy: true,
+      message: `${project?.name || 'Project'} is ready (${progress.index + 1}/${progress.total}).`
+    },
+    'rolling-back': {
+      busy: true,
+      message: `Start failed. Stopping ${project?.name || 'a project'}…`
+    },
+    stopping: {
+      busy: true,
+      message: `Stopping ${project?.name || 'project'}…`
+    },
+    started: { busy: false, message: '' },
+    stopped: { busy: false, message: '' },
+    failed: {
+      busy: false,
+      message: groupFailureMessage(progress, project, reveal?.extraFailedCount || 0),
+      ...(reveal || {})
+    }
+  };
+  return states[progress.status] || {
+    busy: false,
+    message: 'The group could not complete safely.'
+  };
+}
+
+function webviewRunGroup(group, progress, projectsById, stoppableIds, lifecycleBlocked) {
+  const failedProjectId = progress?.failedProjectId && projectsById.has(progress.failedProjectId)
+    ? progress.failedProjectId
+    : undefined;
+  return {
+    ...group,
+    busy: progress?.busy === true,
+    canStop: group.projectIds.some((id) => stoppableIds.has(id)),
+    lifecycleBlocked: lifecycleBlocked === true,
+    memberNames: group.projectIds.map((id) => projectsById.get(id)?.name || 'Missing project'),
+    progress: progress?.message,
+    failedProjectId,
+    failedProjectName: failedProjectId
+      ? (progress.failedProjectName || projectsById.get(failedProjectId)?.name)
+      : undefined
+  };
+}
+
 module.exports = {
   RunGroupCoordinator,
+  groupFailureMessage,
+  groupFailureReveal,
   runGroupManagementWorkflow,
+  runGroupProgressState,
   startRunGroup,
-  stopRunGroup
+  stopRunGroup,
+  webviewRunGroup
 };

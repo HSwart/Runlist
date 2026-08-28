@@ -6,7 +6,7 @@ const {
 } = require('./project-process');
 const { stoppableProjectIds } = require('./project-status');
 const { readProjects } = require('../projects/project-store');
-const { startRunGroup, stopRunGroup } = require('../groups/run-groups');
+const { groupFailureReveal, startRunGroup, stopRunGroup } = require('../groups/run-groups');
 
 /**
  * Owns lifecycle transition ordering. The view provider remains the adapter for
@@ -95,8 +95,9 @@ class ProjectLifecycleCoordinator {
       const rollbackWarning = result.rollbackFailures?.length
         ? ' Some processes could not be confirmed stopped.'
         : '';
-      this.showErrorMessage(
-        `${group.name} stopped at ${failedProject?.name || 'a missing project'}. ${result.failureReason}${rollbackWarning}`
+      this.offerGroupFailureReveal(
+        `${group.name} stopped at ${failedProject?.name || 'a missing project'}. ${result.failureReason}${rollbackWarning}`,
+        result
       );
     }
     return result.status === 'started';
@@ -136,13 +137,29 @@ class ProjectLifecycleCoordinator {
       this.showWarningMessage(`${group.name} is already starting or stopping in another VS Code window.`);
       this.host.renderProjectList();
     } else if (result.status === 'failed') {
-      this.showErrorMessage(
+      this.offerGroupFailureReveal(
         result.failureReason
           ? `Could not finish stopping ${group.name}: ${result.failureReason}`
-          : `Runlist could not confirm that every owned process in ${group.name} stopped.`
+          : `Runlist could not confirm that every owned process in ${group.name} stopped.`,
+        result
       );
     }
     return result.status === 'stopped';
+  }
+
+  offerGroupFailureReveal(message, result) {
+    const projects = this.host.projects || [];
+    const reveal = groupFailureReveal({
+      status: result.status,
+      failedProjectId: result.failedProjectId,
+      failedProjectIds: result.failedProjectIds
+    }, projects);
+    const actions = reveal ? ['Show project'] : [];
+    void Promise.resolve(this.showErrorMessage(message, ...actions)).then((choice) => {
+      if (choice === 'Show project' && reveal) {
+        this.host.revealGroupFailureProject?.(reveal.failedProjectId);
+      }
+    });
   }
 
   async waitUntilReady(id) {

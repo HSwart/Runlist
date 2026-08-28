@@ -237,3 +237,43 @@ test('cancels temporary service verification when its exact launch changes', asy
   ), false);
   assert.equal(checks, 1);
 });
+
+test('offers Show project on a group failure toast without starting or stopping', async () => {
+  const revealed = [];
+  const errors = [];
+  const lifecycle = new ProjectLifecycleCoordinator({
+    projects: [{ id: 'api', name: 'API' }],
+    revealGroupFailureProject(id) { revealed.push(id); }
+  }, {
+    showErrorMessage: async (message, ...actions) => {
+      errors.push({ message, actions });
+      return actions[0];
+    }
+  });
+
+  lifecycle.offerGroupFailureReveal('Daily stopped at API.', {
+    status: 'failed',
+    failedProjectId: 'api'
+  });
+  await Promise.resolve();
+
+  assert.deepEqual(errors, [{
+    message: 'Daily stopped at API.',
+    actions: ['Show project']
+  }]);
+  assert.deepEqual(revealed, ['api']);
+
+  errors.length = 0;
+  revealed.length = 0;
+  lifecycle.offerGroupFailureReveal('Daily could not finish.', {
+    status: 'failed',
+    failedProjectId: 'gone'
+  });
+  await Promise.resolve();
+
+  assert.deepEqual(errors, [{
+    message: 'Daily could not finish.',
+    actions: []
+  }]);
+  assert.deepEqual(revealed, []);
+});

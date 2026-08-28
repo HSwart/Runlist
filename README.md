@@ -70,7 +70,7 @@ Named local hostnames are for this machine. Phone handoff is for devices on the 
 
 - **Launch profiles** — keep alternate start commands, stop commands, and services for the same project
 - **Tags** — label apps and filter the list down to what you need right now
-- **Groups** — start related apps together, in order or in parallel, and stop them as a set
+- **Groups** — start related apps together, in order or in parallel, and stop them as a set. If one project blocks the group, **Show project** takes you to that row
 - **More menu (⋯)** — Set Up Agents, Import or Export, Load stack, Manage groups, What’s Listening, and support info
 
 ## Bring a whole stack into the sidebar
