@@ -65,6 +65,8 @@ function renderNonEmptyProjectList(projects = [{
   elements.set('summary-status', inertElement());
   elements.set('project-search-status', inertElement());
   elements.set('project-lifecycle-status', inertElement());
+  const attentionSlot = inertElement();
+  elements.set('summary-attention-slot', attentionSlot);
   const searchEmpty = inertElement();
   searchEmpty.hidden = true;
   const projectRows = [];
@@ -74,6 +76,13 @@ function renderNonEmptyProjectList(projects = [{
       const row = inertElement();
       row.dataset = { projectId: String(project.id) };
       row.hidden = false;
+      row.scrollIntoViewCalls = [];
+      row.scrollIntoView = (options) => {
+        row.scrollIntoViewCalls.push(options);
+      };
+      const runButton = inertElement();
+      runButton.dataset = { id: String(project.id) };
+      row.runButton = runButton;
       projectRows.push(row);
     }
   };
@@ -151,6 +160,14 @@ function renderNonEmptyProjectList(projects = [{
       }
       if (selector === '[data-search-empty]') {
         return searchEmpty;
+      }
+      const rowId = selector.match(/^\.project-row\[data-project-id="([^"]*)"\]$/)?.[1];
+      if (rowId) {
+        return projectRows.find((row) => row.dataset.projectId === rowId);
+      }
+      const runButtonId = selector.match(/^\.run-button\[data-id="([^"]*)"\]$/)?.[1];
+      if (runButtonId) {
+        return projectRows.find((row) => row.dataset.projectId === runButtonId)?.runButton;
       }
       return undefined;
     },
@@ -302,6 +319,7 @@ function renderNonEmptyProjectList(projects = [{
     searchEmpty,
     searchInput: elements.get('project-search'),
     searchStatus: elements.get('project-search-status'),
+    attentionSlot,
     setOutputSlot(project) {
       outputSlotVisible = Boolean(project);
       if (project) {
@@ -1869,6 +1887,106 @@ test('unfiltered empty project list does not show search-empty', () => {
   assert.doesNotMatch(result.app.innerHTML, /data-search-empty/);
   assert.doesNotMatch(result.app.innerHTML, /data-action="clear-filters"/);
   assert.doesNotMatch(result.app.innerHTML, /No matching projects/);
+});
+
+test('Needs attention shows a count and cycles visible rows', () => {
+  const result = renderNonEmptyProjectList([
+    sampleProject('alpha', 'Alpha', { reviewRequired: true }),
+    sampleProject('beta', 'Beta', { status: 'port-in-use' }),
+    sampleProject('gamma', 'Gamma', { status: 'not-responding' }),
+    sampleProject('idle', 'Idle')
+  ]);
+
+  assert.match(result.app.innerHTML, />Needs attention \(3\)</);
+  assert.match(
+    result.app.innerHTML,
+    /aria-label="Show next project that needs attention, 3 total"/
+  );
+  assert.match(result.app.innerHTML, /<span id="summary-status" class="summary-status">/);
+  assert.doesNotMatch(result.app.innerHTML, /summary-status"[\s\S]{0,200}Needs attention/);
+
+  result.evaluate('focusNextAttentionProject()');
+  assert.equal(result.evaluate('lastAttentionProjectId'), 'alpha');
+  assert.equal(result.projectRows[0].runButton.focusCount, 1);
+  assert.equal(result.projectRows[0].scrollIntoViewCalls.length, 1);
+  assert.equal(result.projectRows[0].scrollIntoViewCalls[0].block, 'nearest');
+  assert.equal(result.searchStatus.textContent, 'Focused Alpha.');
+
+  result.evaluate('focusNextAttentionProject()');
+  assert.equal(result.evaluate('lastAttentionProjectId'), 'beta');
+  result.evaluate('focusNextAttentionProject()');
+  assert.equal(result.evaluate('lastAttentionProjectId'), 'gamma');
+  result.evaluate('focusNextAttentionProject()');
+  assert.equal(result.evaluate('lastAttentionProjectId'), 'alpha');
+  assert.equal(result.savedStates.at(-1)?.lastAttentionProjectId, 'alpha');
+});
+
+test('Needs attention skips hidden rows and omits a count for a single match', () => {
+  const result = renderNonEmptyProjectList([
+    sampleProject('alpha', 'Alpha', { reviewRequired: true, tags: ['keep'] }),
+    sampleProject('beta', 'Beta', { status: 'port-in-use', tags: ['other'] }),
+    sampleProject('gamma', 'Gamma', { status: 'not-responding', tags: ['keep'] })
+  ], {
+    stateOverrides: {
+      tags: ['keep', 'other']
+    }
+  });
+
+  result.evaluate(`
+    selectedTagFilter = 'keep';
+    applyProjectFilter(searchQuery);
+  `);
+
+  assert.deepEqual(result.projectRows.map((row) => row.hidden), [false, true, false]);
+  assert.match(result.attentionSlot.innerHTML, />Needs attention \(2\)</);
+  assert.equal(
+    result.evaluate('nextAttentionProject(state.projects, "", attentionRowIsVisible).id'),
+    'alpha'
+  );
+  assert.equal(
+    result.evaluate('nextAttentionProject(state.projects, "alpha", attentionRowIsVisible).id'),
+    'gamma'
+  );
+  assert.equal(
+    result.evaluate('nextAttentionProject(state.projects, "gamma", attentionRowIsVisible).id'),
+    'alpha'
+  );
+
+  result.evaluate('focusNextAttentionProject()');
+  assert.equal(result.evaluate('lastAttentionProjectId'), 'alpha');
+  result.evaluate('focusNextAttentionProject()');
+  assert.equal(result.evaluate('lastAttentionProjectId'), 'gamma');
+
+  result.evaluate(`
+    selectedTagFilter = 'other';
+    applyProjectFilter(searchQuery);
+  `);
+  assert.match(result.attentionSlot.innerHTML, />Needs attention</);
+  assert.doesNotMatch(result.attentionSlot.innerHTML, /Needs attention \(/);
+  assert.match(
+    result.attentionSlot.innerHTML,
+    /aria-label="Focus first project that needs attention"/
+  );
+});
+
+test('Needs attention restarts cycling when a project is fixed', () => {
+  const result = renderNonEmptyProjectList([
+    sampleProject('alpha', 'Alpha', { reviewRequired: true }),
+    sampleProject('beta', 'Beta', { status: 'port-in-use' }),
+    sampleProject('gamma', 'Gamma', { status: 'not-responding' })
+  ]);
+
+  result.evaluate('focusNextAttentionProject()');
+  result.evaluate('focusNextAttentionProject()');
+  assert.equal(result.evaluate('lastAttentionProjectId'), 'beta');
+
+  result.state.projects[1].status = 'stopped';
+  result.evaluate('renderList()');
+  assert.match(result.app.innerHTML, />Needs attention \(2\)</);
+
+  result.evaluate('focusNextAttentionProject()');
+  assert.equal(result.evaluate('lastAttentionProjectId'), 'alpha');
+  assert.equal(result.searchStatus.textContent, 'Focused Alpha.');
 });
 
 test('typing in search does not announce the Clear filters recovery message', () => {
