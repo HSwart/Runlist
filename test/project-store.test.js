@@ -278,6 +278,66 @@ test('manual Add cannot overwrite an existing project with the same folder', (t)
   assert.equal(readProjects(projectsFile)[0].startCommand, 'npm start');
 });
 
+test('rejects relinking an existing project onto another saved folder', (t) => {
+  const { temporaryRoot, projectFolder, projectsFile } = projectStoreFixture(t);
+  const otherFolder = path.join(temporaryRoot, 'other-app');
+  fs.mkdirSync(otherFolder);
+  upsertProject(projectsFile, {
+    name: 'First',
+    folder: projectFolder,
+    startCommand: 'npm start',
+    services: []
+  }, { reviewRequired: false });
+  const second = upsertProject(projectsFile, {
+    name: 'Second',
+    folder: otherFolder,
+    startCommand: 'npm run dev',
+    stopCommand: 'docker compose down',
+    services: [{ name: 'web', port: 3000, url: '' }]
+  }, { reviewRequired: false }).project;
+  const expected = readProjects(projectsFile).find((project) => project.id === second.id);
+
+  assert.throws(() => upsertProject(projectsFile, {
+    ...expected,
+    folder: projectFolder
+  }, {
+    expectedProject: expected,
+    reviewRequired: expected.reviewRequired
+  }), (error) => error.code === 'FOLDER_IN_USE'
+    && error.message === 'That folder is already saved as First.');
+  const unchanged = readProjects(projectsFile).find((project) => project.id === second.id);
+  assert.equal(unchanged.folder, expected.folder);
+  assert.equal(unchanged.startCommand, 'npm run dev');
+  assert.equal(unchanged.stopCommand, 'docker compose down');
+});
+
+test('relinking an existing project updates only the folder', (t) => {
+  const { temporaryRoot, projectFolder, projectsFile } = projectStoreFixture(t);
+  const movedFolder = path.join(temporaryRoot, 'moved-app');
+  fs.mkdirSync(movedFolder);
+  const created = upsertProject(projectsFile, {
+    name: 'App',
+    folder: projectFolder,
+    startCommand: 'npm run dev',
+    stopCommand: 'docker compose down',
+    services: [{ name: 'web', port: 3000, url: '' }]
+  }, { reviewRequired: false }).project;
+  const expected = readProjects(projectsFile).find((project) => project.id === created.id);
+  const updated = upsertProject(projectsFile, {
+    ...expected,
+    folder: movedFolder
+  }, {
+    expectedProject: expected,
+    reviewRequired: expected.reviewRequired
+  }).project;
+
+  assert.equal(updated.folder, fs.realpathSync(movedFolder));
+  assert.equal(updated.name, 'App');
+  assert.equal(updated.startCommand, 'npm run dev');
+  assert.equal(updated.stopCommand, 'docker compose down');
+  assert.deepEqual(updated.services, expected.services);
+});
+
 test('identifies a store lock after its PID is reused by another process identity', () => {
   assert.equal(projectStoreLockRecordIsAbandoned({
     pid: 2147483646,

@@ -29,6 +29,10 @@ const {
   stoppableProjectIds
 } = require('../lifecycle/project-status');
 const {
+  readyOpenMessage,
+  shouldOfferReadyOpen
+} = require('../lifecycle/ready-open-offer');
+const {
   copyProjectPath: writeProjectPathToClipboard,
   openProjectInNewWindow,
   openProjectTerminal,
@@ -118,6 +122,7 @@ const {
   exampleEnvAdvisoryMissing,
   formatEnvPresenceWarnings,
   missingRequiredEnvKeys,
+  MISSING_REQUIRED_ENV_FAILURE_KIND,
   resolveExplicitRequiredEnvKeys
 } = require('../projects/required-env');
 const { detectRuntimeDrift } = require('../projects/runtime-drift');
@@ -276,6 +281,7 @@ class RunlistViewProvider {
     this.searchSelectionEnd = 0;
     this.searchFocused = false;
     this.draft = {};
+    this.draftStartCommandNotice = undefined;
     this.formBaseline = {};
     this.formProjectSnapshot = undefined;
     this.formErrors = {};
@@ -363,6 +369,9 @@ class RunlistViewProvider {
     this.projectTimelineFailures = new Map();
     this.startReadinessDeadlines = new Map();
     this.readinessWarnings = new Set();
+    this.readyOpenOffered = new Map();
+    this.readyOpenPending = new Map();
+    this.readyOpenOpened = new Map();
     this.restartingProjectIds = new Set();
     this.handoffProjectIds = new Set();
     this.forceClosingProjectIds = new Set();
@@ -422,7 +431,7 @@ class RunlistViewProvider {
     );
   }
 
-  async selectPreferredWorkspaceFolder(folder) {
+  async selectPreferredWorkspaceFolder(folder, draft) {
     const resolved = resolveWorkspaceFolderPath(
       vscode.workspace.workspaceFolders,
       folder
@@ -434,7 +443,10 @@ class RunlistViewProvider {
     }
     this.preferredWorkspaceFolder = resolved;
     if (['add', 'edit'].includes(this.mode)) {
-      this.draft = { ...this.draft, folder: resolved };
+      const incomingDraft = draft && typeof draft === 'object' && !Array.isArray(draft)
+        ? draft
+        : {};
+      this.draft = { ...this.draft, ...incomingDraft, folder: resolved };
       this.formErrors = {};
       this.focusTarget = { type: 'field', id: 'start-command' };
     } else {
@@ -761,6 +773,44 @@ class RunlistViewProvider {
     this.focusTarget = { type: 'project-control', id: project.id };
     this.render();
     return this.startProject(project.id);
+  }
+
+  async useDraftStartScript(scriptName, draft = {}) {
+    if (this.mode !== 'add') {
+      return false;
+    }
+    if (draft && typeof draft === 'object' && !Array.isArray(draft)) {
+      this.draft = { ...this.draft, ...draft };
+    }
+    const chip = workspaceStartDevScripts(String(this.draft.folder || ''))
+      .find((script) => script.name === scriptName);
+    if (!chip) {
+      this.draftStartCommandNotice = undefined;
+      this.render();
+      return false;
+    }
+    const editingId = String(
+      this.draft.editingLaunchProfileId
+      || this.draft.selectedLaunchProfileId
+      || 'default'
+    );
+    if (editingId === 'default') {
+      this.draft = { ...this.draft, startCommand: chip.startCommand };
+    } else {
+      this.draft = {
+        ...this.draft,
+        launchProfiles: (Array.isArray(this.draft.launchProfiles) ? this.draft.launchProfiles : [])
+          .map((profile) => (
+            String(profile?.id) === editingId
+              ? { ...profile, startCommand: chip.startCommand }
+              : profile
+          ))
+      };
+    }
+    this.draftStartCommandNotice = `Start command set to ${chip.startCommand}.`;
+    this.focusTarget = { type: 'field', id: 'start-command', caret: 'end' };
+    this.render();
+    return true;
   }
 
   async showProjectTransfer() {
@@ -1218,7 +1268,10 @@ class RunlistViewProvider {
     return {
       title,
       message: message || 'Start failed',
-      ...(summary.outcome ? { outcome: summary.outcome } : {})
+      ...(summary.outcome ? { outcome: summary.outcome } : {}),
+      ...(summary.kind === MISSING_REQUIRED_ENV_FAILURE_KIND
+        ? { kind: MISSING_REQUIRED_ENV_FAILURE_KIND }
+        : {})
     };
   }
 
@@ -1850,6 +1903,7 @@ class RunlistViewProvider {
           metadata.readyAt = readyAt;
         }
       }
+      void this.offerReadyOpenNotifications(projects, processRuntime);
       if (changed) {
         this.renderProjectList();
       }
@@ -1959,7 +2013,7 @@ class RunlistViewProvider {
     this.render();
   }
 
-  showEditProject(id) {
+  showEditProject(id, options = {}) {
     const project = this.projects.find((item) => item.id === id);
     if (!project) {
       return;
@@ -1973,7 +2027,25 @@ class RunlistViewProvider {
     this.formBaseline = projectFormValues(project);
     this.formProjectSnapshot = JSON.parse(JSON.stringify(project));
     this.formErrors = {};
-    this.focusTarget = { type: 'field', id: project.reviewRequired ? 'start-command' : 'project-name' };
+    const requestedFocus = typeof options.focusTarget === 'string'
+      ? options.focusTarget.trim()
+      : (!project.reviewRequired && options.focusField === 'stop-command'
+        ? 'stop-command'
+        : '');
+    const allowedFocusFields = new Set([
+      'project-name',
+      'local-hostname',
+      'folder',
+      'start-command',
+      'stop-command',
+      'env-file',
+      'env-map'
+    ]);
+    const defaultFocus = project.reviewRequired ? 'start-command' : 'project-name';
+    this.focusTarget = {
+      type: 'field',
+      id: allowedFocusFields.has(requestedFocus) ? requestedFocus : defaultFocus
+    };
     this.returnFocus = { type: 'project-menu', id };
     this.render();
   }
@@ -2213,6 +2285,97 @@ class RunlistViewProvider {
       appendStartupHistory(this.projectsFile, id, entry);
     } catch {
       // Startup history is optional and must never affect project lifecycle actions.
+    }
+  }
+
+  readyOpenGeneration(id) {
+    this.ensureReadyOpenState();
+    return this.projectRuntime.get(id)?.token
+      || this.processOwnership.snapshot().get(id)?.token;
+  }
+
+  ensureReadyOpenState() {
+    if (!(this.readyOpenOffered instanceof Map)) {
+      this.readyOpenOffered = new Map();
+    }
+    if (!(this.readyOpenPending instanceof Map)) {
+      this.readyOpenPending = new Map();
+    }
+    if (!(this.readyOpenOpened instanceof Map)) {
+      this.readyOpenOpened = new Map();
+    }
+  }
+
+  noteReadyOpenOpened(id) {
+    this.ensureReadyOpenState();
+    const generation = this.readyOpenGeneration(id);
+    if (!generation) {
+      return;
+    }
+    this.readyOpenOpened.set(id, generation);
+  }
+
+  offerReadyOpenNotifications(projects, processRuntime) {
+    this.ensureReadyOpenState();
+    if (this.disposed) {
+      return Promise.resolve();
+    }
+    const offers = [];
+    for (const savedProject of projects || []) {
+      const ownership = processRuntime?.get(savedProject.id);
+      const project = projectStopStrategy(savedProject, ownership);
+      if (!project) {
+        continue;
+      }
+      const status = this.getProjectStatus(project.id);
+      const previewService = projectPreviewService(
+        project,
+        status,
+        this.projectServiceUrls.get(project.id),
+        this.projectPortConflicts.has(project.id)
+      );
+      const generation = ownership?.token;
+      const locallyOwned = this.processes.has(project.id)
+        && Boolean(generation)
+        && ownership?.ownerAvailable !== false;
+      if (!shouldOfferReadyOpen({
+        status,
+        previewUrl: previewService?.url,
+        locallyOwned,
+        alreadyOpened: this.readyOpenOpened.get(project.id) === generation,
+        generation,
+        offeredGeneration: this.readyOpenOffered.get(project.id),
+        pending: this.readyOpenPending.get(project.id) === generation
+      })) {
+        continue;
+      }
+      this.readyOpenOffered.set(project.id, generation);
+      this.readyOpenPending.set(project.id, generation);
+      offers.push(this.showReadyOpenOffer(project, generation));
+    }
+    return Promise.all(offers);
+  }
+
+  async showReadyOpenOffer(project, generation) {
+    try {
+      if (this.disposed) {
+        return;
+      }
+      const choice = await vscode.window.showInformationMessage(
+        readyOpenMessage(project.name),
+        'Open'
+      );
+      if (this.disposed) {
+        return;
+      }
+      if (choice === 'Open') {
+        this.noteReadyOpenOpened(project.id);
+        await this.openProject(project.id);
+      }
+    } finally {
+      if (this.readyOpenPending.get(project.id) === generation) {
+        this.readyOpenPending.delete(project.id);
+      }
     }
   }
 
@@ -2548,6 +2711,7 @@ class RunlistViewProvider {
       await this.refreshProjectStatuses();
       return;
     }
+    this.noteReadyOpenOpened(id);
     const opened = await vscode.env.openExternal(vscode.Uri.parse(reachable.url));
     if (!opened) {
       vscode.window.showErrorMessage(`Could not open ${project.name} at ${reachable.url}.`);
@@ -2605,6 +2769,7 @@ class RunlistViewProvider {
       await this.refreshProjectStatuses();
       return;
     }
+    this.noteReadyOpenOpened(id);
     const opened = await vscode.env.openExternal(vscode.Uri.parse(reachable.url));
     if (!opened) {
       vscode.window.showErrorMessage(`Could not open ${service.name} at ${reachable.url}.`);
@@ -2643,6 +2808,7 @@ class RunlistViewProvider {
       return;
     }
 
+    this.noteReadyOpenOpened(id);
     await vscode.env.clipboard.writeText(phoneHandoff.url);
     vscode.window.showInformationMessage('Copied phone URL.');
   }
@@ -2666,8 +2832,18 @@ class RunlistViewProvider {
       return;
     }
 
-    if (this.expandedPreviewProjectId === id
-      && (!previewService || this.expandedPreviewServicePort === previewService.port)) {
+    const phoneHandoffFocus = focusAction === 'focus-phone-handoff';
+    if (phoneHandoffFocus) {
+      this.noteReadyOpenOpened(id);
+    }
+    const alreadyExpanded = this.expandedPreviewProjectId === id
+      && (!previewService || this.expandedPreviewServicePort === previewService.port);
+    if (alreadyExpanded && phoneHandoffFocus) {
+      this.focusTarget = { type: 'action', action: focusAction, id };
+      this.renderProjectList();
+      return;
+    }
+    if (alreadyExpanded) {
       this.expandedPreviewProjectId = undefined;
       this.expandedPreviewServicePort = undefined;
     } else {
@@ -2806,11 +2982,14 @@ class RunlistViewProvider {
     }
 
     if (!projectFolderIsAccessible(fs, project.folder)) {
+      const canRelink = !project.reviewRequired && !isComposeManagedProject(project);
       const selection = await vscode.window.showErrorMessage(
         `Could not open a terminal for ${project.name}: its saved folder is missing or inaccessible.`,
-        'Edit project'
+        ...(canRelink ? ['Choose folder', 'Edit project'] : ['Edit project'])
       );
-      if (selection === 'Edit project') {
+      if (selection === 'Choose folder') {
+        await this.relinkProjectFolder(id);
+      } else if (selection === 'Edit project') {
         this.showEditProject(id);
       } else {
         this.focusTarget = { type: 'project-menu', id };
@@ -2843,6 +3022,117 @@ class RunlistViewProvider {
       this.focusTarget = { type: 'project-menu', id };
       this.renderProjectList();
     }
+  }
+
+  projectFolderRelinkBlocked(project, id) {
+    if (!project || project.reviewRequired || isComposeManagedProject(project)) {
+      return true;
+    }
+    if (this.forceClosingProjectIds.has(id)
+      || this.handoffProjectIds.has(id)
+      || this.processes.has(id)
+      || this.startAttempts.has(id)
+      || this.stoppingProjectIds.has(id)) {
+      return true;
+    }
+    return ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active', 'stopping']
+      .includes(this.getProjectStatus(id));
+  }
+
+  async relinkProjectFolder(id) {
+    const project = this.projects.find((item) => item.id === id);
+    if (!project) {
+      return false;
+    }
+    if (project.reviewRequired) {
+      vscode.window.showWarningMessage(
+        `Review and approve ${project.name}'s setup before changing its folder.`
+      );
+      this.showEditProject(id);
+      return false;
+    }
+    if (isComposeManagedProject(project)) {
+      vscode.window.showWarningMessage(
+        `Edit ${project.name} to update its folder. Choosing a new folder here would leave its Compose file pointing at the old location.`
+      );
+      this.focusTarget = { type: 'project-menu', id };
+      this.renderProjectList();
+      return false;
+    }
+    if (this.projectFolderRelinkBlocked(project, id)) {
+      vscode.window.showWarningMessage(`Stop ${project.name} before choosing a new folder.`);
+      this.focusTarget = { type: 'project-control', id };
+      this.renderProjectList();
+      return false;
+    }
+
+    const selection = await vscode.window.showOpenDialog({
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      openLabel: 'Use this folder'
+    });
+    if (!selection?.[0]) {
+      this.focusTarget = { type: 'project-control', id };
+      this.renderProjectList();
+      return false;
+    }
+
+    const pickedFolder = selection[0].fsPath;
+    if (!projectFolderIsAccessible(fs, pickedFolder)) {
+      vscode.window.showErrorMessage('Runlist could not use that folder.');
+      this.focusTarget = { type: 'project-control', id };
+      this.renderProjectList();
+      return false;
+    }
+
+    const latestBeforeSave = this.projects.find((item) => item.id === id);
+    if (!latestBeforeSave) {
+      vscode.window.showErrorMessage(`Could not update ${project.name}: it is no longer saved.`);
+      this.renderProjectList();
+      return false;
+    }
+    if (this.projectFolderRelinkBlocked(latestBeforeSave, id)
+      || JSON.stringify(latestBeforeSave) !== JSON.stringify(project)) {
+      vscode.window.showWarningMessage(
+        latestBeforeSave && JSON.stringify(latestBeforeSave) !== JSON.stringify(project)
+          ? `${project.name} changed in another VS Code window. Nothing was updated.`
+          : `Stop ${project.name} before choosing a new folder.`
+      );
+      this.focusTarget = { type: 'project-control', id };
+      this.renderProjectList();
+      return false;
+    }
+
+    try {
+      await withProjectStoreLockAsync(this.projectsFile, () => {
+        upsertProject(this.projectsFile, {
+          ...project,
+          folder: pickedFolder
+        }, {
+          allowStoredName: true,
+          expectedProject: project,
+          lockHeld: true,
+          reviewRequired: project.reviewRequired
+        });
+      });
+    } catch (error) {
+      const message = error?.code === 'FOLDER_IN_USE'
+        ? error.message
+        : error?.code === 'STALE_PROJECT'
+          ? `${project.name} changed in another VS Code window. Nothing was updated.`
+          : /does not exist or is not a directory/i.test(String(error?.message || ''))
+            ? 'Runlist could not use that folder.'
+            : (error?.message || 'Could not update this project.');
+      vscode.window.showErrorMessage(message);
+      this.focusTarget = { type: 'project-control', id };
+      this.renderProjectList();
+      return false;
+    }
+
+    this.focusTarget = { type: 'project-control', id };
+    this.renderProjectList();
+    return true;
   }
 
   async toggleProjectPin(id) {
@@ -3291,6 +3581,12 @@ class RunlistViewProvider {
       this.showEditProject(id);
       return false;
     }
+    if (!projectFolderIsAccessible(fs, project.folder)) {
+      vscode.window.showErrorMessage(
+        `Could not start ${project.name} because its folder is missing.`
+      );
+      return false;
+    }
 
     if (isComposeManagedProject(project)) {
       const availability = await probeComposeAvailability();
@@ -3332,6 +3628,13 @@ class RunlistViewProvider {
       this.processOwnership.release(id);
       vscode.window.showWarningMessage(`Review and approve ${project.name}'s setup before running its commands.`);
       this.showEditProject(id);
+      return false;
+    }
+    if (!projectFolderIsAccessible(fs, project.folder)) {
+      this.processOwnership.release(id);
+      vscode.window.showErrorMessage(
+        `Could not start ${project.name} because its folder is missing.`
+      );
       return false;
     }
 
@@ -3552,6 +3855,7 @@ class RunlistViewProvider {
           this.projectAttemptMetadata.delete(id);
           this.showStartFailure(project, {
             detail: `Missing required environment variables for this launch profile: ${requiredMissing.join(', ')}.`,
+            failureKind: MISSING_REQUIRED_ENV_FAILURE_KIND,
             projectRevision: savedProjectRevision
           });
           this.renderProjectList();
@@ -5117,6 +5421,7 @@ class RunlistViewProvider {
           project.folder,
           vscode.workspace.workspaceFolders
         ),
+        folderAccessible: projectFolderIsAccessible(fs, project.folder),
         openPorts,
         portConflict: this.projectPortConflicts.get(project.id),
         listenerOwner: this.projectListenerOwners.get(project.id),
@@ -5225,6 +5530,12 @@ class RunlistViewProvider {
       workspaceStartScripts: workspaceStartDevScripts(
         this.workspaceRoot() || ''
       ),
+      draftStartScripts: this.mode === 'add'
+        ? workspaceStartDevScripts(String(this.draft?.folder || ''))
+        : [],
+      draftStartCommandNotice: this.mode === 'add'
+        ? this.draftStartCommandNotice
+        : undefined,
       stackContractPending: this.stackContractPendingForEmptyState(),
       focusTarget: this.focusTarget || this.lastFocusTarget,
       formErrors: this.formErrors,
@@ -5316,6 +5627,7 @@ class RunlistViewProvider {
         </body>
       </html>`;
     this.focusTarget = undefined;
+    this.draftStartCommandNotice = undefined;
     this.syncResourceSampling(expandedPreview?.id);
     this.syncHttpResponsePulseTarget(
       expandedPreview?.id,

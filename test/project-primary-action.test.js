@@ -1,26 +1,46 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { projectPrimaryAction } = require('../media/project-actions');
+const { projectCanRelinkFolder, projectPrimaryAction } = require('../media/project-actions');
 
-test('turns detected external apps into a confirmed close-ports Stop action', () => {
+test('turns detected apps without a stop command into Add stop command', () => {
   assert.deepEqual(projectPrimaryAction({
     name: 'Attributes Finder',
     status: 'active',
     stopCommand: ''
   }), {
-    action: 'force-close-ports',
+    action: 'add-stop-command',
     disabled: false,
-    label: 'Close processes using Attributes Finder ports',
-    mode: 'stop'
+    label: 'Add a stop command for Attributes Finder',
+    mode: 'edit'
   });
 });
 
-test('keeps Stop available through the confirmed port path when ownership is lost', () => {
-  assert.equal(projectPrimaryAction({
+test('offers Add stop command when ownership is lost and no stop command is saved', () => {
+  assert.deepEqual(projectPrimaryAction({
     name: 'Attributes Finder',
     status: 'ownership-lost',
     stopCommand: ''
-  }).action, 'force-close-ports');
+  }), {
+    action: 'add-stop-command',
+    disabled: false,
+    label: 'Add a stop command for Attributes Finder',
+    mode: 'edit'
+  });
+});
+
+test('still lets Add stop command open Edit when lifecycle controls are blocked', () => {
+  assert.deepEqual(projectPrimaryAction({
+    name: 'Remote app',
+    status: 'active',
+    stopCommand: '',
+    lifecycleBlocked: true,
+    lifecycleBlockedReason: 'Local projects only.'
+  }), {
+    action: 'add-stop-command',
+    disabled: false,
+    label: 'Add a stop command for Remote app',
+    mode: 'edit'
+  });
 });
 
 test('turns unknown port conflicts into a confirmed close-and-start action', () => {
@@ -67,13 +87,42 @@ test('does not force-close a mixed or multi-project managed conflict', () => {
   });
 });
 
-test('preserves ordinary Start, Stop, custom Stop, review, and transition behavior', () => {
-  assert.equal(projectPrimaryAction({ name: 'App', status: 'stopped' }).action, 'start');
+test('turns a missing-required-env start failure into Fix environment', () => {
+  assert.deepEqual(projectPrimaryAction({
+    name: 'API',
+    status: 'stopped',
+    failureSummary: {
+      title: 'Start failed',
+      message: 'Missing required environment variables for this launch profile: API_KEY.',
+      kind: 'missing-required-env'
+    }
+  }), {
+    action: 'fix-environment',
+    disabled: false,
+    label: 'Fix environment setup for API',
+    mode: 'review'
+  });
+});
+
+test('keeps Start for other retained start failures', () => {
   assert.equal(projectPrimaryAction({
     name: 'App',
     status: 'stopped',
     failureSummary: { title: 'Start failed', message: 'command not found' }
   }).action, 'start');
+});
+
+test('review setup still gates missing-env rows', () => {
+  assert.equal(projectPrimaryAction({
+    name: 'App',
+    status: 'stopped',
+    reviewRequired: true,
+    failureSummary: { kind: 'missing-required-env' }
+  }).action, 'edit');
+});
+
+test('preserves ordinary Start, Stop, custom Stop, review, and transition behavior', () => {
+  assert.equal(projectPrimaryAction({ name: 'App', status: 'stopped' }).action, 'start');
   assert.equal(projectPrimaryAction({ name: 'App', status: 'running' }).action, 'stop');
   assert.equal(projectPrimaryAction({ name: 'App', status: 'active', stopCommand: 'docker compose down' }).action, 'stop');
   assert.equal(projectPrimaryAction({ name: 'App', status: 'stopped', reviewRequired: true }).action, 'edit');
@@ -104,4 +153,87 @@ test('disables lifecycle actions when the project environment cannot be verified
     label: 'Local projects only.',
     mode: 'start'
   });
+});
+
+test('turns a missing folder into Choose folder while Start stays off', () => {
+  assert.deepEqual(projectPrimaryAction({
+    name: 'Moved app',
+    status: 'stopped',
+    folderAccessible: false
+  }), {
+    action: 'relink-folder',
+    disabled: false,
+    label: 'Choose a new folder for Moved app',
+    mode: 'relink'
+  });
+  assert.equal(projectCanRelinkFolder({
+    name: 'Moved app',
+    status: 'stopped',
+    folderAccessible: false
+  }), true);
+});
+
+test('keeps Stop when a running project’s folder goes missing', () => {
+  assert.equal(projectPrimaryAction({
+    name: 'Moved app',
+    status: 'running',
+    folderAccessible: false
+  }).action, 'stop');
+  assert.equal(projectCanRelinkFolder({
+    name: 'Moved app',
+    status: 'running',
+    folderAccessible: false
+  }), false);
+  assert.equal(projectPrimaryAction({
+    name: 'Moved app',
+    status: 'starting',
+    folderAccessible: false
+  }).action, 'stop');
+  assert.equal(projectPrimaryAction({
+    name: 'Moved app',
+    status: 'stopping',
+    folderAccessible: false
+  }).action, 'stop');
+});
+
+test('does not offer Choose folder for Compose or review-required projects', () => {
+  assert.deepEqual(projectPrimaryAction({
+    name: 'Compose app',
+    status: 'stopped',
+    folderAccessible: false,
+    composePath: '/tmp/compose.yaml'
+  }), {
+    action: 'edit',
+    disabled: false,
+    label: 'Edit Compose app to update its folder',
+    mode: 'review'
+  });
+  assert.equal(projectCanRelinkFolder({
+    name: 'Compose app',
+    status: 'stopped',
+    folderAccessible: false,
+    composePath: '/tmp/compose.yaml'
+  }), false);
+  assert.equal(projectPrimaryAction({
+    name: 'Agent app',
+    status: 'stopped',
+    folderAccessible: false,
+    reviewRequired: true
+  }).action, 'edit');
+  assert.equal(projectCanRelinkFolder({
+    name: 'Agent app',
+    status: 'stopped',
+    folderAccessible: false,
+    reviewRequired: true
+  }), false);
+});
+
+test('still offers Choose folder when local lifecycle is unavailable', () => {
+  assert.equal(projectPrimaryAction({
+    name: 'Remote app',
+    status: 'stopped',
+    folderAccessible: false,
+    lifecycleBlocked: true,
+    lifecycleBlockedReason: 'Local projects only.'
+  }).action, 'relink-folder');
 });

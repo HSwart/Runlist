@@ -817,7 +817,8 @@ button:active:not(:disabled) {
 }
 
 .project-status.status-start-failed,
-.project-status.status-stop-failed {
+.project-status.status-stop-failed,
+.project-status.status-folder-missing {
   color: var(--vscode-errorForeground, var(--vscode-editorError-foreground, #f14c4c));
   font-weight: 600;
 }
@@ -3084,6 +3085,14 @@ select[aria-invalid='true'] {
   gap: 6px;
 }
 
+.draft-start-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 100%;
+  margin: 4px 0 8px;
+}
+
 .empty-workspace-choices,
 .workspace-folder-choices {
   display: flex;
@@ -3163,6 +3172,8 @@ select[aria-invalid='true'] {
 
 .search-empty {
   padding: 16px 12px;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .search-empty h2 {
@@ -3177,6 +3188,12 @@ select[aria-invalid='true'] {
   color: var(--vscode-descriptionForeground);
   font-size: 11px;
   line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.search-empty .primary-button {
+  margin-top: 10px;
+  max-width: 100%;
 }
 
 .project-row[hidden],
@@ -3248,6 +3265,18 @@ select[aria-invalid='true'] {
   .run-button,
   .more-button {
     flex: 0 0 auto;
+  }
+
+  .draft-start-chips {
+    display: flex;
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+
+  .search-empty .primary-button {
+    display: block;
+    width: 100%;
+  }
   }
 }
 

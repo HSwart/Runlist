@@ -1176,6 +1176,16 @@ function upsertProject(filePath, input, options = {}) {
       'This project changed in another VS Code window. Reopen it before saving.'
     );
   }
+  const occupant = projects.find((candidate, candidateIndex) => (
+    candidateIndex !== index
+    && normalizeForComparison(candidate.folder) === folder
+  ));
+  if (occupant) {
+    throw projectStoreError(
+      'FOLDER_IN_USE',
+      `That folder is already saved as ${occupant.name}.`
+    );
+  }
   const project = normalizeProjectInput(input, {
     allowStoredName: options.allowStoredName === true,
     existing,

@@ -65,6 +65,19 @@ function renderNonEmptyProjectList(projects = [{
   elements.set('summary-status', inertElement());
   elements.set('project-search-status', inertElement());
   elements.set('project-lifecycle-status', inertElement());
+  const searchEmpty = inertElement();
+  searchEmpty.hidden = true;
+  const projectRows = [];
+  const syncProjectRows = (nextProjects) => {
+    projectRows.length = 0;
+    for (const project of nextProjects || []) {
+      const row = inertElement();
+      row.dataset = { projectId: String(project.id) };
+      row.hidden = false;
+      projectRows.push(row);
+    }
+  };
+  syncProjectRows(projects);
   const previewProject = (projects || []).find((project) => project.previewExpanded && project.detailsExpanded);
   let visibleProjects = projects || [];
   const previewRow = inertElement();
@@ -136,11 +149,17 @@ function renderNonEmptyProjectList(projects = [{
       if (selector.includes('[data-preview-frame]')) {
         return previewVisible() ? previewFrame : undefined;
       }
+      if (selector === '[data-search-empty]') {
+        return searchEmpty;
+      }
       return undefined;
     },
     querySelectorAll(selector) {
       if (selector?.includes('[data-preview-frame]')) {
         return previewVisible() ? [previewFrame] : [];
+      }
+      if (selector === '.project-row') {
+        return projectRows;
       }
       return [];
     }
@@ -240,6 +259,7 @@ function renderNonEmptyProjectList(projects = [{
     listeners,
     rerender() {
       visibleProjects = context.window.runlistState.projects || [];
+      syncProjectRows(visibleProjects);
       const project = visibleProjects.find((item) => item.previewExpanded && item.detailsExpanded);
       previewRow.dataset.projectId = String(project?.id || '');
       previewFrame.dataset.src = String(project?.previewUrl || '');
@@ -276,9 +296,12 @@ function renderNonEmptyProjectList(projects = [{
       }
     },
     postedMessages,
+    projectRows,
     scheduledFrames,
     savedStates,
+    searchEmpty,
     searchInput: elements.get('project-search'),
+    searchStatus: elements.get('project-search-status'),
     setOutputSlot(project) {
       outputSlotVisible = Boolean(project);
       if (project) {
@@ -1087,6 +1110,7 @@ test('empty state offers Add this folder when a workspace folder is present', ()
   assert.match(result.app.innerHTML, /aria-label="Run `npm run dev` for this folder"/);
   assert.doesNotMatch(result.app.innerHTML, />Add project</);
   assert.doesNotMatch(result.app.innerHTML, /Load stack/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="use-draft-start-script"/);
 });
 
 test('empty state shows Load stack when a stack contract is pending', () => {
@@ -1198,6 +1222,85 @@ test('shows launch profiles when editing or when alternatives already exist', ()
   assert.match(addWithProfiles.app.innerHTML, /class="launch-profile-editor"/);
 });
 
+test('Add form shows Start and Dev chips that fill the command without starting', () => {
+  const result = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      mode: 'add',
+      draft: projectFormDraft({ startCommand: '' }),
+      draftStartScripts: [
+        { name: 'start', startCommand: 'npm start' },
+        { name: 'dev', startCommand: 'npm run dev' }
+      ],
+      draftStartCommandNotice: 'Start command set to npm start.',
+      formErrors: {}
+    }
+  });
+
+  assert.match(result.app.innerHTML, /<h2>Add project<\/h2>/);
+  assert.match(result.app.innerHTML, /id="start-command"/);
+  assert.match(result.app.innerHTML, /class="empty-start-chips draft-start-chips"/);
+  assert.match(result.app.innerHTML, /role="group" aria-label="Suggested start commands for this folder"/);
+  assert.match(result.app.innerHTML, /data-action="use-draft-start-script" data-script="start"/);
+  assert.match(result.app.innerHTML, /data-action="use-draft-start-script" data-script="dev"/);
+  assert.match(result.app.innerHTML, /aria-label="Use npm start for the start command"/);
+  assert.match(result.app.innerHTML, /aria-label="Use npm run dev for the start command"/);
+  assert.match(result.app.innerHTML, /title="Use \u201Cnpm start\u201D"/);
+  assert.match(result.app.innerHTML, />\s*Start\s*</);
+  assert.match(result.app.innerHTML, />\s*Dev\s*</);
+  assert.match(result.app.innerHTML, /role="status">Start command set to npm start\.</);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="start-workspace-script"/);
+  assert.doesNotMatch(result.app.innerHTML, /class="empty-state"/);
+});
+
+test('Add form hides Start/Dev chips when the folder has no npm scripts', () => {
+  const result = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      mode: 'add',
+      draft: projectFormDraft({ startCommand: '' }),
+      draftStartScripts: [],
+      formErrors: {}
+    }
+  });
+
+  assert.match(result.app.innerHTML, /<h2>Add project<\/h2>/);
+  assert.doesNotMatch(result.app.innerHTML, /draft-start-chips/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="use-draft-start-script"/);
+  assert.doesNotMatch(result.app.innerHTML, /Suggested start commands for this folder/);
+});
+
+test('Edit and Review setup screens do not show Add-form start chips', () => {
+  const edit = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      mode: 'edit',
+      reviewRequired: false,
+      draft: projectFormDraft({ id: 'example', name: 'Example' }),
+      draftStartScripts: [
+        { name: 'start', startCommand: 'npm start' },
+        { name: 'dev', startCommand: 'npm run dev' }
+      ],
+      formErrors: {}
+    }
+  });
+  assert.match(edit.app.innerHTML, /<h2>Edit project<\/h2>/);
+  assert.doesNotMatch(edit.app.innerHTML, /draft-start-chips/);
+  assert.doesNotMatch(edit.app.innerHTML, /data-action="use-draft-start-script"/);
+
+  const review = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      mode: 'edit',
+      reviewRequired: true,
+      draft: projectFormDraft({ id: 'example', name: 'Example' }),
+      draftStartScripts: [
+        { name: 'start', startCommand: 'npm start' }
+      ],
+      formErrors: {}
+    }
+  });
+  assert.match(review.app.innerHTML, /<h2>Review project setup<\/h2>/);
+  assert.doesNotMatch(review.app.innerHTML, /draft-start-chips/);
+  assert.doesNotMatch(review.app.innerHTML, /data-action="use-draft-start-script"/);
+});
+
 test('renders everyday project rows without a competing folder path', () => {
   const result = renderNonEmptyProjectList([{
     activeLaunchProfileId: 'default',
@@ -1215,7 +1318,13 @@ test('renders everyday project rows without a competing folder path', () => {
     status: 'running',
     tags: []
   }], {
-    stateOverrides: { stopAllCount: 2 }
+    stateOverrides: {
+      stopAllCount: 2,
+      workspaceStartScripts: [
+        { name: 'start', startCommand: 'npm start' },
+        { name: 'dev', startCommand: 'npm run dev' }
+      ]
+    }
   });
 
   assert.match(result.app.innerHTML, /<h2 id="project-northstar"[^>]*>[\s\S]*Northstar Dashboard\s*<\/h2>/);
@@ -1226,6 +1335,8 @@ test('renders everyday project rows without a competing folder path', () => {
   assert.match(result.app.innerHTML, /class="visually-hidden">\/Users\/shared\/Projects\/northstar-dashboard/);
   assert.match(result.app.innerHTML, /data-action="stop-all"/);
   assert.match(result.app.innerHTML, /Stop all \(2\)/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="start-workspace-script"/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="use-draft-start-script"/);
   assert.doesNotMatch(result.app.innerHTML, /class="detail-row"/);
   assert.doesNotMatch(result.app.innerHTML, /Services · 1/);
   assert.doesNotMatch(result.app.innerHTML, /web :4310/);
@@ -1301,6 +1412,7 @@ test('renders Detected on the status line without a second Detected running sent
     reviewRequired: false,
     services: [{ name: 'web', port: 4310 }],
     status: 'active',
+    stopCommand: 'docker compose down',
     tags: []
   }]);
 
@@ -1311,6 +1423,68 @@ test('renders Detected on the status line without a second Detected running sent
   assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
   assert.doesNotMatch(result.app.innerHTML, /class="current-window-label"/);
   assert.match(result.app.innerHTML, /role="menuitem" disabled>[\s\S]*This window/);
+});
+
+test('detected apps without a stop command offer Add stop command and keep close-ports in More', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    currentWorkspace: true,
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/northstar-dashboard',
+    id: 'northstar',
+    launchProfiles: [],
+    name: 'Northstar Dashboard',
+    openPorts: [4310],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 4310 }],
+    status: 'active',
+    tags: []
+  }]);
+
+  assert.match(
+    result.app.innerHTML,
+    /class="project-status status-active"[^>]*title="Runlist detected this app on a configured port but did not start it\."[^>]*>[\s\S]*<span>Running elsewhere<\/span>/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /class="run-button review"[^>]*data-action="add-stop-command"[^>]*aria-label="Add a stop command for Northstar Dashboard"/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /data-action="add-stop-command" data-id="northstar" role="menuitem" aria-label="Add a stop command for Northstar Dashboard"/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /data-action="force-close-ports" data-id="northstar" role="menuitem"/
+  );
+  assert.doesNotMatch(result.app.innerHTML, /data-action="force-close-ports"[^>]*class="run-button"/);
+  assert.doesNotMatch(result.app.innerHTML, /Close processes using/);
+  assert.doesNotMatch(result.app.innerHTML, /Detected running/);
+});
+
+test('review setup stays primary and hides Add stop command until review is done', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/northstar-dashboard',
+    id: 'northstar',
+    launchProfiles: [],
+    name: 'Northstar Dashboard',
+    openPorts: [4310],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: true,
+    services: [{ name: 'web', port: 4310 }],
+    status: 'active',
+    tags: []
+  }]);
+
+  assert.match(result.app.innerHTML, /data-action="edit"[^>]*aria-label="Review setup for Northstar Dashboard"/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="add-stop-command"/);
 });
 
 test('failed start keeps a two-line row with the reason and Start', () => {
@@ -1348,6 +1522,42 @@ test('failed start keeps a two-line row with the reason and Start', () => {
   assert.doesNotMatch(result.app.innerHTML, /Ask your agent|copy-diagnosis-request/);
 });
 
+test('missing-required-env start failure uses Fix environment as the primary row action', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    failureSummary: {
+      title: 'Start failed',
+      message: 'Missing required environment variables for this launch profile: API_KEY, DATABASE_URL.',
+      kind: 'missing-required-env'
+    },
+    folder: '/Users/shared/Projects/api',
+    id: 'api',
+    launchProfiles: [],
+    name: 'API',
+    openPorts: [],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 3000 }],
+    status: 'stopped',
+    tags: []
+  }]);
+
+  assert.match(
+    result.app.innerHTML,
+    /class="project-status status-start-failed"[^>]*title="Add the missing environment variables, then try Start again\."[^>]*>[\s\S]*<span>Start failed<\/span>/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /class="run-button review"[^>]*data-action="fix-environment"[^>]*data-id="api"[^>]*data-focus-target="env-map"[^>]*aria-label="Fix environment setup for API"/
+  );
+  assert.match(result.app.innerHTML, /data-action="edit"[^>]*role="menuitem">[\s\S]*Edit project/);
+  assert.doesNotMatch(result.app.innerHTML, /class="run-button start"/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="fix-environment"[^>]*role="menuitem"/);
+});
+
 test('stop honesty keeps Stop and does not say Stopped while a port is up', () => {
   const result = renderNonEmptyProjectList([{
     activeLaunchProfileId: 'default',
@@ -1376,4 +1586,220 @@ test('stop honesty keeps Stop and does not say Stopped while a port is up', () =
   assert.match(result.app.innerHTML, /data-action="force-close-ports"/);
   assert.doesNotMatch(result.app.innerHTML, />Stopped</);
   assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
+});
+
+function sampleProject(id, name, extras = {}) {
+  return {
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: `C:\\Projects\\${id}`,
+    id,
+    launchProfiles: [],
+    name,
+    openPorts: [],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [],
+    status: 'stopped',
+    tags: extras.tags || [],
+    ...extras
+  };
+}
+
+test('missing folder shows Folder missing and Choose folder without Start', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/moved-app',
+    folderAccessible: false,
+    id: 'moved',
+    launchProfiles: [],
+    name: 'Moved App',
+    openPorts: [],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [],
+    status: 'stopped',
+    tags: []
+  }]);
+
+  assert.match(
+    result.app.innerHTML,
+    /class="project-status status-folder-missing"[^>]*>[\s\S]*<span>Folder missing<\/span>/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /class="run-button relink"[^>]*data-action="relink-folder"[^>]*aria-label="Choose a new folder for Moved App"/
+  );
+  assert.match(result.app.innerHTML, /data-action="relink-folder"[^>]*role="menuitem"[^>]*>[\s\S]*Choose folder/);
+  assert.match(result.app.innerHTML, /data-action="delete"[^>]*role="menuitem"/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="start"/);
+  assert.doesNotMatch(result.app.innerHTML, /class="run-button restart"/);
+  assert.doesNotMatch(result.app.innerHTML, />Stopped</);
+});
+
+test('Compose missing-folder rows keep Edit project instead of Choose folder', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    composePath: '/Users/shared/Projects/compose-app/compose.yaml',
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/compose-app',
+    folderAccessible: false,
+    id: 'compose',
+    launchProfiles: [],
+    name: 'Compose App',
+    openPorts: [],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [],
+    status: 'stopped',
+    tags: []
+  }]);
+
+  assert.match(
+    result.app.innerHTML,
+    /class="project-status status-folder-missing"[^>]*>[\s\S]*<span>Folder missing<\/span>/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /class="run-button review"[^>]*data-action="edit"[^>]*aria-label="Edit Compose App to update its folder"/
+  );
+  assert.doesNotMatch(result.app.innerHTML, /data-action="relink-folder"/);
+  assert.match(result.app.innerHTML, /data-action="delete"[^>]*role="menuitem"/);
+});
+
+test('running rows with a missing folder keep Stop instead of Choose folder', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/live-moved',
+    folderAccessible: false,
+    id: 'live-moved',
+    launchProfiles: [],
+    name: 'Live Moved',
+    openPorts: [3000],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 3000 }],
+    status: 'running',
+    tags: []
+  }]);
+
+  assert.match(result.app.innerHTML, /<span>Running<\/span>/);
+  assert.match(result.app.innerHTML, /data-action="stop"[^>]*aria-label="Stop Live Moved"/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="relink-folder"/);
+  assert.doesNotMatch(result.app.innerHTML, />Folder missing</);
+});
+
+test('active filters with zero matches show help text and Clear filters', () => {
+  const result = renderNonEmptyProjectList([
+    sampleProject('frontend', 'Frontend app', { tags: ['frontend'] }),
+    sampleProject('docs', 'Docs', { tags: ['docs'] })
+  ], {
+    stateOverrides: {
+      tags: ['docs', 'frontend'],
+      groups: [{ id: 'dev-stack', name: 'Dev stack', projectIds: ['frontend'] }]
+    },
+    persistedWebviewState: {
+      filterRevision: 1,
+      groupFilter: 'dev-stack',
+      searchQuery: 'zzzz-no-match',
+      tagFilter: 'frontend'
+    }
+  });
+
+  assert.match(result.app.innerHTML, /data-search-empty/);
+  assert.match(result.app.innerHTML, /Try a different search or clear your filters\./);
+  assert.match(result.app.innerHTML, /data-action="clear-filters"[^>]*aria-label="Clear search, tag, and group filters"/);
+  assert.match(result.app.innerHTML, />Clear filters</);
+  assert.equal(result.searchEmpty.hidden, false);
+  assert.deepEqual(result.projectRows.map((row) => row.hidden), [true, true]);
+  assert.match(result.projectCount.innerHTML, /<strong>0<\/strong> of 2 projects/);
+});
+
+test('Clear filters resets search, tag, and group filters and unhides rows', () => {
+  const result = renderNonEmptyProjectList([
+    sampleProject('frontend', 'Frontend app', { tags: ['frontend'] }),
+    sampleProject('docs', 'Docs', { tags: ['docs'] })
+  ], {
+    stateOverrides: {
+      tags: ['docs', 'frontend'],
+      groups: [{ id: 'dev-stack', name: 'Dev stack', projectIds: ['frontend'] }]
+    },
+    persistedWebviewState: {
+      filterRevision: 1,
+      groupFilter: 'dev-stack',
+      searchQuery: 'zzzz-no-match',
+      tagFilter: 'frontend'
+    }
+  });
+
+  assert.equal(result.evaluate('searchQuery'), 'zzzz-no-match');
+  assert.equal(result.evaluate('selectedTagFilter'), 'frontend');
+  assert.equal(result.evaluate('selectedGroupFilter'), 'dev-stack');
+  assert.equal(result.searchEmpty.hidden, false);
+  const scheduledBefore = result.scheduledFrames.length;
+
+  result.evaluate('handleClearFilters()');
+  const addedFrames = result.scheduledFrames.slice(scheduledBefore);
+  for (const frame of addedFrames) {
+    frame();
+  }
+
+  assert.equal(result.evaluate('searchQuery'), '');
+  assert.equal(result.evaluate('selectedTagFilter'), '');
+  assert.equal(result.evaluate('selectedGroupFilter'), '');
+  assert.equal(result.searchInput.value, '');
+  assert.ok(result.searchInput.focusCount >= 1);
+  assert.equal(result.searchStatus.textContent, 'No projects match. Filters cleared.');
+  assert.equal(result.searchEmpty.hidden, true);
+  assert.deepEqual(result.projectRows.map((row) => row.hidden), [false, false]);
+  assert.match(result.projectCount.innerHTML, /<strong>2<\/strong> projects/);
+  assert.ok(result.postedMessages.some((message) => (
+    message.type === 'setSearchQuery'
+    && message.query === ''
+    && message.tag === ''
+  )));
+  assert.equal(result.savedStates.at(-1)?.groupFilter, '');
+  assert.equal(result.savedStates.at(-1)?.searchQuery, '');
+  assert.equal(result.savedStates.at(-1)?.tagFilter, '');
+  assert.doesNotMatch(result.app.innerHTML, /class="active-tag-chip"/);
+  assert.doesNotMatch(result.app.innerHTML, /class="active-group-chip"/);
+});
+
+test('unfiltered empty project list does not show search-empty', () => {
+  const result = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      currentWorkspaceFolder: 'C:\\Projects\\app',
+      currentWorkspaceFolderName: 'app'
+    }
+  });
+
+  assert.match(result.app.innerHTML, /No projects yet/);
+  assert.doesNotMatch(result.app.innerHTML, /data-search-empty/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="clear-filters"/);
+  assert.doesNotMatch(result.app.innerHTML, /No matching projects/);
+});
+
+test('typing in search does not announce the Clear filters recovery message', () => {
+  const result = renderNonEmptyProjectList([
+    sampleProject('frontend', 'Frontend app'),
+    sampleProject('docs', 'Docs')
+  ]);
+
+  result.evaluate(`
+    searchQuery = 'zzzz-no-match';
+    applyProjectFilter(searchQuery);
+  `);
+
+  assert.match(result.searchStatus.textContent, /0 projects shown/);
+  assert.notEqual(result.searchStatus.textContent, 'No projects match. Filters cleared.');
 });

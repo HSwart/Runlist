@@ -1,5 +1,6 @@
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const MAX_REQUIRED_ENV_KEYS = 64;
+const MISSING_REQUIRED_ENV_FAILURE_KIND = 'missing-required-env';
 const TEST_ONLY_ENV_PREFIXES = [
   'PLAYWRIGHT_',
   'CYPRESS_',
@@ -51,6 +52,14 @@ function missingRequiredEnvKeys(requiredKeys, environment = {}) {
       .map(([key]) => key)
   );
   return (requiredKeys || []).filter((key) => !present.has(key));
+}
+
+function isMissingRequiredEnvFailure(failure = {}) {
+  if (!failure || typeof failure !== 'object') {
+    return false;
+  }
+  return failure.kind === MISSING_REQUIRED_ENV_FAILURE_KIND
+    || failure.failureKind === MISSING_REQUIRED_ENV_FAILURE_KIND;
 }
 
 function isTestOnlyEnvKey(key) {
@@ -137,10 +146,12 @@ function envLocalAttachHint(envFile, localExists) {
 
 module.exports = {
   MAX_REQUIRED_ENV_KEYS,
+  MISSING_REQUIRED_ENV_FAILURE_KIND,
   envLocalAttachHint,
   exampleEnvAdvisoryMissing,
   exampleEnvKeys,
   formatEnvPresenceWarnings,
+  isMissingRequiredEnvFailure,
   isTestOnlyEnvKey,
   missingRequiredEnvKeys,
   normalizeRequiredEnvKeys,

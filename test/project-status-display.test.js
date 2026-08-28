@@ -3,6 +3,7 @@ const test = require('node:test');
 const {
   projectDisplayedStatus,
   projectPrimaryStatusCode,
+  projectShowsMissingFolder,
   projectStatusAnnouncement,
   projectStatusDetailText
 } = require('../media/project-status-display');
@@ -58,11 +59,19 @@ test('moves uncommon lifecycle phrases off the capsule without renaming them as 
     'App: Web service not responding'
   );
 
-  assert.equal(projectDisplayedStatus({ name: 'App', status: 'active' }), 'Detected');
+  assert.equal(projectDisplayedStatus({ name: 'App', status: 'active' }), 'Running elsewhere');
   assert.notEqual(projectDisplayedStatus({ name: 'App', status: 'active' }), 'Running');
   assert.equal(projectStatusDetailText({ name: 'App', status: 'active' }), '');
   assert.equal(
     projectStatusAnnouncement({ name: 'App', status: 'active' }),
+    'App is running elsewhere. Add a stop command to control it from Runlist.'
+  );
+  assert.equal(
+    projectDisplayedStatus({ name: 'App', status: 'active', stopCommand: 'docker compose down' }),
+    'Detected'
+  );
+  assert.equal(
+    projectStatusAnnouncement({ name: 'App', status: 'active', stopCommand: 'docker compose down' }),
     'App: Detected'
   );
 
@@ -158,6 +167,23 @@ test('shows a short start-fail label on line 2 with detail kept for announcement
   );
 });
 
+test('missing-required-env keeps Start failed on line 2 and announces setup help', () => {
+  const project = {
+    name: 'API',
+    status: 'stopped',
+    failureSummary: {
+      title: 'Start failed',
+      message: 'Missing required environment variables for this launch profile: API_KEY, DATABASE_URL.',
+      kind: 'missing-required-env'
+    }
+  };
+  assert.equal(projectDisplayedStatus(project), 'Start failed');
+  assert.equal(
+    projectStatusAnnouncement(project),
+    'API needs environment variables before it can start.'
+  );
+});
+
 test('shows Stop honesty on line 2 instead of Stopped', () => {
   assert.equal(
     projectDisplayedStatus({
@@ -192,4 +218,39 @@ test('shows Stop honesty on line 2 instead of Stopped', () => {
     }),
     'App: Stop failed'
   );
+});
+
+test('shows Folder missing on stopped rows without waiting for Start', () => {
+  assert.equal(projectShowsMissingFolder({
+    name: 'App',
+    status: 'stopped',
+    folderAccessible: false
+  }), true);
+  assert.equal(projectDisplayedStatus({
+    name: 'App',
+    status: 'stopped',
+    folderAccessible: false
+  }), 'Folder missing');
+  assert.equal(projectDisplayedStatus({
+    name: 'App',
+    status: 'stopped',
+    folderAccessible: false,
+    failureSummary: { title: 'Start failed', message: 'ENOENT' }
+  }), 'Folder missing');
+  assert.equal(projectShowsMissingFolder({
+    name: 'App',
+    status: 'running',
+    folderAccessible: false
+  }), false);
+  assert.equal(projectDisplayedStatus({
+    name: 'App',
+    status: 'running',
+    folderAccessible: false
+  }), 'Running');
+  assert.equal(projectDisplayedStatus({
+    name: 'App',
+    status: 'stopped',
+    folderAccessible: false,
+    reviewRequired: true
+  }), 'Review setup');
 });

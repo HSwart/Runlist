@@ -3,6 +3,7 @@ const test = require('node:test');
 const {
   envLocalAttachHint,
   exampleEnvAdvisoryMissing,
+  isMissingRequiredEnvFailure,
   isTestOnlyEnvKey,
   missingRequiredEnvKeys,
   normalizeRequiredEnvKeys,
@@ -44,6 +45,24 @@ test('only explicit launch-profile required keys can block Start', () => {
   ), ['DATABASE_URL']);
 });
 
+test('identifies missing-required-env failures by kind, not free-text', () => {
+  assert.equal(isMissingRequiredEnvFailure({
+    failureKind: 'missing-required-env'
+  }), true);
+  assert.equal(isMissingRequiredEnvFailure({
+    kind: 'missing-required-env'
+  }), true);
+  assert.equal(isMissingRequiredEnvFailure({
+    title: 'Start failed',
+    message: 'Missing required environment variables for this launch profile: API_KEY.'
+  }), false);
+  assert.equal(isMissingRequiredEnvFailure({
+    kind: 'command-not-found'
+  }), false);
+  assert.equal(isMissingRequiredEnvFailure(undefined), false);
+  assert.equal(isMissingRequiredEnvFailure('missing-required-env'), false);
+});
+
 test('classifies Playwright and other test-only keys for advisory wording', () => {
   assert.equal(isTestOnlyEnvKey('PLAYWRIGHT_BASE_URL'), true);
   assert.equal(isTestOnlyEnvKey('CYPRESS_BASE_URL'), true);
@@ -66,6 +85,10 @@ test('host Start never hard-fails on .env.example alone or nested PowerShell lin
   assert.match(extension, /exampleEnvAdvisoryMissing/);
   assert.match(extension, /envLocalAttachHint/);
   assert.match(extension, /formatEnvPresenceWarnings/);
+  assert.match(
+    extension,
+    /showStartFailure\(project, \{[\s\S]*failureKind: MISSING_REQUIRED_ENV_FAILURE_KIND/
+  );
   assert.doesNotMatch(extension, /Missing required environment variables from \.env\.example/);
   assert.doesNotMatch(extension, /requiredEnvKeysFromExample/);
   // Nested PowerShell is advisory only — must not showStartFailure / return false.

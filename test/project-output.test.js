@@ -346,6 +346,24 @@ test('falls back safely to an exit code, signal, or explicit spawn error', () =>
   });
 });
 
+test('tags missing-required-env summaries from the env gate, not message text', () => {
+  assert.deepEqual(startFailureSummary('', {
+    detail: 'Missing required environment variables for this launch profile: API_KEY.',
+    failureKind: 'missing-required-env'
+  }), {
+    title: 'Start failed',
+    message: 'Missing required environment variables for this launch profile: API_KEY.',
+    outcome: '',
+    kind: 'missing-required-env'
+  });
+  assert.equal(
+    startFailureSummary('', {
+      detail: 'Missing required environment variables for this launch profile: API_KEY.'
+    }).kind,
+    undefined
+  );
+});
+
 test('keeps failure selection bounded for verbose and unsafe output', { timeout: 1000 }, () => {
   const unsafe = '<img src=x onerror=alert(1)> fatal error';
   const output = `${'noise\n'.repeat(100000)}${unsafe}`;

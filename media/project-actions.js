@@ -6,6 +6,32 @@
     root.RunlistProjectActions = api;
   }
 }(typeof globalThis === 'object' ? globalThis : this, () => {
+  function projectHasLiveFolderStatus(project = {}) {
+    const status = String(project.status || 'stopped');
+    return project.forceClosing === true
+      || project.handoffInProgress === true
+      || ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active', 'stopping']
+        .includes(status);
+  }
+
+  function projectCanRelinkFolder(project = {}) {
+    if (project.reviewRequired || project.folderAccessible !== false) {
+      return false;
+    }
+    if (typeof project.composePath === 'string' && project.composePath.trim()) {
+      return false;
+    }
+    return !projectHasLiveFolderStatus(project);
+  }
+
+  function isMissingRequiredEnvFailure(failure = {}) {
+    if (!failure || typeof failure !== 'object') {
+      return false;
+    }
+    return failure.kind === 'missing-required-env'
+      || failure.failureKind === 'missing-required-env';
+  }
+
   function projectPrimaryAction(project = {}) {
     const name = String(project.name || 'project');
     const status = String(project.status || 'stopped');
@@ -18,12 +44,31 @@
         mode: 'review'
       };
     }
-    if (project.lifecycleBlocked) {
+    const detectedWithoutStop = status === 'active' && !project.stopCommand;
+    const ownershipLostWithoutStop = status === 'ownership-lost' && !project.stopCommand;
+    if ((detectedWithoutStop || ownershipLostWithoutStop) && !project.stopFailure) {
+      return {
+        action: 'add-stop-command',
+        disabled: busy,
+        label: `Add a stop command for ${name}`,
+        mode: 'edit'
+      };
+    }
+
+    if (project.lifecycleBlocked && project.folderAccessible !== false) {
       return {
         action: 'start',
         disabled: true,
         label: project.lifecycleBlockedReason || `Lifecycle controls are unavailable for ${name}`,
         mode: 'start'
+      };
+    }
+    if (status === 'stopped' && isMissingRequiredEnvFailure(project.failureSummary)) {
+      return {
+        action: 'fix-environment',
+        disabled: busy,
+        label: `Fix environment setup for ${name}`,
+        mode: 'review'
       };
     }
     if (status === 'stopping') {
@@ -64,24 +109,34 @@
       });
     }
 
-    const detectedWithoutStop = status === 'active' && !project.stopCommand;
-    const ownershipLostWithoutStop = status === 'ownership-lost' && !project.stopCommand;
-    if ((detectedWithoutStop || ownershipLostWithoutStop) && !project.stopFailure) {
-      return {
-        action: 'force-close-ports',
-        disabled: busy,
-        label: `Close processes using ${name} ports`,
-        mode: 'stop'
-      };
-    }
-
     const stopsProject = (Boolean(project.stopFailure) && status !== 'stopped' && status !== 'stopping')
       || ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active']
         .includes(status);
-    const primary = stopsProject
-      ? { action: 'stop', disabled: busy, label: `Stop ${name}`, mode: 'stop' }
-      : { action: 'start', disabled: busy, label: `Start ${name}`, mode: 'start' };
-    return composeStartGate(project, primary);
+    if (stopsProject) {
+      return { action: 'stop', disabled: busy, label: `Stop ${name}`, mode: 'stop' };
+    }
+    if (project.folderAccessible === false) {
+      if (typeof project.composePath === 'string' && project.composePath.trim()) {
+        return {
+          action: 'edit',
+          disabled: busy,
+          label: `Edit ${name} to update its folder`,
+          mode: 'review'
+        };
+      }
+      return {
+        action: 'relink-folder',
+        disabled: busy,
+        label: `Choose a new folder for ${name}`,
+        mode: 'relink'
+      };
+    }
+    return composeStartGate(project, {
+      action: 'start',
+      disabled: busy,
+      label: `Start ${name}`,
+      mode: 'start'
+    });
   }
 
   function composeStartGate(project, primary) {
@@ -98,5 +153,10 @@
     };
   }
 
-  return { projectPrimaryAction };
+  return {
+    isMissingRequiredEnvFailure,
+    projectCanRelinkFolder,
+    projectHasLiveFolderStatus,
+    projectPrimaryAction
+  };
 }));
