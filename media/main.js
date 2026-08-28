@@ -784,11 +784,10 @@ function projectDetailTabsHtml(project, projectName) {
     ? `<div class="project-output-peek-slot" data-output-peek-slot data-project-id="${projectId}" data-project-name="${projectName}">${projectOutputPeekHtml(project.outputPeek, project.id, project.name)}</div>`
     : '';
   const phoneHandoffOpen = Boolean(project.phoneHandoff && phoneHandoffState[project.id]);
-  const phoneHandoffContent = project.phoneHandoff ? `
-      <div class="preview-help-row">
-        <p class="preview-help">If the app blocks this view, use Open in browser.</p>
-        <button class="phone-handoff-toggle" data-action="toggle-phone-handoff" data-id="${projectId}" aria-expanded="${phoneHandoffOpen}" aria-controls="phone-handoff-${projectId}">${phoneHandoffOpen ? 'Hide phone code' : 'Open on phone'}</button>
-      </div>
+  const changeNetworkButton = project.canChoosePhoneNetwork
+    ? `<button data-action="change-phone-network" data-id="${projectId}" aria-label="Change network for ${projectName}">Change network</button>`
+    : '';
+  const phoneHandoffPanel = project.phoneHandoff ? `
       <section id="phone-handoff-${projectId}" class="phone-handoff" tabindex="-1" aria-label="Open ${projectName} on your phone" ${phoneHandoffOpen ? '' : 'hidden'}>
         <div class="phone-handoff-code">${project.phoneHandoff.qrSvg}</div>
         <div class="phone-handoff-copy">
@@ -796,8 +795,19 @@ function projectDetailTabsHtml(project, projectName) {
           <p>Scan while your phone is on the same network.</p>
           <code>${escapeHtml(project.phoneHandoff.url)}</code>
           <button data-action="copy-phone-url" data-id="${projectId}" data-url="${escapeHtml(project.phoneHandoff.url)}">Copy phone URL</button>
+          ${changeNetworkButton}
         </div>
-      </section>` : '<p class="preview-help">If the app blocks this view, use Open in browser.</p>';
+      </section>` : '';
+  const phoneHandoffContent = project.phoneHandoff ? `
+      <div class="preview-help-row">
+        <p class="preview-help">If the app blocks this view, use Open in browser.</p>
+        <button class="phone-handoff-toggle" data-action="toggle-phone-handoff" data-id="${projectId}" aria-expanded="${phoneHandoffOpen}" aria-controls="phone-handoff-${projectId}">${phoneHandoffOpen ? 'Hide phone code' : 'Open on phone'}</button>
+      </div>
+      ${phoneHandoffPanel}` : project.canChoosePhoneNetwork ? `
+      <div class="preview-help-row">
+        <p class="preview-help">If the app blocks this view, use Open in browser.</p>
+        <button class="phone-handoff-toggle" data-action="open-on-phone" data-id="${projectId}">Open on phone</button>
+      </div>` : '<p class="preview-help">If the app blocks this view, use Open in browser.</p>';
   const previewContent = project.previewExpanded ? `
     <section class="project-preview" aria-label="Preview of ${projectName}">
       <header class="preview-toolbar">
@@ -1208,7 +1218,7 @@ function renderList() {
           || project.handoffInProgress
           || ['starting', 'not-ready', 'stopping'].includes(projectStatus);
         const canOpen = Boolean(project.previewUrl);
-        const canOpenOnPhone = Boolean(project.phoneHandoff);
+        const canOpenOnPhone = Boolean(project.phoneHandoff) || Boolean(project.canChoosePhoneNetwork);
         const detectedWithoutStop = projectStatus === 'active' && !project.stopCommand;
         const ownershipLostWithoutStop = projectStatus === 'ownership-lost' && !project.stopCommand;
         const stopState = ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active'].includes(projectStatus);
@@ -1250,7 +1260,9 @@ function renderList() {
               ? `${projectName} does not have a responding web service yet`
               : `Start ${projectName} before opening it`;
         const openOnPhoneTitle = canOpenOnPhone
-          ? `Open ${projectName} on your phone`
+          ? project.phoneHandoff
+            ? `Open ${projectName} on your phone`
+            : 'Multiple networks — try Open on phone to choose'
           : canOpen
             ? `Phone sharing needs one private LAN address and a localhost preview for ${projectName}`
             : openTitle;
@@ -3067,17 +3079,29 @@ app.addEventListener('click', (event) => {
       id: button.dataset.id,
       url: button.dataset.url
     }),
+    'change-phone-network': () => vscode.postMessage({
+      type: 'choosePhoneNetwork',
+      id: button.dataset.id,
+      changeNetwork: true
+    }),
     'toggle-phone-handoff': () => togglePhoneHandoff(button.dataset.id, button),
     'open-on-phone': () => {
       closeMenus();
       const id = button.dataset.id;
       const project = state.projects.find((item) => String(item.id) === String(id));
-      if (!project?.phoneHandoff) {
+      if (!project?.phoneHandoff && !project?.canChoosePhoneNetwork) {
         return;
       }
       phoneHandoffState[id] = true;
       detailTabState[id] = 'preview';
       saveWebviewState();
+      if (!project.phoneHandoff) {
+        vscode.postMessage({
+          type: 'choosePhoneNetwork',
+          id
+        });
+        return;
+      }
       vscode.postMessage({
         type: 'toggleProjectPreview',
         id,

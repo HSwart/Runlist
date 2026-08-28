@@ -62,7 +62,7 @@ Local development breaks most often on ports. Runlist treats that as a first-cla
 
 - Open the app from the port chip or the More menu
 - Optional **local hostname** opens as `name.localhost` when it fits, and falls back to `localhost` when it doesn’t
-- **Open on phone** shows a QR code when the app listens on your local network — not when it is loopback-only (`127.0.0.1`)
+- **Open on phone** shows a QR code when the app listens on your local network — not when it is loopback-only (`127.0.0.1`). If this computer has more than one private network, Runlist asks which one to use.
 
 Named local hostnames are for this machine. Phone handoff is for devices on the same network — not a public tunnel.
 

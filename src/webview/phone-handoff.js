@@ -33,23 +33,51 @@ function isLikelyVirtualInterface(name) {
     .test(String(name || ''));
 }
 
-function choosePrivateLanIpv4(interfaces = {}) {
-  const candidates = new Set();
+function formatPrivateLanCandidateLabel(interfaceName, address) {
+  return `${interfaceName} \u2014 ${address}`;
+}
+
+function listPrivateLanIpv4Candidates(interfaces = {}) {
+  const byAddress = new Map();
   for (const [name, addresses] of Object.entries(interfaces || {})) {
     if (isLikelyVirtualInterface(name)) {
       continue;
     }
     for (const address of addresses || []) {
       const isIpv4 = address?.family === 'IPv4' || address?.family === 4;
+      const ip = address?.address;
       const priority = isIpv4 && !address.internal
-        ? privateIpv4Priority(address.address)
+        ? privateIpv4Priority(ip)
         : 0;
-      if (priority) {
-        candidates.add(address.address);
+      if (priority && !byAddress.has(ip)) {
+        byAddress.set(ip, {
+          address: ip,
+          interfaceName: name,
+          label: formatPrivateLanCandidateLabel(name, ip)
+        });
       }
     }
   }
-  return candidates.size === 1 ? candidates.values().next().value : undefined;
+  return [...byAddress.values()].sort((left, right) => {
+    const priority = privateIpv4Priority(right.address) - privateIpv4Priority(left.address);
+    if (priority) {
+      return priority;
+    }
+    return left.label.localeCompare(right.label);
+  });
+}
+
+function choosePrivateLanIpv4(interfaces = {}) {
+  const candidates = listPrivateLanIpv4Candidates(interfaces);
+  return candidates.length === 1 ? candidates[0].address : undefined;
+}
+
+function resolvePrivateLanIpv4(interfaces = {}, chosenAddress) {
+  const candidates = listPrivateLanIpv4Candidates(interfaces);
+  if (chosenAddress && candidates.some((candidate) => candidate.address === chosenAddress)) {
+    return chosenAddress;
+  }
+  return candidates.length === 1 ? candidates[0].address : undefined;
 }
 
 function isLoopbackHostname(hostname) {
@@ -62,7 +90,19 @@ function isLoopbackHostname(hostname) {
     || parts?.[0] === 127;
 }
 
-function derivePhoneHandoffUrl(serviceUrl, interfaces = os.networkInterfaces()) {
+function isPhoneHandoffPreview(serviceUrl) {
+  const safeUrl = safeServiceUrl(serviceUrl);
+  if (!safeUrl) {
+    return false;
+  }
+  try {
+    return isLoopbackHostname(new URL(safeUrl).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function derivePhoneHandoffUrl(serviceUrl, interfaces = os.networkInterfaces(), chosenAddress) {
   const safeUrl = safeServiceUrl(serviceUrl);
   if (!safeUrl) {
     return undefined;
@@ -71,7 +111,7 @@ function derivePhoneHandoffUrl(serviceUrl, interfaces = os.networkInterfaces()) 
   if (!isLoopbackHostname(url.hostname)) {
     return undefined;
   }
-  const address = choosePrivateLanIpv4(interfaces);
+  const address = resolvePrivateLanIpv4(interfaces, chosenAddress);
   if (!address) {
     return undefined;
   }
@@ -87,8 +127,8 @@ function createPhoneQrSvg(url, qrFactory = qrcode) {
     .replace('<svg ', '<svg aria-hidden="true" focusable="false" ');
 }
 
-function createPhoneHandoff(serviceUrl, interfaces = os.networkInterfaces()) {
-  const url = derivePhoneHandoffUrl(serviceUrl, interfaces);
+function createPhoneHandoff(serviceUrl, interfaces = os.networkInterfaces(), chosenAddress) {
+  const url = derivePhoneHandoffUrl(serviceUrl, interfaces, chosenAddress);
   if (!url) {
     return undefined;
   }
@@ -107,5 +147,10 @@ module.exports = {
   createPhoneHandoff,
   createPhoneQrSvg,
   derivePhoneHandoffUrl,
-  privateIpv4Priority
+  formatPrivateLanCandidateLabel,
+  isLoopbackHostname,
+  isPhoneHandoffPreview,
+  listPrivateLanIpv4Candidates,
+  privateIpv4Priority,
+  resolvePrivateLanIpv4
 };

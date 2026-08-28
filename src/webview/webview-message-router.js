@@ -93,6 +93,9 @@ function createRunlistWebviewRouter(host, adapters = {}) {
       copyDiagnosisRequest: () => host.copyDiagnosisRequest(),
       copyOutput: () => host.copyProjectOutput(),
       copyPhoneUrl: (message) => host.copyPhoneUrl(message.id, message.url),
+      choosePhoneNetwork: (message) => host.choosePhoneNetwork(message.id, {
+        changeNetwork: message.changeNetwork === true
+      }),
       copyProjectPath: (message) => host.copyProjectPath(message.id),
       copyServiceUrl: (message) => host.copyServiceUrl(message.id, Number(message.port)),
       deleteProject: (message) => host.deleteProject(message.id),

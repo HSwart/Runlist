@@ -41,7 +41,12 @@ const {
   projectFolderIsAccessible
 } = require('../webview/project-navigation');
 const { previewFrameSources, projectPreviewService } = require('../webview/preview-security');
-const { createPhoneHandoff } = require('../webview/phone-handoff');
+const os = require('os');
+const {
+  createPhoneHandoff,
+  isPhoneHandoffPreview,
+  listPrivateLanIpv4Candidates
+} = require('../webview/phone-handoff');
 const { OwnedProcessMetrics } = require('../lifecycle/process-metrics');
 const {
   findListeningProcesses,
@@ -304,6 +309,9 @@ class RunlistViewProvider {
     this.preferredWorkspaceFolder = undefined;
     this.expandedPreviewProjectId = undefined;
     this.expandedPreviewServicePort = undefined;
+    this.phoneHandoffLanAddress = undefined;
+    this.phoneNetworkChoiceInFlight = false;
+    this.readNetworkInterfaces = () => os.networkInterfaces();
     this.processes = new Map();
     this.ownedProcessMetrics = new OwnedProcessMetrics();
     this.projectMetrics = new Map();
@@ -2825,7 +2833,11 @@ class RunlistViewProvider {
         resolveUrl: (url) => this.externalServiceUrl(url)
       })
     );
-    const phoneHandoff = createPhoneHandoff(reachable?.url);
+    const phoneHandoff = createPhoneHandoff(
+      reachable?.url,
+      this.readNetworkInterfaces(),
+      this.phoneHandoffLanAddress
+    );
     if (!phoneHandoff || phoneHandoff.url !== requestedUrl) {
       vscode.window.showInformationMessage('The local network address changed. Reopen Open on phone and try again.');
       await this.refreshProjectStatuses();
@@ -2835,6 +2847,75 @@ class RunlistViewProvider {
     this.noteReadyOpenOpened(id);
     await vscode.env.clipboard.writeText(phoneHandoff.url);
     vscode.window.showInformationMessage('Copied phone URL.');
+  }
+
+  async choosePhoneNetwork(id, { changeNetwork = false } = {}) {
+    if (this.phoneNetworkChoiceInFlight) {
+      return;
+    }
+    this.phoneNetworkChoiceInFlight = true;
+    try {
+      const savedProject = this.projects.find((item) => item.id === id);
+      const project = projectStopStrategy(
+        savedProject,
+        this.processOwnership.snapshot().get(id)
+      );
+      const status = this.getProjectStatus(id);
+      const previewService = projectPreviewService(
+        project,
+        status,
+        this.projectServiceUrls.get(id),
+        this.projectPortConflicts.has(id)
+      );
+      const interfaces = this.readNetworkInterfaces();
+      const candidates = listPrivateLanIpv4Candidates(interfaces);
+      const eligible = Boolean(previewService?.url && isPhoneHandoffPreview(previewService.url));
+      if (!project || !eligible || candidates.length === 0) {
+        vscode.window.showInformationMessage(
+          `${project?.name || 'This project'}: Phone sharing needs a private LAN address and a localhost preview.`
+        );
+        this.focusTarget = { type: 'action', action: 'open-on-phone', id };
+        this.renderProjectList();
+        return;
+      }
+
+      let address = candidates.length === 1 ? candidates[0].address : undefined;
+      const remembered = candidates.find((candidate) => (
+        candidate.address === this.phoneHandoffLanAddress
+      ));
+      if (!address && !changeNetwork && remembered) {
+        address = remembered.address;
+      }
+      if (!address) {
+        const picked = await vscode.window.showQuickPick(
+          candidates.map((candidate) => ({
+            label: candidate.label,
+            description: candidate.address === this.phoneHandoffLanAddress ? 'Last used' : undefined,
+            address: candidate.address
+          })),
+          {
+            title: 'Choose a network for your phone',
+            placeHolder: 'Pick Wi-Fi or Ethernet on this computer',
+            ignoreFocusOut: true
+          }
+        );
+        if (!picked) {
+          this.focusTarget = {
+            type: 'action',
+            action: changeNetwork ? 'change-phone-network' : 'open-on-phone',
+            id
+          };
+          this.renderProjectList();
+          return;
+        }
+        address = picked.address;
+      }
+
+      this.phoneHandoffLanAddress = address;
+      this.toggleProjectPreview(id, 'focus-phone-handoff');
+    } finally {
+      this.phoneNetworkChoiceInFlight = false;
+    }
   }
 
   toggleProjectPreview(id, focusAction = 'toggle-preview') {
@@ -5444,6 +5525,8 @@ class RunlistViewProvider {
     const cleanProjectOutput = outputProject
       ? this.redactProjectOutputText(outputProject.id, rawProjectOutput)
       : sanitizeProjectOutput(rawProjectOutput);
+    const networkInterfaces = this.readNetworkInterfaces();
+    const lanCandidates = listPrivateLanIpv4Candidates(networkInterfaces);
     const stateProjects = orderSidebarProjects(projects.map((project) => {
       const openPorts = this.projectOpenPorts.get(project.id) || [];
       const respondingPorts = this.projectRespondingPorts.get(project.id) || [];
@@ -5494,8 +5577,15 @@ class RunlistViewProvider {
         && (!canPreview || this.expandedPreviewServicePort === previewService.port);
       const previewExpanded = canPreview && detailsExpanded;
       const phoneHandoff = previewService?.url
-        ? createPhoneHandoff(previewService.url)
+        ? createPhoneHandoff(
+          previewService.url,
+          networkInterfaces,
+          this.phoneHandoffLanAddress
+        )
         : undefined;
+      const canChoosePhoneNetwork = Boolean(previewService?.url)
+        && isPhoneHandoffPreview(previewService.url)
+        && lanCandidates.length > 1;
       const outputPeekVisible = detailsExpanded
         && ['starting', 'running', 'not-ready', 'not-responding', 'ownership-lost'].includes(status)
         && (this.managedProjectIds.has(project.id)
@@ -5572,6 +5662,7 @@ class RunlistViewProvider {
         previewPort: previewService?.port,
         previewUrl: previewService?.url,
         phoneHandoff,
+        canChoosePhoneNetwork,
         startupHistory,
         averageReadyDurationMs: averageReadyDuration(startupHistory),
         resourceMetrics: previewExpanded

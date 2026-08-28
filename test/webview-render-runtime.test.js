@@ -1092,6 +1092,76 @@ test('preview fallback Open in browser posts the same open message as the toolba
   assert.match(result.app.innerHTML, /class="project-preview" aria-label="Preview of Preview &amp; &lt;team&gt;"/);
 });
 
+test('Open on phone stays available and asks the host to choose a network', () => {
+  const result = renderNonEmptyProjectList([previewFailureProject({
+    canChoosePhoneNetwork: true,
+    phoneHandoff: undefined
+  })]);
+
+  assert.match(
+    result.app.innerHTML,
+    /data-action="open-on-phone" data-id="preview" role="menuitem"  title="Multiple networks — try Open on phone to choose"/
+  );
+  assert.doesNotMatch(
+    result.app.innerHTML,
+    /data-action="open-on-phone"[^>]*disabled/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /class="phone-handoff-toggle" data-action="open-on-phone" data-id="preview">Open on phone<\/button>/
+  );
+
+  result.clickAction({ action: 'open-on-phone', id: 'preview' });
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(result.postedMessages.filter((message) => message.type === 'choosePhoneNetwork'))),
+    [{ type: 'choosePhoneNetwork', id: 'preview' }]
+  );
+});
+
+test('phone handoff panel shows the chosen URL and Change network', () => {
+  const result = renderNonEmptyProjectList([previewFailureProject({
+    canChoosePhoneNetwork: true,
+    phoneHandoff: {
+      qrSvg: '<svg></svg>',
+      url: 'http://192.168.68.42:3000/'
+    }
+  })], {
+    persistedWebviewState: { phoneHandoffs: { preview: true } }
+  });
+
+  assert.match(result.app.innerHTML, /<code>http:\/\/192\.168\.68\.42:3000\/<\/code>/);
+  assert.match(result.app.innerHTML, /data-url="http:\/\/192\.168\.68\.42:3000\/"/);
+  assert.match(
+    result.app.innerHTML,
+    /data-action="change-phone-network" data-id="preview" aria-label="Change network for Preview &amp; &lt;team&gt;"/
+  );
+  assert.match(result.app.innerHTML, /id="phone-handoff-preview"[\s\S]*aria-label="Open Preview &amp; &lt;team&gt; on your phone"/);
+  assert.doesNotMatch(result.app.innerHTML, /id="phone-handoff-preview"[^>]*hidden/);
+
+  result.clickAction({ action: 'change-phone-network', id: 'preview' });
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(result.postedMessages.filter((message) => message.type === 'choosePhoneNetwork'))),
+    [{ type: 'choosePhoneNetwork', id: 'preview', changeNetwork: true }]
+  );
+});
+
+test('single-network Open on phone still expands preview without a network picker', () => {
+  const result = renderNonEmptyProjectList([previewFailureProject({
+    phoneHandoff: {
+      qrSvg: '<svg></svg>',
+      url: 'http://192.168.68.42:3000/'
+    }
+  })]);
+
+  assert.doesNotMatch(result.app.innerHTML, /data-action="change-phone-network"/);
+  result.clickAction({ action: 'open-on-phone', id: 'preview' });
+  assert.equal(result.postedMessages.filter((message) => message.type === 'choosePhoneNetwork').length, 0);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(result.postedMessages.filter((message) => message.type === 'toggleProjectPreview'))),
+    [{ type: 'toggleProjectPreview', id: 'preview', focusAction: 'focus-phone-handoff' }]
+  );
+});
+
 test('preview fallback omits Open in browser when previewUrl is missing', () => {
   const result = renderNonEmptyProjectList([previewFailureProject({
     previewUrl: ''
