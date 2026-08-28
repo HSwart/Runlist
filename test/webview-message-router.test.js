@@ -70,6 +70,9 @@ test('validates commands sent from the webview before routing', async () => {
   assert.equal(validateWebviewCommand({ type: 'relinkProjectFolder', id: 'project-1' })?.type, 'relinkProjectFolder');
   assert.equal(validateWebviewCommand({ type: 'relinkProjectFolder', id: '' }), undefined);
   assert.ok(WEBVIEW_COMMAND_TYPES.has('relinkProjectFolder'));
+  assert.equal(validateWebviewCommand({ type: 'openWorkspaceFolder' })?.type, 'openWorkspaceFolder');
+  assert.equal(validateWebviewCommand({ type: 'openWorkspaceFolderPlease' }), undefined);
+  assert.ok(WEBVIEW_COMMAND_TYPES.has('openWorkspaceFolder'));
   assert.equal(validateWebviewCommand({ type: 'setTagFilter', tag: 'frontend' })?.tag, 'frontend');
   assert.equal(validateWebviewCommand({ type: 'setTagFilter', tag: 'x'.repeat(33) }), undefined);
   assert.equal(validateWebviewCommand({ type: 'showEdit', id: 'project-1' })?.type, 'showEdit');
@@ -102,6 +105,7 @@ test('maps validated webview commands to the provider boundary', async () => {
     forceCloseProjectPorts: async (id, intent) => calls.push(['force-close', id, intent]),
     relinkProjectFolder: async (id) => calls.push(['relink', id]),
     showAddProject: async (focus) => calls.push(['add', focus]),
+    openWorkspaceFolder: async () => calls.push(['open-workspace-folder']),
     showProjectTransferLoadStack: async () => calls.push(['load-stack']),
     showEditProject: async (id, options) => calls.push(['edit', id, options]),
     startProject: async (id) => calls.push(['start', id]),
@@ -113,6 +117,8 @@ test('maps validated webview commands to the provider boundary', async () => {
   const route = createRunlistWebviewRouter(host);
 
   assert.equal(await route({ type: 'showAdd' }), true);
+  assert.equal(await route({ type: 'openWorkspaceFolder' }), true);
+  assert.equal(await route({ type: 'openWorkspaceFolderPlease' }), false);
   assert.equal(await route({ type: 'loadWorkspaceStack' }), true);
   assert.equal(await route({ type: 'startWorkspaceScript', script: 'dev' }), true);
   assert.equal(await route({
@@ -132,6 +138,7 @@ test('maps validated webview commands to the provider boundary', async () => {
   assert.equal(await route({ type: 'copyServiceUrl', id: 'project-1', port: 'bad' }), false);
   assert.deepEqual(calls, [
     ['add', { type: 'action', action: 'show-add' }],
+    ['open-workspace-folder'],
     ['load-stack'],
     ['start-script', 'dev'],
     ['draft-script', 'start', { folder: '/tmp/app', startCommand: 'echo old' }],

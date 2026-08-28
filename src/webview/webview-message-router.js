@@ -113,6 +113,7 @@ function createRunlistWebviewRouter(host, adapters = {}) {
       openServiceUrl: (message) => host.openServiceUrl(message.id, Number(message.port)),
       openProjectFolder: (message) => host.openProjectFolder(message.id),
       openProjectTerminal: (message) => host.openProjectTerminal(message.id),
+      openWorkspaceFolder: () => host.openWorkspaceFolder(),
       pickFolder: (message) => host.pickFolder(message.draft),
       refreshProjectRepair: () => host.refreshProjectRepair(),
       refreshPortListening: () => host.refreshPortListeningDiagnosis(),

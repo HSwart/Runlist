@@ -37,6 +37,7 @@
     'openServiceUrl',
     'openProjectFolder',
     'openProjectTerminal',
+    'openWorkspaceFolder',
     'pickFolder',
     'refreshProjectRepair',
     'registerAgent',

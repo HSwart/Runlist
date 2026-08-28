@@ -1295,6 +1295,8 @@ test('empty state offers Add this folder when a workspace folder is present', ()
   assert.doesNotMatch(result.app.innerHTML, />Add project</);
   assert.doesNotMatch(result.app.innerHTML, /Load stack/);
   assert.doesNotMatch(result.app.innerHTML, /data-action="use-draft-start-script"/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="open-workspace-folder"/);
+  assert.doesNotMatch(result.app.innerHTML, />Open folder</);
 });
 
 test('empty state shows Load stack when a stack contract is pending', () => {
@@ -1313,8 +1315,31 @@ test('empty state hides Add this folder when no workspace folder is open', () =>
   const result = renderNonEmptyProjectList([]);
 
   assert.match(result.app.innerHTML, /Open a folder in this window first\./);
+  assert.match(result.app.innerHTML, /data-action="open-workspace-folder"/);
+  assert.match(result.app.innerHTML, /aria-label="Open a folder in this window"/);
+  assert.match(result.app.innerHTML, />Open folder</);
   assert.doesNotMatch(result.app.innerHTML, /Add this folder/);
   assert.doesNotMatch(result.app.innerHTML, />Add project</);
+});
+
+test('empty multi-root state keeps folder choices and hides Open folder', () => {
+  const result = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      currentWorkspaceFolder: '',
+      currentWorkspaceFolderName: '',
+      workspaceFolders: [
+        { name: 'api', folder: '/tmp/api' },
+        { name: 'web', folder: '/tmp/web' }
+      ]
+    }
+  });
+
+  assert.match(result.app.innerHTML, /Choose a folder open in this window\./);
+  assert.match(result.app.innerHTML, /class="empty-workspace-choices"/);
+  assert.match(result.app.innerHTML, /data-action="select-workspace-folder" data-folder="\/tmp\/api"/);
+  assert.match(result.app.innerHTML, /data-action="select-workspace-folder" data-folder="\/tmp\/web"/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="open-workspace-folder"/);
+  assert.doesNotMatch(result.app.innerHTML, /Add this folder/);
 });
 
 test('marks the current-window project without replacing its name', () => {

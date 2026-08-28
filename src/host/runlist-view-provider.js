@@ -35,6 +35,7 @@ const {
 } = require('../lifecycle/ready-open-offer');
 const {
   copyProjectPath: writeProjectPathToClipboard,
+  openFolderInCurrentWindow,
   openProjectInNewWindow,
   openProjectTerminal,
   projectFolderIsAccessible
@@ -1250,9 +1251,14 @@ class RunlistViewProvider {
     if (projectCount === 1) {
       return { type: 'project-control', id: this.projects[0].id };
     }
-    return this.workspaceRoot()
-      ? { type: 'action', action: 'show-add' }
-      : undefined;
+    if (this.workspaceRoot()) {
+      return { type: 'action', action: 'show-add' };
+    }
+    const folderCount = (vscode.workspace.workspaceFolders || []).length;
+    if (folderCount > 1) {
+      return { type: 'action', action: 'select-workspace-folder' };
+    }
+    return { type: 'action', action: 'open-workspace-folder' };
   }
 
   getProjectStatus(id) {
@@ -3203,6 +3209,43 @@ class RunlistViewProvider {
       return false;
     } finally {
       this.processOwnership.release(id);
+    }
+  }
+
+  async openWorkspaceFolder() {
+    const folders = vscode.workspace.workspaceFolders || [];
+    if (folders.length > 1) {
+      this.focusTarget = { type: 'action', action: 'select-workspace-folder' };
+      this.render();
+      return false;
+    }
+    if (this.workspaceRoot()) {
+      this.focusTarget = { type: 'action', action: 'show-add' };
+      this.render();
+      return false;
+    }
+
+    const selection = await vscode.window.showOpenDialog({
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      openLabel: 'Open folder'
+    });
+    if (!selection?.[0]) {
+      this.focusTarget = { type: 'action', action: 'open-workspace-folder' };
+      this.render();
+      return false;
+    }
+
+    this.focusTarget = { type: 'action', action: 'show-add' };
+    try {
+      await openFolderInCurrentWindow(vscode, selection[0]);
+      return true;
+    } catch {
+      vscode.window.showErrorMessage('Runlist could not open that folder.');
+      this.focusTarget = { type: 'action', action: 'open-workspace-folder' };
+      this.render();
+      return false;
     }
   }
 
