@@ -177,6 +177,11 @@
       && !['start', 'handoff', 'close', 'temporary'].includes(value.action)) {
       return undefined;
     }
+    if (value.type === 'showEdit'
+      && value.focusField !== undefined
+      && value.focusField !== 'stop-command') {
+      return undefined;
+    }
     if (value.type === 'forceCloseProjectPorts'
       && value.port !== undefined
       && (!Number.isInteger(Number(value.port))

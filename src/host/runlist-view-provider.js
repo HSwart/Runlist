@@ -1959,7 +1959,7 @@ class RunlistViewProvider {
     this.render();
   }
 
-  showEditProject(id) {
+  showEditProject(id, options = {}) {
     const project = this.projects.find((item) => item.id === id);
     if (!project) {
       return;
@@ -1973,7 +1973,12 @@ class RunlistViewProvider {
     this.formBaseline = projectFormValues(project);
     this.formProjectSnapshot = JSON.parse(JSON.stringify(project));
     this.formErrors = {};
-    this.focusTarget = { type: 'field', id: project.reviewRequired ? 'start-command' : 'project-name' };
+    this.focusTarget = {
+      type: 'field',
+      id: !project.reviewRequired && options.focusField === 'stop-command'
+        ? 'stop-command'
+        : project.reviewRequired ? 'start-command' : 'project-name'
+    };
     this.returnFocus = { type: 'project-menu', id };
     this.render();
   }

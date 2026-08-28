@@ -18,6 +18,18 @@
         mode: 'review'
       };
     }
+
+    const detectedWithoutStop = status === 'active' && !project.stopCommand;
+    const ownershipLostWithoutStop = status === 'ownership-lost' && !project.stopCommand;
+    if ((detectedWithoutStop || ownershipLostWithoutStop) && !project.stopFailure) {
+      return {
+        action: 'add-stop-command',
+        disabled: busy,
+        label: `Add a stop command for ${name}`,
+        mode: 'edit'
+      };
+    }
+
     if (project.lifecycleBlocked) {
       return {
         action: 'start',
@@ -62,17 +74,6 @@
         label: `Close processes using port ${port} and start ${name}`,
         mode: 'start'
       });
-    }
-
-    const detectedWithoutStop = status === 'active' && !project.stopCommand;
-    const ownershipLostWithoutStop = status === 'ownership-lost' && !project.stopCommand;
-    if ((detectedWithoutStop || ownershipLostWithoutStop) && !project.stopFailure) {
-      return {
-        action: 'force-close-ports',
-        disabled: busy,
-        label: `Close processes using ${name} ports`,
-        mode: 'stop'
-      };
     }
 
     const stopsProject = (Boolean(project.stopFailure) && status !== 'stopped' && status !== 'stopping')

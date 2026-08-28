@@ -151,7 +151,9 @@ function createRunlistWebviewRouter(host, adapters = {}) {
       copyPortListeningDetails: (message) => host.copyPortListeningDetails(message.port),
       startWorkspaceScript: (message) => host.startWorkspaceScript(message.script),
       showDiagnosis: (message) => host.showProjectDiagnosis(message.id),
-      showEdit: (message) => host.showEditProject(message.id),
+      showEdit: (message) => host.showEditProject(message.id, {
+        focusField: message.focusField
+      }),
       showOutput: (message) => {
         if (message.projectIncarnation !== undefined
           && !validProjectIncarnation(message.projectIncarnation)) {

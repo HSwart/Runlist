@@ -58,11 +58,19 @@ test('moves uncommon lifecycle phrases off the capsule without renaming them as 
     'App: Web service not responding'
   );
 
-  assert.equal(projectDisplayedStatus({ name: 'App', status: 'active' }), 'Detected');
+  assert.equal(projectDisplayedStatus({ name: 'App', status: 'active' }), 'Running elsewhere');
   assert.notEqual(projectDisplayedStatus({ name: 'App', status: 'active' }), 'Running');
   assert.equal(projectStatusDetailText({ name: 'App', status: 'active' }), '');
   assert.equal(
     projectStatusAnnouncement({ name: 'App', status: 'active' }),
+    'App is running elsewhere. Add a stop command to control it from Runlist.'
+  );
+  assert.equal(
+    projectDisplayedStatus({ name: 'App', status: 'active', stopCommand: 'docker compose down' }),
+    'Detected'
+  );
+  assert.equal(
+    projectStatusAnnouncement({ name: 'App', status: 'active', stopCommand: 'docker compose down' }),
     'App: Detected'
   );
 

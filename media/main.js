@@ -1134,6 +1134,13 @@ function renderList() {
           && !project.handoffInProgress
           && projectStatus !== 'stopping';
         const blocked = conflicted || project.lifecycleBlocked;
+        const showAddStopCommand = !reviewRequired
+          && ((detectedWithoutStop || ownershipLostWithoutStop) && !project.stopFailure);
+        const primaryButtonClass = reviewRequired || primaryAction.action === 'add-stop-command'
+          ? 'review'
+          : blocked
+            ? 'blocked'
+            : primaryAction.mode;
         const launchProfiles = project.launchProfiles || [];
         const hasLaunchProfiles = launchProfiles.length > 1;
         const launchProfileMenuId = `profile:${projectId}`;
@@ -1160,7 +1167,9 @@ function renderList() {
           : projectStatus === 'active'
           ? project.httpUnresponsive
             ? 'The configured port is open, but the web service did not respond. Runlist did not start this process.'
-            : 'Detected through a configured service port; Runlist did not start this process.'
+            : project.stopCommand
+              ? 'Detected through a configured service port; Runlist did not start this process.'
+              : 'Runlist detected this app on a configured port but did not start it.'
           : projectStatus === 'not-responding'
             ? 'The launched process is still running and its configured port is open, but the web service did not respond.'
           : projectStatus === 'not-ready'
@@ -1240,8 +1249,8 @@ function renderList() {
                       ${launchProfiles.map((profile) => `<button data-action="select-launch-profile" data-id="${projectId}" data-profile-id="${escapeHtml(profile.id)}" role="menuitemradio" aria-checked="${profile.id === project.activeLaunchProfileId}"><span class="profile-check" aria-hidden="true">${profile.id === project.activeLaunchProfileId ? '✓' : ''}</span><span>${escapeHtml(profile.name)}</span></button>`).join('')}
                     </div>
                   </div>` : ''}
-                <button class="run-button ${reviewRequired ? 'review' : blocked ? 'blocked' : primaryAction.mode}" data-action="${primaryAction.action}" data-id="${projectId}" aria-label="${actionTitle}" title="${actionTitle}" ${primaryAction.disabled ? 'disabled' : ''}>
-                  ${reviewRequired ? icon('edit') : productIcon(primaryAction.mode === 'stop' ? 'stop' : 'play')}
+                <button class="run-button ${primaryButtonClass}" data-action="${primaryAction.action}" data-id="${projectId}" aria-label="${actionTitle}" title="${actionTitle}" ${primaryAction.disabled ? 'disabled' : ''}>
+                  ${reviewRequired || primaryAction.action === 'add-stop-command' ? icon('edit') : productIcon(primaryAction.mode === 'stop' ? 'stop' : 'play')}
                 </button>
                 ${canRestart ? `
                 <button class="run-button restart" data-action="restart" data-id="${projectId}" aria-label="Restart ${projectName}" title="Restart ${projectName}" ${transitioning ? 'disabled' : ''}>
@@ -1270,6 +1279,10 @@ function renderList() {
                   <button data-action="restart" data-id="${projectId}" role="menuitem" aria-label="Restart ${projectName}" ${canRestart ? '' : 'disabled'}>
                     ${icon('refresh', 'menu-icon')}<span>Restart</span>
                   </button>
+                  ${showAddStopCommand ? `
+                  <button data-action="add-stop-command" data-id="${projectId}" role="menuitem" aria-label="Add a stop command for ${projectName}">
+                    ${icon('edit', 'menu-icon')}<span>Add stop command</span>
+                  </button>` : ''}
                   <button data-action="force-close-ports" data-id="${projectId}" role="menuitem" aria-label="Close configured ports for ${projectName}" ${canCloseConfiguredPorts && !project.lifecycleBlocked ? '' : 'disabled'} title="${project.lifecycleBlocked ? escapeHtml(project.lifecycleBlockedReason) : canCloseConfiguredPorts ? `Review and close the processes using ${projectName}'s configured ports` : 'No configured ports are currently open'}">
                     ${icon('stop', 'menu-icon')}<span>Close configured ports…</span>
                   </button>
@@ -2936,6 +2949,7 @@ app.addEventListener('click', (event) => {
     'jump-latest': jumpToLatestOutput,
     'copy-output': () => vscode.postMessage({ type: 'copyOutput' }),
     edit: () => vscode.postMessage({ type: 'showEdit', id: button.dataset.id }),
+    'add-stop-command': () => vscode.postMessage({ type: 'showEdit', id: button.dataset.id, focusField: 'stop-command' }),
     'toggle-pin': () => vscode.postMessage({ type: 'toggleProjectPin', id: button.dataset.id }),
     'show-running-app': () => revealRunningApp(button.dataset.id),
     'previous-running-app': () => navigateRunningApps(-1),

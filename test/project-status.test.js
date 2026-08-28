@@ -781,7 +781,7 @@ test('shows a clear nonresponding state without changing stop safety', () => {
   const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
 
   assert.match(statusDisplay, /'not-responding': 'Web service not responding'/);
-  assert.match(statusDisplay, /project\.httpUnresponsive \? 'Detected, web service not responding' : 'Detected'/);
+  assert.match(statusDisplay, /project\.httpUnresponsive[\s\S]*\? 'Detected, web service not responding'[\s\S]*: \(!project\.stopCommand \? 'Running elsewhere' : 'Detected'\)/);
   assert.match(webview, /const statusClass = projectStatus === 'active' && project\.httpUnresponsive[\s\S]*\? 'not-responding'[\s\S]*: displayStatus/);
   assert.match(webview, /project-status status-\$\{rowStatusClass\}/);
   assert.match(webview, /\['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active'\]\.includes\(projectStatus\)/);

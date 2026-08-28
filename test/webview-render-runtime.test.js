@@ -1301,6 +1301,7 @@ test('renders Detected on the status line without a second Detected running sent
     reviewRequired: false,
     services: [{ name: 'web', port: 4310 }],
     status: 'active',
+    stopCommand: 'docker compose down',
     tags: []
   }]);
 
@@ -1311,6 +1312,68 @@ test('renders Detected on the status line without a second Detected running sent
   assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
   assert.doesNotMatch(result.app.innerHTML, /class="current-window-label"/);
   assert.match(result.app.innerHTML, /role="menuitem" disabled>[\s\S]*This window/);
+});
+
+test('detected apps without a stop command offer Add stop command and keep close-ports in More', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    currentWorkspace: true,
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/northstar-dashboard',
+    id: 'northstar',
+    launchProfiles: [],
+    name: 'Northstar Dashboard',
+    openPorts: [4310],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 4310 }],
+    status: 'active',
+    tags: []
+  }]);
+
+  assert.match(
+    result.app.innerHTML,
+    /class="project-status status-active"[^>]*title="Runlist detected this app on a configured port but did not start it\."[^>]*>[\s\S]*<span>Running elsewhere<\/span>/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /class="run-button review"[^>]*data-action="add-stop-command"[^>]*aria-label="Add a stop command for Northstar Dashboard"/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /data-action="add-stop-command" data-id="northstar" role="menuitem" aria-label="Add a stop command for Northstar Dashboard"/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /data-action="force-close-ports" data-id="northstar" role="menuitem"/
+  );
+  assert.doesNotMatch(result.app.innerHTML, /data-action="force-close-ports"[^>]*class="run-button"/);
+  assert.doesNotMatch(result.app.innerHTML, /Close processes using/);
+  assert.doesNotMatch(result.app.innerHTML, /Detected running/);
+});
+
+test('review setup stays primary and hides Add stop command until review is done', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/northstar-dashboard',
+    id: 'northstar',
+    launchProfiles: [],
+    name: 'Northstar Dashboard',
+    openPorts: [4310],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: true,
+    services: [{ name: 'web', port: 4310 }],
+    status: 'active',
+    tags: []
+  }]);
+
+  assert.match(result.app.innerHTML, /data-action="edit"[^>]*aria-label="Review setup for Northstar Dashboard"/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="add-stop-command"/);
 });
 
 test('failed start keeps a two-line row with the reason and Start', () => {

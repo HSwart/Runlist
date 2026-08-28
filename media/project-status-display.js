@@ -30,7 +30,9 @@
       'not-responding': 'Web service not responding',
       'ownership-lost': 'Running — control unavailable',
       stopping: 'Stopping…',
-      active: project.httpUnresponsive ? 'Detected, web service not responding' : 'Detected',
+      active: project.httpUnresponsive
+        ? 'Detected, web service not responding'
+        : (!project.stopCommand ? 'Running elsewhere' : 'Detected'),
       'port-in-use': conflict?.ownerName ? `${blockedServiceLabel} by ${conflictOwnerName}` : blockedServiceLabel,
       'port-in-use-unknown': blockedServiceLabel,
       'review-required': 'Review setup',
@@ -105,6 +107,9 @@
       return fullLabels[primaryCode];
     }
     if (code === 'active') {
+      if (!project.stopCommand && !project.httpUnresponsive && !projectStopFailureText(project)) {
+        return fullLabels.active;
+      }
       return 'Detected';
     }
     if (code === 'ownership-lost') {
@@ -164,6 +169,14 @@
       : '';
     if (project.forceClosing || project.handoffInProgress) {
       return `${composeLabel}${name}: ${projectDisplayedStatus(project)}`;
+    }
+    const code = projectStatusCode(project);
+    if (!project.reviewRequired
+      && code === 'active'
+      && !project.stopCommand
+      && !project.stopFailure
+      && !project.httpUnresponsive) {
+      return `${composeLabel}${name} is running elsewhere. Add a stop command to control it from Runlist.`;
     }
     const fullLabels = projectStatusFullLabels(project);
     const failureText = projectStopFailureText(project) || projectStartFailureText(project);

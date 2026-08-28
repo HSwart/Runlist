@@ -2,25 +2,45 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const { projectPrimaryAction } = require('../media/project-actions');
 
-test('turns detected external apps into a confirmed close-ports Stop action', () => {
+test('turns detected apps without a stop command into Add stop command', () => {
   assert.deepEqual(projectPrimaryAction({
     name: 'Attributes Finder',
     status: 'active',
     stopCommand: ''
   }), {
-    action: 'force-close-ports',
+    action: 'add-stop-command',
     disabled: false,
-    label: 'Close processes using Attributes Finder ports',
-    mode: 'stop'
+    label: 'Add a stop command for Attributes Finder',
+    mode: 'edit'
   });
 });
 
-test('keeps Stop available through the confirmed port path when ownership is lost', () => {
-  assert.equal(projectPrimaryAction({
+test('offers Add stop command when ownership is lost and no stop command is saved', () => {
+  assert.deepEqual(projectPrimaryAction({
     name: 'Attributes Finder',
     status: 'ownership-lost',
     stopCommand: ''
-  }).action, 'force-close-ports');
+  }), {
+    action: 'add-stop-command',
+    disabled: false,
+    label: 'Add a stop command for Attributes Finder',
+    mode: 'edit'
+  });
+});
+
+test('still lets Add stop command open Edit when lifecycle controls are blocked', () => {
+  assert.deepEqual(projectPrimaryAction({
+    name: 'Remote app',
+    status: 'active',
+    stopCommand: '',
+    lifecycleBlocked: true,
+    lifecycleBlockedReason: 'Local projects only.'
+  }), {
+    action: 'add-stop-command',
+    disabled: false,
+    label: 'Add a stop command for Remote app',
+    mode: 'edit'
+  });
 });
 
 test('turns unknown port conflicts into a confirmed close-and-start action', () => {
