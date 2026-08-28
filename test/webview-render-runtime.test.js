@@ -1522,6 +1522,59 @@ test('failed start keeps a two-line row with the reason and Start', () => {
   assert.doesNotMatch(result.app.innerHTML, /Ask your agent|copy-diagnosis-request/);
 });
 
+test('row More menu includes Ask your agent only when canAskAgent is true', () => {
+  const withoutDiagnostics = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    canAskAgent: false,
+    detailsExpanded: false,
+    failureSummary: {
+      title: 'Start failed',
+      message: '/bin/sh: vite: command not found'
+    },
+    folder: '/Users/shared/Projects/broken-app',
+    id: 'broken',
+    launchProfiles: [],
+    name: 'Broken App',
+    openPorts: [],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 3000 }],
+    status: 'stopped',
+    tags: []
+  }]);
+  assert.doesNotMatch(withoutDiagnostics.app.innerHTML, /data-action="ask-agent"/);
+  assert.match(withoutDiagnostics.app.innerHTML, /data-action="output"[^>]*role="menuitem"/);
+
+  const withDiagnostics = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    canAskAgent: true,
+    detailsExpanded: false,
+    failureSummary: {
+      title: 'Start failed',
+      message: '/bin/sh: vite: command not found'
+    },
+    folder: '/Users/shared/Projects/broken-app',
+    id: 'broken',
+    launchProfiles: [],
+    name: 'Broken App',
+    openPorts: [],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 3000 }],
+    status: 'stopped',
+    tags: []
+  }]);
+  assert.match(
+    withDiagnostics.app.innerHTML,
+    /data-action="output"[^>]*role="menuitem"[\s\S]*data-action="ask-agent"[^>]*role="menuitem"[^>]*aria-label="Ask your agent about Broken App"[\s\S]*<span>Ask your agent<\/span>[\s\S]*data-action="restart"[^>]*role="menuitem"/
+  );
+  assert.doesNotMatch(withDiagnostics.app.innerHTML, /copy-diagnosis-request|copy-start-failure/);
+});
+
 test('missing-required-env start failure uses Fix environment as the primary row action', () => {
   const result = renderNonEmptyProjectList([{
     activeLaunchProfileId: 'default',

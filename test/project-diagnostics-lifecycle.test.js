@@ -4,7 +4,7 @@ const Module = require('node:module');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { writeProjectDiagnostics, readProjectDiagnostics } = require('../src/projects/project-diagnostics');
+const { writeProjectDiagnostics, readProjectDiagnostics, clearProjectDiagnostics } = require('../src/projects/project-diagnostics');
 const {
   createProjectRepairProposal,
   projectConfigurationRevision,
@@ -232,6 +232,24 @@ test('same-ID recreation cannot inherit a deleted diagnosis, while ordinary rere
   assert.equal(recreatedState.diagnosis, undefined);
   assert.notEqual(provider.projectIncarnations.get(project.id), diagnosisIncarnation);
   assert.match(recreatedState.routeNotice, /diagnosis was closed/i);
+});
+
+test('list model exposes canAskAgent only while retained diagnostics exist', (t) => {
+  const fixtureData = fixture(t);
+  const { project, provider, projectsFile, view } = fixtureData;
+  seedFailure(fixtureData);
+  provider.render();
+
+  const withDiagnostics = renderedState(view).projects.find((item) => item.id === project.id);
+  assert.equal(withDiagnostics.canAskAgent, true);
+  assert.equal(Object.hasOwn(withDiagnostics, 'retainedOutput'), false);
+  assert.equal(Object.hasOwn(withDiagnostics, 'outputTruncated'), false);
+
+  clearProjectDiagnostics(projectsFile, project.id);
+  provider.render();
+  const withoutDiagnostics = renderedState(view).projects.find((item) => item.id === project.id);
+  assert.equal(withoutDiagnostics.canAskAgent, false);
+  assert.equal(readProjectDiagnostics(projectsFile, project.id), undefined);
 });
 
 test('cross-window deletion of the last project focuses the working Add route', async (t) => {

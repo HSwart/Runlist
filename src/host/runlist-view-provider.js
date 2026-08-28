@@ -5445,6 +5445,7 @@ class RunlistViewProvider {
           ? String(this.composeNotice).replace(/\s+/g, ' ').trim()
           : undefined,
         failureSummary: this.rowStartFailureSummary(project.id, status),
+        canAskAgent: Boolean(readProjectDiagnostics(this.projectsFile, project.id)),
         stopFailure: this.projectStopFailures?.get(project.id),
         timeline,
         detailsExpanded,
