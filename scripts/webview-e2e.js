@@ -7,6 +7,7 @@ const path = require('node:path');
 const { chromium } = require('playwright-core');
 const { runTests } = require('@vscode/test-electron');
 const { webviewFrameWasReplaced } = require('./webview-frame-errors');
+const { composeGalleryHero } = require('./compose-gallery-hero');
 const {
   WEBVIEW_DEBUG_ENDPOINT_TIMEOUT_MS,
   WEBVIEW_FRAME_TIMEOUT_MS
@@ -29,10 +30,26 @@ async function main() {
   fs.mkdirSync(workspacePath, { recursive: true });
   fs.mkdirSync(extensionsPath, { recursive: true });
   fs.mkdirSync(path.join(userDataPath, 'User'), { recursive: true });
-  fs.writeFileSync(path.join(userDataPath, 'User', 'settings.json'), JSON.stringify({
+  const userSettings = {
     'files.simpleDialog.enable': true,
     'workbench.startupEditor': 'none'
-  }));
+  };
+  if (UPDATE_SCREENSHOT) {
+    // Marketplace stills should look like a Mac/Windows VS Code install, not the
+    // default Linux UI stack (Ubuntu/Cantarell/DejaVu).
+    Object.assign(userSettings, {
+      'editor.fontFamily': "'JetBrains Mono', 'Cascadia Code', monospace",
+      'editor.fontSize': 13,
+      'editor.fontLigatures': false,
+      'terminal.integrated.fontFamily': "'JetBrains Mono', monospace",
+      'window.autoDetectHighContrast': false,
+      // Render the workbench a bit larger so stills downsample cleanly.
+      'window.zoomLevel': 1
+    });
+    writeMarketplaceFontConfig(root);
+    process.env.FONTCONFIG_FILE = path.join(root, 'fonts.conf');
+  }
+  fs.writeFileSync(path.join(userDataPath, 'User', 'settings.json'), JSON.stringify(userSettings, null, 2));
   const debugPort = await availablePort();
   let hostOutput = '';
   const output = {
@@ -48,7 +65,8 @@ async function main() {
     extensionTestsPath: path.join(extensionDevelopmentPath, 'smoke', 'webview-e2e-host.js'),
     extensionTestsEnv: {
       RUNLIST_EXTENSION_SMOKE: '1',
-      RUNLIST_WEBVIEW_E2E_ROOT: root
+      RUNLIST_WEBVIEW_E2E_ROOT: root,
+      ...(UPDATE_SCREENSHOT ? { FONTCONFIG_FILE: path.join(root, 'fonts.conf') } : {})
     },
     launchArgs: [
       workspacePath,
@@ -126,8 +144,10 @@ async function captureIdeScreenshots(browser, ready, root, extensionDevelopmentP
 
   await hostCommand(root, 'set-theme', { theme: 'Default Dark Modern' });
   await hostCommand(root, 'prepare-screenshot');
-  await widenSidebar(page, 420);
+  await widenSidebar(page, 500);
   await hideWorkbenchChrome(page);
+  await enableRetinaCapture(page);
+  await applyMarketplaceFonts(page, browser);
 
   fs.writeFileSync(path.join(ready.workspacePath, 'package.json'), JSON.stringify({
     name: 'acme-storefront',
@@ -141,11 +161,12 @@ async function captureIdeScreenshots(browser, ready, root, extensionDevelopmentP
   // Give the empty-state chips a moment to paint after re-render.
   await new Promise((resolve) => setTimeout(resolve, 800));
   await hideWorkbenchChrome(page);
+  await applyMarketplaceFonts(page, browser);
   const frameAPath = path.join(artifactDir, 'ide-frame-a-empty.png');
-  await page.screenshot({ path: frameAPath });
+  await captureRetinaPng(page, frameAPath);
   assert.ok(fs.statSync(frameAPath).size > 10000, 'Frame A IDE screenshot was unexpectedly small.');
 
-  const seeded = await hostCommand(root, 'seed-running-screenshot', {}, 30000);
+  const seeded = await hostCommand(root, 'seed-gallery-screenshot', {}, 45000);
   assert.ok(['running', 'active'].includes(seeded.status), `Expected running project, got ${seeded.status}`);
   await waitFor(async () => await hostCommand(root, 'start-count') >= 1,
     10000, 'seeded screenshot project to write its launch marker');
@@ -153,31 +174,346 @@ async function captureIdeScreenshots(browser, ready, root, extensionDevelopmentP
   await new Promise((resolve) => setTimeout(resolve, 1400));
   await hostCommand(root, 'refresh-list');
   await hostCommand(root, 'prepare-screenshot');
-  await widenSidebar(page, 420);
+  await widenSidebar(page, 500);
   await hideWorkbenchChrome(page);
+  await applyMarketplaceFonts(page, browser);
+  await prepareGalleryHeroLayout(browser, root, seeded);
+  await scrollGalleryListTop(browser);
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  await applyMarketplaceFonts(page, browser);
+  // Prove the webview actually resolved RunlistInter before we shoot.
+  await assertMarketplaceFontApplied(browser);
   const frameBPath = path.join(artifactDir, 'ide-frame-b-running-row.png');
-  await page.screenshot({ path: frameBPath });
+  await captureRetinaPng(page, frameBPath);
   assert.ok(fs.statSync(frameBPath).size > 10000, 'Frame B IDE screenshot was unexpectedly small.');
+
+  await page.setViewportSize({ width: 1440, height: 1080 });
+  await hostCommand(root, 'prepare-screenshot');
+  await widenSidebar(page, 500);
+  await hideWorkbenchChrome(page);
+  await applyMarketplaceFonts(page, browser);
+  await prepareGalleryHeroLayout(browser, root, seeded);
+  await scrollGalleryListTop(browser);
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  await applyMarketplaceFonts(page, browser);
+
+  const heroSourcePath = path.join(artifactDir, 'ide-gallery-hero-source.png');
+  const heroFrame = await measureWorkbenchHeroFrame(page);
+  const heroCapture = await captureRetinaPng(page, heroSourcePath);
+  heroFrame.deviceScaleFactor = heroCapture.deviceScaleFactor;
+  assert.ok(fs.statSync(heroSourcePath).size > 10000, 'Gallery hero source screenshot was unexpectedly small.');
+  fs.writeFileSync(path.join(artifactDir, 'ide-gallery-hero-frame.json'), JSON.stringify(heroFrame, null, 2));
+
+  const heroOutputPath = path.join(extensionDevelopmentPath, 'media', 'gallery-01-hero.png');
+  composeGalleryHero(heroSourcePath, heroOutputPath, heroFrame);
+  fs.copyFileSync(heroOutputPath, path.join(artifactDir, 'gallery-01-hero.png'));
 
   await shrinkSidebar(page, 300);
   await hideWorkbenchChrome(page);
+  await applyMarketplaceFonts(page, browser);
   await new Promise((resolve) => setTimeout(resolve, 400));
   const frameBNarrowPath = path.join(artifactDir, 'ide-frame-b-running-narrow.png');
-  await page.screenshot({ path: frameBNarrowPath });
+  await captureRetinaPng(page, frameBNarrowPath);
   assert.ok(fs.statSync(frameBNarrowPath).size > 10000, 'Narrow Frame B IDE screenshot was unexpectedly small.');
-  await widenSidebar(page, 420);
+  await widenSidebar(page, 500);
 
   const previewPath = path.join(extensionDevelopmentPath, 'media', 'runlist-preview.png');
-  await page.screenshot({ path: previewPath });
+  await captureRetinaPng(page, previewPath);
   assert.ok(fs.statSync(previewPath).size > 10000, 'The generated webview screenshot was unexpectedly small.');
   fs.copyFileSync(previewPath, path.join(artifactDir, 'ide-runlist-preview.png'));
 
-  await hostCommand(root, 'stop-project', { projectId: seeded.projectId });
-  await waitFor(async () => {
-    const snapshot = await hostCommand(root, 'project-status', { projectId: seeded.projectId });
-    return !snapshot.hasProcess
-      && ['stopped', 'idle', 'inactive'].includes(snapshot.status);
-  }, 15000, 'seeded screenshot project to stop');
+  for (const projectId of seeded.projectIds || [seeded.projectId]) {
+    await hostCommand(root, 'stop-project', { projectId }).catch(() => undefined);
+  }
+  try {
+    await waitFor(async () => {
+      const snapshots = await Promise.all(
+        (seeded.projectIds || [seeded.projectId]).map((projectId) => (
+          hostCommand(root, 'project-status', { projectId })
+        ))
+      );
+      return snapshots.every((snapshot) => !snapshot.hasProcess
+        && ['stopped', 'idle', 'inactive'].includes(snapshot.status));
+    }, 8000, 'seeded screenshot projects to stop');
+  } catch {
+    // Screenshot assets are already written; cleanup is best-effort.
+  }
+}
+
+async function prepareGalleryHeroLayout(browser, root, seeded) {
+  await ensureProjectServicesExpanded(browser, 'Acme Storefront');
+  await collapseGroupsPanel(browser);
+  await scrollGalleryListTop(browser);
+}
+
+async function ensureProjectServicesExpanded(browser, projectName) {
+  await attachVsCodeWebviewTargets(browser).catch(() => undefined);
+  const frames = browser.contexts()
+    .flatMap((context) => context.pages())
+    .flatMap((page) => page.frames());
+  const webview = await findRunlistFrame(frames);
+  if (!webview) {
+    return;
+  }
+  const row = webview.locator('.project-row').filter({
+    has: webview.getByRole('heading', { name: projectName })
+  });
+  const expand = row.locator('[data-action="open-services"]').first();
+  if (!await expand.count()) {
+    return;
+  }
+  const servicesTab = row.locator('[data-action="select-detail-tab"][data-tab="services"]').first();
+  if (await expand.getAttribute('aria-expanded') !== 'true') {
+    await expand.click({ timeout: 2000 }).catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 350));
+  } else if (await servicesTab.count() && await servicesTab.getAttribute('aria-selected') !== 'true') {
+    await servicesTab.click({ timeout: 2000 }).catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
+async function collapseGroupsPanel(browser) {
+  await attachVsCodeWebviewTargets(browser).catch(() => undefined);
+  const frames = browser.contexts()
+    .flatMap((context) => context.pages())
+    .flatMap((page) => page.frames());
+  const webview = await findRunlistFrame(frames);
+  if (!webview) {
+    return;
+  }
+  const toggle = webview.locator('[data-action="toggle-group-filter"]').first();
+  if (await toggle.count() && await toggle.getAttribute('aria-expanded') === 'true') {
+    await toggle.click({ timeout: 2000 }).catch(() => undefined);
+  }
+}
+
+async function measureWorkbenchHeroFrame(page, editorPeekWidth = 380) {
+  const readBox = async (selector) => {
+    const locator = page.locator(selector).first();
+    if (!await locator.count()) {
+      return undefined;
+    }
+    return locator.boundingBox();
+  };
+  const titlebar = await readBox('.part.titlebar');
+  const activitybar = await readBox('.part.activitybar');
+  const sidebar = await readBox('.part.sidebar');
+  const editor = await readBox('.part.editor');
+  assert.ok(sidebar, 'Could not locate VS Code sidebar for gallery hero framing.');
+  const left = activitybar?.x ?? sidebar.x;
+  const top = titlebar?.y ?? Math.min(
+    sidebar.y,
+    activitybar?.y ?? sidebar.y
+  );
+  const sidebarRight = sidebar.x + sidebar.width;
+  const editorSliceRight = editor
+    ? Math.min(editor.x + editorPeekWidth, editor.x + editor.width)
+    : sidebarRight + editorPeekWidth;
+  const width = Math.max(editorSliceRight - left, sidebarRight - left + 280);
+  const bottom = Math.max(
+    sidebar.y + sidebar.height,
+    editor ? editor.y + editor.height : 0,
+    activitybar ? activitybar.y + activitybar.height : 0
+  );
+  return {
+    x: left,
+    y: top,
+    width,
+    height: bottom - top
+  };
+}
+
+async function scrollGalleryListTop(browser) {
+  await attachVsCodeWebviewTargets(browser).catch(() => undefined);
+  const frames = browser.contexts()
+    .flatMap((context) => context.pages())
+    .flatMap((page) => page.frames());
+  const webview = await findRunlistFrame(frames);
+  if (!webview) {
+    return;
+  }
+  await webview.evaluate(() => {
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    for (const element of document.querySelectorAll('*')) {
+      if (element.scrollTop > 0) {
+        element.scrollTop = 0;
+      }
+    }
+  }).catch(() => undefined);
+}
+
+async function assertMarketplaceFontApplied(browser) {
+  await attachVsCodeWebviewTargets(browser).catch(() => undefined);
+  const frames = browser.contexts()
+    .flatMap((context) => context.pages())
+    .flatMap((page) => page.frames());
+  const webview = await findRunlistFrame(frames);
+  assert.ok(webview, 'Runlist webview frame missing while checking Marketplace fonts.');
+  const family = await webview.evaluate(() => getComputedStyle(document.body).fontFamily);
+  assert.match(
+    String(family),
+    /RunlistInter|Inter/i,
+    `Expected bundled Inter in webview, got: ${family}`
+  );
+}
+
+function writeMarketplaceFontConfig(root) {
+  const configPath = path.join(root, 'fonts.conf');
+  fs.writeFileSync(configPath, `<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig>
+  <dir>/usr/share/fonts/truetype/macos</dir>
+  <dir>/usr/share/fonts</dir>
+  <match target="pattern">
+    <test qual="any" name="family"><string>sans-serif</string></test>
+    <edit name="family" mode="prepend" binding="strong"><string>Inter</string></edit>
+  </match>
+  <match target="pattern">
+    <test qual="any" name="family"><string>system-ui</string></test>
+    <edit name="family" mode="prepend" binding="strong"><string>Inter</string></edit>
+  </match>
+  <match target="pattern">
+    <test qual="any" name="family"><string>Ubuntu</string></test>
+    <edit name="family" mode="assign" binding="strong"><string>Inter</string></edit>
+  </match>
+  <match target="pattern">
+    <test qual="any" name="family"><string>Cantarell</string></test>
+    <edit name="family" mode="assign" binding="strong"><string>Inter</string></edit>
+  </match>
+  <match target="pattern">
+    <test qual="any" name="family"><string>DejaVu Sans</string></test>
+    <edit name="family" mode="assign" binding="strong"><string>Inter</string></edit>
+  </match>
+  <match target="pattern">
+    <test qual="any" name="family"><string>monospace</string></test>
+    <edit name="family" mode="prepend" binding="strong"><string>JetBrains Mono</string></edit>
+  </match>
+</fontconfig>
+`);
+}
+
+function marketplaceFontFaceCss() {
+  const faces = [];
+  const add = (family, filePath, weight) => {
+    if (!fs.existsSync(filePath)) {
+      return;
+    }
+    const b64 = fs.readFileSync(filePath).toString('base64');
+    faces.push(`@font-face {
+  font-family: '${family}';
+  font-style: normal;
+  font-weight: ${weight};
+  font-display: block;
+  src: url(data:font/ttf;base64,${b64}) format('truetype');
+}`);
+  };
+  // Prefer compact Latin subsets generated for Marketplace stills.
+  add('RunlistInter', '/tmp/Inter-Regular-subset.ttf', 400);
+  add('RunlistInter', '/tmp/Inter-Medium-subset.ttf', 500);
+  add('RunlistInter', '/tmp/Inter-SemiBold-subset.ttf', 600);
+  add('RunlistMono', '/tmp/JetBrainsMono-Regular-subset.ttf', 400);
+  if (faces.length === 0) {
+    add('RunlistInter', '/usr/share/fonts/truetype/macos/Inter-Regular.ttf', 400);
+    add('RunlistMono', '/usr/share/fonts/truetype/macos/JetBrainsMono-Regular.ttf', 400);
+  }
+  return faces.join('\n');
+}
+
+async function applyMarketplaceFonts(page, browser) {
+  const faceCss = marketplaceFontFaceCss();
+  const uiFont = `"RunlistInter", "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif`;
+  const editorFont = `"RunlistMono", "JetBrains Mono", "Cascadia Code", ui-monospace, monospace`;
+  const css = `${faceCss}
+    :root {
+      --vscode-font-family: ${uiFont} !important;
+      --vscode-editor-font-family: ${editorFont} !important;
+    }
+    .monaco-workbench,
+    .monaco-workbench .part,
+    .monaco-workbench .monaco-icon-label,
+    body, button, input, textarea {
+      font-family: ${uiFont} !important;
+    }
+    .monaco-editor, .monaco-editor .view-line {
+      font-family: ${editorFont} !important;
+    }
+  `;
+  const inject = async (target) => {
+    await target.addStyleTag({ content: css }).catch(() => undefined);
+    await target.evaluate(async (fontCss) => {
+      let style = document.querySelector('style[data-runlist-marketplace-fonts="1"]');
+      if (!style) {
+        style = document.createElement('style');
+        style.setAttribute('data-runlist-marketplace-fonts', '1');
+        document.documentElement.appendChild(style);
+      }
+      style.textContent = fontCss;
+      document.body.style.fontFamily = '"RunlistInter", "Inter", sans-serif';
+      if (document.fonts?.ready) {
+        await document.fonts.ready;
+      }
+    }, css).catch(() => undefined);
+  };
+
+  await inject(page);
+  await attachVsCodeWebviewTargets(browser).catch(() => undefined);
+  for (const frame of page.frames()) {
+    await inject(frame);
+  }
+}
+
+async function enableRetinaCapture(page) {
+  const client = await page.context().newCDPSession(page);
+  const metrics = await page.evaluate(() => ({
+    width: Math.max(window.innerWidth, 1280),
+    height: Math.max(window.innerHeight, 900)
+  }));
+  await client.send('Emulation.setDeviceMetricsOverride', {
+    width: metrics.width,
+    height: metrics.height,
+    deviceScaleFactor: 2,
+    mobile: false
+  });
+  // Force a layout pass at the new DPR before stills are taken.
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve())));
+  return client;
+}
+
+async function captureRetinaPng(page, filePath) {
+  const client = await page.context().newCDPSession(page);
+  const metrics = await page.evaluate(() => ({
+    width: Math.max(Math.floor(window.innerWidth), 1280),
+    height: Math.max(Math.floor(window.innerHeight), 900)
+  }));
+  await client.send('Emulation.setDeviceMetricsOverride', {
+    width: metrics.width,
+    height: metrics.height,
+    deviceScaleFactor: 2,
+    mobile: false
+  });
+  const result = await client.send('Page.captureScreenshot', {
+    format: 'png',
+    fromSurface: true,
+    captureBeyondViewport: false,
+    clip: {
+      x: 0,
+      y: 0,
+      width: metrics.width,
+      height: metrics.height,
+      scale: 2
+    }
+  });
+  fs.writeFileSync(filePath, Buffer.from(result.data, 'base64'));
+  const { imageSizeFromPng } = require('./png-size');
+  const pixelSize = imageSizeFromPng(filePath);
+  return {
+    cssWidth: metrics.width,
+    cssHeight: metrics.height,
+    pixelWidth: pixelSize.width,
+    pixelHeight: pixelSize.height,
+    deviceScaleFactor: pixelSize.width / metrics.width
+  };
 }
 
 async function waitForWorkbenchPage(browser) {

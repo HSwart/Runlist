@@ -13,7 +13,7 @@ test('row keeps listener owner off the everyday list line', () => {
   assert.doesNotMatch(webview, /\$\{projectListenerOwnerHtml\(project\)\}/);
   assert.doesNotMatch(webview, /class="project-services-summary"/);
   assert.doesNotMatch(webview, /data-action="kill-port"|who owns this port/i);
-  assert.doesNotMatch(styles, /Inter|fonts\.googleapis|@font-face/);
+  assert.doesNotMatch(styles, /fonts\.googleapis/);
 });
 
 test('other Runlist owner switches via existing reveal flow; external close stays off the row', () => {
