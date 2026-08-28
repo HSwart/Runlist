@@ -24,6 +24,17 @@ function createSource(t) {
   return directory;
 }
 
+test('bundled skill documents read-only list and status tools', () => {
+  const skill = fs.readFileSync(
+    path.join(__dirname, '..', 'skills', 'runlist', 'SKILL.md'),
+    'utf8'
+  );
+  assert.match(skill, /runlist_list_projects/);
+  assert.match(skill, /runlist_get_project_status/);
+  assert.match(skill, /Do \*\*not\*\* start, stop, restart, kill processes, or close ports/i);
+  assert.match(skill, /controllableInThisWindow/);
+});
+
 test('bundled skill treats the custom stop command as optional', () => {
   const skill = fs.readFileSync(
     path.join(__dirname, '..', 'skills', 'runlist', 'SKILL.md'),

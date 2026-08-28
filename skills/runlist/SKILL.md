@@ -1,6 +1,6 @@
 ---
 name: runlist
-description: Set up or update a local development project in Runlist, or diagnose a retained failed start when the user provides a Runlist project ID. Use for Runlist setup requests and copied Runlist diagnosis requests.
+description: Set up or update a local development project in Runlist, look up saved project status, or diagnose a retained failed start when the user provides a Runlist project ID. Use for Runlist setup requests, questions about what is saved or running, and copied Runlist diagnosis requests.
 ---
 
 <!-- Managed by the Runlist VS Code extension. -->
@@ -23,6 +23,18 @@ description: Set up or update a local development project in Runlist, or diagnos
 When the repository already has a committed Runlist stack file (`runlist.json` or `.runlist/projects.json`), tell the user they can use **Runlist → Import or Export → Load stack from this workspace**, review the exact folders and commands, and approve before anything can run. The stack file may reference an `envFile` path relative to each project folder, but must not include secret values or an `env` map. Prefer a committed `.env.example` and a local `.env` that stays out of git.
 
 If the Runlist MCP tool is unavailable, tell the user to open **Runlist → Agent connections** in VS Code and select **Set up** for this agent. Do not edit Runlist's storage file directly.
+
+# Look up saved Runlist projects
+
+When the user asks which apps are saved in Runlist, what is running, or the status of a named app:
+
+1. Call `runlist_list_projects` for the bounded saved list. Use `runlist_get_project_status` with an exact project ID from that list when you need one project's details.
+2. Treat the result as a snapshot. Lifecycle can differ across VS Code windows. If `controllableInThisWindow` is false, do not tell the user to Start or Stop from this window.
+3. Do **not** start, stop, restart, kill processes, or close ports. Those actions stay in the Runlist sidebar for the user.
+4. Do not inspect project files, environment variables, or processes to answer status questions when these tools are available.
+5. If the user wants a failed start diagnosed, use `runlist_get_project_diagnostics` with the exact project ID. Repair still requires `runlist_propose_project_repair` and user approval in Runlist.
+
+Never call setup or repair tools merely because you listed a project.
 
 # Diagnose a failed Runlist start
 

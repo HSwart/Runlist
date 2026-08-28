@@ -25,6 +25,7 @@ function installMcpBridge(context) {
     'src/lifecycle/process-metrics.js',
     'src/lifecycle/project-process.js',
     'src/lifecycle/runtime-process-owner.js',
+    'src/lifecycle/lifecycle-capability.js',
     'src/ports/service-port-overrides.js',
     'src/projects/launch-env.js',
     'src/projects/launch-profile.js',
@@ -103,7 +104,8 @@ function activate(context) {
     [serverPath],
     {
       ELECTRON_RUN_AS_NODE: '1',
-      RUNLIST_PROJECTS_FILE: projectsFile
+      RUNLIST_PROJECTS_FILE: projectsFile,
+      RUNLIST_HOST_PID: String(process.pid)
     },
     context.extension.packageJSON.version
   );
