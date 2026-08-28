@@ -165,6 +165,7 @@ function createRunlistWebviewRouter(host, adapters = {}) {
         }
         return host.showProjectOutput(message.id, message.projectIncarnation);
       },
+      showProjectRunTerminal: (message) => host.showProjectRunTerminal(message.id),
       startProject: (message) => host.startProject(message.id),
       startRunGroup: (message) => host.startSavedRunGroup(message.id),
       stopAllProjects: () => host.stopAllProjects(),

@@ -179,8 +179,6 @@ test('cross-window deletion clears expanded preview state and exits diagnosis wi
   provider.toggleProjectPreview(project.id);
   assert.equal(provider.expandedPreviewProjectId, project.id);
   assert.equal(provider.expandedPreviewServicePort, previewPort);
-  provider.showProjectOutput(project.id);
-  assert.equal(provider.mode, 'output');
   provider.showProjectDiagnosis(project.id);
   assert.equal(provider.mode, 'diagnosis');
   assert.equal(renderedState(view).diagnosis.projectId, project.id);

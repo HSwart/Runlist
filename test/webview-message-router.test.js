@@ -73,6 +73,9 @@ test('validates commands sent from the webview before routing', async () => {
   assert.equal(validateWebviewCommand({ type: 'openWorkspaceFolder' })?.type, 'openWorkspaceFolder');
   assert.equal(validateWebviewCommand({ type: 'openWorkspaceFolderPlease' }), undefined);
   assert.ok(WEBVIEW_COMMAND_TYPES.has('openWorkspaceFolder'));
+  assert.ok(WEBVIEW_COMMAND_TYPES.has('showProjectRunTerminal'));
+  assert.equal(validateWebviewCommand({ type: 'showProjectRunTerminal', id: 'project-1' })?.type, 'showProjectRunTerminal');
+  assert.equal(validateWebviewCommand({ type: 'showProjectRunTerminal', id: '' }), undefined);
   assert.equal(validateWebviewCommand({ type: 'setTagFilter', tag: 'frontend' })?.tag, 'frontend');
   assert.equal(validateWebviewCommand({ type: 'setTagFilter', tag: 'x'.repeat(33) }), undefined);
   assert.equal(validateWebviewCommand({ type: 'showEdit', id: 'project-1' })?.type, 'showEdit');
@@ -171,6 +174,19 @@ test('forwards output peek incarnation requests without treating the token as au
     projectIncarnation: ''
   }), false);
   assert.deepEqual(calls, [['project-1', 'project-1:1']]);
+});
+
+test('maps showProjectRunTerminal to the host terminal focus action', async () => {
+  const calls = [];
+  const route = createRunlistWebviewRouter({
+    showProjectRunTerminal: async (id) => {
+      calls.push(id);
+    }
+  });
+
+  assert.equal(await route({ type: 'showProjectRunTerminal', id: 'project-1' }), true);
+  assert.equal(await route({ type: 'showProjectRunTerminal', id: '' }), false);
+  assert.deepEqual(calls, ['project-1']);
 });
 
 test('maps showDiagnosis to the existing diagnosis screen', async () => {

@@ -37,13 +37,13 @@ First-run stays empty until you add a folder.
 
 Once an app is saved, the row is the control surface.
 
-- **Start, Stop, and Restart** stay on the project row — including while it’s running. After a failed start, **View output** is the primary action so you can see what happened; Start remains in More
+- **Start, Stop, and Restart** stay on the project row — including while it’s running. After a failed start, **Show terminal** is the primary action so you can see what happened in VS Code’s terminal; Start remains in More
 - **Status stays honest** — starting, ready, not responding, failed, and why
 - **Open from the port chip** when the web service is up
 - **Live preview and recent output** when you expand the project
 - **Search and pin** so the apps you touch all day stay on top
 - **Open in VS Code**, open a terminal here, or copy the project path from the More menu
-- **Ask your agent** from the project More menu when a failed start is still saved — same diagnosis screen as View output, and nothing is sent automatically
+- **Ask your agent** from the project More menu when a failed start is still saved — same diagnosis screen as before, and nothing is sent automatically
 
 Works on **Windows, macOS, and Linux**.
 

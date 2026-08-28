@@ -135,15 +135,15 @@ test('turns a missing-required-env start failure into Fix environment', () => {
   });
 });
 
-test('turns a generic retained start failure into View output', () => {
+test('turns a generic retained start failure into Show terminal', () => {
   assert.deepEqual(projectPrimaryAction({
     name: 'App',
     status: 'stopped',
     failureSummary: { title: 'Start failed', message: 'command not found' }
   }), {
-    action: 'output',
+    action: 'show-terminal',
     disabled: false,
-    label: 'View output for App',
+    label: 'Show terminal for App',
     mode: 'output'
   });
 });
@@ -162,6 +162,33 @@ test('does not replace Choose folder when a missing-folder row also has a start 
     folderAccessible: false,
     failureSummary: { title: 'Start failed', message: 'command not found' }
   }).action, 'relink-folder');
+});
+
+test('turns a stop failure on a live row into Show terminal', () => {
+  assert.deepEqual(projectPrimaryAction({
+    name: 'App',
+    status: 'running',
+    stopFailure: 'Stop failed'
+  }), {
+    action: 'show-terminal',
+    disabled: false,
+    label: 'Show terminal for App',
+    mode: 'output'
+  });
+});
+
+test('keeps Stop disabled while a stop failure is still force-closing', () => {
+  assert.deepEqual(projectPrimaryAction({
+    name: 'App',
+    status: 'running',
+    forceClosing: true,
+    stopFailure: 'Stop failed'
+  }), {
+    action: 'stop',
+    disabled: true,
+    label: 'Stop App',
+    mode: 'stop'
+  });
 });
 
 test('does not replace Start while a generic failure is still force-closing', () => {
@@ -198,13 +225,13 @@ test('preserves ordinary Start, Stop, custom Stop, review, and transition behavi
     name: 'App',
     status: 'running',
     stopFailure: 'Stop failed'
-  }).action, 'stop');
+  }).action, 'show-terminal');
   assert.equal(projectPrimaryAction({
     name: 'App',
     status: 'active',
     stopCommand: '',
     stopFailure: 'Port :3000 is still up'
-  }).action, 'stop');
+  }).action, 'show-terminal');
 });
 
 test('disables lifecycle actions when the project environment cannot be verified', () => {

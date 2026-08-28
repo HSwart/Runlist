@@ -40,6 +40,10 @@ const {
   openProjectTerminal,
   projectFolderIsAccessible
 } = require('../webview/project-navigation');
+const {
+  ProjectRunTerminalRegistry,
+  writeRunCommandHeader
+} = require('./project-run-terminal');
 const { previewFrameSources, projectPreviewService } = require('../webview/preview-security');
 const { createPhoneHandoff } = require('../webview/phone-handoff');
 const { OwnedProcessMetrics } = require('../lifecycle/process-metrics');
@@ -318,6 +322,10 @@ class RunlistViewProvider {
         return;
       }
       this.render();
+    });
+    this.projectRunTerminals = new ProjectRunTerminalRegistry();
+    this.terminalCloseDisposable = vscode.window?.onDidCloseTerminal?.((terminal) => {
+      this.projectRunTerminals.handleDidCloseTerminal(terminal);
     });
     this.projectOutputs = new Map();
     this.projectLaunchSecrets = new Map();
@@ -2074,36 +2082,25 @@ class RunlistViewProvider {
   }
 
   showProjectOutput(id, projectIncarnation) {
+    if (typeof projectIncarnation !== 'string') {
+      return this.showProjectRunTerminal(id);
+    }
     const project = this.projects.find((item) => item.id === id);
-    if (typeof projectIncarnation === 'string') {
-      if (!project) {
-        this.view?.webview.postMessage({
-          type: 'projectOutputPeek',
-          messageToken: this.webviewMessageToken,
-          id,
-          projectIncarnation,
-          entries: [],
-          error: 'Project is no longer available.'
-        });
-        return;
-      }
-      if (this.projectIncarnations.get(id) === projectIncarnation) {
-        this.projectOutputPeekIncarnations.set(id, projectIncarnation);
-      }
-      this.sendProjectOutput(id, projectIncarnation);
-      return;
-    }
     if (!project) {
+      this.view?.webview.postMessage({
+        type: 'projectOutputPeek',
+        messageToken: this.webviewMessageToken,
+        id,
+        projectIncarnation,
+        entries: [],
+        error: 'Project is no longer available.'
+      });
       return;
     }
-
-    this.mode = 'output';
-    this.routeNotice = undefined;
-    this.diagnosisProjectIncarnation = undefined;
-    this.selectedProjectId = id;
-    this.focusTarget = { type: 'action', action: 'close-screen' };
-    this.returnFocus = { type: 'project-menu', id };
-    this.render();
+    if (this.projectIncarnations.get(id) === projectIncarnation) {
+      this.projectOutputPeekIncarnations.set(id, projectIncarnation);
+    }
+    this.sendProjectOutput(id, projectIncarnation);
   }
 
   showProjectDiagnosis(id) {
@@ -2198,6 +2195,7 @@ class RunlistViewProvider {
       || (this.mode === 'list' && this.expandedPreviewProjectId === id)) {
       this.outputUpdateScheduler.schedule(id);
     }
+    this.writeProjectRunTerminal(id, chunk);
   }
 
   isCurrentProjectRevision(id, projectRevision) {
@@ -2415,10 +2413,10 @@ class RunlistViewProvider {
       );
       void vscode.window.showWarningMessage(
         `${project.name} is still running, but one or more web services are not responding.`,
-        'View output'
+        'Show terminal'
       ).then((choice) => {
-        if (choice === 'View output') {
-          this.showProjectOutput(project.id);
+        if (choice === 'Show terminal') {
+          this.showProjectRunTerminal(project.id);
         }
       });
       return;
@@ -2435,10 +2433,10 @@ class RunlistViewProvider {
     );
     void vscode.window.showWarningMessage(
       `${project.name} is still running. Runlist is still checking ${waiting}.`,
-      'View output'
+      'Show terminal'
     ).then((choice) => {
-      if (choice === 'View output') {
-        this.showProjectOutput(project.id);
+      if (choice === 'Show terminal') {
+        this.showProjectRunTerminal(project.id);
       }
     });
   }
@@ -2460,10 +2458,10 @@ class RunlistViewProvider {
     }
     void vscode.window.showErrorMessage(
       `Could not start ${project.name}: ${summary.message}`,
-      'View output'
+      'Show terminal'
     ).then((choice) => {
-      if (choice === 'View output') {
-        this.showProjectOutput(project.id);
+      if (choice === 'Show terminal') {
+        this.showProjectRunTerminal(project.id);
       }
     });
     return true;
@@ -3031,6 +3029,56 @@ class RunlistViewProvider {
     }
   }
 
+  ensureProjectRunTerminal(id, project, command) {
+    try {
+      const session = this.projectRunTerminals.attach(vscode, id, {
+        name: project.name,
+        cwd: project.folder
+      });
+      writeRunCommandHeader(session, command);
+      session.show(true);
+      return session;
+    } catch {
+      return undefined;
+    }
+  }
+
+  writeProjectRunTerminal(id, chunk) {
+    try {
+      this.projectRunTerminals.write(id, chunk);
+    } catch {
+      // Live terminal display is optional and must never affect lifecycle.
+    }
+  }
+
+  async showProjectRunTerminal(id) {
+    const project = this.projects.find((item) => item.id === id);
+    if (!project) {
+      return;
+    }
+    try {
+      if (this.projectRunTerminals.show(id, false)) {
+        return;
+      }
+    } catch {
+      // Fall through to a blank folder terminal.
+    }
+    if (!projectFolderIsAccessible(fs, project.folder)) {
+      await this.openProjectTerminal(id);
+      return;
+    }
+    try {
+      openProjectTerminal(vscode, project.folder);
+      vscode.window.showInformationMessage(
+        `No start output is attached to a terminal for ${project.name} yet. Opened a terminal in the project folder.`
+      );
+    } catch {
+      await vscode.window.showErrorMessage(`Could not open a terminal for ${project.name}.`);
+      this.focusTarget = { type: 'project-menu', id };
+      this.renderProjectList();
+    }
+  }
+
   async copyProjectPath(id) {
     const project = this.projects.find((item) => item.id === id);
     if (!project) {
@@ -3527,6 +3575,7 @@ class RunlistViewProvider {
       this.projectLaunchSecrets.delete(id);
       this.projectFailureSummaries.delete(id);
       this.projectFailureDetails.delete(id);
+      this.projectRunTerminals.dispose(id);
       clearProjectDiagnostics(this.projectsFile, id);
       try {
         clearProjectRepairProposal(this.projectsFile, id);
@@ -3956,6 +4005,7 @@ class RunlistViewProvider {
       });
 
       this.processes.set(id, child);
+      this.ensureProjectRunTerminal(id, launchProject, launchCommand);
       try {
         recordProjectLastStartedAt(this.projectsFile, id, launchedAt);
       } catch {
@@ -5224,6 +5274,7 @@ class RunlistViewProvider {
     this.beginStopping(project.id, options);
     let stopProcess;
     try {
+      this.ensureProjectRunTerminal(project.id, project, project.stopCommand);
       stopProcess = spawnProjectCommand(project.stopCommand, {
         cwd: project.folder,
         env: environment,
@@ -5247,10 +5298,12 @@ class RunlistViewProvider {
       stopProcess.stdout?.setEncoding('utf8');
       stopProcess.stdout?.on('data', (chunk) => {
         stdout = `${stdout}${chunk}`.slice(-2000);
+        this.writeProjectRunTerminal(project.id, chunk);
       });
       stopProcess.stderr?.setEncoding('utf8');
       stopProcess.stderr?.on('data', (chunk) => {
         stderr = `${stderr}${chunk}`.slice(-2000);
+        this.writeProjectRunTerminal(project.id, chunk);
       });
       const finalize = (result) => {
         if (finalized) {
@@ -5759,6 +5812,9 @@ class RunlistViewProvider {
     this.statusMonitoringDisposable = undefined;
     this.workspaceFoldersDisposable?.dispose();
     this.workspaceFoldersDisposable = undefined;
+    this.terminalCloseDisposable?.dispose();
+    this.terminalCloseDisposable = undefined;
+    this.projectRunTerminals?.disposeAll();
     this.disposed = true;
     this.statusRefreshPending = false;
     if (this.shutdownPromise) {

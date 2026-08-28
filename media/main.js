@@ -468,7 +468,7 @@ function projectTimelineHtml(project, projectName) {
       <span>${escapeHtml(stage.label)}</span>
     </li>`).join('');
   const outputLink = (timeline.failed || timeline.attention) && timeline.outputAvailable
-    ? `<button class="timeline-output-link" data-action="output" data-id="${escapeHtml(project.id)}">View Recent Output</button>`
+    ? `<button class="timeline-output-link" data-action="show-terminal" data-id="${escapeHtml(project.id)}">Show terminal</button>`
     : '';
   return `
     <div class="project-timeline" aria-label="Startup timeline for ${projectName}">
@@ -494,7 +494,7 @@ function projectOutputPeekHtml(entries, projectId, projectName) {
   const safeProjectName = escapeHtml(String(projectName || 'project'));
   return `
     <section class="project-output-peek" tabindex="0" aria-label="Latest output for ${safeProjectName}">
-      <header><span>Live output</span><button data-action="output" data-id="${safeProjectId}">View output</button></header>
+      <header><span>Live output</span><button data-action="show-terminal" data-id="${safeProjectId}">Show terminal</button></header>
       ${entries?.length
         ? `<ol>${outputPeekEntriesHtml(entries)}</ol>`
         : '<p class="output-peek-empty">No output yet.</p>'}
@@ -1279,7 +1279,7 @@ function renderList() {
               : project.failureSummary?.kind === 'missing-required-env'
                 ? 'Add the missing environment variables, then try Start again.'
                 : projectStartFailureText(project)
-                  ? 'See recent output for details, then try Start again.'
+                  ? 'See the terminal for details, then try Start again.'
                   : '';
         const displayedStatus = projectDisplayedStatus(project);
         const startFailureText = projectStartFailureText(project);
@@ -1358,7 +1358,7 @@ function renderList() {
                     ? icon('edit')
                     : primaryAction.action === 'relink-folder'
                       ? icon('folder')
-                      : primaryAction.action === 'output'
+                      : primaryAction.action === 'show-terminal'
                         ? icon('terminal')
                         : productIcon(primaryAction.mode === 'stop' ? 'stop' : 'play')}
                 </button>
@@ -1383,10 +1383,14 @@ function renderList() {
                   <button data-action="copy-project-path" data-id="${projectId}" role="menuitem" title="Copy the saved folder path for ${projectName}">
                     ${icon('copy', 'menu-icon')}<span>Copy project path</span>
                   </button>
-                  <button data-action="output" data-id="${projectId}" role="menuitem">
-                    ${icon('terminal', 'menu-icon')}<span>View output</span>
+                  <button data-action="show-terminal" data-id="${projectId}" role="menuitem" aria-label="Show terminal for ${projectName}">
+                    ${icon('terminal', 'menu-icon')}<span>Show terminal</span>
                   </button>
-                  ${primaryAction.action === 'output' ? `
+                  ${primaryAction.action === 'show-terminal' && stopState ? `
+                  <button data-action="stop" data-id="${projectId}" role="menuitem" aria-label="Stop ${projectName}" ${project.lifecycleBlocked ? 'disabled' : ''} title="${project.lifecycleBlocked ? escapeHtml(project.lifecycleBlockedReason) : `Stop ${projectName}`}">
+                    ${icon('stop', 'menu-icon')}<span>Stop</span>
+                  </button>` : ''}
+                  ${primaryAction.action === 'show-terminal' && !stopState ? `
                   <button data-action="start" data-id="${projectId}" role="menuitem" aria-label="Start ${projectName}" ${project.lifecycleBlocked || project.composeStartBlocked ? 'disabled' : ''} title="${project.lifecycleBlocked ? escapeHtml(project.lifecycleBlockedReason) : project.composeStartBlocked ? escapeHtml(project.composeStartBlockedReason || `Start is unavailable for ${projectName} until Docker is ready`) : `Start ${projectName}`}">
                     ${icon('play', 'menu-icon')}<span>Start</span>
                   </button>` : ''}
@@ -3147,7 +3151,11 @@ app.addEventListener('click', (event) => {
     },
     output: () => {
       closeMenus();
-      vscode.postMessage({ type: 'showOutput', id: button.dataset.id });
+      vscode.postMessage({ type: 'showProjectRunTerminal', id: button.dataset.id });
+    },
+    'show-terminal': () => {
+      closeMenus();
+      vscode.postMessage({ type: 'showProjectRunTerminal', id: button.dataset.id });
     },
     'ask-agent': () => {
       closeMenus();

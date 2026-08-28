@@ -34,4 +34,4 @@ When the user pastes a Runlist diagnosis request containing a project ID:
 4. If the saved name, folder, start command, stop command, or services should change, call `runlist_propose_project_repair` with the exact `projectId`, `projectRevision`, and `failedAt` values returned by the diagnostics. Include only the setup fields that should change.
 5. Tell the user to select **Refresh proposal** in Runlist, inspect the complete current-versus-proposed comparison, and approve or reject it there. Runlist never applies or retries the proposal automatically.
 
-If no retained failure is available, tell the user to start the project from Runlist again and use **More actions → Ask your agent** (or **View output → Ask your agent**) after the failure.
+If no retained failure is available, tell the user to start the project from Runlist again and use **More actions → Ask your agent** (or **Show terminal**, then **Ask your agent**) after the failure.

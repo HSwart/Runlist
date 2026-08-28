@@ -118,7 +118,9 @@ test('wires an accessible terminal action and restores or redirects focus after 
   assert.match(webview, /data-action="open-terminal"[^>]*role="menuitem"[^>]*title="Open a terminal in \$\{projectName\}"/);
   assert.match(webview, /<span>Open terminal here<\/span>/);
   assert.match(webview, /'open-terminal': \(\) => \{[\s\S]*type: 'openProjectTerminal'/);
+  assert.match(webview, /'show-terminal': \(\) => \{[\s\S]*type: 'showProjectRunTerminal'/);
   assert.match(router, /openProjectTerminal: \(message\) => host\.openProjectTerminal\(message\.id\)/);
+  assert.match(router, /showProjectRunTerminal: \(message\) => host\.showProjectRunTerminal\(message\.id\)/);
   assert.match(extension, /projectFolderIsAccessible\(fs, project\.folder\)[\s\S]*'Edit project'/);
   assert.match(extension, /selection === 'Edit project'[\s\S]*this\.showEditProject\(id\)/);
   assert.match(extension, /this\.focusTarget = \{ type: 'project-menu', id \};[\s\S]*this\.renderProjectList\(\)/);

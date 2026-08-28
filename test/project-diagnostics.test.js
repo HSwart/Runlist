@@ -156,7 +156,7 @@ test('exposes Ask your agent on the row More menu from a host boolean only', () 
   );
   assert.match(
     webview,
-    /data-action="output"[\s\S]*project\.canAskAgent \? `[\s\S]*data-action="ask-agent"[\s\S]*aria-label="Ask your agent about \$\{projectName\}"[\s\S]*<span>Ask your agent<\/span>[\s\S]*data-action="restart"/
+    /data-action="show-terminal"[\s\S]*project\.canAskAgent \? `[\s\S]*data-action="ask-agent"[\s\S]*aria-label="Ask your agent about \$\{projectName\}"[\s\S]*<span>Ask your agent<\/span>[\s\S]*data-action="restart"/
   );
   assert.match(
     webview,

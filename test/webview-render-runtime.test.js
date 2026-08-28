@@ -1723,7 +1723,7 @@ test('review setup stays primary and hides Add stop command until review is done
   assert.doesNotMatch(result.app.innerHTML, /data-action="add-stop-command"/);
 });
 
-test('failed start keeps a two-line row with the reason and View output as primary', () => {
+test('failed start keeps a two-line row with the reason and Show terminal as primary', () => {
   const result = renderNonEmptyProjectList([{
     activeLaunchProfileId: 'default',
     activeLaunchProfileName: 'Default',
@@ -1748,17 +1748,17 @@ test('failed start keeps a two-line row with the reason and View output as prima
   assert.match(result.app.innerHTML, /<h2 id="project-broken"[^>]*>[\s\S]*Broken App\s*<\/h2>/);
   assert.match(
     result.app.innerHTML,
-    /class="project-status status-start-failed"[^>]*title="See recent output for details, then try Start again\."[^>]*>[\s\S]*<span>Start failed<\/span>/
+    /class="project-status status-start-failed"[^>]*title="See the terminal for details, then try Start again\."[^>]*>[\s\S]*<span>Start failed<\/span>/
   );
   assert.match(
     result.app.innerHTML,
-    /class="run-button output"[^>]*data-action="output"[^>]*data-id="broken"[^>]*aria-label="View output for Broken App"/
+    /class="run-button output"[^>]*data-action="show-terminal"[^>]*data-id="broken"[^>]*aria-label="Show terminal for Broken App"/
   );
   assert.match(
     result.app.innerHTML,
     /data-action="start" data-id="broken" role="menuitem" aria-label="Start Broken App"/
   );
-  assert.match(result.app.innerHTML, /data-action="output"[^>]*role="menuitem"/);
+  assert.match(result.app.innerHTML, /data-action="show-terminal"[^>]*role="menuitem"/);
   assert.match(result.app.innerHTML, /data-action="edit"[^>]*role="menuitem">[\s\S]*Edit project/);
   assert.doesNotMatch(result.app.innerHTML, /class="run-button start"/);
   assert.doesNotMatch(result.app.innerHTML, />Stopped</);
@@ -1790,6 +1790,7 @@ test('healthy stopped rows still show Start as the primary action', () => {
     /class="run-button start"[^>]*data-action="start"[^>]*aria-label="Start Healthy App"/
   );
   assert.doesNotMatch(result.app.innerHTML, /data-action="output"[^>]*class="run-button"/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="show-terminal"[^>]*class="run-button"/);
   assert.doesNotMatch(result.app.innerHTML, /data-action="start"[^>]*role="menuitem"/);
 });
 
@@ -1816,7 +1817,7 @@ test('row More menu includes Ask your agent only when canAskAgent is true', () =
     tags: []
   }]);
   assert.doesNotMatch(withoutDiagnostics.app.innerHTML, /data-action="ask-agent"/);
-  assert.match(withoutDiagnostics.app.innerHTML, /data-action="output"[^>]*role="menuitem"/);
+  assert.match(withoutDiagnostics.app.innerHTML, /data-action="show-terminal"[^>]*role="menuitem"/);
 
   const withDiagnostics = renderNonEmptyProjectList([{
     activeLaunchProfileId: 'default',
@@ -1841,7 +1842,7 @@ test('row More menu includes Ask your agent only when canAskAgent is true', () =
   }]);
   assert.match(
     withDiagnostics.app.innerHTML,
-    /data-action="output"[^>]*role="menuitem"[\s\S]*data-action="ask-agent"[^>]*role="menuitem"[^>]*aria-label="Ask your agent about Broken App"[\s\S]*<span>Ask your agent<\/span>[\s\S]*data-action="restart"[^>]*role="menuitem"/
+    /data-action="show-terminal"[^>]*role="menuitem"[\s\S]*data-action="ask-agent"[^>]*role="menuitem"[^>]*aria-label="Ask your agent about Broken App"[\s\S]*<span>Ask your agent<\/span>[\s\S]*data-action="restart"[^>]*role="menuitem"/
   );
   assert.doesNotMatch(withDiagnostics.app.innerHTML, /copy-diagnosis-request|copy-start-failure/);
 });
@@ -1883,7 +1884,7 @@ test('missing-required-env start failure uses Fix environment as the primary row
   assert.doesNotMatch(result.app.innerHTML, /data-action="fix-environment"[^>]*role="menuitem"/);
 });
 
-test('stop honesty keeps Stop and does not say Stopped while a port is up', () => {
+test('stop honesty keeps Show terminal as primary and Stop in More while a port is up', () => {
   const result = renderNonEmptyProjectList([{
     activeLaunchProfileId: 'default',
     activeLaunchProfileName: 'Default',
@@ -1907,7 +1908,8 @@ test('stop honesty keeps Stop and does not say Stopped while a port is up', () =
     result.app.innerHTML,
     /class="project-status status-stop-failed"[^>]*>[\s\S]*<span>Port :3000 is still up<\/span>/
   );
-  assert.match(result.app.innerHTML, /class="run-button stop"[^>]*data-action="stop"[^>]*aria-label="Stop Live App"/);
+  assert.match(result.app.innerHTML, /class="run-button output"[^>]*data-action="show-terminal"[^>]*aria-label="Show terminal for Live App"/);
+  assert.match(result.app.innerHTML, /data-action="stop" data-id="live" role="menuitem" aria-label="Stop Live App"/);
   assert.match(result.app.innerHTML, /data-action="force-close-ports"/);
   assert.doesNotMatch(result.app.innerHTML, />Stopped</);
   assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);

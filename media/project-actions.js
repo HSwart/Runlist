@@ -117,6 +117,14 @@
     const stopsProject = (Boolean(project.stopFailure) && status !== 'stopped' && status !== 'stopping')
       || ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active']
         .includes(status);
+    if (project.stopFailure && status !== 'stopped' && status !== 'stopping' && !busy) {
+      return {
+        action: 'show-terminal',
+        disabled: false,
+        label: `Show terminal for ${name}`,
+        mode: 'output'
+      };
+    }
     if (stopsProject) {
       return { action: 'stop', disabled: busy, label: `Stop ${name}`, mode: 'stop' };
     }
@@ -138,9 +146,9 @@
     }
     if (status === 'stopped' && !busy && project.failureSummary && typeof project.failureSummary === 'object') {
       return {
-        action: 'output',
+        action: 'show-terminal',
         disabled: false,
-        label: `View output for ${name}`,
+        label: `Show terminal for ${name}`,
         mode: 'output'
       };
     }
