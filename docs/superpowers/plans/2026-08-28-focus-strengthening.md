@@ -310,33 +310,12 @@ git commit -m "docs: lead Marketplace listing with core loop; demote advanced no
 
 ---
 
-### Task 6: Gallery refresh for simple-first story
+### Task 6: Gallery — skipped (explicit constraint)
 
-**Files:**
-- Modify: `media/gallery-01-hero.png` (and 02/03 if needed)
-- Modify: `README.md` alts only if copy changes
-- Scripts: `npm run update:webview-screenshot` / `scripts/compose-gallery-hero.js` as used in-repo today
-- Test: `test/readme.test.js` gallery dimension contracts
+**Do not change `media/gallery-01-hero.png` or the README hero `<img src="media/gallery-01-hero.png" …>`.**  
+Owner decision: keep the current hero still. Do not regenerate gallery-02/03 as part of this package either unless a later explicit ask says so.
 
-**Interfaces:**
-- Consumes: existing capture pipeline
-- Produces: hero = simple everyday list (few projects, Running, Open); status shot clarity; empty-state without Extension Development Host chrome when capture environment allows
-
-- [ ] **Step 1: Capture / compose new stills per design table**
-
-Prefer regenerating over hand-editing binaries. Keep width ≥ 1000 and height ≥ 700 per readme tests.
-
-- [ ] **Step 2: Run**
-
-Run: `node --test test/readme.test.js`  
-Expected: PASS
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add media/gallery-01-hero.png media/gallery-02-status.png media/gallery-03-features.png README.md
-git commit -m "media: refresh Marketplace gallery for simple-first story"
-```
+- [ ] **Step 1: No-op — confirm README still references the existing hero path and alts; leave binaries untouched**
 
 ---
 
@@ -444,7 +423,8 @@ Track as issues; do not implement in the focus package unless they are blockers 
 | First-add progressive disclosure | Tasks 1–2 |
 | Empty-state chip clarity | Task 3 |
 | Post-install tip | Task 4 |
-| README / keywords / gallery | Tasks 5–6 |
+| README / keywords | Task 5 |
+| Gallery hero unchanged | Task 6 (explicit no-op) |
 | Unsupported-host timing | Task 7 (optional) |
 | 0.1.0 ship bar | Task 8 |
 | 1.0.0 bar defined | Spec + After 0.1.0 section |

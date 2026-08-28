@@ -31,7 +31,7 @@ Ship as **one focus release** ending in **0.1.0**:
 | Track | What changes |
 | --- | --- |
 | A. First-run / Add form | Progressive disclosure; chip clarity; remote caveat timing |
-| B. Marketplace / README / gallery | Above-the-fold core story; advanced sections demoted; keywords; gallery order |
+| B. Marketplace / README | Above-the-fold core story; advanced sections demoted; keywords; **keep existing gallery-01 hero unchanged** |
 | C. Discoverability | One optional post-install tip (not sidebar copy) |
 | D. Version | Bump to `0.1.0` only after A–C land and `npm run verify` + `npm run package` pass |
 
@@ -127,11 +127,11 @@ Claim accuracy rules in `test/readme.test.js` stay in force; rewrite tests with 
 
 | Slot | Intent |
 | --- | --- |
-| gallery-01-hero | Simple everyday win: few apps, running, Open — not the densest multi-tab demo |
-| gallery-02-status | Status / Stop / Open clarity |
-| gallery-03-features | Empty first-run (normal window chrome, not Extension Development Host if avoidable) |
+| gallery-01-hero | **Do not change.** Keep the current README / Marketplace hero still as shipped. |
+| gallery-02-status | Optional refresh only if needed for accuracy; not required for 0.1.0 |
+| gallery-03-features | Optional empty-state chrome cleanup only if low-cost; not required for 0.1.0 |
 
-Regenerate via existing screenshot/gallery scripts where possible; keep width/alt contract tests green.
+No gallery regen is part of the focus package unless a separate explicit decision says otherwise.
 
 **Category**
 
@@ -205,7 +205,7 @@ Ship `1.0.0` when **all** are true:
 | Progressive disclosure hides a field power users need on first add | More options one click away; Edit shows all used fields |
 | README rewrite breaks claim tests | Update tests in same PR; keep fail-closed overclaim rules |
 | Post-install tip feels spammy | Once per install via globalState; only when project list empty |
-| Gallery regen drift | Keep dimension/alt contracts; use existing capture scripts |
+| Gallery regen drift | N/A — hero (and optional stills) stay as shipped unless separately requested |
 | Scope creep into remote Start | Explicit non-goal |
 
 ## Approval
