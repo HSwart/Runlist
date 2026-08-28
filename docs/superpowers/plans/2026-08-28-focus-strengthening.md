@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Keep all currently implemented features; do not delete or feature-flag them off.
-- Do not change extension version until Task 7 (`0.1.0`); do not invent `1.0.0` in this package.
+- Do not change extension version until Task 8 (`0.1.0`); do not invent `1.0.0` in this package.
 - Do not add production dependencies.
 - Do not weaken fail-closed README overclaim rules.
 - Do not put product marketing essays in the empty-state webview (`test/webview-list-density.test.js`).
@@ -31,7 +31,7 @@
 | `extension.js` | Optional one-time open tip on activate |
 | `README.md` | Marketplace hierarchy rewrite |
 | `package.json` | Keywords; version only in Task 7 |
-| `CHANGELOG.md` | 0.1.0 notes in Task 7 |
+| `CHANGELOG.md` | 0.1.0 notes in Task 8 |
 | `media/gallery-0{1,2,3}-*.png` | Gallery intent refresh |
 | `test/webview-list-density.test.js` | Empty-state copy contracts |
 | `test/empty-start-chips.test.js` | Chip behavior/label contracts |
