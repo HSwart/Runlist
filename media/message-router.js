@@ -23,6 +23,7 @@
     'copyDiagnosisRequest',
     'copyOutput',
     'copyPhoneUrl',
+    'choosePhoneNetwork',
     'copyProjectPath',
     'copyServiceUrl',
     'deleteProject',
@@ -81,6 +82,7 @@
   ]);
   const ID_COMMAND_TYPES = new Set([
     'copyProjectPath',
+    'choosePhoneNetwork',
     'deleteProject',
     'forceCloseProjectPorts',
     'forceCloseProjectPortsAndStart',
@@ -218,6 +220,11 @@
     }
     if (value.type === 'copyPhoneUrl'
       && (!validId(value.id) || !validText(value.url, 4096))) {
+      return undefined;
+    }
+    if (value.type === 'choosePhoneNetwork'
+      && value.changeNetwork !== undefined
+      && typeof value.changeNetwork !== 'boolean') {
       return undefined;
     }
     if (value.type === 'openOutputUrl' && !validText(value.url, 4096)) {

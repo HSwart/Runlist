@@ -7,6 +7,8 @@ const {
   createPhoneHandoff,
   createPhoneQrSvg,
   derivePhoneHandoffUrl,
+  formatPrivateLanCandidateLabel,
+  listPrivateLanIpv4Candidates,
   privateIpv4Priority
 } = require('../src/webview/phone-handoff');
 const { readShippedHostSource } = require('./helpers/extension-source');
@@ -38,6 +40,43 @@ test('does not guess between multiple physical private networks', () => {
     WiFi: [{ address: '192.168.68.42', family: 'IPv4', internal: false }],
     Ethernet: [{ address: '10.20.30.40', family: 4, internal: false }]
   }), undefined);
+});
+
+test('lists both physical private networks without guessing', () => {
+  const candidates = listPrivateLanIpv4Candidates({
+    WiFi: [{ address: '192.168.68.42', family: 'IPv4', internal: false }],
+    Ethernet: [{ address: '10.20.30.40', family: 4, internal: false }],
+    'vEthernet (WSL)': [{ address: '172.21.0.1', family: 'IPv4', internal: false }]
+  });
+  assert.deepEqual(candidates.map((candidate) => candidate.address).sort(), [
+    '10.20.30.40',
+    '192.168.68.42'
+  ]);
+  assert.equal(
+    formatPrivateLanCandidateLabel('Wi-Fi', '192.168.68.42'),
+    'Wi-Fi \u2014 192.168.68.42'
+  );
+  assert.equal(
+    derivePhoneHandoffUrl('http://localhost:4310/app', {
+      WiFi: [{ address: '192.168.68.42', family: 'IPv4', internal: false }],
+      Ethernet: [{ address: '10.20.30.40', family: 4, internal: false }]
+    }),
+    undefined
+  );
+  assert.equal(
+    derivePhoneHandoffUrl('http://localhost:4310/app', {
+      WiFi: [{ address: '192.168.68.42', family: 'IPv4', internal: false }],
+      Ethernet: [{ address: '10.20.30.40', family: 4, internal: false }]
+    }, '10.20.30.40'),
+    'http://10.20.30.40:4310/app'
+  );
+  assert.equal(
+    derivePhoneHandoffUrl('http://localhost:4310/app', {
+      WiFi: [{ address: '192.168.68.42', family: 'IPv4', internal: false }],
+      Ethernet: [{ address: '10.20.30.40', family: 4, internal: false }]
+    }, '8.8.8.8'),
+    undefined
+  );
 });
 
 test('preserves the local URL while replacing only its loopback hostname', () => {
@@ -96,18 +135,23 @@ test('shows the handoff only for an eligible preview and copies its exact URL', 
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
   const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
 
-  assert.match(extension, /const phoneHandoff = previewService\?\.url\s*\?\s*createPhoneHandoff\(previewService\.url\)/);
-  assert.match(webview, /project\.phoneHandoff \? `[\s\S]*Open on phone[\s\S]*project\.phoneHandoff\.qrSvg/);
+  assert.match(extension, /createPhoneHandoff\(\s*previewService\.url,\s*networkInterfaces,\s*this\.phoneHandoffLanAddress/);
+  assert.match(webview, /project\.phoneHandoff \? `[\s\S]*Open on phone[\s\S]*project\.phoneHandoff\.qrSvg|phoneHandoffPanel = project\.phoneHandoff/);
   assert.match(webview, /<code>\$\{escapeHtml\(project\.phoneHandoff\.url\)\}<\/code>/);
   assert.match(webview, /data-url="\$\{escapeHtml\(project\.phoneHandoff\.url\)\}"/);
   assert.match(extension, /phoneHandoff\.url !== requestedUrl[\s\S]*clipboard\.writeText\(phoneHandoff\.url\)/);
   assert.match(webview, /aria-expanded="\$\{phoneHandoffOpen\}"[\s\S]*aria-controls="phone-handoff-/);
   assert.match(webview, /data-action="open-on-phone"/);
-  assert.match(webview, /canOpenOnPhone = Boolean\(project\.phoneHandoff\)/);
+  assert.match(webview, /data-action="change-phone-network"/);
+  assert.match(webview, /canOpenOnPhone = Boolean\(project\.phoneHandoff\) \|\| Boolean\(project\.canChoosePhoneNetwork\)/);
+  assert.match(webview, /Multiple networks — try Open on phone to choose/);
   assert.match(webview, /\$\{canOpenOnPhone \? '' : 'disabled'\}/);
   assert.match(webview, /focusAction: 'focus-phone-handoff'/);
   assert.match(webview, /target\.action === 'focus-phone-handoff'/);
   assert.match(webview, /'open-on-phone':/);
+  assert.match(webview, /type: 'choosePhoneNetwork'/);
+  assert.match(extension, /async choosePhoneNetwork\(/);
+  assert.match(extension, /showQuickPick\(/);
   assert.doesNotMatch(webview, /class="[^"]*share-(?:section|strip|band)/);
   assert.doesNotMatch(styles, /\.share-(?:section|strip|band)\b/);
   assert.match(

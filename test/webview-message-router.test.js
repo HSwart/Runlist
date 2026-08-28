@@ -112,7 +112,8 @@ test('maps validated webview commands to the provider boundary', async () => {
     startWorkspaceScript: async (script) => calls.push(['start-script', script]),
     useDraftStartScript: async (script, draft) => calls.push(['draft-script', script, draft]),
     copyServiceUrl: async (id, port) => calls.push(['copy-service', id, port]),
-    resolveServicePort: async (id, port) => calls.push(['resolve-service', id, port])
+    resolveServicePort: async (id, port) => calls.push(['resolve-service', id, port]),
+    choosePhoneNetwork: async (id, options) => calls.push(['choose-phone', id, options])
   };
   const route = createRunlistWebviewRouter(host);
 
@@ -135,6 +136,8 @@ test('maps validated webview commands to the provider boundary', async () => {
   assert.equal(await route({ type: 'forceCloseProjectPortsAndStart', id: 'project-2' }), true);
   assert.equal(await route({ type: 'copyServiceUrl', id: 'project-1', port: '4310' }), true);
   assert.equal(await route({ type: 'resolveServicePort', id: 'project-1', port: '4311' }), true);
+  assert.equal(await route({ type: 'choosePhoneNetwork', id: 'project-1' }), true);
+  assert.equal(await route({ type: 'choosePhoneNetwork', id: 'project-1', changeNetwork: true }), true);
   assert.equal(await route({ type: 'copyServiceUrl', id: 'project-1', port: 'bad' }), false);
   assert.deepEqual(calls, [
     ['add', { type: 'action', action: 'show-add' }],
@@ -148,7 +151,9 @@ test('maps validated webview commands to the provider boundary', async () => {
     ['force-close', 'project-1', 'stop'],
     ['force-close', 'project-2', 'start'],
     ['copy-service', 'project-1', 4310],
-    ['resolve-service', 'project-1', 4311]
+    ['resolve-service', 'project-1', 4311],
+    ['choose-phone', 'project-1', { changeNetwork: false }],
+    ['choose-phone', 'project-1', { changeNetwork: true }]
   ]);
 });
 
