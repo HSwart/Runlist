@@ -4,7 +4,6 @@
 
 - Collapse advanced Add fields under More options so first save is folder + start command.
 - Clarify empty-state Start/Dev chips save and start the folder.
-- Show a one-time tip to open Runlist after install when the list is empty.
 - Lead the Marketplace README with everyday Start/Stop/Open; keep advanced features under Also useful. Hero gallery still unchanged.
 - Trim Marketplace keyword noise; agents/MCP remain available from More.
 
