@@ -1107,7 +1107,8 @@ test('holds process ownership while deleting a saved project', () => {
   assert.ok(removeSavedProject < releaseDeletion);
   assert.match(source, /if \(hadTrackedProcess\)[\s\S]*cleanupTrackedProcessForDeletion[\s\S]*this\.processOwnership\.release\(id\)/);
   assert.match(source, /const hadDetachedProcess = this\.detachedProjectIds\.has\(id\)/);
-  assert.match(source, /else if \(hadDetachedProcess \|\| latestSharedOwnership\)[\s\S]*this\.stopProject\(id, latestProject\)/);
+  assert.match(source, /if \(this\.startAttempts\.has\(id\)\)/);
+  assert.match(source, /else if \(!startCancelledWithoutProcess && \(hadDetachedProcess \|\| postCancelOwnership\)\)[\s\S]*this\.stopProject\(id, latestProject\)/);
   assert.match(source, /holdForDeletion\(id, \{ expectedToken: deletionOwnershipToken \}\)/);
   assert.match(source, /running in another VS Code window/);
 });
