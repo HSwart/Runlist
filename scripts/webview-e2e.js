@@ -7,6 +7,7 @@ const path = require('node:path');
 const { chromium } = require('playwright-core');
 const { runTests } = require('@vscode/test-electron');
 const { webviewFrameWasReplaced } = require('./webview-frame-errors');
+const { composeGalleryHero } = require('./compose-gallery-hero');
 const {
   WEBVIEW_DEBUG_ENDPOINT_TIMEOUT_MS,
   WEBVIEW_FRAME_TIMEOUT_MS
@@ -143,7 +144,7 @@ async function captureIdeScreenshots(browser, ready, root, extensionDevelopmentP
 
   await hostCommand(root, 'set-theme', { theme: 'Default Dark Modern' });
   await hostCommand(root, 'prepare-screenshot');
-  await widenSidebar(page, 420);
+  await widenSidebar(page, 500);
   await hideWorkbenchChrome(page);
   await enableRetinaCapture(page);
   await applyMarketplaceFonts(page, browser);
@@ -173,10 +174,10 @@ async function captureIdeScreenshots(browser, ready, root, extensionDevelopmentP
   await new Promise((resolve) => setTimeout(resolve, 1400));
   await hostCommand(root, 'refresh-list');
   await hostCommand(root, 'prepare-screenshot');
-  await widenSidebar(page, 420);
+  await widenSidebar(page, 500);
   await hideWorkbenchChrome(page);
   await applyMarketplaceFonts(page, browser);
-  await expandFirstRunGroup(browser).catch(() => undefined);
+  await prepareGalleryHeroLayout(browser, root, seeded);
   await new Promise((resolve) => setTimeout(resolve, 500));
   await applyMarketplaceFonts(page, browser);
   // Prove the webview actually resolved RunlistInter before we shoot.
@@ -185,7 +186,15 @@ async function captureIdeScreenshots(browser, ready, root, extensionDevelopmentP
   await captureRetinaPng(page, frameBPath);
   assert.ok(fs.statSync(frameBPath).size > 10000, 'Frame B IDE screenshot was unexpectedly small.');
 
-  // Crop-friendly full-bleed still for Marketplace hero compose.
+  const sidebarSourcePath = path.join(artifactDir, 'ide-gallery-sidebar-source.png');
+  await captureSidebarClip(page, sidebarSourcePath);
+  assert.ok(fs.statSync(sidebarSourcePath).size > 10000, 'Gallery sidebar source screenshot was unexpectedly small.');
+
+  const heroOutputPath = path.join(extensionDevelopmentPath, 'media', 'gallery-01-hero.png');
+  composeGalleryHero(sidebarSourcePath, heroOutputPath);
+  fs.copyFileSync(heroOutputPath, path.join(artifactDir, 'gallery-01-hero.png'));
+
+  // Crop-friendly full-bleed still for Marketplace gallery stills.
   const heroSourcePath = path.join(artifactDir, 'ide-gallery-hero-source.png');
   await captureRetinaPng(page, heroSourcePath);
   assert.ok(fs.statSync(heroSourcePath).size > 10000, 'Gallery hero source screenshot was unexpectedly small.');
@@ -197,7 +206,7 @@ async function captureIdeScreenshots(browser, ready, root, extensionDevelopmentP
   const frameBNarrowPath = path.join(artifactDir, 'ide-frame-b-running-narrow.png');
   await captureRetinaPng(page, frameBNarrowPath);
   assert.ok(fs.statSync(frameBNarrowPath).size > 10000, 'Narrow Frame B IDE screenshot was unexpectedly small.');
-  await widenSidebar(page, 420);
+  await widenSidebar(page, 500);
 
   const previewPath = path.join(extensionDevelopmentPath, 'media', 'runlist-preview.png');
   await captureRetinaPng(page, previewPath);
@@ -220,6 +229,67 @@ async function captureIdeScreenshots(browser, ready, root, extensionDevelopmentP
   } catch {
     // Screenshot assets are already written; cleanup is best-effort.
   }
+}
+
+async function prepareGalleryHeroLayout(browser, root, seeded) {
+  if (seeded.expandProjectId) {
+    await hostCommand(root, 'expand-project-preview', {
+      projectId: seeded.expandProjectId,
+      focusAction: 'open-services'
+    }).catch(() => undefined);
+  }
+  await expandGroupsPanel(browser);
+  await scrollGalleryListTop(browser);
+}
+
+async function expandGroupsPanel(browser) {
+  await attachVsCodeWebviewTargets(browser).catch(() => undefined);
+  const frames = browser.contexts()
+    .flatMap((context) => context.pages())
+    .flatMap((page) => page.frames());
+  const webview = await findRunlistFrame(frames);
+  if (!webview) {
+    return;
+  }
+  const toggle = webview.locator('[data-action="toggle-group-filter"]').first();
+  if (await toggle.count() && await toggle.getAttribute('aria-expanded') !== 'true') {
+    await toggle.click({ timeout: 2000 }).catch(() => undefined);
+  }
+}
+
+async function scrollGalleryListTop(browser) {
+  await attachVsCodeWebviewTargets(browser).catch(() => undefined);
+  const frames = browser.contexts()
+    .flatMap((context) => context.pages())
+    .flatMap((page) => page.frames());
+  const webview = await findRunlistFrame(frames);
+  if (!webview) {
+    return;
+  }
+  await webview.evaluate(() => {
+    document.getElementById('app')?.scrollTo(0, 0);
+    document.querySelector('.project-list')?.scrollIntoView({ block: 'start' });
+  }).catch(() => undefined);
+}
+
+async function captureSidebarClip(page, filePath) {
+  const sidebar = page.locator('.part.sidebar');
+  const box = await sidebar.boundingBox();
+  assert.ok(box, 'Could not measure the VS Code sidebar for gallery hero capture.');
+  const client = await page.context().newCDPSession(page);
+  const result = await client.send('Page.captureScreenshot', {
+    format: 'png',
+    fromSurface: true,
+    captureBeyondViewport: false,
+    clip: {
+      x: box.x,
+      y: box.y,
+      width: box.width,
+      height: box.height,
+      scale: 2
+    }
+  });
+  fs.writeFileSync(filePath, Buffer.from(result.data, 'base64'));
 }
 
 async function expandFirstRunGroup(browser) {
