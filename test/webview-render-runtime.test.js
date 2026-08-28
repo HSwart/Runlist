@@ -1435,6 +1435,7 @@ test('renders everyday project rows without a competing folder path', () => {
   assert.match(result.app.innerHTML, /class="visually-hidden">\/Users\/shared\/Projects\/northstar-dashboard/);
   assert.match(result.app.innerHTML, /data-action="stop-all"/);
   assert.match(result.app.innerHTML, /Stop all \(2\)/);
+  assert.match(result.app.innerHTML, /aria-label="Stop all 2 running projects"/);
   assert.doesNotMatch(result.app.innerHTML, /data-action="start-workspace-script"/);
   assert.doesNotMatch(result.app.innerHTML, /data-action="use-draft-start-script"/);
   assert.doesNotMatch(result.app.innerHTML, /class="detail-row"/);
@@ -1442,6 +1443,32 @@ test('renders everyday project rows without a competing folder path', () => {
   assert.doesNotMatch(result.app.innerHTML, /web :4310/);
   assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
   assert.doesNotMatch(result.app.innerHTML, /class="auto-scroll"><span class="auto-scroll-content">Northstar Dashboard/);
+});
+
+test('does not render Stop all for a single stoppable project', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/northstar-dashboard',
+    id: 'northstar',
+    launchProfiles: [],
+    name: 'Northstar Dashboard',
+    openPorts: [4310],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 4310 }],
+    status: 'running',
+    tags: []
+  }], {
+    stateOverrides: {
+      stopAllCount: 1
+    }
+  });
+
+  assert.doesNotMatch(result.app.innerHTML, /data-action="stop-all"/);
+  assert.doesNotMatch(result.app.innerHTML, /Stop all \(/);
 });
 
 test('running row shows elapsed from the live timeline on line 2', () => {

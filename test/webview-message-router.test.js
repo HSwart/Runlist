@@ -21,7 +21,8 @@ test('allowlists the complete host-to-webview message contract', () => {
     'projectMetrics',
     'projectOutput',
     'projectOutputPeek',
-    'restoreProjectMenuFocus'
+    'restoreProjectMenuFocus',
+    'restoreStopAllButton'
   ]);
 });
 
