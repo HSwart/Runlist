@@ -1850,8 +1850,8 @@ function renderProjectForm(mode) {
   app.innerHTML = `
     <section class="add-screen">
       <header class="screen-header">
-        <h2>${reviewing ? 'Review project setup' : editing ? 'Edit project' : 'Add project'}</h2>
-        <button class="icon-button" data-action="close-screen" aria-label="Close ${reviewing ? 'review' : editing ? 'edit' : 'add'} project screen">${icon('close')}</button>
+        <h2>${reviewing ? 'Review project setup' : editing ? 'Edit project' : 'Add this folder'}</h2>
+        <button class="icon-button" data-action="close-screen" aria-label="Close ${reviewing ? 'review project' : editing ? 'edit project' : 'add this folder'} screen">${icon('close')}</button>
       </header>
       ${reviewing ? '<p class="screen-copy">A coding agent added or updated this setup. Check its folder, commands, and services before approving.</p>' : ''}
       <form id="project-form" novalidate>

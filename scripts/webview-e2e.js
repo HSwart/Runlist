@@ -568,10 +568,10 @@ async function runWebviewJourneys(browser, webview, ready, root, extensionDevelo
   assert.equal(await webview.evaluate(() => document.activeElement?.textContent?.trim()), 'Add this folder');
   await page.keyboard.press('Enter');
   webview = await currentRunlistFrame(browser, (frame) => (
-    frame.getByRole('heading', { name: 'Add project' }).isVisible()
+    frame.getByRole('heading', { name: 'Add this folder' }).isVisible()
   ));
   page = webview.page();
-  await assertVisible(webview.getByRole('heading', { name: 'Add project' }));
+  await assertVisible(webview.getByRole('heading', { name: 'Add this folder' }));
   await webview.locator('#project-name').fill('Lifecycle project');
   await webview.locator('#folder').fill(ready.lifecyclePath);
   await webview.locator('#start-command').fill('node server.js');
