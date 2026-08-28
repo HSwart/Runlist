@@ -3128,6 +3128,8 @@ select[aria-invalid='true'] {
 
 .search-empty {
   padding: 16px 12px;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .search-empty h2 {
@@ -3142,6 +3144,12 @@ select[aria-invalid='true'] {
   color: var(--vscode-descriptionForeground);
   font-size: 11px;
   line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.search-empty .primary-button {
+  margin-top: 10px;
+  max-width: 100%;
 }
 
 .project-row[hidden],
@@ -3213,6 +3221,11 @@ select[aria-invalid='true'] {
   .run-button,
   .more-button {
     flex: 0 0 auto;
+  }
+
+  .search-empty .primary-button {
+    display: block;
+    width: 100%;
   }
 }
 

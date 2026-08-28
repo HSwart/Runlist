@@ -1297,6 +1297,8 @@ function renderList() {
       }).join('')}
       <div class="search-empty" data-search-empty hidden>
         <h2>No matching projects</h2>
+        <p>Try a different search or clear your filters.</p>
+        <button type="button" class="primary-button" data-action="clear-filters" aria-label="Clear search, tag, and group filters">Clear filters</button>
       </div>
     </section>`;
 
@@ -1355,6 +1357,30 @@ function announceProjectStatusChanges(projects) {
     }
   }
   announcedProjectStatuses = next;
+}
+
+function clearProjectFilters() {
+  const search = document.getElementById('project-search');
+  if (search) {
+    search.value = '';
+  }
+  searchQuery = '';
+  selectedTagFilter = '';
+  selectedGroupFilter = '';
+  publishFilterState('setSearchQuery');
+  applyProjectFilter('');
+}
+
+function handleClearFilters() {
+  clearProjectFilters();
+  renderList();
+  requestAnimationFrame(() => {
+    document.getElementById('project-search')?.focus();
+    const status = document.getElementById('project-search-status');
+    if (status) {
+      status.textContent = 'No projects match. Filters cleared.';
+    }
+  });
 }
 
 function applyProjectFilter(query) {
@@ -1425,15 +1451,7 @@ function revealRunningApp(id) {
   }
 
   if (row.hidden) {
-    const search = document.getElementById('project-search');
-    if (search) {
-      search.value = '';
-    }
-    searchQuery = '';
-    selectedTagFilter = '';
-    selectedGroupFilter = '';
-    publishFilterState('setSearchQuery');
-    applyProjectFilter('');
+    clearProjectFilters();
   }
 
   row.scrollIntoView({ block: 'nearest' });
@@ -2937,6 +2955,7 @@ app.addEventListener('click', (event) => {
     'copy-output': () => vscode.postMessage({ type: 'copyOutput' }),
     edit: () => vscode.postMessage({ type: 'showEdit', id: button.dataset.id }),
     'toggle-pin': () => vscode.postMessage({ type: 'toggleProjectPin', id: button.dataset.id }),
+    'clear-filters': handleClearFilters,
     'show-running-app': () => revealRunningApp(button.dataset.id),
     'previous-running-app': () => navigateRunningApps(-1),
     'next-running-app': () => navigateRunningApps(1),

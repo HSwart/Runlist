@@ -65,6 +65,19 @@ function renderNonEmptyProjectList(projects = [{
   elements.set('summary-status', inertElement());
   elements.set('project-search-status', inertElement());
   elements.set('project-lifecycle-status', inertElement());
+  const searchEmpty = inertElement();
+  searchEmpty.hidden = true;
+  const projectRows = [];
+  const syncProjectRows = (nextProjects) => {
+    projectRows.length = 0;
+    for (const project of nextProjects || []) {
+      const row = inertElement();
+      row.dataset = { projectId: String(project.id) };
+      row.hidden = false;
+      projectRows.push(row);
+    }
+  };
+  syncProjectRows(projects);
   const previewProject = (projects || []).find((project) => project.previewExpanded && project.detailsExpanded);
   let visibleProjects = projects || [];
   const previewRow = inertElement();
@@ -136,11 +149,17 @@ function renderNonEmptyProjectList(projects = [{
       if (selector.includes('[data-preview-frame]')) {
         return previewVisible() ? previewFrame : undefined;
       }
+      if (selector === '[data-search-empty]') {
+        return searchEmpty;
+      }
       return undefined;
     },
     querySelectorAll(selector) {
       if (selector?.includes('[data-preview-frame]')) {
         return previewVisible() ? [previewFrame] : [];
+      }
+      if (selector === '.project-row') {
+        return projectRows;
       }
       return [];
     }
@@ -240,6 +259,7 @@ function renderNonEmptyProjectList(projects = [{
     listeners,
     rerender() {
       visibleProjects = context.window.runlistState.projects || [];
+      syncProjectRows(visibleProjects);
       const project = visibleProjects.find((item) => item.previewExpanded && item.detailsExpanded);
       previewRow.dataset.projectId = String(project?.id || '');
       previewFrame.dataset.src = String(project?.previewUrl || '');
@@ -276,9 +296,12 @@ function renderNonEmptyProjectList(projects = [{
       }
     },
     postedMessages,
+    projectRows,
     scheduledFrames,
     savedStates,
+    searchEmpty,
     searchInput: elements.get('project-search'),
+    searchStatus: elements.get('project-search-status'),
     setOutputSlot(project) {
       outputSlotVisible = Boolean(project);
       if (project) {
@@ -1376,4 +1399,129 @@ test('stop honesty keeps Stop and does not say Stopped while a port is up', () =
   assert.match(result.app.innerHTML, /data-action="force-close-ports"/);
   assert.doesNotMatch(result.app.innerHTML, />Stopped</);
   assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
+});
+
+function sampleProject(id, name, extras = {}) {
+  return {
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: `C:\\Projects\\${id}`,
+    id,
+    launchProfiles: [],
+    name,
+    openPorts: [],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [],
+    status: 'stopped',
+    tags: extras.tags || [],
+    ...extras
+  };
+}
+
+test('active filters with zero matches show help text and Clear filters', () => {
+  const result = renderNonEmptyProjectList([
+    sampleProject('frontend', 'Frontend app', { tags: ['frontend'] }),
+    sampleProject('docs', 'Docs', { tags: ['docs'] })
+  ], {
+    stateOverrides: {
+      tags: ['docs', 'frontend'],
+      groups: [{ id: 'dev-stack', name: 'Dev stack', projectIds: ['frontend'] }]
+    },
+    persistedWebviewState: {
+      filterRevision: 1,
+      groupFilter: 'dev-stack',
+      searchQuery: 'zzzz-no-match',
+      tagFilter: 'frontend'
+    }
+  });
+
+  assert.match(result.app.innerHTML, /data-search-empty/);
+  assert.match(result.app.innerHTML, /Try a different search or clear your filters\./);
+  assert.match(result.app.innerHTML, /data-action="clear-filters"[^>]*aria-label="Clear search, tag, and group filters"/);
+  assert.match(result.app.innerHTML, />Clear filters</);
+  assert.equal(result.searchEmpty.hidden, false);
+  assert.deepEqual(result.projectRows.map((row) => row.hidden), [true, true]);
+  assert.match(result.projectCount.innerHTML, /<strong>0<\/strong> of 2 projects/);
+});
+
+test('Clear filters resets search, tag, and group filters and unhides rows', () => {
+  const result = renderNonEmptyProjectList([
+    sampleProject('frontend', 'Frontend app', { tags: ['frontend'] }),
+    sampleProject('docs', 'Docs', { tags: ['docs'] })
+  ], {
+    stateOverrides: {
+      tags: ['docs', 'frontend'],
+      groups: [{ id: 'dev-stack', name: 'Dev stack', projectIds: ['frontend'] }]
+    },
+    persistedWebviewState: {
+      filterRevision: 1,
+      groupFilter: 'dev-stack',
+      searchQuery: 'zzzz-no-match',
+      tagFilter: 'frontend'
+    }
+  });
+
+  assert.equal(result.evaluate('searchQuery'), 'zzzz-no-match');
+  assert.equal(result.evaluate('selectedTagFilter'), 'frontend');
+  assert.equal(result.evaluate('selectedGroupFilter'), 'dev-stack');
+  assert.equal(result.searchEmpty.hidden, false);
+  const scheduledBefore = result.scheduledFrames.length;
+
+  result.evaluate('handleClearFilters()');
+  const addedFrames = result.scheduledFrames.slice(scheduledBefore);
+  for (const frame of addedFrames) {
+    frame();
+  }
+
+  assert.equal(result.evaluate('searchQuery'), '');
+  assert.equal(result.evaluate('selectedTagFilter'), '');
+  assert.equal(result.evaluate('selectedGroupFilter'), '');
+  assert.equal(result.searchInput.value, '');
+  assert.ok(result.searchInput.focusCount >= 1);
+  assert.equal(result.searchStatus.textContent, 'No projects match. Filters cleared.');
+  assert.equal(result.searchEmpty.hidden, true);
+  assert.deepEqual(result.projectRows.map((row) => row.hidden), [false, false]);
+  assert.match(result.projectCount.innerHTML, /<strong>2<\/strong> projects/);
+  assert.ok(result.postedMessages.some((message) => (
+    message.type === 'setSearchQuery'
+    && message.query === ''
+    && message.tag === ''
+  )));
+  assert.equal(result.savedStates.at(-1)?.groupFilter, '');
+  assert.equal(result.savedStates.at(-1)?.searchQuery, '');
+  assert.equal(result.savedStates.at(-1)?.tagFilter, '');
+  assert.doesNotMatch(result.app.innerHTML, /class="active-tag-chip"/);
+  assert.doesNotMatch(result.app.innerHTML, /class="active-group-chip"/);
+});
+
+test('unfiltered empty project list does not show search-empty', () => {
+  const result = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      currentWorkspaceFolder: 'C:\\Projects\\app',
+      currentWorkspaceFolderName: 'app'
+    }
+  });
+
+  assert.match(result.app.innerHTML, /No projects yet/);
+  assert.doesNotMatch(result.app.innerHTML, /data-search-empty/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="clear-filters"/);
+  assert.doesNotMatch(result.app.innerHTML, /No matching projects/);
+});
+
+test('typing in search does not announce the Clear filters recovery message', () => {
+  const result = renderNonEmptyProjectList([
+    sampleProject('frontend', 'Frontend app'),
+    sampleProject('docs', 'Docs')
+  ]);
+
+  result.evaluate(`
+    searchQuery = 'zzzz-no-match';
+    applyProjectFilter(searchQuery);
+  `);
+
+  assert.match(result.searchStatus.textContent, /0 projects shown/);
+  assert.notEqual(result.searchStatus.textContent, 'No projects match. Filters cleared.');
 });
