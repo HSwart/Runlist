@@ -2,7 +2,7 @@
   "name": "runlist",
   "displayName": "Runlist",
   "description": "Start, stop, and switch local apps from one sidebar.",
-  "version": "0.0.17",
+  "version": "0.1.0",
   "publisher": "hankoswart",
   "license": "SEE LICENSE IN LICENSE",
   "icon": "media/runlist.png",
@@ -51,9 +51,7 @@
     "monorepo",
     "microservices",
     "run groups",
-    "developer tools",
-    "coding agents",
-    "mcp"
+    "developer tools"
   ],
   "engines": {
     "vscode": "^1.113.0"

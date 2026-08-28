@@ -75,24 +75,31 @@ test('keeps a professional Marketplace listing that matches shipped product', ()
   assert.match(readme, /What\u2019s Listening/);
   assert.match(readme, /exact port and process/);
 
-  assert.match(readme, /## Open in the browser — or on your phone\n|## Open in the browser \u2014 or on your phone\n/);
+  assert.match(readme, /## Also useful\n/);
+  assert.match(readme, /### Open in the browser — or on your phone\n|### Open in the browser \u2014 or on your phone\n/);
   assert.match(readme, /local hostname/);
   assert.match(readme, /name\.localhost/);
   assert.match(readme, /Open on phone/);
   assert.match(readme, /not a public tunnel/i);
 
-  assert.match(readme, /## Organize the work you repeat\n/);
+  assert.match(readme, /### Organize the work you repeat\n/);
   assert.match(readme, /Launch profiles/);
   assert.match(readme, /Tags/);
   assert.match(readme, /Groups/);
   assert.match(readme, /More menu \(\u22ef\)|More menu \(⋯\)/);
 
-  assert.match(readme, /## Bring a whole stack into the sidebar\n/);
+  assert.match(readme, /### Bring a whole stack into the sidebar\n/);
   assert.match(readme, /Load stack/);
   assert.match(readme, /Import or Export/);
   assert.match(readme, /Docker Compose import/);
   assert.match(readme, /Optional env file/);
   assert.match(readme, /Nothing auto-starts on clone/);
+
+  const portsHeading = readme.indexOf('## Ports, conflicts, and recovery');
+  const alsoUsefulHeading = readme.indexOf('## Also useful');
+  assert.ok(portsHeading !== -1 && alsoUsefulHeading !== -1);
+  assert.ok(portsHeading < alsoUsefulHeading, 'advanced sections stay after the core ports section');
+  assert.match(readme, /Extra fields stay under \*\*More options\*\*/);
 
   assert.match(readme, /## Built for people who live in VS Code\n/);
   assert.match(

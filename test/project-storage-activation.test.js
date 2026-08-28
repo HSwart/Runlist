@@ -68,6 +68,7 @@ test('activate registers Runlist commands and the projects webview', async (t) =
     },
     window: {
       showErrorMessage: () => Promise.resolve(undefined),
+      showInformationMessage: () => Promise.resolve(undefined),
       createOutputChannel: () => ({ dispose() {}, appendLine() {} }),
       registerWebviewViewProvider(id, provider) {
         views.push({ id, provider });
@@ -92,7 +93,10 @@ test('activate registers Runlist commands and the projects webview', async (t) =
   const extension = loadExtension(vscode);
   const context = {
     globalStorageUri: { fsPath: storageRoot },
-    globalState: { get: () => [] },
+    globalState: {
+      get: () => [],
+      update: async () => undefined
+    },
     subscriptions: {
       push(...items) {
         subscriptions.push(...items);

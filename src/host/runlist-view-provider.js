@@ -480,7 +480,7 @@ class RunlistViewProvider {
     this.formErrors = {};
     this.focusTarget = this.draft.folder
       ? { type: 'field', id: 'start-command' }
-      : { type: 'field', id: 'project-name' };
+      : { type: 'field', id: 'folder' };
     this.returnFocus = returnFocus || this.defaultListFocusTarget();
     this.selectedProjectId = undefined;
     await this.revealRunlistView();

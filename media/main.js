@@ -1030,7 +1030,7 @@ function renderList() {
             <div class="empty-start-chips" role="group" aria-label="Start options for this folder">
               ${startScripts.map((script) => {
                 const chipLabel = script.name === 'dev' ? 'Dev' : 'Start';
-                const chipHint = `Run \`${script.startCommand}\` for this folder`;
+                const chipHint = `Save and start \`${script.startCommand}\` for this folder`;
                 return `
                 <button class="empty-start-chip" data-action="start-workspace-script" data-script="${escapeHtml(script.name)}" title="${escapeHtml(chipHint)}" aria-label="${escapeHtml(chipHint)}">
                   ${escapeHtml(chipLabel)}
@@ -1821,6 +1821,32 @@ function renderProjectForm(mode) {
         <p class="shared-port-warning service-warning" data-service-warning="${index}" role="status" ${warning ? '' : 'hidden'}>${escapeHtml(warning)}</p>
       </div>`;
   }).join('');
+  const isFirstAdd = state.mode === 'add' && !reviewing;
+  const advancedFieldErrors = Object.keys(errors).some((field) => (
+    field !== 'form'
+    && field !== 'folder'
+    && field !== 'start-command'
+  ));
+  const advancedOpen = !isFirstAdd || advancedFieldErrors || Boolean(
+    String(state.draft.name || '').trim()
+    || String(state.draft.localHostname || '').trim()
+    || String(state.draft.tags || '').trim()
+    || String(activeProfile.stopCommand || '').trim()
+    || String(activeProfile.envFile || '').trim()
+    || String(activeProfile.envText || '').trim()
+    || (activeProfile.services || []).length
+    || showLaunchProfileEditor
+  );
+  const workspaceFolderControls = (() => {
+    const folders = Array.isArray(state.workspaceFolders) ? state.workspaceFolders : [];
+    if (!state.canUseCurrentWorkspace) {
+      return '';
+    }
+    if (folders.length > 1 && !state.currentWorkspaceFolder) {
+      return `<div class="workspace-folder-choices" role="group" aria-label="Workspace folders in this window">${folders.map((entry) => `<button class="workspace-button" type="button" data-action="select-workspace-folder" data-folder="${escapeHtml(entry.folder)}" title="${escapeHtml(entry.folder)}">${escapeHtml(entry.name || entry.folder)}</button>`).join('')}</div>`;
+    }
+    return '<button class="workspace-button" type="button" data-action="use-current-workspace">Use current workspace</button>';
+  })();
   app.innerHTML = `
     <section class="add-screen">
       <header class="screen-header">
@@ -1830,84 +1856,78 @@ function renderProjectForm(mode) {
       ${reviewing ? '<p class="screen-copy">A coding agent added or updated this setup. Check its folder, commands, and services before approving.</p>' : ''}
       <form id="project-form" novalidate>
         ${errors.form ? `<p id="form-error-summary" class="form-error-summary" role="alert" tabindex="-1">${escapeHtml(errors.form)}</p>` : ''}
-        <label for="project-name">Project name <span class="optional-label">Optional</span></label>
-        <input id="project-name" name="name" value="${escapeHtml(state.draft.name || '')}" placeholder="Defaults to folder name" maxlength="100" ${errorAttributes('project-name')}>
-        ${fieldError('project-name')}
-
-        <label for="local-hostname">Local hostname <span class="optional-label">Optional</span></label>
-        <input id="local-hostname" name="localHostname" value="${escapeHtml(state.draft.localHostname || '')}" placeholder="Defaults from project name" maxlength="63" autocomplete="off" spellcheck="false" ${errorAttributes('local-hostname')}>
-        <p class="field-hint">Open uses http://name.localhost:port on this machine. Leave blank to derive from the project name.</p>
-        ${fieldError('local-hostname')}
-
-        <label for="tags">Tags <span class="optional-label">Optional</span></label>
-        <input id="tags" name="tags" value="${escapeHtml(state.draft.tags || '')}" placeholder="frontend, customer portal" maxlength="406" autocomplete="off" spellcheck="false" ${errorAttributes('tags')}>
-        ${fieldError('tags')}
-
         <label for="folder">Project folder</label>
         <div class="folder-control">
           <input id="folder" name="folder" value="${escapeHtml(state.draft.folder || '')}" placeholder="Choose a folder" ${errorAttributes('folder')}>
           <button class="browse-button" type="button" data-action="pick-folder">Browse</button>
         </div>
-        ${(() => {
-          const folders = Array.isArray(state.workspaceFolders) ? state.workspaceFolders : [];
-          if (!state.canUseCurrentWorkspace) {
-            return '';
-          }
-          if (folders.length > 1 && !state.currentWorkspaceFolder) {
-            return `<div class="workspace-folder-choices" role="group" aria-label="Workspace folders in this window">${folders.map((entry) => `<button class="workspace-button" type="button" data-action="select-workspace-folder" data-folder="${escapeHtml(entry.folder)}" title="${escapeHtml(entry.folder)}">${escapeHtml(entry.name || entry.folder)}</button>`).join('')}</div>`;
-          }
-          return '<button class="workspace-button" type="button" data-action="use-current-workspace">Use current workspace</button>';
-        })()}
+        ${workspaceFolderControls}
         ${fieldError('folder')}
-
-        ${showLaunchProfileEditor ? `
-        <fieldset class="launch-profile-editor" ${state.servicesLocked ? 'disabled' : ''}>
-          <legend>Launch profile</legend>
-          <div class="launch-profile-toolbar">
-            <label class="visually-hidden" for="launch-profile-select">Launch profile</label>
-            <select id="launch-profile-select" name="launchProfileId" aria-describedby="launch-profile-hint">
-              ${profileOptions.map((profile) => `<option value="${escapeHtml(profile.id)}" ${profile.id === activeProfile.id ? 'selected' : ''}>${escapeHtml(profile.name)}</option>`).join('')}
-            </select>
-            <button type="button" class="profile-tool-button" data-action="add-launch-profile" ${profileOptions.length >= 12 ? 'disabled' : ''}>Add</button>
-            <button type="button" class="profile-tool-button" data-action="delete-launch-profile" ${activeProfile.id === 'default' ? 'disabled' : ''}>Delete</button>
-          </div>
-          ${activeProfile.id === 'default' ? '' : `
-            <label for="launch-profile-name">Profile name</label>
-            <input id="launch-profile-name" name="launchProfileName" value="${escapeHtml(activeProfile.name)}" maxlength="100" ${errorAttributes('launch-profile-name')}>
-            ${fieldError('launch-profile-name')}`}
-          <p id="launch-profile-hint" class="field-hint">${state.servicesLocked ? 'Stop this project before choosing another profile.' : 'Choose which saved commands and services Start will use.'}</p>
-        </fieldset>` : ''}
 
         <label for="start-command">Start command</label>
         <input id="start-command" name="startCommand" value="${escapeHtml(activeProfile.startCommand || '')}" placeholder="npm run dev" ${errorAttributes('start-command')}>
         ${draftStartScriptChipsHtml()}
         ${fieldError('start-command')}
 
-        <label for="stop-command">Custom stop command <span class="optional-label">Optional</span></label>
-        <input id="stop-command" name="stopCommand" value="${escapeHtml(activeProfile.stopCommand || '')}" placeholder="docker compose down" ${errorAttributes('stop-command')}>
-        ${fieldError('stop-command')}
-        <p class="field-hint">Leave blank unless this project needs its own stop command.</p>
+        <details class="more-options"${advancedOpen ? ' open' : ''}>
+          <summary>More options</summary>
+          <label for="project-name">Project name <span class="optional-label">Optional</span></label>
+          <input id="project-name" name="name" value="${escapeHtml(state.draft.name || '')}" placeholder="Defaults to folder name" maxlength="100" ${errorAttributes('project-name')}>
+          ${fieldError('project-name')}
 
-        <label for="env-file">Env file <span class="optional-label">Optional</span></label>
-        <input id="env-file" name="envFile" value="${escapeHtml(activeProfile.envFile || '')}" placeholder=".env" maxlength="256" autocomplete="off" spellcheck="false" ${errorAttributes('env-file')}>
-        ${fieldError('env-file')}
-        <p class="field-hint">Relative to the project folder. Required at Start if set. Keep secrets in the file, not in Runlist export.</p>
+          <label for="local-hostname">Local hostname <span class="optional-label">Optional</span></label>
+          <input id="local-hostname" name="localHostname" value="${escapeHtml(state.draft.localHostname || '')}" placeholder="Defaults from project name" maxlength="63" autocomplete="off" spellcheck="false" ${errorAttributes('local-hostname')}>
+          <p class="field-hint">Open uses http://name.localhost:port on this machine. Leave blank to derive from the project name.</p>
+          ${fieldError('local-hostname')}
 
-        <label for="env-map">Env overrides <span class="optional-label">Optional</span></label>
-        <textarea id="env-map" name="envText" rows="3" placeholder="FLAG=1" spellcheck="false" ${errorAttributes('env-map')}>${escapeHtml(activeProfile.envText || '')}</textarea>
-        ${fieldError('env-map')}
-        <p class="field-hint">Non-secret KEY=value lines. Applied after the env file. Temporary ports still win.</p>
+          <label for="tags">Tags <span class="optional-label">Optional</span></label>
+          <input id="tags" name="tags" value="${escapeHtml(state.draft.tags || '')}" placeholder="frontend, customer portal" maxlength="406" autocomplete="off" spellcheck="false" ${errorAttributes('tags')}>
+          ${fieldError('tags')}
 
-        <fieldset id="services" class="service-editor" ${state.servicesLocked ? 'disabled' : ''} ${errors.services ? 'aria-invalid="true" aria-describedby="services-hint services-error" tabindex="-1"' : 'aria-describedby="services-hint"'}>
-          <legend>Services <span class="optional-label">Optional</span></legend>
-          <p id="services-hint" class="field-hint">${state.servicesLocked ? 'Stop this project before changing its services.' : 'Add up to 32 named service ports.'}</p>
-          ${errors.services ? `<p id="services-error" class="field-error" role="alert">${escapeHtml(errors.services)}</p>` : ''}
-          <div class="service-list-header" aria-hidden="true"><span>Name</span><span>Port</span></div>
-          <div class="service-list">
-            ${serviceRows || '<p class="empty-services">No services configured.</p>'}
-          </div>
-          <button class="service-add-button" type="button" data-action="add-service" ${services.length >= 32 ? 'disabled' : ''}>Add service</button>
-        </fieldset>
+          ${showLaunchProfileEditor ? `
+          <fieldset class="launch-profile-editor" ${state.servicesLocked ? 'disabled' : ''}>
+            <legend>Launch profile</legend>
+            <div class="launch-profile-toolbar">
+              <label class="visually-hidden" for="launch-profile-select">Launch profile</label>
+              <select id="launch-profile-select" name="launchProfileId" aria-describedby="launch-profile-hint">
+                ${profileOptions.map((profile) => `<option value="${escapeHtml(profile.id)}" ${profile.id === activeProfile.id ? 'selected' : ''}>${escapeHtml(profile.name)}</option>`).join('')}
+              </select>
+              <button type="button" class="profile-tool-button" data-action="add-launch-profile" ${profileOptions.length >= 12 ? 'disabled' : ''}>Add</button>
+              <button type="button" class="profile-tool-button" data-action="delete-launch-profile" ${activeProfile.id === 'default' ? 'disabled' : ''}>Delete</button>
+            </div>
+            ${activeProfile.id === 'default' ? '' : `
+              <label for="launch-profile-name">Profile name</label>
+              <input id="launch-profile-name" name="launchProfileName" value="${escapeHtml(activeProfile.name)}" maxlength="100" ${errorAttributes('launch-profile-name')}>
+              ${fieldError('launch-profile-name')}`}
+            <p id="launch-profile-hint" class="field-hint">${state.servicesLocked ? 'Stop this project before choosing another profile.' : 'Choose which saved commands and services Start will use.'}</p>
+          </fieldset>` : ''}
+
+          <label for="stop-command">Custom stop command <span class="optional-label">Optional</span></label>
+          <input id="stop-command" name="stopCommand" value="${escapeHtml(activeProfile.stopCommand || '')}" placeholder="docker compose down" ${errorAttributes('stop-command')}>
+          ${fieldError('stop-command')}
+          <p class="field-hint">Leave blank unless this project needs its own stop command.</p>
+
+          <label for="env-file">Env file <span class="optional-label">Optional</span></label>
+          <input id="env-file" name="envFile" value="${escapeHtml(activeProfile.envFile || '')}" placeholder=".env" maxlength="256" autocomplete="off" spellcheck="false" ${errorAttributes('env-file')}>
+          ${fieldError('env-file')}
+          <p class="field-hint">Relative to the project folder. Required at Start if set. Keep secrets in the file, not in Runlist export.</p>
+
+          <label for="env-map">Env overrides <span class="optional-label">Optional</span></label>
+          <textarea id="env-map" name="envText" rows="3" placeholder="FLAG=1" spellcheck="false" ${errorAttributes('env-map')}>${escapeHtml(activeProfile.envText || '')}</textarea>
+          ${fieldError('env-map')}
+          <p class="field-hint">Non-secret KEY=value lines. Applied after the env file. Temporary ports still win.</p>
+
+          <fieldset id="services" class="service-editor" ${state.servicesLocked ? 'disabled' : ''} ${errors.services ? 'aria-invalid="true" aria-describedby="services-hint services-error" tabindex="-1"' : 'aria-describedby="services-hint"'}>
+            <legend>Services <span class="optional-label">Optional</span></legend>
+            <p id="services-hint" class="field-hint">${state.servicesLocked ? 'Stop this project before changing its services.' : 'Add up to 32 named service ports.'}</p>
+            ${errors.services ? `<p id="services-error" class="field-error" role="alert">${escapeHtml(errors.services)}</p>` : ''}
+            <div class="service-list-header" aria-hidden="true"><span>Name</span><span>Port</span></div>
+            <div class="service-list">
+              ${serviceRows || '<p class="empty-services">No services configured.</p>'}
+            </div>
+            <button class="service-add-button" type="button" data-action="add-service" ${services.length >= 32 ? 'disabled' : ''}>Add service</button>
+          </fieldset>
+        </details>
 
         <button class="primary-button save-button" type="submit">${reviewing ? 'Approve setup' : editing ? 'Save changes' : 'Save project'}</button>
         ${reviewing ? '<p class="form-hint">Approving makes Start and Stop available for this project.</p>' : editing ? '<p class="form-hint">Changes apply the next time you start this project.</p>' : ''}

@@ -19,7 +19,7 @@ Runlist is a focused VS Code sidebar for people who run real projects every day:
 1. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=hankoswart.runlist)
 2. Open the **Runlist** sidebar
 3. Choose **Add this folder**
-4. Save the start command — or pick a `start` / `dev` chip when your folder already has one
+4. Save the start command — or pick a `start` / `dev` chip when your folder already has one. Extra fields stay under **More options**
 5. Press **Start**
 
 That’s it. First-run stays empty until you add a folder. No setup dump, no config maze.
@@ -56,7 +56,11 @@ Local development breaks most often on ports. Runlist treats that as a first-cla
 - Closing a listener asks for confirmation with the exact port and process — then checks again before anything stops
 - If only one service in a multi-port app is blocked, you can resolve that port without rewriting the whole setup
 
-## Open in the browser — or on your phone
+## Also useful
+
+Still available when you need them — not required for the everyday loop.
+
+### Open in the browser — or on your phone
 
 - Open the app from the port chip or the More menu
 - Optional **local hostname** opens as `name.localhost` when it fits, and falls back to `localhost` when it doesn’t
@@ -64,14 +68,14 @@ Local development breaks most often on ports. Runlist treats that as a first-cla
 
 Named local hostnames are for this machine. Phone handoff is for devices on the same network — not a public tunnel.
 
-## Organize the work you repeat
+### Organize the work you repeat
 
 - **Launch profiles** — keep alternate start commands, stop commands, and services for the same project
 - **Tags** — label apps and filter the list down to what you need right now
 - **Groups** — start related apps together, in order or in parallel, and stop them as a set
 - **More menu (⋯)** — Set Up Agents, Import or Export, Load stack, Manage groups, What’s Listening, and support info
 
-## Bring a whole stack into the sidebar
+### Bring a whole stack into the sidebar
 
 - **Load stack** — pull a shared project setup from the repo, review what’s new or changing, then load it
 - **Import or Export** — move setups between machines or teammates, with review before anything can run
