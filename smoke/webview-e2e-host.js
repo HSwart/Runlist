@@ -145,6 +145,108 @@ async function executeBrowserCommand(command, provider, root) {
       hasProcess: provider.processes.has(seeded.project.id)
     };
   }
+  if (command.action === 'seed-gallery-screenshot') {
+    const ready = JSON.parse(fs.readFileSync(path.join(root, 'host-ready.json'), 'utf8'));
+    const { upsertRunGroup } = require('../src/projects/project-store');
+    const fixturePath = ready.fixturePath;
+    const marketingPath = path.join(fixturePath, 'marketing-site');
+    const adminPath = path.join(fixturePath, 'admin-dashboard');
+    const analyticsPath = path.join(fixturePath, 'analytics-worker');
+    const legacyPath = path.join(fixturePath, 'legacy-import');
+    for (const folder of [
+      ready.lifecyclePath,
+      ready.importedPath,
+      marketingPath,
+      adminPath,
+      analyticsPath,
+      legacyPath
+    ]) {
+      fs.mkdirSync(folder, { recursive: true });
+    }
+    writeGalleryHttpServer(ready.lifecyclePath, [4310, 4312]);
+    writeGalleryHttpServer(ready.importedPath, 4311);
+    writeGalleryHttpServer(marketingPath, 4313);
+    const storefront = upsertProject(provider.projectsFile, {
+      name: 'Acme Storefront',
+      folder: ready.lifecyclePath,
+      startCommand: 'node server.js',
+      stopCommand: '',
+      pinned: true,
+      services: [
+        { name: 'web', port: 4310 },
+        { name: 'api', port: 4312 }
+      ]
+    });
+    const orders = upsertProject(provider.projectsFile, {
+      name: 'Orders API',
+      folder: ready.importedPath,
+      startCommand: 'node server.js',
+      stopCommand: '',
+      services: [{ name: 'api', port: 4311 }]
+    });
+    const marketing = upsertProject(provider.projectsFile, {
+      name: 'Marketing Site',
+      folder: marketingPath,
+      startCommand: 'node server.js',
+      stopCommand: '',
+      services: [{ name: 'web', port: 4313 }]
+    });
+    upsertProject(provider.projectsFile, {
+      name: 'Admin Dashboard',
+      folder: adminPath,
+      startCommand: 'node -e "setInterval(() => undefined, 1000)"',
+      stopCommand: '',
+      services: [{ name: 'admin', port: 4314 }]
+    });
+    upsertProject(provider.projectsFile, {
+      name: 'Analytics Worker',
+      folder: analyticsPath,
+      startCommand: 'node -e "setInterval(() => undefined, 1000)"',
+      stopCommand: '',
+      tags: ['backend'],
+      services: [{ name: 'worker', port: 4315 }]
+    });
+    upsertProject(provider.projectsFile, {
+      name: 'Legacy Import',
+      folder: legacyPath,
+      startCommand: 'node -e "setInterval(() => undefined, 1000)"',
+      stopCommand: '',
+      services: [{ name: 'legacy', port: 4316 }]
+    }, { reviewRequired: true });
+    upsertRunGroup(provider.projectsFile, {
+      name: 'Development stack',
+      projectIds: [storefront.project.id, orders.project.id, marketing.project.id],
+      startMode: 'sequential'
+    });
+    provider.renderProjectList();
+    const startedStorefront = await provider.startProject(storefront.project.id);
+    assert.equal(startedStorefront, true, `Could not start Acme Storefront (status=${provider.getProjectStatus(storefront.project.id)}).`);
+    const startedOrders = await provider.startProject(orders.project.id);
+    assert.equal(startedOrders, true, `Could not start Orders API (status=${provider.getProjectStatus(orders.project.id)}).`);
+    await waitFor(
+      async () => {
+        await provider.refreshProjectStatuses();
+        return ['running', 'active'].includes(provider.getProjectStatus(storefront.project.id))
+          && ['running', 'active'].includes(provider.getProjectStatus(orders.project.id));
+      },
+      'Screenshot projects did not become running after start.',
+      25000
+    );
+    provider.renderProjectList();
+    return {
+      projectId: storefront.project.id,
+      expandProjectName: storefront.project.name,
+      projectIds: [storefront.project.id, orders.project.id],
+      name: storefront.project.name,
+      status: provider.getProjectStatus(storefront.project.id),
+      hasProcess: provider.processes.has(storefront.project.id)
+    };
+  }
+  if (command.action === 'expand-project-preview') {
+    provider.toggleProjectPreview(command.projectId, command.focusAction || 'open-services');
+    provider.renderProjectList();
+    return { expanded: command.projectId };
+  }
   if (command.action === 'project-status') {
     return {
       status: provider.getProjectStatus(command.projectId),
@@ -183,6 +285,25 @@ async function waitFor(predicate, message, timeoutMs = 10000) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   assert.fail(message);
+}
+
+function writeGalleryHttpServer(folder, ports) {
+  const normalizedPorts = Array.isArray(ports) ? ports : [ports];
+  fs.writeFileSync(path.join(folder, 'server.js'), [
+    "const fs = require('node:fs');",
+    "const http = require('node:http');",
+    "const path = require('node:path');",
+    "const marker = path.join(__dirname, 'starts.txt');",
+    "fs.appendFileSync(marker, `${process.pid}\\n`);",
+    'const handler = (request, response) => {',
+    "  response.writeHead(200, { 'Content-Type': 'text/plain' });",
+    "  response.end('ok');",
+    '};',
+    `for (const port of ${JSON.stringify(normalizedPorts)}) {`,
+    "  http.createServer(handler).listen(port, '127.0.0.1');",
+    '}',
+    ''
+  ].join('\n'));
 }
 
 function requiredEnvironment(name) {
