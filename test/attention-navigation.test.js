@@ -45,9 +45,15 @@ function loadAttentionHelpers() {
     ${extractFunction(source, 'projectAttentionIsVisible')}
     ${extractFunction(source, 'attentionIdentityKey')}
     ${extractFunction(source, 'nextAttentionProject')}
+    ${extractFunction(source, 'attentionVisibility')}
+    ${extractFunction(source, 'attentionButtonLabel')}
+    ${extractFunction(source, 'attentionButtonAriaLabel')}
     this.projectNeedsAttention = projectNeedsAttention;
     this.nextAttentionProject = nextAttentionProject;
     this.attentionIdentityKey = attentionIdentityKey;
+    this.attentionVisibility = attentionVisibility;
+    this.attentionButtonLabel = attentionButtonLabel;
+    this.attentionButtonAriaLabel = attentionButtonAriaLabel;
   `, context);
   return context;
 }
@@ -116,4 +122,50 @@ test('attentionIdentityKey changes when a project is fixed or hidden', () => {
   ];
   assert.equal(helpers.attentionIdentityKey(afterFix, allVisible), 'alpha\ngamma');
   assert.notEqual(helpers.attentionIdentityKey(afterFix, allVisible), original);
+});
+
+test('attentionVisibility reports hidden attention rows separately from the total count', () => {
+  const projects = [
+    attentionProject('alpha'),
+    attentionProject('beta'),
+    attentionProject('gamma'),
+    { id: 'idle', name: 'Idle', status: 'stopped' }
+  ];
+  const hideBetaAndGamma = (project) => project.id === 'alpha' || project.id === 'idle';
+
+  const allVisible = helpers.attentionVisibility(projects, () => true);
+  assert.equal(allVisible.total, 3);
+  assert.equal(allVisible.visible, 3);
+  assert.equal(allVisible.hidden, 0);
+
+  const partiallyHidden = helpers.attentionVisibility(projects, hideBetaAndGamma);
+  assert.equal(partiallyHidden.total, 3);
+  assert.equal(partiallyHidden.visible, 1);
+  assert.equal(partiallyHidden.hidden, 2);
+
+  const allHidden = helpers.attentionVisibility(projects, (project) => project.id === 'idle');
+  assert.equal(allHidden.total, 3);
+  assert.equal(allHidden.visible, 0);
+  assert.equal(allHidden.hidden, 3);
+});
+
+test('attention button copy keeps the total count and describes hidden rows in the accessible name', () => {
+  assert.equal(helpers.attentionButtonLabel(1), 'Needs attention');
+  assert.equal(helpers.attentionButtonLabel(3), 'Needs attention (3)');
+  assert.equal(
+    helpers.attentionButtonAriaLabel({ total: 1, visible: 1, hidden: 0 }),
+    'Focus first project that needs attention'
+  );
+  assert.equal(
+    helpers.attentionButtonAriaLabel({ total: 3, visible: 3, hidden: 0 }),
+    'Show next project that needs attention, 3 total'
+  );
+  assert.equal(
+    helpers.attentionButtonAriaLabel({ total: 3, visible: 1, hidden: 2 }),
+    'Show next project that needs attention, 1 of 3 visible, 2 hidden by filters'
+  );
+  assert.equal(
+    helpers.attentionButtonAriaLabel({ total: 2, visible: 0, hidden: 2 }),
+    'Show next project that needs attention, 0 of 2 visible, 2 hidden by filters'
+  );
 });

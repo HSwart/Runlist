@@ -55,6 +55,12 @@ test('summary offers a quiet Needs attention control that focuses a row', () => 
   assert.match(webview, /scrollIntoView\(\{ block: 'nearest' \}\)/);
   assert.match(styles, /\.summary-attention-slot:empty \{[\s\S]*display: none/);
   assert.match(styles, /\.summary-attention \{[\s\S]*width: 100%/);
+  assert.match(styles, /\.summary-attention-group \{[\s\S]*flex-wrap: wrap/);
+  assert.match(styles, /\.summary-attention-clear \{[\s\S]*--vscode-button-foreground[\s\S]*--vscode-button-background/);
+  assert.match(
+    styles,
+    /@media \(max-width: 300px\) \{[\s\S]*\.summary-attention-clear \{[\s\S]*width: 100%/
+  );
   assert.match(styles, /#project-count \{[\s\S]*white-space: nowrap/);
   assert.match(webview, /startFailureText \? escapeHtml\(startFailureText\)/);
   assert.doesNotMatch(webview, /summary-status"[\s\S]{0,200}Needs attention/);
