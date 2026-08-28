@@ -135,12 +135,47 @@ test('turns a missing-required-env start failure into Fix environment', () => {
   });
 });
 
-test('keeps Start for other retained start failures', () => {
-  assert.equal(projectPrimaryAction({
+test('turns a generic retained start failure into View output', () => {
+  assert.deepEqual(projectPrimaryAction({
     name: 'App',
     status: 'stopped',
     failureSummary: { title: 'Start failed', message: 'command not found' }
+  }), {
+    action: 'output',
+    disabled: false,
+    label: 'View output for App',
+    mode: 'output'
+  });
+});
+
+test('keeps Start when a stopped row has no retained failure summary', () => {
+  assert.equal(projectPrimaryAction({
+    name: 'App',
+    status: 'stopped'
   }).action, 'start');
+});
+
+test('does not replace Choose folder when a missing-folder row also has a start failure', () => {
+  assert.equal(projectPrimaryAction({
+    name: 'Moved app',
+    status: 'stopped',
+    folderAccessible: false,
+    failureSummary: { title: 'Start failed', message: 'command not found' }
+  }).action, 'relink-folder');
+});
+
+test('does not replace Start while a generic failure is still force-closing', () => {
+  assert.deepEqual(projectPrimaryAction({
+    name: 'App',
+    status: 'stopped',
+    forceClosing: true,
+    failureSummary: { title: 'Start failed', message: 'command not found' }
+  }), {
+    action: 'start',
+    disabled: true,
+    label: 'Start App',
+    mode: 'start'
+  });
 });
 
 test('review setup still gates missing-env rows', () => {

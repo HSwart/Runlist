@@ -1614,7 +1614,7 @@ test('review setup stays primary and hides Add stop command until review is done
   assert.doesNotMatch(result.app.innerHTML, /data-action="add-stop-command"/);
 });
 
-test('failed start keeps a two-line row with the reason and Start', () => {
+test('failed start keeps a two-line row with the reason and View output as primary', () => {
   const result = renderNonEmptyProjectList([{
     activeLaunchProfileId: 'default',
     activeLaunchProfileName: 'Default',
@@ -1639,14 +1639,49 @@ test('failed start keeps a two-line row with the reason and Start', () => {
   assert.match(result.app.innerHTML, /<h2 id="project-broken"[^>]*>[\s\S]*Broken App\s*<\/h2>/);
   assert.match(
     result.app.innerHTML,
-    /class="project-status status-start-failed"[^>]*title="\/bin\/sh: vite: command not found"[^>]*>[\s\S]*<span>Start failed<\/span>/
+    /class="project-status status-start-failed"[^>]*title="See recent output for details, then try Start again\."[^>]*>[\s\S]*<span>Start failed<\/span>/
   );
-  assert.match(result.app.innerHTML, /class="run-button start"[^>]*data-action="start"[^>]*aria-label="Start Broken App"/);
+  assert.match(
+    result.app.innerHTML,
+    /class="run-button output"[^>]*data-action="output"[^>]*data-id="broken"[^>]*aria-label="View output for Broken App"/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /data-action="start" data-id="broken" role="menuitem" aria-label="Start Broken App"/
+  );
+  assert.match(result.app.innerHTML, /data-action="output"[^>]*role="menuitem"/);
+  assert.match(result.app.innerHTML, /data-action="edit"[^>]*role="menuitem">[\s\S]*Edit project/);
+  assert.doesNotMatch(result.app.innerHTML, /class="run-button start"/);
   assert.doesNotMatch(result.app.innerHTML, />Stopped</);
   assert.doesNotMatch(result.app.innerHTML, />Running</);
   assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
-  assert.doesNotMatch(result.app.innerHTML, /data-action="output"[^>]*class="run-button"/);
   assert.doesNotMatch(result.app.innerHTML, /Ask your agent|copy-diagnosis-request/);
+});
+
+test('healthy stopped rows still show Start as the primary action', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/broken-app',
+    id: 'healthy',
+    launchProfiles: [],
+    name: 'Healthy App',
+    openPorts: [],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 3000 }],
+    status: 'stopped',
+    tags: []
+  }]);
+
+  assert.match(
+    result.app.innerHTML,
+    /class="run-button start"[^>]*data-action="start"[^>]*aria-label="Start Healthy App"/
+  );
+  assert.doesNotMatch(result.app.innerHTML, /data-action="output"[^>]*class="run-button"/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="start"[^>]*role="menuitem"/);
 });
 
 test('row More menu includes Ask your agent only when canAskAgent is true', () => {
@@ -1735,6 +1770,7 @@ test('missing-required-env start failure uses Fix environment as the primary row
   );
   assert.match(result.app.innerHTML, /data-action="edit"[^>]*role="menuitem">[\s\S]*Edit project/);
   assert.doesNotMatch(result.app.innerHTML, /class="run-button start"/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="start"/);
   assert.doesNotMatch(result.app.innerHTML, /data-action="fix-environment"[^>]*role="menuitem"/);
 });
 

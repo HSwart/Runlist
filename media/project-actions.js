@@ -136,6 +136,14 @@
         mode: 'relink'
       };
     }
+    if (status === 'stopped' && !busy && project.failureSummary && typeof project.failureSummary === 'object') {
+      return {
+        action: 'output',
+        disabled: false,
+        label: `View output for ${name}`,
+        mode: 'output'
+      };
+    }
     return composeStartGate(project, {
       action: 'start',
       disabled: busy,
