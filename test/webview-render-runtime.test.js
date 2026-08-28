@@ -1179,7 +1179,8 @@ test('hides launch profiles on first add when only Default exists', () => {
     }
   });
 
-  assert.match(result.app.innerHTML, /<h2>Add project<\/h2>/);
+  assert.match(result.app.innerHTML, /<h2>Add this folder<\/h2>/);
+  assert.match(result.app.innerHTML, /aria-label="Close add this folder screen"/);
   assert.doesNotMatch(result.app.innerHTML, /class="launch-profile-editor"/);
   assert.match(result.app.innerHTML, /class="more-options"/);
   assert.doesNotMatch(result.app.innerHTML, /class="more-options" open/);
@@ -1263,7 +1264,7 @@ test('Add form shows Start and Dev chips that fill the command without starting'
     }
   });
 
-  assert.match(result.app.innerHTML, /<h2>Add project<\/h2>/);
+  assert.match(result.app.innerHTML, /<h2>Add this folder<\/h2>/);
   assert.match(result.app.innerHTML, /id="start-command"/);
   assert.match(result.app.innerHTML, /class="empty-start-chips draft-start-chips"/);
   assert.match(result.app.innerHTML, /role="group" aria-label="Suggested start commands for this folder"/);
@@ -1289,7 +1290,7 @@ test('Add form hides Start/Dev chips when the folder has no npm scripts', () => 
     }
   });
 
-  assert.match(result.app.innerHTML, /<h2>Add project<\/h2>/);
+  assert.match(result.app.innerHTML, /<h2>Add this folder<\/h2>/);
   assert.doesNotMatch(result.app.innerHTML, /draft-start-chips/);
   assert.doesNotMatch(result.app.innerHTML, /data-action="use-draft-start-script"/);
   assert.doesNotMatch(result.app.innerHTML, /Suggested start commands for this folder/);
