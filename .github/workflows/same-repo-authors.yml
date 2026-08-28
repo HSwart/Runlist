@@ -29,7 +29,7 @@ jobs:
           fi
 
           case "${AUTHOR}" in
-            HSwart|cursor[bot])
+            HSwart|'cursor[bot]')
               ;;
             *)
               echo "::error::Wrong author rejected: pull request author is '${AUTHOR}', expected HSwart or cursor[bot]."

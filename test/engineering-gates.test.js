@@ -62,7 +62,7 @@ test('rejects fork and non-allowed pull request authors with a same-repo authors
   assert.match(workflow, /github\.event\.pull_request\.head\.repo\.full_name/);
   assert.match(workflow, /github\.repository/);
   assert.match(workflow, /github\.event\.pull_request\.user\.login/);
-  assert.match(workflow, /HSwart\|cursor\[bot\]/);
+  assert.match(workflow, /HSwart\|'cursor\[bot\]'/);
   assert.match(workflow, /Fork pull request rejected/);
   assert.match(workflow, /Wrong author rejected/);
   assert.doesNotMatch(workflow, /actions\/checkout/);
