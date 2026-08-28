@@ -47,7 +47,7 @@ test('runs pinned secret scanning and SBOM gates without duplicating CodeQL defa
   assert.doesNotMatch(publishWorkflow, unpinnedAction);
 });
 
-test('rejects fork and non-HSwart pull requests with a same-repo authors check', () => {
+test('rejects fork and non-allowed pull request authors with a same-repo authors check', () => {
   const workflow = fs.readFileSync(
     path.join(root, '.github', 'workflows', 'same-repo-authors.yml'),
     'utf8'
@@ -62,7 +62,7 @@ test('rejects fork and non-HSwart pull requests with a same-repo authors check',
   assert.match(workflow, /github\.event\.pull_request\.head\.repo\.full_name/);
   assert.match(workflow, /github\.repository/);
   assert.match(workflow, /github\.event\.pull_request\.user\.login/);
-  assert.match(workflow, /\[ "\$\{AUTHOR\}" != "HSwart" \]/);
+  assert.match(workflow, /HSwart\|cursor\[bot\]/);
   assert.match(workflow, /Fork pull request rejected/);
   assert.match(workflow, /Wrong author rejected/);
   assert.doesNotMatch(workflow, /actions\/checkout/);
