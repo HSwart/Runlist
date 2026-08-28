@@ -140,3 +140,32 @@ test('wires retained-failure diagnosis into the sidebar without sending to an ag
   assert.match(webview, /data-action="copy-diagnosis-request"/);
   assert.match(styles, /\.diagnosis-context/);
 });
+
+test('exposes Ask your agent on the row More menu from a host boolean only', () => {
+  const root = path.join(__dirname, '..');
+  const extension = readShippedHostSource(root);
+  const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
+  const router = fs.readFileSync(
+    path.join(root, 'src', 'webview', 'webview-message-router.js'),
+    'utf8'
+  );
+
+  assert.match(
+    extension,
+    /canAskAgent: Boolean\(readProjectDiagnostics\(this\.projectsFile, project\.id\)\)/
+  );
+  assert.match(
+    webview,
+    /data-action="output"[\s\S]*project\.canAskAgent \? `[\s\S]*data-action="ask-agent"[\s\S]*aria-label="Ask your agent about \$\{projectName\}"[\s\S]*<span>Ask your agent<\/span>[\s\S]*data-action="restart"/
+  );
+  assert.match(
+    webview,
+    /projectOutput\.canAskAgent \? `<button class="diagnosis-open-button" data-action="ask-agent" data-id="\$\{escapeHtml\(projectOutput\.projectId\)\}">Ask your agent<\/button>`/
+  );
+  assert.match(
+    webview,
+    /'ask-agent': \(\) => \{[\s\S]*closeMenus\(\);[\s\S]*type: 'showDiagnosis', id: button\.dataset\.id/
+  );
+  assert.match(router, /showDiagnosis: \(message\) => host\.showProjectDiagnosis\(message\.id\)/);
+  assert.doesNotMatch(webview, /data-action="ask-agent"[\s\S]{0,400}copyStartFailure|copy-start-failure/);
+});

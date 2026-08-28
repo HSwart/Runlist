@@ -165,6 +165,19 @@ test('forwards output peek incarnation requests without treating the token as au
   assert.deepEqual(calls, [['project-1', 'project-1:1']]);
 });
 
+test('maps showDiagnosis to the existing diagnosis screen', async () => {
+  const calls = [];
+  const route = createRunlistWebviewRouter({
+    showProjectDiagnosis: async (id) => {
+      calls.push(id);
+    }
+  });
+
+  assert.equal(await route({ type: 'showDiagnosis', id: 'project-1' }), true);
+  assert.equal(await route({ type: 'showDiagnosis', id: '' }), false);
+  assert.deepEqual(calls, ['project-1']);
+});
+
 test('forwards showEdit focusTarget to the host edit screen', async () => {
   const calls = [];
   const route = createRunlistWebviewRouter({
