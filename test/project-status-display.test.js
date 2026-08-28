@@ -254,3 +254,127 @@ test('shows Folder missing on stopped rows without waiting for Start', () => {
     reviewRequired: true
   }), 'Review setup');
 });
+
+test('not-ready and not-responding rows name the first blocking service on line 2', () => {
+  const readiness = {
+    ready: [{ name: 'Web', port: 3000 }],
+    waiting: [{ name: 'API', port: 3001 }],
+    notResponding: []
+  };
+  assert.equal(
+    projectDisplayedStatus({ name: 'App', status: 'not-ready', serviceReadiness: readiness }),
+    'Taking longer — API :3001'
+  );
+  assert.equal(
+    projectDisplayedStatus({
+      name: 'App',
+      status: 'not-ready',
+      serviceReadiness: {
+        ready: [],
+        waiting: [],
+        notResponding: [{ name: 'Web', port: 5173 }]
+      }
+    }),
+    'Taking longer — Web :5173'
+  );
+  assert.equal(
+    projectDisplayedStatus({
+      name: 'App',
+      status: 'not-ready',
+      serviceReadiness: {
+        ready: [],
+        waiting: [
+          { name: 'API', port: 3001 },
+          { name: 'Worker', port: 3002 },
+          { name: 'Cache', port: 3003 }
+        ],
+        notResponding: []
+      }
+    }),
+    'Taking longer — API :3001 +2 more'
+  );
+  assert.equal(
+    projectDisplayedStatus({
+      name: 'App',
+      status: 'not-responding',
+      serviceReadiness: {
+        ready: [{ name: 'API', port: 3001 }],
+        waiting: [],
+        notResponding: [{ name: 'Web', port: 5173 }]
+      }
+    }),
+    'Web service not responding — Web :5173'
+  );
+  assert.equal(
+    projectDisplayedStatus({
+      name: 'App',
+      status: 'not-responding',
+      serviceReadiness: {
+        ready: [],
+        waiting: [{ name: 'API', port: 3001 }],
+        notResponding: [{ name: 'Web', port: 5173 }, { name: 'Admin', port: 5174 }]
+      }
+    }),
+    'Web service not responding — API :3001 +2 more'
+  );
+  assert.equal(
+    projectDisplayedStatus({
+      name: 'App',
+      status: 'active',
+      httpUnresponsive: true,
+      serviceReadiness: {
+        ready: [],
+        waiting: [],
+        notResponding: [{ name: 'Web', port: 5173 }]
+      }
+    }),
+    'Web service not responding — Web :5173'
+  );
+  assert.equal(projectDisplayedStatus({ name: 'App', status: 'not-ready' }), 'Starting…');
+  assert.equal(
+    projectDisplayedStatus({
+      name: 'App',
+      status: 'not-ready',
+      serviceReadiness: { ready: [{ name: 'Web', port: 3000 }], waiting: [], notResponding: [] }
+    }),
+    'Starting…'
+  );
+  assert.equal(
+    projectDisplayedStatus({ name: 'App', status: 'not-responding' }),
+    'Web service not responding'
+  );
+  assert.equal(
+    projectDisplayedStatus({
+      name: 'App',
+      status: 'not-ready',
+      forceClosing: true,
+      serviceReadiness: readiness
+    }),
+    'Closing processes…'
+  );
+  assert.equal(
+    projectDisplayedStatus({
+      name: 'App',
+      status: 'not-ready',
+      reviewRequired: true,
+      serviceReadiness: readiness
+    }),
+    'Review setup'
+  );
+  assert.equal(
+    projectDisplayedStatus({ name: 'App', status: 'running', serviceReadiness: readiness }),
+    'Running'
+  );
+  assert.equal(
+    projectStatusAnnouncement({
+      name: 'App',
+      status: 'not-ready',
+      serviceReadiness: {
+        ready: [{ name: 'Web', port: 3000 }],
+        waiting: [{ name: 'API', port: 4000 }],
+        notResponding: []
+      }
+    }),
+    'App: Taking longer… Ready: Web :3000. Still checking: API :4000'
+  );
+});

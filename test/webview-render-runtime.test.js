@@ -797,6 +797,88 @@ test('announces simultaneous service contexts with raw special-character names',
   assert.doesNotMatch(result.lifecycleStatus.textContent, /&amp;|&lt;|&gt;/);
 });
 
+test('not-ready row names the blocking service on line 2 without a readiness block', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: 'C:\\Projects\\Example',
+    id: 'example',
+    launchProfiles: [],
+    name: 'Example',
+    openPorts: [3000],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [
+      { name: 'Web', port: 3000 },
+      { name: 'API', port: 3001 },
+      { name: 'Worker', port: 3002 }
+    ],
+    serviceReadiness: {
+      ready: [{ name: 'Web', port: 3000 }],
+      waiting: [{ name: 'API', port: 3001 }, { name: 'Worker', port: 3002 }],
+      notResponding: []
+    },
+    status: 'not-ready',
+    tags: []
+  }]);
+
+  assert.match(
+    result.app.innerHTML,
+    /class="project-status status-not-ready"[^>]*>[\s\S]*<span>Taking longer — API :3001 \+1 more<\/span>/
+  );
+  assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
+  assert.doesNotMatch(result.app.innerHTML, /class="detail-row"/);
+
+  result.state.projects[0].detailsExpanded = true;
+  result.state.projects[0].detailTabs = ['overview', 'services'];
+  result.rerender();
+  assert.match(result.app.innerHTML, /class="project-readiness-detail"/);
+  assert.match(result.app.innerHTML, /<strong>Taking longer…<\/strong>/);
+  assert.match(result.app.innerHTML, /<strong>Still checking:<\/strong>/);
+  assert.match(
+    result.app.innerHTML,
+    /class="project-status status-not-ready"[^>]*>[\s\S]*<span>Taking longer — API :3001 \+1 more<\/span>/
+  );
+});
+
+test('not-responding row names the blocking service on line 2', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: true,
+    detailTabs: ['overview', 'services'],
+    folder: 'C:\\Projects\\Example',
+    id: 'example',
+    launchProfiles: [],
+    name: 'Example',
+    openPorts: [5173],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [{ name: 'Web', port: 5173 }],
+    serviceReadiness: {
+      ready: [],
+      waiting: [],
+      notResponding: [{ name: 'Web', port: 5173 }]
+    },
+    status: 'not-responding',
+    tags: []
+  }]);
+
+  assert.match(
+    result.app.innerHTML,
+    /class="project-status status-not-responding"[^>]*>[\s\S]*<span>Web service not responding — Web :5173<\/span>/
+  );
+  assert.match(result.app.innerHTML, /class="project-readiness-detail"/);
+  assert.match(result.app.innerHTML, /<strong>Waiting for web response:<\/strong>/);
+  assert.doesNotMatch(
+    result.app.innerHTML,
+    /class="project-readiness-detail"[^>]*>[\s\S]*<strong>Web service not responding<\/strong>/
+  );
+});
+
 function previewFailureProject(overrides = {}) {
   return {
     activeLaunchProfileId: 'default',

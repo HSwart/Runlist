@@ -333,7 +333,7 @@ function readinessDetailsHtml(project, status) {
   if (!project.forceClosing && !project.handoffInProgress) {
     const full = projectStatusFullLabels(project)[code];
     const primary = projectDisplayedStatus(project);
-    if (full && full !== primary) {
+    if (full && full !== primary && !String(primary).startsWith(`${full} — `)) {
       rows.push(`<span><strong>${escapeHtml(full)}</strong></span>`);
     }
   }
