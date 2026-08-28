@@ -1298,7 +1298,9 @@ function renderList() {
                 ? 'Add the missing environment variables, then try Start again.'
                 : projectStartFailureText(project)
                   ? 'See recent output for details, then try Start again.'
-                  : '';
+                  : projectStopFailureText(project)
+                    ? 'See recent output for details, then try Stop again.'
+                    : '';
         const displayedStatus = projectDisplayedStatus(project);
         const startFailureText = projectStartFailureText(project);
         const stopFailureText = projectStopFailureText(project);

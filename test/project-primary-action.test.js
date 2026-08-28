@@ -211,12 +211,83 @@ test('does not replace Stop while a not-responding row is force-closing or handi
   }).action, 'stop');
 });
 
-test('leaves a retained stopFailure on a live row to Stop until that recovery rule ships', () => {
+test('turns a retained stop failure into View output while the process may still be running', () => {
+  assert.deepEqual(projectPrimaryAction({
+    name: 'App',
+    status: 'running',
+    stopFailure: 'Port :3000 is still up'
+  }), {
+    action: 'output',
+    disabled: false,
+    label: 'View output for App',
+    mode: 'output'
+  });
+  assert.equal(projectPrimaryAction({
+    name: 'App',
+    status: 'active',
+    stopCommand: '',
+    stopFailure: 'Port :3000 is still up'
+  }).action, 'output');
   assert.equal(projectPrimaryAction({
     name: 'App',
     status: 'not-responding',
+    stopFailure: 'Stop failed'
+  }).action, 'output');
+});
+
+test('keeps disabled Stop while a stop-failure row is still stopping', () => {
+  const action = projectPrimaryAction({
+    name: 'App',
+    status: 'stopping',
     stopFailure: 'Port :3000 is still up'
+  });
+  assert.equal(action.action, 'stop');
+  assert.equal(action.disabled, true);
+});
+
+test('does not replace Stop with View output during force-close or handoff', () => {
+  assert.deepEqual(projectPrimaryAction({
+    name: 'App',
+    status: 'running',
+    forceClosing: true,
+    stopFailure: 'Port :3000 is still up'
+  }), {
+    action: 'stop',
+    disabled: true,
+    label: 'Stop App',
+    mode: 'stop'
+  });
+  assert.equal(projectPrimaryAction({
+    name: 'App',
+    status: 'running',
+    handoffInProgress: true,
+    stopFailure: 'Stop failed'
   }).action, 'stop');
+});
+
+test('port-conflict and review primaries still beat a retained stop failure', () => {
+  assert.equal(projectPrimaryAction({
+    name: 'App',
+    status: 'port-in-use-unknown',
+    stopFailure: 'Port :3000 is still up',
+    portConflict: { port: 3000 }
+  }).action, 'resolve-port-conflict');
+  assert.equal(projectPrimaryAction({
+    name: 'App',
+    status: 'port-in-use',
+    stopFailure: 'Stop failed',
+    portConflict: {
+      port: 3000,
+      ownerName: 'Other app',
+      handoffAvailable: true
+    }
+  }).action, 'handoff');
+  assert.equal(projectPrimaryAction({
+    name: 'App',
+    status: 'running',
+    reviewRequired: true,
+    stopFailure: 'Stop failed'
+  }).action, 'edit');
 });
 
 test('review setup and port-conflict primaries still beat not-responding View output', () => {
@@ -279,17 +350,6 @@ test('preserves ordinary Start, Stop, custom Stop, review, and transition behavi
   assert.equal(projectPrimaryAction({ name: 'App', status: 'stopped', reviewRequired: true }).action, 'edit');
   assert.equal(projectPrimaryAction({ name: 'App', status: 'stopping' }).disabled, true);
   assert.equal(projectPrimaryAction({ name: 'App', status: 'active', forceClosing: true }).disabled, true);
-  assert.equal(projectPrimaryAction({
-    name: 'App',
-    status: 'running',
-    stopFailure: 'Stop failed'
-  }).action, 'stop');
-  assert.equal(projectPrimaryAction({
-    name: 'App',
-    status: 'active',
-    stopCommand: '',
-    stopFailure: 'Port :3000 is still up'
-  }).action, 'stop');
 });
 
 test('disables lifecycle actions when the project environment cannot be verified', () => {

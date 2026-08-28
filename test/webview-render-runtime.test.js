@@ -2027,7 +2027,7 @@ test('missing-required-env start failure uses Fix environment as the primary row
   assert.doesNotMatch(result.app.innerHTML, /data-action="fix-environment"[^>]*role="menuitem"/);
 });
 
-test('stop honesty keeps Stop and does not say Stopped while a port is up', () => {
+test('stop honesty shows View output as primary and keeps Stop in More', () => {
   const result = renderNonEmptyProjectList([{
     activeLaunchProfileId: 'default',
     activeLaunchProfileName: 'Default',
@@ -2049,12 +2049,49 @@ test('stop honesty keeps Stop and does not say Stopped while a port is up', () =
   assert.match(result.app.innerHTML, /<h2 id="project-live"[^>]*>[\s\S]*Live App\s*<\/h2>/);
   assert.match(
     result.app.innerHTML,
-    /class="project-status status-stop-failed"[^>]*>[\s\S]*<span>Port :3000 is still up<\/span>/
+    /class="project-status status-stop-failed"[^>]*title="See recent output for details, then try Stop again\."[^>]*>[\s\S]*<span>Port :3000 is still up<\/span>/
   );
-  assert.match(result.app.innerHTML, /class="run-button stop"[^>]*data-action="stop"[^>]*aria-label="Stop Live App"/);
+  assert.match(
+    result.app.innerHTML,
+    /class="run-button output"[^>]*data-action="output"[^>]*data-id="live"[^>]*aria-label="View output for Live App"/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /data-action="stop" data-id="live" role="menuitem" aria-label="Stop Live App"/
+  );
+  assert.match(result.app.innerHTML, /data-action="output"[^>]*role="menuitem"/);
   assert.match(result.app.innerHTML, /data-action="force-close-ports"/);
+  assert.doesNotMatch(result.app.innerHTML, /class="run-button stop"/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="start"[^>]*role="menuitem"/);
   assert.doesNotMatch(result.app.innerHTML, />Stopped</);
   assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
+});
+
+test('stopping rows with a stop failure keep disabled Stop as primary', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/live-app',
+    id: 'live',
+    launchProfiles: [],
+    name: 'Live App',
+    openPorts: [3000],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 3000 }],
+    status: 'stopping',
+    stopFailure: 'Port :3000 is still up',
+    tags: []
+  }]);
+
+  assert.match(
+    result.app.innerHTML,
+    /class="run-button stop"[^>]*data-action="stop"[^>]*aria-label="Stopping Live App"[^>]*disabled/
+  );
+  assert.doesNotMatch(result.app.innerHTML, /data-action="output"[^>]*class="run-button"/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="stop"[^>]*role="menuitem"/);
 });
 
 test('unknown port-conflict rows inspect first and keep close-and-start in More', () => {

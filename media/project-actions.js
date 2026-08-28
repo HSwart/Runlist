@@ -114,10 +114,21 @@
       return composeStartGate(project, primary);
     }
 
-    const stopsProject = (Boolean(project.stopFailure) && status !== 'stopped' && status !== 'stopping')
+    const hasRetainedStopFailure = Boolean(String(project.stopFailure || '').trim())
+      && status !== 'stopped'
+      && status !== 'stopping';
+    const stopsProject = hasRetainedStopFailure
       || ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active']
         .includes(status);
     if (stopsProject) {
+      if (hasRetainedStopFailure && !busy) {
+        return {
+          action: 'output',
+          disabled: false,
+          label: `View output for ${name}`,
+          mode: 'output'
+        };
+      }
       const unresponsiveWeb = !busy
         && !project.stopFailure
         && (status === 'not-responding'
