@@ -850,6 +850,12 @@ function projectNeedsAttention(project) {
   if (project.status === 'active' && project.httpUnresponsive) {
     return true;
   }
+  if (project.status === 'not-ready') {
+    return true;
+  }
+  if (projectShowsMissingFolder(project)) {
+    return true;
+  }
   return Boolean(projectStartFailureText(project) || projectStopFailureText(project));
 }
 

@@ -2116,6 +2116,54 @@ test('Needs attention skips hidden rows and omits a count for a single match', (
   );
 });
 
+test('Needs attention includes folder-missing and not-ready rows in the count', () => {
+  const result = renderNonEmptyProjectList([
+    sampleProject('moved', 'Moved App', { folderAccessible: false }),
+    sampleProject('slow', 'Slow App', { status: 'not-ready' }),
+    sampleProject('compose-moved', 'Compose App', {
+      folderAccessible: false,
+      composePath: 'C:\\Projects\\compose-moved\\compose.yaml'
+    }),
+    sampleProject('booting', 'Booting App', { status: 'starting' }),
+    sampleProject('live-moved', 'Live Moved', { status: 'running', folderAccessible: false }),
+    sampleProject('idle', 'Idle App')
+  ]);
+
+  assert.match(result.app.innerHTML, />Needs attention \(3\)</);
+  assert.match(
+    result.app.innerHTML,
+    /aria-label="Show next project that needs attention, 3 total"/
+  );
+  assert.equal(
+    result.evaluate('state.projects.filter((project) => projectNeedsAttention(project)).map((project) => project.id).join(",")'),
+    'moved,slow,compose-moved'
+  );
+
+  result.evaluate('focusNextAttentionProject()');
+  assert.equal(result.evaluate('lastAttentionProjectId'), 'moved');
+  assert.equal(result.projectRows[0].runButton.focusCount, 1);
+  assert.equal(result.searchStatus.textContent, 'Focused Moved App.');
+
+  result.evaluate('focusNextAttentionProject()');
+  assert.equal(result.evaluate('lastAttentionProjectId'), 'slow');
+  result.evaluate('focusNextAttentionProject()');
+  assert.equal(result.evaluate('lastAttentionProjectId'), 'compose-moved');
+  assert.match(
+    result.app.innerHTML,
+    /data-action="edit"[^>]*aria-label="Edit Compose App to update its folder"/
+  );
+  result.evaluate('focusNextAttentionProject()');
+  assert.equal(result.evaluate('lastAttentionProjectId'), 'moved');
+
+  result.state.projects[0].folderAccessible = true;
+  result.state.projects[1].status = 'running';
+  result.evaluate('renderList()');
+  assert.match(result.app.innerHTML, />Needs attention</);
+  assert.doesNotMatch(result.app.innerHTML, /Needs attention \(/);
+  result.evaluate('focusNextAttentionProject()');
+  assert.equal(result.evaluate('lastAttentionProjectId'), 'compose-moved');
+});
+
 test('Needs attention restarts cycling when a project is fixed', () => {
   const result = renderNonEmptyProjectList([
     sampleProject('alpha', 'Alpha', { reviewRequired: true }),
