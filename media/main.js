@@ -812,8 +812,11 @@ function projectDetailTabsHtml(project, projectName) {
         <iframe class="preview-frame" data-preview-frame data-src="${escapeHtml(project.previewUrl)}" data-preview-incarnation="${escapeHtml(String(projectIncarnations.get(String(project.id)) || ''))}" title="${projectName} app preview" sandbox="allow-forms allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
         <div class="preview-loading" data-preview-loading role="status">Loading preview…</div>
         <div class="preview-fallback" data-preview-fallback hidden>
-          <strong>Preview unavailable</strong>
-          <span>This app may block embedded views.</span>
+          <div class="preview-fallback-copy" role="status">
+            <strong>Preview unavailable</strong>
+            <span>This app may block embedded views.</span>
+          </div>
+          ${project.previewUrl ? `<button type="button" class="primary-button" data-action="open" data-id="${projectId}" aria-label="Open ${projectName} in browser">Open in browser</button>` : ''}
         </div>
       </div>
       ${phoneHandoffContent}

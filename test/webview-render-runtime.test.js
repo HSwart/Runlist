@@ -59,6 +59,13 @@ function renderNonEmptyProjectList(projects = [{
   });
   const app = inertElement();
   app.innerHTML = '';
+  const appEventHandlers = new Map();
+  app.addEventListener = (type, handler) => {
+    listeners.push(type);
+    const handlersForType = appEventHandlers.get(type) || [];
+    handlersForType.push(handler);
+    appEventHandlers.set(type, handlersForType);
+  };
   elements.set('app', app);
   elements.set('project-search', inertElement());
   elements.set('project-count', inertElement());
@@ -310,6 +317,21 @@ function renderNonEmptyProjectList(projects = [{
       previewListeners.set(type, listenersForType.filter((listener) => !listener.once));
       for (const listener of listenersForType) {
         listener.handler({ type });
+      }
+    },
+    clickAction(dataset) {
+      const button = {
+        dataset,
+        closest(selector) {
+          return selector.includes('[data-action]') ? button : null;
+        }
+      };
+      for (const handler of appEventHandlers.get('click') || []) {
+        handler({
+          target: button,
+          preventDefault() {},
+          stopPropagation() {}
+        });
       }
     },
     postedMessages,
@@ -901,6 +923,8 @@ function previewFailureProject(overrides = {}) {
   return {
     activeLaunchProfileId: 'default',
     activeLaunchProfileName: 'Default',
+    defaultDetailTab: 'preview',
+    detailTabs: ['overview', 'services', 'output', 'preview'],
     detailsExpanded: true,
     folder: 'C:\\Projects\\Preview',
     id: 'preview',
@@ -1019,6 +1043,66 @@ test('does not announce an empty preview source', () => {
   })]);
   result.triggerPreview('error');
   assert.equal(result.lifecycleStatus.textContent, '');
+});
+
+test('preview fallback includes Open in browser when previewUrl is set', () => {
+  const result = renderNonEmptyProjectList([previewFailureProject()]);
+
+  assert.match(
+    result.app.innerHTML,
+    /data-preview-fallback hidden>[\s\S]*<strong>Preview unavailable<\/strong>[\s\S]*This app may block embedded views\.[\s\S]*class="primary-button" data-action="open" data-id="preview" aria-label="Open Preview &amp; &lt;team&gt; in browser">Open in browser<\/button>/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /class="preview-actions">[\s\S]*data-action="open" data-id="preview" aria-label="Open Preview &amp; &lt;team&gt; in browser"/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /class="preview-help">If the app blocks this view, use Open in browser\.<\/p>/
+  );
+  assert.doesNotMatch(
+    result.app.innerHTML,
+    /data-preview-fallback[\s\S]*data-action="open-on-phone"/
+  );
+  assert.equal(result.postedMessages.filter((message) => message.type === 'openProject').length, 0);
+});
+
+test('preview fallback Open in browser posts the same open message as the toolbar', () => {
+  const result = renderNonEmptyProjectList([previewFailureProject()]);
+  result.triggerPreview('error');
+
+  assert.equal(result.previewFallback.hidden, false);
+  assert.equal(result.previewLoading.hidden, true);
+  assert.equal(
+    result.lifecycleStatus.textContent,
+    'Preview & <team>: Preview unavailable. Open it in a browser to view it.'
+  );
+  assert.match(
+    result.app.innerHTML,
+    /data-preview-fallback hidden>[\s\S]*data-action="open" data-id="preview"/
+  );
+  assert.equal(result.postedMessages.filter((message) => message.type === 'openProject').length, 0);
+
+  result.clickAction({ action: 'open', id: 'preview' });
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(result.postedMessages.filter((message) => message.type === 'openProject'))),
+    [{ type: 'openProject', id: 'preview' }]
+  );
+  assert.equal(result.previewFallback.hidden, false);
+  assert.match(result.app.innerHTML, /class="project-preview" aria-label="Preview of Preview &amp; &lt;team&gt;"/);
+});
+
+test('preview fallback omits Open in browser when previewUrl is missing', () => {
+  const result = renderNonEmptyProjectList([previewFailureProject({
+    previewUrl: ''
+  })]);
+
+  assert.match(result.app.innerHTML, /data-preview-fallback hidden>/);
+  assert.match(result.app.innerHTML, /<strong>Preview unavailable<\/strong>/);
+  assert.doesNotMatch(
+    result.app.innerHTML,
+    /data-preview-fallback[\s\S]*data-action="open"/
+  );
 });
 
 test('restores the latest search and tag filters after a host rerender', () => {
