@@ -1025,6 +1025,7 @@ function renderList() {
         ${state.lifecycleWindowSupported === false ? `<p>Start and Stop work for apps on this computer. You can still save projects here. Remote SSH, Dev Containers, GitHub Codespaces, VS Code Tunnels, and Windows WSL network paths will not start or stop processes in this release.</p>` : ''}
         <div class="empty-actions">
           ${workspaceFolder ? `<button class="primary-button" data-action="show-add">${addLabel}</button>` : ''}
+          ${!workspaceFolder && workspaceFolders.length <= 1 ? `<button class="primary-button" data-action="open-workspace-folder" aria-label="Open a folder in this window">Open folder</button>` : ''}
           ${stackPending ? `<button class="secondary-button" data-action="load-workspace-stack">Load stack</button>` : ''}
           ${workspaceFolder && startScripts.length ? `
             <div class="empty-start-chips" role="group" aria-label="Start options for this folder">
@@ -2667,6 +2668,7 @@ app.addEventListener('click', (event) => {
 
   const actions = {
     'show-add': () => vscode.postMessage({ type: 'showAdd' }),
+    'open-workspace-folder': () => vscode.postMessage({ type: 'openWorkspaceFolder' }),
     'load-workspace-stack': () => vscode.postMessage({ type: 'loadWorkspaceStack' }),
     'select-workspace-folder': () => vscode.postMessage({
       type: 'selectWorkspaceFolder',

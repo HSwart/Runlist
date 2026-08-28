@@ -60,6 +60,7 @@ test('keeps a professional Marketplace listing that matches shipped product', ()
   assert.match(readme, /## Get started\n/);
   assert.match(readme, /Install from the \[VS Code Marketplace\]/);
   assert.match(readme, /Open the \*\*Runlist\*\* sidebar/);
+  assert.match(readme, /If this window has no folder yet, choose \*\*Open folder\*\*/);
   assert.match(readme, /Add this folder/);
   assert.match(readme, /`start` \/ `dev` chip/);
   assert.match(readme, /First-run stays empty until you add a folder/);

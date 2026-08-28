@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {
   copyProjectPath,
+  openFolderInCurrentWindow,
   openProjectInNewWindow,
   openProjectTerminal,
   projectFolderIsAccessible
@@ -31,6 +32,27 @@ test('opens a saved project folder in a new VS Code window', async () => {
     { scheme: 'file', fsPath: folder },
     { forceNewWindow: true }
   ]]);
+});
+
+test('opens a picked folder in the current VS Code window', async () => {
+  const calls = [];
+  const vscode = {
+    commands: {
+      executeCommand: async (...args) => {
+        calls.push(args);
+      }
+    }
+  };
+  const uri = { scheme: 'file', fsPath: '/Users/example/app' };
+
+  await openFolderInCurrentWindow(vscode, uri);
+
+  assert.deepEqual(calls, [[
+    'vscode.openFolder',
+    uri,
+    { forceNewWindow: false }
+  ]]);
+  assert.equal(calls[0][2].forceNewWindow, false);
 });
 
 test('opens an integrated terminal in the exact saved folder without sending a command', () => {

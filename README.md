@@ -18,9 +18,10 @@ Runlist is a focused VS Code sidebar for people who run real projects every day:
 
 1. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=hankoswart.runlist)
 2. Open the **Runlist** sidebar
-3. Choose **Add this folder**
-4. Save the start command — or pick a `start` / `dev` chip when your folder already has one
-5. Press **Start**
+3. If this window has no folder yet, choose **Open folder**
+4. Choose **Add this folder**
+5. Save the start command — or pick a `start` / `dev` chip when your folder already has one
+6. Press **Start**
 
 That’s it. First-run stays empty until you add a folder. No setup dump, no config maze.
 
