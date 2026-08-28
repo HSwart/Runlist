@@ -2343,3 +2343,126 @@ test('typing in search does not announce the Clear filters recovery message', ()
   assert.match(result.searchStatus.textContent, /0 projects shown/);
   assert.notEqual(result.searchStatus.textContent, 'No projects match. Filters cleared.');
 });
+
+test('failed group rows render Show project and hide it after success', () => {
+  const failed = renderNonEmptyProjectList([
+    sampleProject('api', 'API'),
+    sampleProject('web', 'Web')
+  ], {
+    stateOverrides: {
+      groups: [{
+        id: 'daily',
+        name: 'Daily',
+        projectIds: ['api', 'web'],
+        progress: 'Blocked by API.',
+        failedProjectId: 'api',
+        failedProjectName: 'API'
+      }]
+    },
+    persistedWebviewState: {
+      groupsExpanded: true
+    }
+  });
+
+  assert.match(
+    failed.app.innerHTML,
+    /data-action="reveal-group-failure-project" data-id="api"/
+  );
+  assert.match(
+    failed.app.innerHTML,
+    /aria-label="Show project API"/
+  );
+  assert.match(failed.app.innerHTML, />Show project</);
+  assert.match(failed.app.innerHTML, /Blocked by API\./);
+
+  const succeeded = renderNonEmptyProjectList([
+    sampleProject('api', 'API')
+  ], {
+    stateOverrides: {
+      groups: [{
+        id: 'daily',
+        name: 'Daily',
+        projectIds: ['api'],
+        progress: '',
+        busy: false
+      }]
+    },
+    persistedWebviewState: {
+      groupsExpanded: true
+    }
+  });
+  assert.doesNotMatch(succeeded.app.innerHTML, /data-action="reveal-group-failure-project"/);
+  assert.doesNotMatch(succeeded.app.innerHTML, />Show project</);
+});
+
+test('Show project clears hiding filters and focuses the blocking row', () => {
+  const result = renderNonEmptyProjectList([
+    sampleProject('api', 'API', { tags: ['backend'] }),
+    sampleProject('docs', 'Docs', { tags: ['docs'] })
+  ], {
+    stateOverrides: {
+      tags: ['backend', 'docs'],
+      groups: [{
+        id: 'daily',
+        name: 'Daily',
+        projectIds: ['api'],
+        progress: 'Blocked by API.',
+        failedProjectId: 'api',
+        failedProjectName: 'API'
+      }]
+    },
+    persistedWebviewState: {
+      filterRevision: 1,
+      groupsExpanded: true,
+      groupFilter: 'daily',
+      searchQuery: 'zzzz-no-match',
+      tagFilter: 'docs'
+    }
+  });
+
+  assert.equal(result.projectRows[0].hidden, true);
+  const postedBefore = result.postedMessages.length;
+
+  result.evaluate('revealGroupFailureProject("api")');
+
+  assert.equal(result.evaluate('searchQuery'), '');
+  assert.equal(result.evaluate('selectedTagFilter'), '');
+  assert.equal(result.evaluate('selectedGroupFilter'), '');
+  assert.equal(result.projectRows[0].hidden, false);
+  assert.equal(result.projectRows[0].scrollIntoViewCalls.at(-1)?.block, 'nearest');
+  assert.ok(result.projectRows[0].runButton.focusCount >= 1);
+  assert.equal(result.searchStatus.textContent, 'Focused API.');
+  assert.ok(result.postedMessages.slice(postedBefore).some((message) => (
+    message.type === 'setSearchQuery'
+  )));
+  assert.equal(
+    result.postedMessages.slice(postedBefore).some((message) => [
+      'startProject',
+      'stopProject',
+      'restartProject',
+      'forceCloseProjectPorts',
+      'startRunGroup',
+      'stopRunGroup'
+    ].includes(message.type)),
+    false
+  );
+});
+
+test('pending group-failure reveal from a toast uses the same webview path', () => {
+  const result = renderNonEmptyProjectList([
+    sampleProject('api', 'API')
+  ], {
+    stateOverrides: {
+      pendingRevealProjectId: 'api'
+    },
+    persistedWebviewState: {
+      filterRevision: 1,
+      searchQuery: 'zzzz-no-match'
+    }
+  });
+
+  assert.equal(result.evaluate('searchQuery'), '');
+  assert.equal(result.projectRows[0].hidden, false);
+  assert.ok(result.projectRows[0].runButton.focusCount >= 1);
+  assert.equal(result.searchStatus.textContent, 'Focused API.');
+});

@@ -12,9 +12,12 @@ const {
 } = require('../src/projects/project-store');
 const {
   RunGroupCoordinator,
+  groupFailureReveal,
   runGroupManagementWorkflow,
+  runGroupProgressState,
   startRunGroup,
-  stopRunGroup
+  stopRunGroup,
+  webviewRunGroup
 } = require('../src/groups/run-groups');
 
 function fixture(t) {
@@ -676,4 +679,86 @@ test('removes a group only after native modal confirmation', async () => {
 
   assert.equal(result.status, 'removed');
   assert.deepEqual(removed, ['daily']);
+});
+
+test('failed group progress includes the saved project to reveal', () => {
+  const projects = [
+    { id: 'api', name: 'API' },
+    { id: 'web', name: 'Web' }
+  ];
+  const failed = runGroupProgressState({
+    status: 'failed',
+    failedProjectId: 'api',
+    failedProjectIds: ['api', 'web'],
+    project: projects[0]
+  }, projects);
+
+  assert.equal(failed.busy, false);
+  assert.equal(failed.failedProjectId, 'api');
+  assert.equal(failed.failedProjectName, 'API');
+  assert.equal(failed.extraFailedCount, 1);
+  assert.equal(failed.message, 'Blocked by API and 1 more.');
+
+  const started = runGroupProgressState({ status: 'started' }, projects);
+  assert.equal(started.busy, false);
+  assert.equal(started.message, '');
+  assert.equal(started.failedProjectId, undefined);
+
+  const missing = groupFailureReveal({
+    status: 'failed',
+    failedProjectId: 'gone'
+  }, projects);
+  assert.equal(missing, undefined);
+});
+
+test('webview group model exposes Show project only for a still-saved failure', () => {
+  const group = { id: 'daily', name: 'Daily', projectIds: ['api', 'web'] };
+  const projectsById = new Map([
+    ['api', { id: 'api', name: 'API' }],
+    ['web', { id: 'web', name: 'Web' }]
+  ]);
+  const failed = webviewRunGroup(group, {
+    busy: false,
+    message: 'Blocked by API.',
+    failedProjectId: 'api',
+    failedProjectName: 'API'
+  }, projectsById, new Set(), false);
+
+  assert.equal(failed.failedProjectId, 'api');
+  assert.equal(failed.failedProjectName, 'API');
+  assert.equal(failed.progress, 'Blocked by API.');
+
+  const deleted = webviewRunGroup(group, {
+    busy: false,
+    message: 'Blocked by API.',
+    failedProjectId: 'gone',
+    failedProjectName: 'Gone'
+  }, projectsById, new Set(), false);
+  assert.equal(deleted.failedProjectId, undefined);
+  assert.equal(deleted.failedProjectName, undefined);
+  assert.equal(deleted.progress, 'Blocked by API.');
+
+  const succeeded = webviewRunGroup(group, {
+    busy: false,
+    message: ''
+  }, projectsById, new Set(), false);
+  assert.equal(succeeded.failedProjectId, undefined);
+  assert.equal(succeeded.progress, '');
+});
+
+test('stop failures record the first saved member as failedProjectId', async () => {
+  const result = await stopRunGroup({
+    id: 'daily',
+    name: 'Daily',
+    projectIds: ['first', 'second']
+  }, {
+    coordinator: { acquire: () => true, release: () => {} },
+    isOwned: () => true,
+    stopProject: async (id) => id !== 'first',
+    waitUntilStopped: async () => true
+  });
+
+  assert.equal(result.status, 'failed');
+  assert.deepEqual(result.failedProjectIds, ['first']);
+  assert.equal(result.failedProjectId, 'first');
 });

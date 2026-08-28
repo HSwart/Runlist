@@ -218,7 +218,9 @@ const {
   allocateWorktreePortOverrides
 } = require('../ports/worktree-ports');
 const {
-  RunGroupCoordinator
+  RunGroupCoordinator,
+  runGroupProgressState,
+  webviewRunGroup
 } = require('../groups/run-groups');
 const {
   initializeProjectStore,
@@ -604,6 +606,18 @@ class RunlistViewProvider {
     this.selectedProjectId = undefined;
     this.returnFocus = undefined;
     this.focusTarget = { type: 'project-control', id };
+    this.render();
+  }
+
+  revealGroupFailureProject(id) {
+    const project = this.projects.find((item) => item.id === id);
+    if (!project) {
+      vscode.window.showWarningMessage('That project is no longer in Runlist.');
+      return;
+    }
+    this.mode = 'list';
+    this.focusTarget = { type: 'project-control', id };
+    this.pendingRevealProjectId = id;
     this.render();
   }
 
@@ -1191,51 +1205,10 @@ class RunlistViewProvider {
   }
 
   updateRunGroupProgress(group, progress) {
-    const project = progress.project
-      || readProjects(this.projectsFile).find((candidate) => candidate.id === progress.projectId);
-    const states = {
-      starting: {
-        busy: true,
-        message: `Starting ${project?.name || 'project'} (${progress.index + 1}/${progress.total})…`
-      },
-      'starting-parallel': {
-        busy: true,
-        message: `Starting ${progress.eligibleTotal} project${progress.eligibleTotal === 1 ? '' : 's'} in parallel…`
-      },
-      'parallel-progress': {
-        busy: true,
-        message: `${progress.readyCount} of ${progress.eligibleTotal} ready in parallel…`
-      },
-      skipped: {
-        busy: true,
-        message: `${project?.name || 'Project'} is already running (${progress.index + 1}/${progress.total}).`
-      },
-      ready: {
-        busy: true,
-        message: `${project?.name || 'Project'} is ready (${progress.index + 1}/${progress.total}).`
-      },
-      'rolling-back': {
-        busy: true,
-        message: `Start failed. Stopping ${project?.name || 'a project'}…`
-      },
-      stopping: {
-        busy: true,
-        message: `Stopping ${project?.name || 'project'}…`
-      },
-      started: { busy: false, message: '' },
-      stopped: { busy: false, message: '' },
-      failed: {
-        busy: false,
-        message: progress.reason
-          || (project
-            ? `Blocked by ${project.name}.`
-            : 'The group could not complete safely.')
-      }
-    };
-    this.runGroupStates.set(group.id, states[progress.status] || {
-      busy: false,
-      message: 'The group could not complete safely.'
-    });
+    this.runGroupStates.set(
+      group.id,
+      runGroupProgressState(progress, readProjects(this.projectsFile))
+    );
     this.renderProjectList();
   }
 
@@ -5608,17 +5581,16 @@ class RunlistViewProvider {
     const stoppableIds = new Set(stoppableProjectIds(stateProjects));
     const groups = this.groups.map((group) => {
       const progress = this.runGroupStates.get(group.id);
-      return {
-        ...group,
-        busy: progress?.busy === true,
-        canStop: group.projectIds.some((id) => stoppableIds.has(id)),
-        lifecycleBlocked: group.projectIds.some((id) => {
+      return webviewRunGroup(
+        group,
+        progress,
+        projectsById,
+        stoppableIds,
+        group.projectIds.some((id) => {
           const project = projectsById.get(id);
           return project && !this.lifecycleCapabilityFor(project).supported;
-        }),
-        memberNames: group.projectIds.map((id) => projectsById.get(id)?.name || 'Missing project'),
-        progress: progress?.message
-      };
+        })
+      );
     });
     const state = {
       agentConnections: this.agentConnections,
@@ -5655,6 +5627,7 @@ class RunlistViewProvider {
       focusTarget: this.focusTarget || this.lastFocusTarget,
       formErrors: this.formErrors,
       groups,
+      pendingRevealProjectId: this.pendingRevealProjectId,
       reviewRequired: this.mode === 'edit'
         && Boolean(projects.find((project) => project.id === this.selectedProjectId)?.reviewRequired),
       servicesLocked: this.mode === 'edit'
@@ -5745,6 +5718,7 @@ class RunlistViewProvider {
         </body>
       </html>`;
     this.focusTarget = undefined;
+    this.pendingRevealProjectId = undefined;
     this.draftStartCommandNotice = undefined;
     this.syncResourceSampling(expandedPreview?.id);
     this.syncHttpResponsePulseTarget(

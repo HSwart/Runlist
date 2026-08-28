@@ -986,6 +986,9 @@ function groupFilterHtml() {
                 <span>${group.progress ? escapeHtml(group.progress) : `${group.projectIds.length} project${group.projectIds.length === 1 ? '' : 's'}`}</span>
               </button>
               <div class="group-choice-actions">
+                ${group.failedProjectId && group.progress
+                  ? `<button type="button" class="group-choice-reveal" data-action="reveal-group-failure-project" data-id="${escapeHtml(group.failedProjectId)}" aria-label="Show project ${escapeHtml(group.failedProjectName || 'project')}" title="Show project ${escapeHtml(group.failedProjectName || 'project')}">Show project</button>`
+                  : ''}
                 ${group.canStop
                   ? `<button type="button" data-action="stop-group" data-id="${groupId}" aria-label="Stop group ${groupName}" title="${group.lifecycleBlocked ? 'Lifecycle controls are available only for local projects' : actionLabel}" ${group.busy || group.lifecycleBlocked ? 'disabled' : ''}>${productIcon('stop')}</button>`
                   : `<button type="button" data-action="start-group" data-id="${groupId}" aria-label="Start group ${groupName}" title="${group.lifecycleBlocked ? 'Lifecycle controls are available only for local projects' : actionLabel}" ${group.busy || group.lifecycleBlocked || !group.projectIds.length ? 'disabled' : ''}>${productIcon(group.busy ? 'loading' : 'play')}</button>`}
@@ -1627,6 +1630,26 @@ function revealRunningApp(id) {
   row.scrollIntoView({ block: 'nearest' });
   row.focus({ preventScroll: true });
   scheduleRunningAppNavigatorUpdate();
+}
+
+function revealGroupFailureProject(id) {
+  const project = (state.projects || []).find((entry) => String(entry.id) === String(id));
+  const row = document.querySelector(`.project-row[data-project-id="${CSS.escape(String(id || ''))}"]`);
+  if (!project || !row) {
+    return;
+  }
+
+  if (row.hidden) {
+    clearProjectFilters();
+  }
+
+  row.scrollIntoView({ block: 'nearest' });
+  const control = document.querySelector(`.run-button[data-id="${CSS.escape(String(id))}"]`);
+  control?.focus();
+  const status = document.getElementById('project-search-status');
+  if (status) {
+    status.textContent = `Focused ${project.name}.`;
+  }
 }
 
 function runningAppRows() {
@@ -2885,6 +2908,7 @@ app.addEventListener('click', (event) => {
       type: 'revealPortOwnerProject',
       id: button.dataset.id
     }),
+    'reveal-group-failure-project': () => revealGroupFailureProject(button.dataset.id),
     'manage-group': () => vscode.postMessage({ type: 'manageRunGroups', id: button.dataset.id }),
     'toggle-tag-filter': () => {
       tagsExpanded = !tagsExpanded;
@@ -3777,6 +3801,10 @@ function toggleMenu(button) {
 }
 
 function applyInitialFocus() {
+  if (state.pendingRevealProjectId) {
+    revealGroupFailureProject(state.pendingRevealProjectId);
+    return;
+  }
   const target = state.focusTarget;
   if (!target) {
     return;
