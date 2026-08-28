@@ -21,7 +21,7 @@ test('running row shows timeline elapsed on line 2 with status and port', () => 
   assert.match(webview, /aria-label="Running for \$\{escapeHtml\(rowElapsedLabel\)\}"/);
   assert.match(styles, /\.project-row-elapsed \{[\s\S]*font-size: 11px;/);
   assert.match(styles, /\.project-meta \{[\s\S]*flex-wrap: nowrap;/);
-  assert.doesNotMatch(styles, /Inter|fonts\.googleapis|@font-face/);
+  assert.doesNotMatch(styles, /fonts\.googleapis/);
 });
 
 test('row elapsed reuses the existing timeline clock and skips stopped rows', () => {

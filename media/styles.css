@@ -1,6 +1,38 @@
+@font-face {
+  font-family: "RunlistInter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/Inter-Regular.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "RunlistInter";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./fonts/Inter-Medium.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "RunlistInter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("./fonts/Inter-SemiBold.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "RunlistMono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/JetBrainsMono-Regular.ttf") format("truetype");
+}
+
 :root {
   color-scheme: light dark;
-  font-family: var(--vscode-font-family);
+  font-family: "RunlistInter", "Inter", var(--vscode-font-family), system-ui, sans-serif;
   font-size: var(--vscode-font-size);
 }
 
@@ -14,6 +46,9 @@ body {
   overflow-x: hidden;
   color: var(--vscode-foreground);
   background: var(--vscode-sideBar-background);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 button,
@@ -557,7 +592,7 @@ button:active:not(:disabled) {
 .project-search input {
   height: 24px;
   padding-left: 28px;
-  font-family: var(--vscode-font-family);
+  font-family: inherit;
 }
 
 .project-search input:focus-visible {
@@ -946,7 +981,7 @@ button:active:not(:disabled) {
   display: inline-flex;
   gap: 6px;
   color: var(--vscode-descriptionForeground);
-  font-family: var(--vscode-font-family);
+  font-family: inherit;
   font-size: 0.82em;
   font-variant-numeric: tabular-nums;
   text-transform: uppercase;
@@ -2281,7 +2316,7 @@ input {
   background: var(--vscode-input-background);
   border: 1px solid var(--vscode-input-border, var(--vscode-widget-border));
   border-radius: 2px;
-  font-family: var(--vscode-font-family);
+  font-family: inherit;
   font-size: var(--vscode-font-size);
 }
 
@@ -2293,7 +2328,7 @@ select {
   background: var(--vscode-dropdown-background, var(--vscode-input-background));
   border: 1px solid var(--vscode-dropdown-border, var(--vscode-input-border, var(--vscode-widget-border)));
   border-radius: 2px;
-  font-family: var(--vscode-font-family);
+  font-family: inherit;
   font-size: 11px;
 }
 
@@ -2948,7 +2983,7 @@ select[aria-invalid='true'] {
   gap: 7px;
   margin-bottom: 2px;
   color: var(--vscode-descriptionForeground);
-  font-family: var(--vscode-font-family);
+  font-family: inherit;
   font-size: 9px;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.5px;
@@ -2990,7 +3025,7 @@ select[aria-invalid='true'] {
   margin: 0;
   padding: 12px;
   color: var(--vscode-descriptionForeground);
-  font-family: var(--vscode-font-family);
+  font-family: inherit;
   font-size: 11px;
   line-height: 1.5;
 }

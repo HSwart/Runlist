@@ -22,7 +22,7 @@ test('running row keeps status and port on one second line', () => {
   assert.match(styles, /\.project-open-label \{/);
   assert.match(styles, /\.run-button \{[\s\S]*min-width: 24px;/);
   assert.match(styles, /\.project-actions \{[\s\S]*gap: 6px;/);
-  assert.doesNotMatch(styles, /Inter|fonts\.googleapis|@font-face/);
+  assert.doesNotMatch(styles, /fonts\.googleapis/);
   assert.doesNotMatch(webview, /class="project-services-summary"/);
   assert.match(styles, /\.project-status\.status-start-failed/);
   assert.match(styles, /\.project-status span \{[\s\S]*text-overflow: ellipsis;/);
