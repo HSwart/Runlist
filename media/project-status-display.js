@@ -95,6 +95,36 @@
       .includes(code);
   }
 
+  function formatBlockingServiceHint(service) {
+    const name = String(service?.name || '').trim();
+    if (!name || service?.port == null || service.port === '') {
+      return '';
+    }
+    return `${name} :${service.port}`;
+  }
+
+  function rowBlockingServiceHint(project = {}) {
+    if (project.forceClosing || project.handoffInProgress || project.reviewRequired) {
+      return '';
+    }
+    const code = projectStatusCode(project);
+    const treatsAsNotResponding = code === 'not-responding'
+      || (code === 'active' && project.httpUnresponsive);
+    if (code !== 'not-ready' && !treatsAsNotResponding) {
+      return '';
+    }
+    const details = project.serviceReadiness || {};
+    const waiting = Array.isArray(details.waiting) ? details.waiting : [];
+    const notResponding = Array.isArray(details.notResponding) ? details.notResponding : [];
+    const blockers = [...waiting, ...notResponding];
+    const hint = formatBlockingServiceHint(blockers[0]);
+    if (!hint) {
+      return '';
+    }
+    const remaining = blockers.length - 1;
+    return remaining > 0 ? `${hint} +${remaining} more` : hint;
+  }
+
   function projectDisplayedStatus(project = {}) {
     const fullLabels = projectStatusFullLabels(project);
     const conflictOwnerName = project.portConflict?.ownerName || 'Another app';
@@ -117,6 +147,11 @@
       return title || 'Start failed';
     }
     const code = projectStatusCode(project);
+    const blockingHint = rowBlockingServiceHint(project);
+    if (blockingHint) {
+      const prefix = code === 'not-ready' ? 'Taking longer' : 'Web service not responding';
+      return `${prefix} — ${blockingHint}`;
+    }
     const primaryCode = projectPrimaryStatusCode(project);
     if (PRIMARY_STATUS_CODES.has(primaryCode)) {
       return fullLabels[primaryCode];
