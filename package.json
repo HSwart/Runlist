@@ -80,7 +80,7 @@
     "commands": [
       {
         "command": "runlist.addProject",
-        "title": "Add Project",
+        "title": "Add This Folder",
         "category": "Runlist",
         "icon": "$(add)"
       },

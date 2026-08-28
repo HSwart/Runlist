@@ -34,7 +34,7 @@ test('palette commands that need the sidebar reveal Runlist when it is not open 
   assert.doesNotMatch(addAndAgents, /this\.view\?\.show\?\.\(true\)/);
 });
 
-test('Add Project prefills the open workspace folder and focuses the remaining required field', () => {
+test('Add This Folder prefills the open workspace folder and focuses the remaining required field', () => {
   const addStart = extension.indexOf('async showAddProject(returnFocus)');
   const addEnd = extension.indexOf('async showAgentSetup()');
   const addProject = extension.slice(addStart, addEnd);
