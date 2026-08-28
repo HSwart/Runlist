@@ -28,6 +28,11 @@ test('Clear filters reuses the revealRunningApp filter reset path', () => {
     /function clearProjectFilters\(\) \{[\s\S]*publishFilterState\('setSearchQuery'\)[\s\S]*applyProjectFilter\(''\)/
   );
   assert.match(webview, /'clear-filters': handleClearFilters/);
+  assert.match(webview, /'clear-attention-filters': handleClearAttentionFilters/);
+  assert.match(
+    webview,
+    /function handleClearAttentionFilters\(\) \{[\s\S]*clearProjectFilters\(\)[\s\S]*renderList\(\)[\s\S]*focusNextAttentionProject\(\)/
+  );
   assert.match(
     webview,
     /function handleClearFilters\(\) \{[\s\S]*clearProjectFilters\(\)[\s\S]*renderList\(\)[\s\S]*project-search[\s\S]*No projects match\. Filters cleared\./

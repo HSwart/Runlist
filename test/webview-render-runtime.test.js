@@ -2340,6 +2340,7 @@ test('Needs attention shows a count and cycles visible rows', () => {
   );
   assert.match(result.app.innerHTML, /<span id="summary-status" class="summary-status">/);
   assert.doesNotMatch(result.app.innerHTML, /summary-status"[\s\S]{0,200}Needs attention/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="clear-attention-filters"/);
 
   result.evaluate('focusNextAttentionProject()');
   assert.equal(result.evaluate('lastAttentionProjectId'), 'alpha');
@@ -2357,7 +2358,7 @@ test('Needs attention shows a count and cycles visible rows', () => {
   assert.equal(result.savedStates.at(-1)?.lastAttentionProjectId, 'alpha');
 });
 
-test('Needs attention skips hidden rows and omits a count for a single match', () => {
+test('Needs attention keeps the total count and reports hidden rows in the accessible name', () => {
   const result = renderNonEmptyProjectList([
     sampleProject('alpha', 'Alpha', { reviewRequired: true, tags: ['keep'] }),
     sampleProject('beta', 'Beta', { status: 'port-in-use', tags: ['other'] }),
@@ -2374,7 +2375,12 @@ test('Needs attention skips hidden rows and omits a count for a single match', (
   `);
 
   assert.deepEqual(result.projectRows.map((row) => row.hidden), [false, true, false]);
-  assert.match(result.attentionSlot.innerHTML, />Needs attention \(2\)</);
+  assert.match(result.attentionSlot.innerHTML, />Needs attention \(3\)</);
+  assert.match(
+    result.attentionSlot.innerHTML,
+    /aria-label="Show next project that needs attention, 2 of 3 visible, 1 hidden by filters"/
+  );
+  assert.doesNotMatch(result.attentionSlot.innerHTML, /data-action="clear-attention-filters"/);
   assert.equal(
     result.evaluate('nextAttentionProject(state.projects, "", attentionRowIsVisible).id'),
     'alpha'
@@ -2392,16 +2398,18 @@ test('Needs attention skips hidden rows and omits a count for a single match', (
   assert.equal(result.evaluate('lastAttentionProjectId'), 'alpha');
   result.evaluate('focusNextAttentionProject()');
   assert.equal(result.evaluate('lastAttentionProjectId'), 'gamma');
+  result.evaluate('focusNextAttentionProject()');
+  assert.equal(result.evaluate('lastAttentionProjectId'), 'alpha');
+  assert.doesNotMatch(result.attentionSlot.innerHTML, /data-action="clear-attention-filters"/);
 
   result.evaluate(`
     selectedTagFilter = 'other';
     applyProjectFilter(searchQuery);
   `);
-  assert.match(result.attentionSlot.innerHTML, />Needs attention</);
-  assert.doesNotMatch(result.attentionSlot.innerHTML, /Needs attention \(/);
+  assert.match(result.attentionSlot.innerHTML, />Needs attention \(3\)</);
   assert.match(
     result.attentionSlot.innerHTML,
-    /aria-label="Focus first project that needs attention"/
+    /aria-label="Show next project that needs attention, 1 of 3 visible, 2 hidden by filters"/
   );
 });
 
@@ -2486,6 +2494,128 @@ test('typing in search does not announce the Clear filters recovery message', ()
 
   assert.match(result.searchStatus.textContent, /0 projects shown/);
   assert.notEqual(result.searchStatus.textContent, 'No projects match. Filters cleared.');
+});
+
+test('Needs attention offers Clear filters when filters hide every troubled row', () => {
+  const result = renderNonEmptyProjectList([
+    sampleProject('alpha', 'Alpha', { reviewRequired: true, tags: ['trouble'] }),
+    sampleProject('beta', 'Beta', { status: 'port-in-use', tags: ['trouble'] }),
+    sampleProject('idle', 'Idle', { tags: ['ok'] })
+  ], {
+    stateOverrides: {
+      tags: ['ok', 'trouble']
+    }
+  });
+
+  result.evaluate(`
+    selectedTagFilter = 'ok';
+    applyProjectFilter(searchQuery);
+  `);
+
+  assert.deepEqual(result.projectRows.map((row) => row.hidden), [true, true, false]);
+  assert.match(result.attentionSlot.innerHTML, />Needs attention \(2\)</);
+  assert.match(
+    result.attentionSlot.innerHTML,
+    /aria-label="Show next project that needs attention, 0 of 2 visible, 2 hidden by filters"/
+  );
+  assert.doesNotMatch(result.attentionSlot.innerHTML, /data-action="clear-attention-filters"/);
+  assert.equal(result.searchEmpty.hidden, true);
+
+  result.clickAction({ action: 'focus-attention' });
+
+  assert.equal(
+    result.searchStatus.textContent,
+    'Some projects that need attention are hidden by your filters.'
+  );
+  assert.match(result.attentionSlot.innerHTML, /class="summary-attention-group"/);
+  assert.match(
+    result.attentionSlot.innerHTML,
+    /data-action="clear-attention-filters"[^>]*aria-label="Clear search, tag, and group filters to show projects that need attention"/
+  );
+  assert.match(result.attentionSlot.innerHTML, />Clear filters</);
+  assert.equal(result.evaluate('lastAttentionProjectId'), '');
+  assert.equal(result.projectRows[0].runButton.focusCount, 0);
+  assert.equal(result.searchEmpty.hidden, true);
+});
+
+test('attention Clear filters resets filters and focuses the first troubled row', () => {
+  const result = renderNonEmptyProjectList([
+    sampleProject('alpha', 'Alpha', { reviewRequired: true, tags: ['trouble'] }),
+    sampleProject('idle', 'Idle', { tags: ['ok'] })
+  ], {
+    stateOverrides: {
+      tags: ['ok', 'trouble'],
+      groups: [{ id: 'ok-group', name: 'OK group', projectIds: ['idle'] }]
+    },
+    persistedWebviewState: {
+      filterRevision: 1,
+      groupFilter: 'ok-group',
+      searchQuery: 'Idle',
+      tagFilter: 'ok'
+    }
+  });
+
+  assert.equal(result.evaluate('searchQuery'), 'Idle');
+  assert.equal(result.evaluate('selectedTagFilter'), 'ok');
+  assert.equal(result.evaluate('selectedGroupFilter'), 'ok-group');
+  assert.deepEqual(result.projectRows.map((row) => row.hidden), [true, false]);
+  assert.equal(result.searchEmpty.hidden, true);
+
+  result.clickAction({ action: 'focus-attention' });
+  assert.match(result.attentionSlot.innerHTML, /data-action="clear-attention-filters"/);
+  const scheduledBefore = result.scheduledFrames.length;
+
+  result.clickAction({ action: 'clear-attention-filters' });
+  const addedFrames = result.scheduledFrames.slice(scheduledBefore);
+  for (const frame of addedFrames) {
+    frame();
+  }
+
+  assert.equal(result.evaluate('searchQuery'), '');
+  assert.equal(result.evaluate('selectedTagFilter'), '');
+  assert.equal(result.evaluate('selectedGroupFilter'), '');
+  assert.equal(result.evaluate('lastAttentionProjectId'), 'alpha');
+  assert.equal(result.projectRows[0].runButton.focusCount, 1);
+  assert.equal(result.projectRows[0].scrollIntoViewCalls.at(-1)?.block, 'nearest');
+  assert.equal(result.searchStatus.textContent, 'Focused Alpha.');
+  assert.doesNotMatch(result.attentionSlot.innerHTML, /data-action="clear-attention-filters"/);
+  assert.deepEqual(result.projectRows.map((row) => row.hidden), [false, false]);
+  assert.ok(result.postedMessages.some((message) => (
+    message.type === 'setSearchQuery'
+    && message.query === ''
+    && message.tag === ''
+  )));
+  assert.equal(result.savedStates.at(-1)?.groupFilter, '');
+  assert.equal(result.savedStates.at(-1)?.searchQuery, '');
+  assert.equal(result.savedStates.at(-1)?.tagFilter, '');
+});
+
+test('zero-match empty state still uses its own Clear filters, not the attention control', () => {
+  const result = renderNonEmptyProjectList([
+    sampleProject('alpha', 'Alpha', { reviewRequired: true }),
+    sampleProject('beta', 'Beta')
+  ]);
+
+  result.evaluate(`
+    searchQuery = 'zzzz-no-match';
+    applyProjectFilter(searchQuery);
+  `);
+
+  assert.equal(result.searchEmpty.hidden, false);
+  assert.match(result.attentionSlot.innerHTML, />Needs attention</);
+  assert.doesNotMatch(result.attentionSlot.innerHTML, /Needs attention \(/);
+  assert.doesNotMatch(result.attentionSlot.innerHTML, /data-action="clear-attention-filters"/);
+  assert.match(result.app.innerHTML, /data-action="clear-filters"/);
+
+  result.clickAction({ action: 'focus-attention' });
+
+  assert.equal(
+    result.searchStatus.textContent,
+    'Some projects that need attention are hidden by your filters.'
+  );
+  assert.doesNotMatch(result.attentionSlot.innerHTML, /data-action="clear-attention-filters"/);
+  assert.equal(result.searchEmpty.hidden, false);
+  assert.equal(result.projectRows[0].runButton.focusCount, 0);
 });
 
 test('failed group rows render Show project and hide it after success', () => {
