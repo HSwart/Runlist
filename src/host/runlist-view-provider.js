@@ -3395,8 +3395,21 @@ class RunlistViewProvider {
       ? latestSharedOwnership.token
       : undefined;
     const portGeneration = this.portReservations.captureShared(id);
+    let startCancelledWithoutProcess = false;
+    if (this.startAttempts.has(id)) {
+      this.startAttempts.delete(id);
+      if (!this.processes.has(id)) {
+        startCancelledWithoutProcess = true;
+        this.statusRevision += 1;
+        this.processOwnership.release(id);
+        this.releaseStartReservation(id);
+        this.projectStatuses.set(id, 'stopped');
+        this.managedProjectIds.delete(id);
+      }
+    }
     const hadTrackedProcess = this.processes.has(id);
     const hadDetachedProcess = this.detachedProjectIds.has(id);
+    const postCancelOwnership = this.processOwnership.snapshot().get(id);
     try {
       if (hadTrackedProcess) {
         const stopped = await cleanupTrackedProcessForDeletion(
@@ -3409,7 +3422,7 @@ class RunlistViewProvider {
           return;
         }
         this.processOwnership.release(id);
-      } else if (hadDetachedProcess || latestSharedOwnership) {
+      } else if (!startCancelledWithoutProcess && (hadDetachedProcess || postCancelOwnership)) {
         const stopRequested = await this.stopProject(id, latestProject);
         if (!stopRequested || !await this.waitForProjectStopCompletion(id)) {
           vscode.window.showErrorMessage(
@@ -3882,6 +3895,16 @@ class RunlistViewProvider {
       const runtimeDrift = detectRuntimeDrift(launchProject);
       if (runtimeDrift?.message) {
         this.addProjectOutput(id, `Runlist: ${runtimeDrift.message}\n`, savedProjectRevision);
+      }
+      if (this.startAttempts.get(id) !== attempt) {
+        this.managedProjectIds.delete(id);
+        this.processOwnership.release(id);
+        this.releaseStartReservation(id);
+        this.projectStatuses.set(id, 'stopped');
+        this.startReadinessDeadlines.delete(id);
+        this.projectAttemptMetadata.delete(id);
+        this.renderProjectList();
+        return false;
       }
       const composeArgv = isComposeManagedProject(launchProject)
         ? composeProcessArgv(launchProject, 'up', { env: launchEnvironment })

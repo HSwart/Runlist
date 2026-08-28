@@ -10,6 +10,24 @@ const {
 } = require('../media/project-status-display');
 const { projectPrimaryAction } = require('../media/project-actions');
 
+test('delete while starting cancels the start before removing the saved project', () => {
+  const source = readShippedHostSource();
+  const deleteProject = source.indexOf('async deleteProject(id)');
+  const cancelStart = source.indexOf('if (this.startAttempts.has(id))', deleteProject);
+  const cancelBlock = source.slice(cancelStart, cancelStart + 650);
+  assert.match(cancelBlock, /startAttempts\.delete\(id\)/);
+  assert.match(cancelBlock, /if \(!this\.processes\.has\(id\)\)/);
+  assert.match(cancelBlock, /startCancelledWithoutProcess = true/);
+  assert.match(cancelBlock, /releaseStartReservation\(id\)/);
+  assert.match(cancelBlock, /else if \(!startCancelledWithoutProcess/);
+
+  const startProject = source.indexOf('async startProject(id, options = {})');
+  const preSpawnCheckpoint = source.indexOf('if (this.startAttempts.get(id) !== attempt)', startProject);
+  const spawn = source.indexOf('spawnProjectCommand(launchCommand', preSpawnCheckpoint);
+  assert.ok(preSpawnCheckpoint >= startProject);
+  assert.ok(preSpawnCheckpoint < spawn);
+});
+
 test('stop while starting terminates a live process handle instead of orphaning it', () => {
   const source = readShippedHostSource();
   const execute = source.indexOf('async executeStopProjectProcess(id, projectSnapshot, options = {})');
