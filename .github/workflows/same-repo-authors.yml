@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Require same-repo HSwart author
+      - name: Require same-repo allowed author
         env:
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           BASE_REPO: ${{ github.repository }}
@@ -28,9 +28,13 @@ jobs:
             exit 1
           fi
 
-          if [ "${AUTHOR}" != "HSwart" ]; then
-            echo "::error::Wrong author rejected: pull request author is '${AUTHOR}', expected HSwart."
-            exit 1
-          fi
+          case "${AUTHOR}" in
+            HSwart|'cursor[bot]')
+              ;;
+            *)
+              echo "::error::Wrong author rejected: pull request author is '${AUTHOR}', expected HSwart or cursor[bot]."
+              exit 1
+              ;;
+          esac
 
-          echo "Same-repository pull request from HSwart. Check passed."
+          echo "Same-repository pull request from ${AUTHOR}. Check passed."
