@@ -4,7 +4,7 @@
 
 **Goal:** Keep every Runlist feature, but make the core loop and Marketplace story unmistakable, then ship that package as `0.1.0` with an explicit bar for a future `1.0.0`.
 
-**Architecture:** Attention changes only — progressive disclosure on first-add UI, empty-state/chip clarity, one-time post-install tip, README/gallery/keyword hierarchy. No lifecycle/ownership semantic changes. Advanced features stay in Edit, project More, and global `⋯`.
+**Architecture:** Attention changes only — progressive disclosure on first-add UI, empty-state/chip clarity, one-time post-install tip, README/keyword hierarchy. **Do not change the README/Marketplace hero image.** No lifecycle/ownership semantic changes. Advanced features stay in Edit, project More, and global `⋯`.
 
 **Tech Stack:** Existing VS Code extension webview (`media/main.js`, `media/styles.css`), host (`src/host/runlist-view-provider.js`, `extension.js`), Marketplace assets (`README.md`, `package.json`, `media/gallery-*.png`), Node test suite under `test/`.
 
@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Keep all currently implemented features; do not delete or feature-flag them off.
-- Do not change extension version until Task 8 (`0.1.0`); do not invent `1.0.0` in this package.
+- Do not change `media/gallery-01-hero.png` or the README hero image markup/path.
 - Do not add production dependencies.
 - Do not weaken fail-closed README overclaim rules.
 - Do not put product marketing essays in the empty-state webview (`test/webview-list-density.test.js`).
@@ -32,7 +32,7 @@
 | `README.md` | Marketplace hierarchy rewrite |
 | `package.json` | Keywords; version only in Task 7 |
 | `CHANGELOG.md` | 0.1.0 notes in Task 8 |
-| `media/gallery-0{1,2,3}-*.png` | Gallery intent refresh |
+| `media/gallery-0{1,2,3}-*.png` | **Do not modify** (hero especially); keep existing README references |
 | `test/webview-list-density.test.js` | Empty-state copy contracts |
 | `test/empty-start-chips.test.js` | Chip behavior/label contracts |
 | `test/webview-render-runtime.test.js` | Add-form field visibility |
@@ -375,7 +375,7 @@ If Start-path messaging is already complete and empty-state-only change is enoug
 - Collapse advanced Add fields under More options so first save is folder + start command.
 - Clarify empty-state Start/Dev chips save and start the folder.
 - Show a one-time tip to open Runlist after install when the list is empty.
-- Lead the Marketplace README and gallery with everyday Start/Stop/Open; keep advanced features documented later.
+- Lead the Marketplace README with everyday Start/Stop/Open; keep advanced features documented later. Do not change gallery hero stills.
 - Trim Marketplace keyword noise; agents/MCP remain available from More.
 ```
 
