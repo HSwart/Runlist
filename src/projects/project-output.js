@@ -260,7 +260,10 @@ function startFailureSummary(output, details = {}) {
     message: explicitDetail && !hasProcessOutcome
       ? explicitDetail
       : (selected || explicitDetail || outcome || 'Start failed'),
-    outcome: (selected || explicitDetail) ? outcome : ''
+    outcome: (selected || explicitDetail) ? outcome : '',
+    ...(details.failureKind === 'missing-required-env'
+      ? { kind: 'missing-required-env' }
+      : {})
   };
 }
 

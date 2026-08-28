@@ -55,6 +55,14 @@ test('validates commands sent from the webview before routing', async () => {
   assert.equal(validateWebviewCommand({ type: 'startWorkspaceScript', script: 'dev' })?.script, 'dev');
   assert.equal(validateWebviewCommand({ type: 'setTagFilter', tag: 'frontend' })?.tag, 'frontend');
   assert.equal(validateWebviewCommand({ type: 'setTagFilter', tag: 'x'.repeat(33) }), undefined);
+  assert.equal(
+    validateWebviewCommand({ type: 'showEdit', id: 'project-1', focusTarget: 'env-map' })?.focusTarget,
+    'env-map'
+  );
+  assert.equal(
+    validateWebviewCommand({ type: 'showEdit', id: 'project-1', focusTarget: 'not-a-field' }),
+    undefined
+  );
 
   const calls = [];
   const route = createWebviewCommandRouter({
@@ -118,6 +126,31 @@ test('forwards output peek incarnation requests without treating the token as au
     projectIncarnation: ''
   }), false);
   assert.deepEqual(calls, [['project-1', 'project-1:1']]);
+});
+
+test('forwards showEdit focusTarget to the host edit screen', async () => {
+  const calls = [];
+  const route = createRunlistWebviewRouter({
+    showEditProject: async (id, options) => {
+      calls.push([id, options]);
+    }
+  });
+
+  assert.equal(await route({ type: 'showEdit', id: 'project-1' }), true);
+  assert.equal(await route({
+    type: 'showEdit',
+    id: 'project-1',
+    focusTarget: 'env-map'
+  }), true);
+  assert.equal(await route({
+    type: 'showEdit',
+    id: 'project-1',
+    focusTarget: 'secrets'
+  }), false);
+  assert.deepEqual(calls, [
+    ['project-1', { focusTarget: undefined }],
+    ['project-1', { focusTarget: 'env-map' }]
+  ]);
 });
 
 test('keeps newer filter updates when messages arrive out of order', async () => {

@@ -6,6 +6,14 @@
     root.RunlistProjectActions = api;
   }
 }(typeof globalThis === 'object' ? globalThis : this, () => {
+  function isMissingRequiredEnvFailure(failure = {}) {
+    if (!failure || typeof failure !== 'object') {
+      return false;
+    }
+    return failure.kind === 'missing-required-env'
+      || failure.failureKind === 'missing-required-env';
+  }
+
   function projectPrimaryAction(project = {}) {
     const name = String(project.name || 'project');
     const status = String(project.status || 'stopped');
@@ -24,6 +32,14 @@
         disabled: true,
         label: project.lifecycleBlockedReason || `Lifecycle controls are unavailable for ${name}`,
         mode: 'start'
+      };
+    }
+    if (status === 'stopped' && isMissingRequiredEnvFailure(project.failureSummary)) {
+      return {
+        action: 'fix-environment',
+        disabled: busy,
+        label: `Fix environment setup for ${name}`,
+        mode: 'review'
       };
     }
     if (status === 'stopping') {
@@ -98,5 +114,5 @@
     };
   }
 
-  return { projectPrimaryAction };
+  return { isMissingRequiredEnvFailure, projectPrimaryAction };
 }));

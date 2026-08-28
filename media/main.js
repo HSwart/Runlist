@@ -1173,7 +1173,9 @@ function renderList() {
             ? `Port :${conflict?.port || 'unknown'} is shared with ${conflictProjectNames}. Runlist cannot identify the running owner.`
             : projectStatus === 'port-in-use'
               ? `${escapedConflictOwnerName} is using port :${conflict?.port || 'unknown'}.`
-              : '';
+              : project.failureSummary?.kind === 'missing-required-env'
+                ? 'Add the missing environment variables, then try Start again.'
+                : '';
         const displayedStatus = projectDisplayedStatus(project);
         const startFailureText = projectStartFailureText(project);
         const stopFailureText = projectStopFailureText(project);
@@ -1240,8 +1242,8 @@ function renderList() {
                       ${launchProfiles.map((profile) => `<button data-action="select-launch-profile" data-id="${projectId}" data-profile-id="${escapeHtml(profile.id)}" role="menuitemradio" aria-checked="${profile.id === project.activeLaunchProfileId}"><span class="profile-check" aria-hidden="true">${profile.id === project.activeLaunchProfileId ? '✓' : ''}</span><span>${escapeHtml(profile.name)}</span></button>`).join('')}
                     </div>
                   </div>` : ''}
-                <button class="run-button ${reviewRequired ? 'review' : blocked ? 'blocked' : primaryAction.mode}" data-action="${primaryAction.action}" data-id="${projectId}" aria-label="${actionTitle}" title="${actionTitle}" ${primaryAction.disabled ? 'disabled' : ''}>
-                  ${reviewRequired ? icon('edit') : productIcon(primaryAction.mode === 'stop' ? 'stop' : 'play')}
+                <button class="run-button ${reviewRequired ? 'review' : blocked ? 'blocked' : primaryAction.mode}" data-action="${primaryAction.action}" data-id="${projectId}"${primaryAction.action === 'fix-environment' ? ' data-focus-target="env-map"' : ''} aria-label="${actionTitle}" title="${actionTitle}" ${primaryAction.disabled ? 'disabled' : ''}>
+                  ${reviewRequired || primaryAction.action === 'fix-environment' ? icon('edit') : productIcon(primaryAction.mode === 'stop' ? 'stop' : 'play')}
                 </button>
                 ${canRestart ? `
                 <button class="run-button restart" data-action="restart" data-id="${projectId}" aria-label="Restart ${projectName}" title="Restart ${projectName}" ${transitioning ? 'disabled' : ''}>
@@ -1276,6 +1278,10 @@ function renderList() {
                   <button data-action="import-compose" data-id="${projectId}" role="menuitem" title="Review Compose services for ${projectName}">
                     ${icon('layers', 'menu-icon')}<span>Import Compose services…</span>
                   </button>
+                  ${reviewRequired && project.failureSummary?.kind === 'missing-required-env' ? `
+                  <button data-action="fix-environment" data-id="${projectId}" data-focus-target="env-map" role="menuitem" aria-label="Fix environment setup for ${projectName}">
+                    ${icon('edit', 'menu-icon')}<span>Fix environment</span>
+                  </button>` : ''}
                   <button data-action="edit" data-id="${projectId}" role="menuitem">
                     ${icon('edit', 'menu-icon')}<span>${reviewRequired ? 'Review setup' : 'Edit project'}</span>
                   </button>
@@ -2936,6 +2942,11 @@ app.addEventListener('click', (event) => {
     'jump-latest': jumpToLatestOutput,
     'copy-output': () => vscode.postMessage({ type: 'copyOutput' }),
     edit: () => vscode.postMessage({ type: 'showEdit', id: button.dataset.id }),
+    'fix-environment': () => vscode.postMessage({
+      type: 'showEdit',
+      id: button.dataset.id,
+      focusTarget: button.dataset.focusTarget || 'env-map'
+    }),
     'toggle-pin': () => vscode.postMessage({ type: 'toggleProjectPin', id: button.dataset.id }),
     'show-running-app': () => revealRunningApp(button.dataset.id),
     'previous-running-app': () => navigateRunningApps(-1),

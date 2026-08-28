@@ -67,13 +67,42 @@ test('does not force-close a mixed or multi-project managed conflict', () => {
   });
 });
 
-test('preserves ordinary Start, Stop, custom Stop, review, and transition behavior', () => {
-  assert.equal(projectPrimaryAction({ name: 'App', status: 'stopped' }).action, 'start');
+test('turns a missing-required-env start failure into Fix environment', () => {
+  assert.deepEqual(projectPrimaryAction({
+    name: 'API',
+    status: 'stopped',
+    failureSummary: {
+      title: 'Start failed',
+      message: 'Missing required environment variables for this launch profile: API_KEY.',
+      kind: 'missing-required-env'
+    }
+  }), {
+    action: 'fix-environment',
+    disabled: false,
+    label: 'Fix environment setup for API',
+    mode: 'review'
+  });
+});
+
+test('keeps Start for other retained start failures', () => {
   assert.equal(projectPrimaryAction({
     name: 'App',
     status: 'stopped',
     failureSummary: { title: 'Start failed', message: 'command not found' }
   }).action, 'start');
+});
+
+test('review setup still gates missing-env rows', () => {
+  assert.equal(projectPrimaryAction({
+    name: 'App',
+    status: 'stopped',
+    reviewRequired: true,
+    failureSummary: { kind: 'missing-required-env' }
+  }).action, 'edit');
+});
+
+test('preserves ordinary Start, Stop, custom Stop, review, and transition behavior', () => {
+  assert.equal(projectPrimaryAction({ name: 'App', status: 'stopped' }).action, 'start');
   assert.equal(projectPrimaryAction({ name: 'App', status: 'running' }).action, 'stop');
   assert.equal(projectPrimaryAction({ name: 'App', status: 'active', stopCommand: 'docker compose down' }).action, 'stop');
   assert.equal(projectPrimaryAction({ name: 'App', status: 'stopped', reviewRequired: true }).action, 'edit');

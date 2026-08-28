@@ -130,6 +130,12 @@
     if (value.type === 'setFocusTarget' && !isRecord(value.target)) {
       return undefined;
     }
+    if (value.type === 'showEdit'
+      && value.focusTarget !== undefined
+      && !['project-name', 'local-hostname', 'folder', 'start-command', 'stop-command', 'env-file', 'env-map']
+        .includes(value.focusTarget)) {
+      return undefined;
+    }
     if (value.type === 'setSearchQuery'
       && (typeof value.query !== 'string' || value.query.length > 1000)) {
       return undefined;

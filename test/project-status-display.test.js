@@ -158,6 +158,23 @@ test('shows a short start-fail label on line 2 with detail kept for announcement
   );
 });
 
+test('missing-required-env keeps Start failed on line 2 and announces setup help', () => {
+  const project = {
+    name: 'API',
+    status: 'stopped',
+    failureSummary: {
+      title: 'Start failed',
+      message: 'Missing required environment variables for this launch profile: API_KEY, DATABASE_URL.',
+      kind: 'missing-required-env'
+    }
+  };
+  assert.equal(projectDisplayedStatus(project), 'Start failed');
+  assert.equal(
+    projectStatusAnnouncement(project),
+    'API needs environment variables before it can start.'
+  );
+});
+
 test('shows Stop honesty on line 2 instead of Stopped', () => {
   assert.equal(
     projectDisplayedStatus({

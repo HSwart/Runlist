@@ -1348,6 +1348,42 @@ test('failed start keeps a two-line row with the reason and Start', () => {
   assert.doesNotMatch(result.app.innerHTML, /Ask your agent|copy-diagnosis-request/);
 });
 
+test('missing-required-env start failure uses Fix environment as the primary row action', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    failureSummary: {
+      title: 'Start failed',
+      message: 'Missing required environment variables for this launch profile: API_KEY, DATABASE_URL.',
+      kind: 'missing-required-env'
+    },
+    folder: '/Users/shared/Projects/api',
+    id: 'api',
+    launchProfiles: [],
+    name: 'API',
+    openPorts: [],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 3000 }],
+    status: 'stopped',
+    tags: []
+  }]);
+
+  assert.match(
+    result.app.innerHTML,
+    /class="project-status status-start-failed"[^>]*title="Add the missing environment variables, then try Start again\."[^>]*>[\s\S]*<span>Start failed<\/span>/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /class="run-button review"[^>]*data-action="fix-environment"[^>]*data-id="api"[^>]*data-focus-target="env-map"[^>]*aria-label="Fix environment setup for API"/
+  );
+  assert.match(result.app.innerHTML, /data-action="edit"[^>]*role="menuitem">[\s\S]*Edit project/);
+  assert.doesNotMatch(result.app.innerHTML, /class="run-button start"/);
+  assert.doesNotMatch(result.app.innerHTML, /data-action="fix-environment"[^>]*role="menuitem"/);
+});
+
 test('stop honesty keeps Stop and does not say Stopped while a port is up', () => {
   const result = renderNonEmptyProjectList([{
     activeLaunchProfileId: 'default',

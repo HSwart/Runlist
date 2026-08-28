@@ -118,6 +118,7 @@ const {
   exampleEnvAdvisoryMissing,
   formatEnvPresenceWarnings,
   missingRequiredEnvKeys,
+  MISSING_REQUIRED_ENV_FAILURE_KIND,
   resolveExplicitRequiredEnvKeys
 } = require('../projects/required-env');
 const { detectRuntimeDrift } = require('../projects/runtime-drift');
@@ -1218,7 +1219,10 @@ class RunlistViewProvider {
     return {
       title,
       message: message || 'Start failed',
-      ...(summary.outcome ? { outcome: summary.outcome } : {})
+      ...(summary.outcome ? { outcome: summary.outcome } : {}),
+      ...(summary.kind === MISSING_REQUIRED_ENV_FAILURE_KIND
+        ? { kind: MISSING_REQUIRED_ENV_FAILURE_KIND }
+        : {})
     };
   }
 
@@ -1959,7 +1963,7 @@ class RunlistViewProvider {
     this.render();
   }
 
-  showEditProject(id) {
+  showEditProject(id, options = {}) {
     const project = this.projects.find((item) => item.id === id);
     if (!project) {
       return;
@@ -1973,7 +1977,23 @@ class RunlistViewProvider {
     this.formBaseline = projectFormValues(project);
     this.formProjectSnapshot = JSON.parse(JSON.stringify(project));
     this.formErrors = {};
-    this.focusTarget = { type: 'field', id: project.reviewRequired ? 'start-command' : 'project-name' };
+    const requestedFocus = typeof options.focusTarget === 'string'
+      ? options.focusTarget.trim()
+      : '';
+    const allowedFocusFields = new Set([
+      'project-name',
+      'local-hostname',
+      'folder',
+      'start-command',
+      'stop-command',
+      'env-file',
+      'env-map'
+    ]);
+    const defaultFocus = project.reviewRequired ? 'start-command' : 'project-name';
+    this.focusTarget = {
+      type: 'field',
+      id: allowedFocusFields.has(requestedFocus) ? requestedFocus : defaultFocus
+    };
     this.returnFocus = { type: 'project-menu', id };
     this.render();
   }
@@ -3552,6 +3572,7 @@ class RunlistViewProvider {
           this.projectAttemptMetadata.delete(id);
           this.showStartFailure(project, {
             detail: `Missing required environment variables for this launch profile: ${requiredMissing.join(', ')}.`,
+            failureKind: MISSING_REQUIRED_ENV_FAILURE_KIND,
             projectRevision: savedProjectRevision
           });
           this.renderProjectList();

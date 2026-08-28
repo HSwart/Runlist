@@ -165,6 +165,12 @@
     if (project.forceClosing || project.handoffInProgress) {
       return `${composeLabel}${name}: ${projectDisplayedStatus(project)}`;
     }
+    if (
+      project.failureSummary?.kind === 'missing-required-env'
+      && projectStartFailureText(project)
+    ) {
+      return `${composeLabel}${name} needs environment variables before it can start.`;
+    }
     const fullLabels = projectStatusFullLabels(project);
     const failureText = projectStopFailureText(project) || projectStartFailureText(project);
     const spokenStatus = failureText
