@@ -2120,6 +2120,10 @@ button.project-listener-owner:hover {
   border-radius: 3px;
 }
 
+.port-listening-row.is-focused {
+  border-color: var(--vscode-focusBorder, var(--vscode-widget-border));
+}
+
 .port-listening-topline {
   display: flex;
   align-items: center;

@@ -101,12 +101,17 @@
     }
     if (conflicted) {
       const port = conflict?.port || 'the configured port';
-      return composeStartGate(project, {
-        action: 'force-close-ports-and-start',
+      const primary = {
+        action: 'resolve-port-conflict',
         disabled: busy,
-        label: `Close processes using port ${port} and start ${name}`,
+        label: `See what's using port ${port} for ${name}`,
         mode: 'start'
-      });
+      };
+      const numericPort = Number(conflict?.port);
+      if (Number.isInteger(numericPort) && numericPort >= 1 && numericPort <= 65535) {
+        primary.port = numericPort;
+      }
+      return composeStartGate(project, primary);
     }
 
     const stopsProject = (Boolean(project.stopFailure) && status !== 'stopped' && status !== 'stopping')

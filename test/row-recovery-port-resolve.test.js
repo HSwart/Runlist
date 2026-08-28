@@ -21,6 +21,7 @@ test('port resolve opens a sidebar overlay instead of Quick Pick', () => {
   const resolveFn = host.match(/async resolveServicePort\([\s\S]*?\n  async buildPortResolve/);
   assert.ok(resolveFn, 'resolveServicePort should hand off to buildPortResolve');
   assert.doesNotMatch(resolveFn[0], /showQuickPick/);
+  assert.match(resolveFn[0], /showPortListeningDiagnosis\(\{[\s\S]*focusPort: savedPort/);
   assert.match(webview, /function renderPortResolve\(/);
   assert.match(webview, /state\.mode === 'port-resolve'/);
   assert.match(webview, /data-action="choose-port-resolve"/);
