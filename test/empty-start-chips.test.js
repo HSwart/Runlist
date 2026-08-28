@@ -52,6 +52,7 @@ test('empty Frame A keeps Add this folder and optional start/dev chips', () => {
   assert.match(webview, /data-action="show-add">\$\{addLabel\}<\/button>/);
   assert.match(webview, /Add \$\{workspaceFolderName \|\| 'the folder'\} open in this window\./);
   assert.match(webview, /class="empty-start-chips"/);
+  assert.match(webview, /state\.projects\.length === 0/);
   assert.match(webview, /data-action="start-workspace-script" data-script="/);
   assert.match(webview, /const chipLabel = script\.name === 'dev' \? 'Dev' : 'Start'/);
   assert.match(webview, /Run \\`\$\{script\.startCommand\}\\` for this folder/);
@@ -63,6 +64,37 @@ test('empty Frame A keeps Add this folder and optional start/dev chips', () => {
   assert.match(extension, /async startWorkspaceScript\(scriptName\)/);
   assert.match(extension, /workspaceStartScripts: workspaceStartDevScripts\(/);
   assert.match(extension, /expectProjectAbsent: true/);
+});
+
+test('Add form offers Start/Dev chips that only fill the start command', () => {
+  const extension = readShippedHostSource(root);
+  assert.match(webview, /function draftStartScriptChipsHtml\(/);
+  assert.match(webview, /state\.mode !== 'add'/);
+  assert.match(webview, /role="group" aria-label="Suggested start commands for this folder"/);
+  assert.match(webview, /data-action="use-draft-start-script"/);
+  assert.match(webview, /Use \$\{script\.startCommand\} for the start command/);
+  assert.match(webview, /Use \\u201C\$\{script\.startCommand\}\\u201D/);
+  assert.match(webview, /type: 'useDraftStartScript'/);
+  assert.match(webview, /caret === 'end'/);
+  assert.match(webview, /role="status"/);
+  assert.match(webview, /draftStartCommandNotice/);
+  assert.match(router, /'useDraftStartScript'/);
+  assert.match(extension, /async useDraftStartScript\(scriptName, draft = \{\}\)/);
+  assert.match(extension, /draftStartScripts: this\.mode === 'add'/);
+  assert.match(extension, /workspaceStartDevScripts\(String\(this\.draft\?\.folder \|\| ''\)\)/);
+  const methodStart = extension.indexOf('async useDraftStartScript(scriptName, draft = {})');
+  const methodEnd = extension.indexOf('async showProjectTransfer()', methodStart);
+  const method = extension.slice(methodStart, methodEnd);
+  assert.match(method, /this\.mode !== 'add'/);
+  assert.match(method, /startCommand: chip\.startCommand/);
+  assert.match(method, /Start command set to \$\{chip\.startCommand\}\./);
+  assert.match(method, /id: 'start-command', caret: 'end'/);
+  assert.doesNotMatch(method, /startProject\(/);
+  assert.doesNotMatch(method, /startWorkspaceScript\(/);
+  assert.doesNotMatch(method, /saveProject\(/);
+  assert.doesNotMatch(method, /upsertProject\(/);
+  assert.match(styles, /\.draft-start-chips \{[\s\S]*flex-wrap: wrap;[\s\S]*max-width: 100%/);
+  assert.match(styles, /@media \(max-width: 300px\) \{[\s\S]*\.draft-start-chips \{[\s\S]*flex-wrap: wrap;/);
 });
 
 test('empty-state chips use Start/Dev labels with npm command hints', () => {

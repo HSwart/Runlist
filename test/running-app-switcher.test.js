@@ -112,7 +112,7 @@ test('reveals and focuses a selected running project without changing its runtim
   const webview = fs.readFileSync(path.join(__dirname, '..', 'media', 'main.js'), 'utf8');
 
   assert.match(webview, /function revealRunningApp\(id\)/);
-  assert.match(webview, /if \(row\.hidden\)[\s\S]*setSearchQuery[\s\S]*applyProjectFilter\(''\)/);
+  assert.match(webview, /if \(row\.hidden\)[\s\S]*clearProjectFilters\(\)/);
   assert.match(webview, /row\.scrollIntoView\(\{ block: 'nearest' \}\)/);
   assert.match(webview, /row\.focus\(\{ preventScroll: true \}\)/);
   assert.match(webview, /function navigateRunningApps\(direction\)/);

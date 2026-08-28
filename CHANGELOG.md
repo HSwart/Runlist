@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.0.17 — Recovery actions and Marketplace polish
+
+- Refresh the Marketplace README and gallery hero with a richer demo seed and a workbench-framed hero capture.
+- Offer Start and Dev chips on the Add project form to fill the start command without saving or starting.
+- Show a native `{name} is ready.` message with Open after a locally started app becomes running with a preview URL.
+- When a saved folder is missing, show Folder missing immediately and offer Choose folder as the primary action.
+- Add Clear filters on the no-matching-projects empty state to reset search, tag, and group filters in one click.
+- When Runlist detects an app on a configured port without a stop command, show Running elsewhere and Add stop command as the primary action.
+- When Start fails on missing required environment variables, offer Fix environment to open Edit focused on env overrides.
+
 ## 0.0.16 — Soften Start preflights
 
 - Stop blocking Start on `.env.example` keys. Only explicitly configured `requiredEnvKeys` for the selected launch profile can hard-fail (names only).

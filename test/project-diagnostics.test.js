@@ -98,6 +98,23 @@ test('stores one hashed, bounded failure record for the exact project', (t) => {
   assert.equal(readProjectDiagnostics(projectsFile, projectId), undefined);
 });
 
+test('retains missing-required-env kind on the diagnostic summary', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-diag-kind-'));
+  const projectsFile = path.join(root, 'projects.json');
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const record = writeProjectDiagnostics(projectsFile, 'api', {
+    summary: {
+      title: 'Start failed',
+      message: 'Missing required environment variables for this launch profile: API_KEY.',
+      kind: 'missing-required-env'
+    },
+    output: ''
+  });
+  assert.equal(record.failureSummary.kind, 'missing-required-env');
+  assert.equal(readProjectDiagnostics(projectsFile, 'api').failureSummary.kind, 'missing-required-env');
+});
+
 test('redacts sensitive values from saved commands and summaries', () => {
   const value = redactSensitiveText('CLIENT_SECRET="value with spaces" npm start');
 

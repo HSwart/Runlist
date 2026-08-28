@@ -53,8 +53,38 @@ test('validates commands sent from the webview before routing', async () => {
   assert.equal(validateWebviewCommand({ type: 'registerAgent', agent: 'unknown' }), undefined);
   assert.equal(validateWebviewCommand({ type: 'startWorkspaceScript', script: 'build' }), undefined);
   assert.equal(validateWebviewCommand({ type: 'startWorkspaceScript', script: 'dev' })?.script, 'dev');
+  assert.equal(validateWebviewCommand({ type: 'useDraftStartScript', script: 'build' }), undefined);
+  assert.equal(validateWebviewCommand({ type: 'useDraftStartScript', script: 'start' })?.script, 'start');
+  assert.equal(validateWebviewCommand({
+    type: 'useDraftStartScript',
+    script: 'dev',
+    draft: { folder: '/tmp/app', name: 'App' }
+  })?.draft.folder, '/tmp/app');
+  assert.equal(validateWebviewCommand({
+    type: 'useDraftStartScript',
+    script: 'dev',
+    draft: 'nope'
+  }), undefined);
+  assert.ok(WEBVIEW_COMMAND_TYPES.has('useDraftStartScript'));
+  assert.equal(validateWebviewCommand({ type: 'relinkProjectFolder', id: 'project-1' })?.type, 'relinkProjectFolder');
+  assert.equal(validateWebviewCommand({ type: 'relinkProjectFolder', id: '' }), undefined);
+  assert.ok(WEBVIEW_COMMAND_TYPES.has('relinkProjectFolder'));
   assert.equal(validateWebviewCommand({ type: 'setTagFilter', tag: 'frontend' })?.tag, 'frontend');
   assert.equal(validateWebviewCommand({ type: 'setTagFilter', tag: 'x'.repeat(33) }), undefined);
+  assert.equal(validateWebviewCommand({ type: 'showEdit', id: 'project-1' })?.type, 'showEdit');
+  assert.equal(
+    validateWebviewCommand({ type: 'showEdit', id: 'project-1', focusField: 'stop-command' })?.focusField,
+    'stop-command'
+  );
+  assert.equal(validateWebviewCommand({ type: 'showEdit', id: 'project-1', focusField: 'env-map' }), undefined);
+  assert.equal(
+    validateWebviewCommand({ type: 'showEdit', id: 'project-1', focusTarget: 'env-map' })?.focusTarget,
+    'env-map'
+  );
+  assert.equal(
+    validateWebviewCommand({ type: 'showEdit', id: 'project-1', focusTarget: 'not-a-field' }),
+    undefined
+  );
 
   const calls = [];
   const route = createWebviewCommandRouter({
@@ -69,10 +99,13 @@ test('maps validated webview commands to the provider boundary', async () => {
   const calls = [];
   const host = {
     forceCloseProjectPorts: async (id, intent) => calls.push(['force-close', id, intent]),
+    relinkProjectFolder: async (id) => calls.push(['relink', id]),
     showAddProject: async (focus) => calls.push(['add', focus]),
     showProjectTransferLoadStack: async () => calls.push(['load-stack']),
+    showEditProject: async (id, options) => calls.push(['edit', id, options]),
     startProject: async (id) => calls.push(['start', id]),
     startWorkspaceScript: async (script) => calls.push(['start-script', script]),
+    useDraftStartScript: async (script, draft) => calls.push(['draft-script', script, draft]),
     copyServiceUrl: async (id, port) => calls.push(['copy-service', id, port]),
     resolveServicePort: async (id, port) => calls.push(['resolve-service', id, port])
   };
@@ -81,7 +114,16 @@ test('maps validated webview commands to the provider boundary', async () => {
   assert.equal(await route({ type: 'showAdd' }), true);
   assert.equal(await route({ type: 'loadWorkspaceStack' }), true);
   assert.equal(await route({ type: 'startWorkspaceScript', script: 'dev' }), true);
+  assert.equal(await route({
+    type: 'useDraftStartScript',
+    script: 'start',
+    draft: { folder: '/tmp/app', startCommand: 'echo old' }
+  }), true);
+  assert.equal(await route({ type: 'useDraftStartScript', script: 'build' }), false);
+  assert.equal(await route({ type: 'showEdit', id: 'project-1', focusField: 'stop-command' }), true);
   assert.equal(await route({ type: 'startProject', id: 'project-1' }), true);
+  assert.equal(await route({ type: 'relinkProjectFolder', id: 'project-3' }), true);
+  assert.equal(await route({ type: 'relinkProjectFolder' }), false);
   assert.equal(await route({ type: 'forceCloseProjectPorts', id: 'project-1' }), true);
   assert.equal(await route({ type: 'forceCloseProjectPortsAndStart', id: 'project-2' }), true);
   assert.equal(await route({ type: 'copyServiceUrl', id: 'project-1', port: '4310' }), true);
@@ -91,7 +133,10 @@ test('maps validated webview commands to the provider boundary', async () => {
     ['add', { type: 'action', action: 'show-add' }],
     ['load-stack'],
     ['start-script', 'dev'],
+    ['draft-script', 'start', { folder: '/tmp/app', startCommand: 'echo old' }],
+    ['edit', 'project-1', { focusField: 'stop-command', focusTarget: undefined }],
     ['start', 'project-1'],
+    ['relink', 'project-3'],
     ['force-close', 'project-1', 'stop'],
     ['force-close', 'project-2', 'start'],
     ['copy-service', 'project-1', 4310],
@@ -118,6 +163,31 @@ test('forwards output peek incarnation requests without treating the token as au
     projectIncarnation: ''
   }), false);
   assert.deepEqual(calls, [['project-1', 'project-1:1']]);
+});
+
+test('forwards showEdit focusTarget to the host edit screen', async () => {
+  const calls = [];
+  const route = createRunlistWebviewRouter({
+    showEditProject: async (id, options) => {
+      calls.push([id, options]);
+    }
+  });
+
+  assert.equal(await route({ type: 'showEdit', id: 'project-1' }), true);
+  assert.equal(await route({
+    type: 'showEdit',
+    id: 'project-1',
+    focusTarget: 'env-map'
+  }), true);
+  assert.equal(await route({
+    type: 'showEdit',
+    id: 'project-1',
+    focusTarget: 'secrets'
+  }), false);
+  assert.deepEqual(calls, [
+    ['project-1', { focusField: undefined, focusTarget: undefined }],
+    ['project-1', { focusField: undefined, focusTarget: 'env-map' }]
+  ]);
 });
 
 test('keeps newer filter updates when messages arrive out of order', async () => {

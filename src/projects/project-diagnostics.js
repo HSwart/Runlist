@@ -76,6 +76,9 @@ function writeProjectDiagnostics(projectsFile, projectId, details = {}) {
       message: redactSensitiveText(summary.message || 'The start command did not complete.').slice(0, 1000),
       ...(summary.outcome
         ? { outcome: redactSensitiveText(summary.outcome).slice(0, 240) }
+        : {}),
+      ...(summary.kind === 'missing-required-env'
+        ? { kind: 'missing-required-env' }
         : {})
     },
     retainedOutput: bounded.output,

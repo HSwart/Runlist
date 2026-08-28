@@ -52,6 +52,7 @@ const REVIEWED_PACKAGE_FILES = Object.freeze([
   'src/lifecycle/project-lifecycle.js',
   'src/lifecycle/project-process.js',
   'src/lifecycle/project-status.js',
+  'src/lifecycle/ready-open-offer.js',
   'src/lifecycle/runlist-diagnostics.js',
   'src/lifecycle/runtime-process-owner.js',
   'src/lifecycle/runtime-pulse.js',

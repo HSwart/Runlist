@@ -1,9 +1,10 @@
 const vscode = acquireVsCodeApi();
 const state = window.runlistState;
 const { createWebviewMessageRouter } = window.RunlistMessageRouter;
-const { projectPrimaryAction } = window.RunlistProjectActions;
+const { projectCanRelinkFolder, projectPrimaryAction } = window.RunlistProjectActions;
 const {
   projectDisplayedStatus,
+  projectShowsMissingFolder,
   projectStartFailureText,
   projectStatusAnnouncement,
   projectStatusFullLabels,
@@ -59,6 +60,7 @@ let selectedGroupFilter = String(persistedWebviewState.groupFilter || '');
 let runGroupDraft = undefined;
 let outputFollowLatest = true;
 let announcedProjectStatuses = new Map();
+let announcedFolderAccess = new Map();
 let announcedPreviewFailures = new Map();
 let previewLoadGeneration = 0;
 let previewLoadTimer;
@@ -1125,6 +1127,7 @@ function renderList() {
         const ownershipLostWithoutStop = projectStatus === 'ownership-lost' && !project.stopCommand;
         const stopState = ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active'].includes(projectStatus);
         const canRestart = !reviewRequired
+          && project.folderAccessible !== false
           && ['running', 'not-ready', 'not-responding', 'ownership-lost', 'active'].includes(projectStatus)
           && !detectedWithoutStop
           && !ownershipLostWithoutStop;
@@ -1134,6 +1137,18 @@ function renderList() {
           && !project.handoffInProgress
           && projectStatus !== 'stopping';
         const blocked = conflicted || project.lifecycleBlocked;
+        const showAddStopCommand = !reviewRequired
+          && ((detectedWithoutStop || ownershipLostWithoutStop) && !project.stopFailure);
+        const primaryButtonClass = reviewRequired
+          || primaryAction.action === 'edit'
+          || primaryAction.action === 'add-stop-command'
+          || primaryAction.action === 'fix-environment'
+          ? 'review'
+          : primaryAction.action === 'relink-folder'
+            ? 'relink'
+            : blocked
+              ? 'blocked'
+              : primaryAction.mode;
         const launchProfiles = project.launchProfiles || [];
         const hasLaunchProfiles = launchProfiles.length > 1;
         const launchProfileMenuId = `profile:${projectId}`;
@@ -1160,7 +1175,9 @@ function renderList() {
           : projectStatus === 'active'
           ? project.httpUnresponsive
             ? 'The configured port is open, but the web service did not respond. Runlist did not start this process.'
-            : 'Detected through a configured service port; Runlist did not start this process.'
+            : project.stopCommand
+              ? 'Detected through a configured service port; Runlist did not start this process.'
+              : 'Runlist detected this app on a configured port but did not start it.'
           : projectStatus === 'not-responding'
             ? 'The launched process is still running and its configured port is open, but the web service did not respond.'
           : projectStatus === 'not-ready'
@@ -1173,14 +1190,18 @@ function renderList() {
             ? `Port :${conflict?.port || 'unknown'} is shared with ${conflictProjectNames}. Runlist cannot identify the running owner.`
             : projectStatus === 'port-in-use'
               ? `${escapedConflictOwnerName} is using port :${conflict?.port || 'unknown'}.`
-              : '';
+              : project.failureSummary?.kind === 'missing-required-env'
+                ? 'Add the missing environment variables, then try Start again.'
+                : '';
         const displayedStatus = projectDisplayedStatus(project);
         const startFailureText = projectStartFailureText(project);
         const stopFailureText = projectStopFailureText(project);
+        const folderMissing = projectShowsMissingFolder(project);
         const rowStatusTitle = statusTitle
+          || (folderMissing ? 'The saved folder is missing or cannot be opened.' : '')
           || (startFailureText ? escapeHtml(startFailureText) : '')
           || (stopFailureText ? escapeHtml(stopFailureText) : '');
-        const statusDotClass = startFailureText || stopFailureText
+        const statusDotClass = folderMissing || startFailureText || stopFailureText
           ? 'conflict'
           : ['running', 'active'].includes(statusClass)
           && !(projectStatus === 'active' && project.httpUnresponsive)
@@ -1188,7 +1209,9 @@ function renderList() {
           : ['port-in-use', 'port-in-use-unknown', 'not-ready', 'not-responding', 'review-required', 'ownership-lost'].includes(statusClass)
             ? 'conflict'
             : '';
-        const rowStatusClass = startFailureText
+        const rowStatusClass = folderMissing
+          ? 'folder-missing'
+          : startFailureText
           ? 'start-failed'
           : stopFailureText
             ? 'stop-failed'
@@ -1240,8 +1263,14 @@ function renderList() {
                       ${launchProfiles.map((profile) => `<button data-action="select-launch-profile" data-id="${projectId}" data-profile-id="${escapeHtml(profile.id)}" role="menuitemradio" aria-checked="${profile.id === project.activeLaunchProfileId}"><span class="profile-check" aria-hidden="true">${profile.id === project.activeLaunchProfileId ? '✓' : ''}</span><span>${escapeHtml(profile.name)}</span></button>`).join('')}
                     </div>
                   </div>` : ''}
-                <button class="run-button ${reviewRequired ? 'review' : blocked ? 'blocked' : primaryAction.mode}" data-action="${primaryAction.action}" data-id="${projectId}" aria-label="${actionTitle}" title="${actionTitle}" ${primaryAction.disabled ? 'disabled' : ''}>
-                  ${reviewRequired ? icon('edit') : productIcon(primaryAction.mode === 'stop' ? 'stop' : 'play')}
+                <button class="run-button ${primaryButtonClass}" data-action="${primaryAction.action}" data-id="${projectId}"${primaryAction.action === 'fix-environment' ? ' data-focus-target="env-map"' : ''} aria-label="${actionTitle}" title="${actionTitle}" ${primaryAction.disabled ? 'disabled' : ''}>
+                  ${primaryAction.action === 'edit'
+                    || primaryAction.action === 'add-stop-command'
+                    || primaryAction.action === 'fix-environment'
+                    ? icon('edit')
+                    : primaryAction.action === 'relink-folder'
+                      ? icon('folder')
+                      : productIcon(primaryAction.mode === 'stop' ? 'stop' : 'play')}
                 </button>
                 ${canRestart ? `
                 <button class="run-button restart" data-action="restart" data-id="${projectId}" aria-label="Restart ${projectName}" title="Restart ${projectName}" ${transitioning ? 'disabled' : ''}>
@@ -1270,12 +1299,24 @@ function renderList() {
                   <button data-action="restart" data-id="${projectId}" role="menuitem" aria-label="Restart ${projectName}" ${canRestart ? '' : 'disabled'}>
                     ${icon('refresh', 'menu-icon')}<span>Restart</span>
                   </button>
+                  ${showAddStopCommand ? `
+                  <button data-action="add-stop-command" data-id="${projectId}" role="menuitem" aria-label="Add a stop command for ${projectName}">
+                    ${icon('edit', 'menu-icon')}<span>Add stop command</span>
+                  </button>` : ''}
                   <button data-action="force-close-ports" data-id="${projectId}" role="menuitem" aria-label="Close configured ports for ${projectName}" ${canCloseConfiguredPorts && !project.lifecycleBlocked ? '' : 'disabled'} title="${project.lifecycleBlocked ? escapeHtml(project.lifecycleBlockedReason) : canCloseConfiguredPorts ? `Review and close the processes using ${projectName}'s configured ports` : 'No configured ports are currently open'}">
                     ${icon('stop', 'menu-icon')}<span>Close configured ports…</span>
                   </button>
                   <button data-action="import-compose" data-id="${projectId}" role="menuitem" title="Review Compose services for ${projectName}">
                     ${icon('layers', 'menu-icon')}<span>Import Compose services…</span>
                   </button>
+                  ${projectCanRelinkFolder(project) ? `
+                  <button data-action="relink-folder" data-id="${projectId}" role="menuitem" title="Choose a new folder for ${projectName}" aria-label="Choose a new folder for ${projectName}">
+                    ${icon('folder', 'menu-icon')}<span>Choose folder</span>
+                  </button>` : ''}
+                  ${reviewRequired && project.failureSummary?.kind === 'missing-required-env' ? `
+                  <button data-action="fix-environment" data-id="${projectId}" data-focus-target="env-map" role="menuitem" aria-label="Fix environment setup for ${projectName}">
+                    ${icon('edit', 'menu-icon')}<span>Fix environment</span>
+                  </button>` : ''}
                   <button data-action="edit" data-id="${projectId}" role="menuitem">
                     ${icon('edit', 'menu-icon')}<span>${reviewRequired ? 'Review setup' : 'Edit project'}</span>
                   </button>
@@ -1297,6 +1338,8 @@ function renderList() {
       }).join('')}
       <div class="search-empty" data-search-empty hidden>
         <h2>No matching projects</h2>
+        <p>Try a different search or clear your filters.</p>
+        <button type="button" class="primary-button" data-action="clear-filters" aria-label="Clear search, tag, and group filters">Clear filters</button>
       </div>
     </section>`;
 
@@ -1345,16 +1388,60 @@ function announceProjectStatusChanges(projects) {
     String(project.id),
     projectStatusAnnouncement(project)
   ]));
-  if (announcedProjectStatuses.size) {
-    const changes = [...next]
-      .filter(([id, label]) => announcedProjectStatuses.get(id) !== label)
+  const nextFolderAccess = new Map((projects || []).map((project) => [
+    String(project.id),
+    project.folderAccessible !== false
+  ]));
+  if (announcedProjectStatuses.size || announcedFolderAccess.size) {
+    const folderChanges = [];
+    const folderChangedIds = new Set();
+    for (const project of projects || []) {
+      const id = String(project.id);
+      const wasAccessible = announcedFolderAccess.get(id);
+      const isAccessible = project.folderAccessible !== false;
+      if (wasAccessible === true && isAccessible === false) {
+        folderChanges.push(`Folder missing for ${project.name}`);
+        folderChangedIds.add(id);
+      } else if (wasAccessible === false && isAccessible === true) {
+        folderChanges.push(`${project.name} folder updated`);
+        folderChangedIds.add(id);
+      }
+    }
+    const statusChanges = [...next]
+      .filter(([id, label]) => announcedProjectStatuses.get(id) !== label && !folderChangedIds.has(id))
       .map(([, label]) => label);
+    const changes = [...folderChanges, ...statusChanges];
     const status = document.getElementById('project-lifecycle-status');
     if (status && changes.length) {
       status.textContent = changes.join('. ');
     }
   }
   announcedProjectStatuses = next;
+  announcedFolderAccess = nextFolderAccess;
+}
+
+function clearProjectFilters() {
+  const search = document.getElementById('project-search');
+  if (search) {
+    search.value = '';
+  }
+  searchQuery = '';
+  selectedTagFilter = '';
+  selectedGroupFilter = '';
+  publishFilterState('setSearchQuery');
+  applyProjectFilter('');
+}
+
+function handleClearFilters() {
+  clearProjectFilters();
+  renderList();
+  requestAnimationFrame(() => {
+    document.getElementById('project-search')?.focus();
+    const status = document.getElementById('project-search-status');
+    if (status) {
+      status.textContent = 'No projects match. Filters cleared.';
+    }
+  });
 }
 
 function applyProjectFilter(query) {
@@ -1425,15 +1512,7 @@ function revealRunningApp(id) {
   }
 
   if (row.hidden) {
-    const search = document.getElementById('project-search');
-    if (search) {
-      search.value = '';
-    }
-    searchQuery = '';
-    selectedTagFilter = '';
-    selectedGroupFilter = '';
-    publishFilterState('setSearchQuery');
-    applyProjectFilter('');
+    clearProjectFilters();
   }
 
   row.scrollIntoView({ block: 'nearest' });
@@ -1801,6 +1880,7 @@ function renderProjectForm(mode) {
 
         <label for="start-command">Start command</label>
         <input id="start-command" name="startCommand" value="${escapeHtml(activeProfile.startCommand || '')}" placeholder="npm run dev" ${errorAttributes('start-command')}>
+        ${draftStartScriptChipsHtml()}
         ${fieldError('start-command')}
 
         <label for="stop-command">Custom stop command <span class="optional-label">Optional</span></label>
@@ -1833,6 +1913,37 @@ function renderProjectForm(mode) {
         ${reviewing ? '<p class="form-hint">Approving makes Start and Stop available for this project.</p>' : editing ? '<p class="form-hint">Changes apply the next time you start this project.</p>' : ''}
       </form>
     </section>`;
+}
+
+function draftStartScriptChipsHtml() {
+  if (state.mode !== 'add') {
+    return '';
+  }
+  const scripts = Array.isArray(state.draftStartScripts)
+    ? state.draftStartScripts.filter((script) => script
+      && ['start', 'dev'].includes(script.name)
+      && typeof script.startCommand === 'string'
+      && script.startCommand.trim())
+    : [];
+  const notice = state.draftStartCommandNotice
+    ? `<p class="visually-hidden" role="status">${escapeHtml(String(state.draftStartCommandNotice))}</p>`
+    : '';
+  if (!scripts.length) {
+    return notice;
+  }
+  return `
+        <div class="empty-start-chips draft-start-chips" role="group" aria-label="Suggested start commands for this folder">
+          ${scripts.map((script) => {
+            const chipLabel = script.name === 'dev' ? 'Dev' : 'Start';
+            const chipHint = `Use \u201C${script.startCommand}\u201D`;
+            const chipName = `Use ${script.startCommand} for the start command`;
+            return `
+            <button type="button" class="empty-start-chip" data-action="use-draft-start-script" data-script="${escapeHtml(script.name)}" title="${escapeHtml(chipHint)}" aria-label="${escapeHtml(chipName)}">
+              ${escapeHtml(chipLabel)}
+            </button>`;
+          }).join('')}
+        </div>
+        ${notice}`;
 }
 
 function renderAgentSetup() {
@@ -2559,12 +2670,18 @@ app.addEventListener('click', (event) => {
     'load-workspace-stack': () => vscode.postMessage({ type: 'loadWorkspaceStack' }),
     'select-workspace-folder': () => vscode.postMessage({
       type: 'selectWorkspaceFolder',
-      folder: button.dataset.folder
+      folder: button.dataset.folder,
+      draft: document.getElementById('project-form') ? currentDraft() : undefined
     }),
     'approve-stack-review': () => vscode.postMessage({ type: 'approveStackReview' }),
     'start-workspace-script': () => vscode.postMessage({
       type: 'startWorkspaceScript',
       script: button.dataset.script
+    }),
+    'use-draft-start-script': () => vscode.postMessage({
+      type: 'useDraftStartScript',
+      script: button.dataset.script,
+      draft: currentDraft()
     }),
     'close-screen': () => {
       clearRunGroupDraft();
@@ -2848,16 +2965,11 @@ app.addEventListener('click', (event) => {
       phoneHandoffState[id] = true;
       detailTabState[id] = 'preview';
       saveWebviewState();
-      if (!project.detailsExpanded) {
-        vscode.postMessage({
-          type: 'toggleProjectPreview',
-          id,
-          focusAction: 'focus-phone-handoff'
-        });
-        return;
-      }
-      renderList();
-      requestAnimationFrame(() => document.getElementById(`phone-handoff-${String(id)}`)?.focus());
+      vscode.postMessage({
+        type: 'toggleProjectPreview',
+        id,
+        focusAction: 'focus-phone-handoff'
+      });
     },
     'show-startup-failure': () => showStartupFailure(button.dataset.id, button.dataset.entryKey),
     'close-startup-failure': () => closeStartupFailure(button.dataset.id, button.dataset.entryKey),
@@ -2916,6 +3028,10 @@ app.addEventListener('click', (event) => {
       closeMenus();
       vscode.postMessage({ type: 'copyProjectPath', id: button.dataset.id });
     },
+    'relink-folder': () => {
+      closeMenus();
+      vscode.postMessage({ type: 'relinkProjectFolder', id: button.dataset.id });
+    },
     output: () => {
       closeMenus();
       vscode.postMessage({ type: 'showOutput', id: button.dataset.id });
@@ -2936,7 +3052,14 @@ app.addEventListener('click', (event) => {
     'jump-latest': jumpToLatestOutput,
     'copy-output': () => vscode.postMessage({ type: 'copyOutput' }),
     edit: () => vscode.postMessage({ type: 'showEdit', id: button.dataset.id }),
+    'add-stop-command': () => vscode.postMessage({ type: 'showEdit', id: button.dataset.id, focusField: 'stop-command' }),
+    'fix-environment': () => vscode.postMessage({
+      type: 'showEdit',
+      id: button.dataset.id,
+      focusTarget: button.dataset.focusTarget || 'env-map'
+    }),
     'toggle-pin': () => vscode.postMessage({ type: 'toggleProjectPin', id: button.dataset.id }),
+    'clear-filters': handleClearFilters,
     'show-running-app': () => revealRunningApp(button.dataset.id),
     'previous-running-app': () => navigateRunningApps(-1),
     'next-running-app': () => navigateRunningApps(1),
@@ -3570,7 +3693,16 @@ function applyInitialFocus() {
       `.menu-trigger[data-menu-target="${CSS.escape(hiddenMenu.dataset.menuId)}"]`
     );
   }
-  requestAnimationFrame(() => element?.focus());
+  requestAnimationFrame(() => {
+    element?.focus();
+    if (target.caret === 'end'
+      && element
+      && typeof element.value === 'string'
+      && typeof element.setSelectionRange === 'function') {
+      const length = element.value.length;
+      element.setSelectionRange(length, length);
+    }
+  });
 }
 
 if (state.mode === 'list') {

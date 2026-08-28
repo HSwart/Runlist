@@ -40,6 +40,7 @@
     'refreshProjectRepair',
     'registerAgent',
     'rejectProjectRepair',
+    'relinkProjectFolder',
     'resolveServicePort',
     'choosePortResolve',
     'restartProject',
@@ -73,7 +74,8 @@
     'toggleProjectPreview',
     'toggleProjectServices',
     'updateDraft',
-    'useCurrentWorkspace'
+    'useCurrentWorkspace',
+    'useDraftStartScript'
   ]);
   const ID_COMMAND_TYPES = new Set([
     'copyProjectPath',
@@ -85,6 +87,7 @@
     'openProject',
     'openProjectFolder',
     'openProjectTerminal',
+    'relinkProjectFolder',
     'removeRunGroup',
     'resolveServicePort',
     'restartProject',
@@ -113,7 +116,7 @@
       && !validId(value.id)) {
       return undefined;
     }
-    if (['closeScreen', 'pickFolder', 'useCurrentWorkspace'].includes(value.type)
+    if (['closeScreen', 'pickFolder', 'useCurrentWorkspace', 'useDraftStartScript'].includes(value.type)
       && value.draft !== undefined
       && !isRecord(value.draft)) {
       return undefined;
@@ -128,6 +131,12 @@
       return undefined;
     }
     if (value.type === 'setFocusTarget' && !isRecord(value.target)) {
+      return undefined;
+    }
+    if (value.type === 'showEdit'
+      && value.focusTarget !== undefined
+      && !['project-name', 'local-hostname', 'folder', 'start-command', 'stop-command', 'env-file', 'env-map']
+        .includes(value.focusTarget)) {
       return undefined;
     }
     if (value.type === 'setSearchQuery'
@@ -154,10 +163,19 @@
       && !['start', 'dev'].includes(value.script)) {
       return undefined;
     }
+    if (value.type === 'useDraftStartScript'
+      && !['start', 'dev'].includes(value.script)) {
+      return undefined;
+    }
     if (value.type === 'selectWorkspaceFolder'
       && (typeof value.folder !== 'string'
         || !value.folder.trim()
         || value.folder.length > 4096)) {
+      return undefined;
+    }
+    if (value.type === 'selectWorkspaceFolder'
+      && value.draft !== undefined
+      && !isRecord(value.draft)) {
       return undefined;
     }
     if (['copyServiceUrl', 'openServiceUrl'].includes(value.type)
@@ -175,6 +193,11 @@
     }
     if (value.type === 'choosePortResolve'
       && !['start', 'handoff', 'close', 'temporary'].includes(value.action)) {
+      return undefined;
+    }
+    if (value.type === 'showEdit'
+      && value.focusField !== undefined
+      && value.focusField !== 'stop-command') {
       return undefined;
     }
     if (value.type === 'forceCloseProjectPorts'

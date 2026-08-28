@@ -118,6 +118,7 @@ function createRunlistWebviewRouter(host, adapters = {}) {
       refreshPortListening: () => host.refreshPortListeningDiagnosis(),
       registerAgent: (message) => host.registerAgent(message.agent),
       rejectProjectRepair: () => host.rejectProjectRepair(),
+      relinkProjectFolder: (message) => host.relinkProjectFolder(message.id),
       resolveServicePort: (message) => host.resolveServicePort(message.id, Number(message.port)),
       choosePortResolve: (message) => host.choosePortResolve(message.action),
       revealPortOwnerProject: (message) => host.revealPortOwnerProject(message.id),
@@ -146,12 +147,16 @@ function createRunlistWebviewRouter(host, adapters = {}) {
       showAgentSetup: () => host.showAgentSetup(),
       loadWorkspaceStack: () => host.showProjectTransferLoadStack(),
       approveStackReview: () => host.approveStackReview(),
-      selectWorkspaceFolder: (message) => host.selectPreferredWorkspaceFolder(message.folder),
+      selectWorkspaceFolder: (message) => host.selectPreferredWorkspaceFolder(message.folder, message.draft),
+      useDraftStartScript: (message) => host.useDraftStartScript(message.script, message.draft),
       showPortListening: () => host.showPortListeningDiagnosis(),
       copyPortListeningDetails: (message) => host.copyPortListeningDetails(message.port),
       startWorkspaceScript: (message) => host.startWorkspaceScript(message.script),
       showDiagnosis: (message) => host.showProjectDiagnosis(message.id),
-      showEdit: (message) => host.showEditProject(message.id),
+      showEdit: (message) => host.showEditProject(message.id, {
+        focusField: message.focusField,
+        focusTarget: typeof message.focusTarget === 'string' ? message.focusTarget : undefined
+      }),
       showOutput: (message) => {
         if (message.projectIncarnation !== undefined
           && !validProjectIncarnation(message.projectIncarnation)) {

@@ -39,6 +39,9 @@ function loadRunlistProvider(messages) {
       showWarningMessage(message) {
         messages.push({ type: 'warning', message });
         return Promise.resolve(undefined);
+      },
+      showInformationMessage() {
+        return Promise.resolve(undefined);
       }
     },
     workspace: { workspaceFolders: [] }

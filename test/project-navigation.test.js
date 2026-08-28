@@ -102,6 +102,26 @@ test('wires an accessible terminal action and restores or redirects focus after 
   assert.match(extension, /this\.focusTarget = \{ type: 'project-menu', id \};[\s\S]*this\.renderProjectList\(\)/);
 });
 
+test('wires Choose folder recovery for missing saved folders', () => {
+  const root = path.join(__dirname, '..');
+  const extension = readShippedHostSource(root);
+  const router = fs.readFileSync(path.join(root, 'src', 'webview', 'webview-message-router.js'), 'utf8');
+  const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
+
+  assert.match(extension, /folderAccessible: projectFolderIsAccessible\(fs, project\.folder\)/);
+  assert.match(extension, /async relinkProjectFolder\(id\)/);
+  assert.match(extension, /openLabel: 'Use this folder'/);
+  assert.match(extension, /expectedProject: project/);
+  assert.match(extension, /Could not start \$\{project\.name\} because its folder is missing\./);
+  assert.match(extension, /selection === 'Choose folder'[\s\S]*this\.relinkProjectFolder\(id\)/);
+  assert.match(router, /relinkProjectFolder: \(message\) => host\.relinkProjectFolder\(message\.id\)/);
+  assert.match(webview, /data-action="relink-folder"/);
+  assert.match(webview, /type: 'relinkProjectFolder'/);
+  assert.match(webview, /Folder missing for \$\{project\.name\}/);
+  assert.match(webview, /\$\{project\.name\} folder updated/);
+  assert.doesNotMatch(extension, /this\.startProject\(id\)[\s\S]{0,80}relinkProjectFolder/);
+});
+
 test('copies exact persisted paths without normalization, quoting, or escaping', async () => {
   const copied = [];
   const vscode = {
