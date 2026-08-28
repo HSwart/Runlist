@@ -113,8 +113,36 @@ test('renders one lazy, sandboxed, accessible expandable preview', () => {
   assert.match(webview, /sandbox="allow-forms allow-scripts allow-same-origin" referrerpolicy="no-referrer"/);
   assert.match(webview, /frame\.src = source/);
   assert.match(webview, /Preview unavailable[\s\S]*This app may block embedded views/);
+  assert.match(
+    webview,
+    /data-preview-fallback hidden>[\s\S]*Preview unavailable[\s\S]*This app may block embedded views\.[\s\S]*project\.previewUrl \? `<button type="button" class="primary-button" data-action="open" data-id="\$\{projectId\}" aria-label="Open \$\{projectName\} in browser">Open in browser<\/button>` : ''/
+  );
+  assert.match(
+    webview,
+    /class="preview-actions">[\s\S]*data-action="open" data-id="\$\{projectId\}" aria-label="Open \$\{projectName\} in browser"/
+  );
+  assert.doesNotMatch(
+    webview.slice(
+      webview.indexOf('data-preview-fallback hidden>'),
+      webview.indexOf('${phoneHandoffContent}', webview.indexOf('data-preview-fallback hidden>'))
+    ),
+    /open-on-phone|auto-open|openProject/
+  );
   assert.match(styles, /\.preview-frame-wrap \{[\s\S]*aspect-ratio: 16 \/ 10/);
   assert.match(styles, /@media \(prefers-reduced-motion: no-preference\)[\s\S]*\.preview-frame/);
+});
+
+test('preview fallback Open in browser stays usable at narrow width', () => {
+  const root = path.join(__dirname, '..');
+  const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
+
+  assert.match(styles, /\.preview-fallback \.primary-button \{[\s\S]*max-width: 100%/);
+  assert.match(
+    styles,
+    /@media \(max-width: 300px\) \{[\s\S]*\.preview-fallback \.primary-button \{[\s\S]*width: 100%/
+  );
+  assert.match(styles, /\.primary-button \{[\s\S]*--vscode-button-foreground[\s\S]*--vscode-button-background/);
+  assert.match(styles, /button:focus-visible[\s\S]*--vscode-focusBorder/);
 });
 
 test('uses the selected preview service for copy and browser actions', () => {

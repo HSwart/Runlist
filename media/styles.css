@@ -1936,7 +1936,7 @@ button.project-listener-owner:hover {
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
   padding: 16px;
   color: var(--vscode-descriptionForeground);
   background: var(--vscode-editor-background);
@@ -1946,6 +1946,18 @@ button.project-listener-owner:hover {
 
 .preview-fallback strong {
   color: var(--vscode-foreground);
+}
+
+.preview-fallback-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.preview-fallback .primary-button {
+  margin-top: 4px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .preview-loading[hidden],
@@ -3280,6 +3292,11 @@ select[aria-invalid='true'] {
   }
 
   .search-empty .primary-button {
+    display: block;
+    width: 100%;
+  }
+
+  .preview-fallback .primary-button {
     display: block;
     width: 100%;
   }
