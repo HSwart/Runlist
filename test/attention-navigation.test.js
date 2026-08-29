@@ -272,3 +272,62 @@ test('persists last-focused id in webview state', () => {
   assert.match(webview, /function focusNextAttentionProject\(/);
   assert.match(webview, /'focus-attention': \(\) => focusNextAttentionProject\(\)/);
 });
+
+test('projectNeedsAttention includes stopped relink rows and not-ready rows', () => {
+  const harness = renderAttentionNavigationHarness([]);
+  const needsAttention = (project) => harness.evaluate(`projectNeedsAttention(${JSON.stringify(project)})`);
+
+  assert.equal(needsAttention({
+    id: 'moved',
+    name: 'Moved app',
+    status: 'stopped',
+    folderAccessible: false
+  }), true);
+  assert.equal(needsAttention({
+    id: 'slow',
+    name: 'Slow app',
+    status: 'not-ready',
+    folder: '/slow',
+    services: []
+  }), true);
+  assert.equal(needsAttention({
+    id: 'conflict',
+    name: 'Conflict app',
+    status: 'port-in-use',
+    folder: '/conflict',
+    services: []
+  }), true);
+});
+
+test('projectNeedsAttention excludes starting-only and live missing-folder rows', () => {
+  const harness = renderAttentionNavigationHarness([]);
+  const needsAttention = (project) => harness.evaluate(`projectNeedsAttention(${JSON.stringify(project)})`);
+
+  assert.equal(needsAttention({
+    id: 'starting',
+    name: 'Starting app',
+    status: 'starting',
+    folder: '/starting',
+    services: []
+  }), false);
+  assert.equal(needsAttention({
+    id: 'running-missing',
+    name: 'Running missing',
+    status: 'running',
+    folderAccessible: false
+  }), false);
+  assert.equal(needsAttention({
+    id: 'compose-missing',
+    name: 'Compose app',
+    status: 'stopped',
+    folderAccessible: false,
+    composePath: '/tmp/compose.yaml'
+  }), false);
+  assert.equal(needsAttention({
+    id: 'review-missing',
+    name: 'Review app',
+    status: 'stopped',
+    folderAccessible: false,
+    reviewRequired: true
+  }), true);
+});

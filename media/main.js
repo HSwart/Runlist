@@ -838,7 +838,13 @@ function projectNeedsAttention(project) {
   if (['port-in-use', 'port-in-use-unknown', 'ownership-lost', 'not-responding'].includes(project.status)) {
     return true;
   }
+  if (project.status === 'not-ready') {
+    return true;
+  }
   if (project.status === 'active' && project.httpUnresponsive) {
+    return true;
+  }
+  if (projectCanRelinkFolder(project)) {
     return true;
   }
   return Boolean(projectStartFailureText(project) || projectStopFailureText(project));
