@@ -120,10 +120,20 @@
       });
     }
 
-    const httpUnresponsiveOutput = !project.stopFailure && (
-      status === 'not-responding'
-      || (status === 'active' && project.httpUnresponsive === true)
-    );
+    const stopFailureOutput = Boolean(project.stopFailure)
+      && status !== 'stopped'
+      && status !== 'stopping';
+    if (stopFailureOutput) {
+      return {
+        action: 'output',
+        disabled: busy,
+        label: `View output for ${name}`,
+        mode: 'output'
+      };
+    }
+
+    const httpUnresponsiveOutput = status === 'not-responding'
+      || (status === 'active' && project.httpUnresponsive === true);
     if (httpUnresponsiveOutput) {
       return {
         action: 'output',
@@ -133,9 +143,8 @@
       };
     }
 
-    const stopsProject = (Boolean(project.stopFailure) && status !== 'stopped' && status !== 'stopping')
-      || ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active']
-        .includes(status);
+    const stopsProject = ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active']
+      .includes(status);
     if (stopsProject) {
       return { action: 'stop', disabled: busy, label: `Stop ${name}`, mode: 'stop' };
     }

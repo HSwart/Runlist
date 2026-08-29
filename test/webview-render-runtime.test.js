@@ -1741,7 +1741,7 @@ test('missing-required-env start failure uses Fix environment as the primary row
   assert.doesNotMatch(result.app.innerHTML, /data-action="fix-environment"[^>]*role="menuitem"/);
 });
 
-test('stop honesty keeps Stop and does not say Stopped while a port is up', () => {
+test('stop honesty uses View output primary with Stop in More and does not say Stopped while a port is up', () => {
   const result = renderNonEmptyProjectList([{
     activeLaunchProfileId: 'default',
     activeLaunchProfileName: 'Default',
@@ -1765,8 +1765,16 @@ test('stop honesty keeps Stop and does not say Stopped while a port is up', () =
     result.app.innerHTML,
     /class="project-status status-stop-failed"[^>]*>[\s\S]*<span>Port :3000 is still up<\/span>/
   );
-  assert.match(result.app.innerHTML, /class="run-button stop"[^>]*data-action="stop"[^>]*aria-label="Stop Live App"/);
+  assert.match(
+    result.app.innerHTML,
+    /class="run-button output"[^>]*data-action="output"[^>]*aria-label="View output for Live App"/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /data-action="stop" data-id="live" role="menuitem"[^>]*aria-label="Stop Live App"/
+  );
   assert.match(result.app.innerHTML, /data-action="force-close-ports"/);
+  assert.doesNotMatch(result.app.innerHTML, /class="run-button stop"[^>]*data-action="stop"/);
   assert.doesNotMatch(result.app.innerHTML, />Stopped</);
   assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
 });
