@@ -3493,3 +3493,34 @@ test('fails safely when the launching host is gone but its child may still be ru
   assert.equal(otherWindow.snapshot().has('project-1'), false);
   assert.equal(otherWindow.reserve('project-1'), undefined);
 });
+
+test('readPersistedSnapshot reads saved ownership without live process probes', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-persisted-snapshot-'));
+  let probeCount = 0;
+  const owner = new ProcessOwnershipStore(directory, {
+    pid: process.pid,
+    now: () => 1_000,
+    isProcessAlive: () => {
+      probeCount += 1;
+      return true;
+    }
+  });
+  const reader = new ProcessOwnershipStore(directory, {
+    pid: process.pid + 1,
+    now: () => 1_000,
+    isProcessAlive: () => {
+      probeCount += 1;
+      return true;
+    }
+  });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  owner.reserve('project-1');
+  owner.setProcess('project-1', process.pid);
+  probeCount = 0;
+
+  const snapshot = reader.readPersistedSnapshot('project-1');
+  assert.equal(probeCount, 0);
+  assert.equal(snapshot.get('project-1')?.state, 'running');
+  assert.equal(snapshot.get('project-1')?.ownerHeartbeatFresh, true);
+});
