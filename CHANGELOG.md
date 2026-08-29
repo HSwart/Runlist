@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.1 — Safety and recovery polish
+
+- Cancel an in-flight start when Delete is confirmed on a Starting row so no ghost process can appear after the row is gone.
+- Finish the Add this folder rename on the add form, command palette, and run-group editor.
+- Confirm Stop all before stopping two or more running projects.
+- Cycle Needs attention through every visible row that needs it, and include folder-missing and taking-longer rows in the attention set.
+- Make View output the primary action after a generic start failure so users see why Start failed without opening More first.
+- Add Open in browser to the preview-unavailable overlay when the app can be opened externally.
+- Name the blocking service and port on taking-longer and not-responding rows.
+- Refresh Marketplace gallery stills for current add and row UX.
+
 ## 0.1.0 — Focus the core loop
 
 - Collapse advanced Add fields under More options so first save is folder + start command.
