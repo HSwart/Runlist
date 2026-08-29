@@ -96,7 +96,12 @@ function renderAttentionNavigationHarness(projects, {
     clearInterval() {},
     clearTimeout() {},
     document,
-    requestAnimationFrame() { return 1; },
+    requestAnimationFrame(callback) {
+      if (typeof callback === 'function') {
+        callback();
+      }
+      return 1;
+    },
     setInterval() { return 1; },
     setTimeout() { return 1; },
     window: {
@@ -126,6 +131,9 @@ function renderAttentionNavigationHarness(projects, {
     evaluate(source) {
       return vm.runInNewContext(source, context);
     },
+    getSearchStatus() {
+      return elements.get('project-search-status');
+    },
     runButtons,
     savedStates
   };
@@ -136,6 +144,189 @@ test('shows Needs attention count in label and aria-label when multiple rows nee
   assert.match(webview, /count > 1 \? `Needs attention \(\$\{count\}\)` : 'Needs attention'/);
   assert.match(webview, /Focus next project that needs attention, \$\{count\} projects/);
   assert.match(webview, /id="attention-focus-status"/);
+});
+
+function setHiddenProjectRows(harness, hiddenProjectIds) {
+  harness.evaluate(`
+    document.querySelectorAll('.project-row').forEach((row) => {
+      row.hidden = ${JSON.stringify(hiddenProjectIds)}.includes(row.dataset.projectId);
+    });
+  `);
+}
+
+test('keeps total attention count when filters hide troubled rows', () => {
+  const projects = [
+    {
+      id: 'alpha',
+      name: 'Alpha',
+      status: 'port-in-use',
+      folder: '/alpha',
+      services: []
+    },
+    {
+      id: 'bravo',
+      name: 'Bravo',
+      reviewRequired: true,
+      status: 'stopped',
+      folder: '/bravo',
+      services: []
+    }
+  ];
+  const harness = renderAttentionNavigationHarness(projects, {
+    hiddenProjectIds: ['alpha']
+  });
+  setHiddenProjectRows(harness, ['alpha']);
+
+  const html = harness.evaluate('attentionSummaryHtml(state.projects)');
+  assert.match(html, />Needs attention \(2\)</);
+  assert.doesNotMatch(html, />Needs attention \(1\)</);
+});
+
+test('shows Clear filters when attention rows are hidden by filters', () => {
+  const projects = [
+    {
+      id: 'alpha',
+      name: 'Alpha',
+      status: 'port-in-use',
+      folder: '/alpha',
+      services: []
+    },
+    {
+      id: 'bravo',
+      name: 'Bravo',
+      reviewRequired: true,
+      status: 'stopped',
+      folder: '/bravo',
+      services: []
+    }
+  ];
+  const harness = renderAttentionNavigationHarness(projects, {
+    hiddenProjectIds: ['alpha']
+  });
+  setHiddenProjectRows(harness, ['alpha']);
+
+  const html = harness.evaluate('attentionSummaryHtml(state.projects)');
+  assert.match(html, /data-action="clear-filters-for-attention"/);
+  assert.match(html, />Clear filters</);
+  assert.match(html, /class="summary-attention-group"/);
+});
+
+test('aria-label reports visible and hidden attention counts when filters hide some rows', () => {
+  const projects = [
+    {
+      id: 'alpha',
+      name: 'Alpha',
+      status: 'port-in-use',
+      folder: '/alpha',
+      services: []
+    },
+    {
+      id: 'bravo',
+      name: 'Bravo',
+      reviewRequired: true,
+      status: 'stopped',
+      folder: '/bravo',
+      services: []
+    },
+    {
+      id: 'charlie',
+      name: 'Charlie',
+      status: 'not-ready',
+      folder: '/charlie',
+      services: []
+    }
+  ];
+  const harness = renderAttentionNavigationHarness(projects, {
+    hiddenProjectIds: ['alpha', 'charlie']
+  });
+  setHiddenProjectRows(harness, ['alpha', 'charlie']);
+
+  const html = harness.evaluate('attentionSummaryHtml(state.projects)');
+  assert.match(html, /aria-label="Focus next project that needs attention, 1 of 3 visible, 2 hidden by filters"/);
+});
+
+test('does not show Clear filters when all attention rows are visible', () => {
+  const projects = [
+    {
+      id: 'alpha',
+      name: 'Alpha',
+      status: 'port-in-use',
+      folder: '/alpha',
+      services: []
+    },
+    {
+      id: 'bravo',
+      name: 'Bravo',
+      reviewRequired: true,
+      status: 'stopped',
+      folder: '/bravo',
+      services: []
+    }
+  ];
+  const harness = renderAttentionNavigationHarness(projects);
+
+  const html = harness.evaluate('attentionSummaryHtml(state.projects)');
+  assert.doesNotMatch(html, /clear-filters-for-attention/);
+  assert.doesNotMatch(html, /summary-attention-group/);
+});
+
+test('announces hidden attention rows when cycling finds none visible', () => {
+  const projects = [
+    {
+      id: 'alpha',
+      name: 'Alpha',
+      status: 'port-in-use',
+      folder: '/alpha',
+      services: []
+    }
+  ];
+  const harness = renderAttentionNavigationHarness(projects, {
+    hiddenProjectIds: ['alpha']
+  });
+  setHiddenProjectRows(harness, ['alpha']);
+
+  harness.evaluate('focusNextAttentionProject()');
+  assert.equal(
+    harness.getSearchStatus().textContent,
+    'Some projects that need attention are hidden by your filters.'
+  );
+  assert.equal(harness.runButtons[0].focusCount, 0);
+});
+
+test('clear-filters-for-attention resets filters and focuses the first attention row', () => {
+  const projects = [
+    {
+      id: 'alpha',
+      name: 'Alpha',
+      status: 'port-in-use',
+      folder: '/alpha',
+      services: []
+    },
+    {
+      id: 'bravo',
+      name: 'Bravo',
+      status: 'stopped',
+      folder: '/bravo',
+      services: []
+    }
+  ];
+  const harness = renderAttentionNavigationHarness(projects, {
+    hiddenProjectIds: ['alpha']
+  });
+  setHiddenProjectRows(harness, ['alpha']);
+
+  harness.evaluate(`
+    searchQuery = 'bravo';
+    selectedTagFilter = 'work';
+    selectedGroupFilter = 'group-1';
+    handleClearFiltersForAttention();
+  `);
+
+  assert.equal(harness.evaluate('searchQuery'), '');
+  assert.equal(harness.evaluate('selectedTagFilter'), '');
+  assert.equal(harness.evaluate('selectedGroupFilter'), '');
+  assert.equal(harness.runButtons[0].focusCount, 1);
+  assert.equal(harness.attentionFocusStatus.textContent, 'Focused Alpha.');
 });
 
 test('cycles through visible attention rows in list order and wraps', () => {
