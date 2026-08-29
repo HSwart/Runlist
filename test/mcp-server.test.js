@@ -19,6 +19,7 @@ const {
   controllableInThisWindow,
   createRequestLineParser,
   MAX_JSON_RPC_REQUEST_BYTES,
+  STATUS_SOURCE_NOTE,
   STATUS_STALENESS_NOTE
 } = require('../mcp/server');
 const { readShippedHostSource } = require('./helpers/extension-source');
@@ -344,6 +345,8 @@ test('serves the setup tool over MCP stdio', async (t) => {
   assert.equal(emptyList.result.structuredContent.projectCount, 0);
   assert.equal(emptyList.result.structuredContent.truncated, false);
   assert.equal(emptyList.result.structuredContent.statusNote, STATUS_STALENESS_NOTE);
+  assert.match(emptyList.result.content[0].text, /configured service names and ports/);
+  assert.match(emptyList.result.content[0].text, /does not read project environment files/);
   assert.deepEqual(emptyList.result.structuredContent.projects, []);
 
   const rejectedLegacyServiceField = await request('tools/call', {
