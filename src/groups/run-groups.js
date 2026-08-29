@@ -493,7 +493,7 @@ async function editRunGroup(group, options) {
       }] : []),
       ...(available.length && projectIds.length < 20 ? [{
         action: 'add',
-        label: '$(add) Add project',
+        label: '$(add) Add to group',
         description: 'Append a saved project to the startup order'
       }] : []),
       ...projectIds.map((projectId, index) => ({

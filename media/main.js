@@ -2395,7 +2395,7 @@ function renderRunGroupsEditor() {
           }).join('') : '<p class="screen-copy">Add at least one saved project.</p>'}
         </div>
         ${unusedProjects.length && draft.projectIds.length < 20 ? `
-          <label class="screen-field" for="run-group-add-project">Add project</label>
+          <label class="screen-field" for="run-group-add-project">Add to group</label>
           <div class="run-group-add-row">
             <select id="run-group-add-project">
               ${unusedProjects.map((project) => `<option value="${escapeHtml(String(project.id))}">${escapeHtml(project.name)}</option>`).join('')}
