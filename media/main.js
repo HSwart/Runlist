@@ -838,7 +838,7 @@ function projectNeedsAttention(project) {
   if (project.reviewRequired) {
     return true;
   }
-  if (['port-in-use', 'port-in-use-unknown', 'ownership-lost', 'not-responding'].includes(project.status)) {
+  if (['port-in-use', 'port-in-use-unknown', 'not-responding'].includes(project.status)) {
     return true;
   }
   if (project.status === 'not-ready') {
@@ -848,6 +848,9 @@ function projectNeedsAttention(project) {
     return true;
   }
   if (projectCanRelinkFolder(project)) {
+    return true;
+  }
+  if (projectPrimaryAction(project).action === 'add-stop-command') {
     return true;
   }
   return Boolean(projectStartFailureText(project) || projectStopFailureText(project));
