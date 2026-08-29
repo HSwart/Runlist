@@ -26,7 +26,7 @@ test('closes automation issues when an automation pull request merges', () => {
   assert.doesNotMatch(workflow, unpinnedAction);
 });
 
-test('auto-merges green automation pull requests', () => {
+test('auto-merges approved automation pull requests when checks pass', () => {
   const workflow = fs.readFileSync(
     path.join(root, '.github', 'workflows', 'automation-auto-merge.yml'),
     'utf8'
@@ -35,10 +35,16 @@ test('auto-merges green automation pull requests', () => {
 
   assert.match(workflow, /^name: Automation auto-merge$/m);
   assert.match(workflow, /workflow_run:/);
+  assert.match(workflow, /pull_request_review:/);
+  assert.match(workflow, /types:\s*\[submitted\]/);
+  assert.match(workflow, /github\.event\.review\.state == 'approved'/);
   assert.match(workflow, /- Test/);
   assert.match(workflow, /- Same-repo authors only/);
   assert.match(workflow, /- Security/);
   assert.match(workflow, /github\.event\.workflow_run\.conclusion == 'success'/);
+  assert.match(workflow, /reviewDecision/);
+  assert.match(workflow, /REVIEW_DECISION/);
+  assert.match(workflow, /!= "APPROVED"/);
   assert.match(workflow, /automation\//);
   assert.match(workflow, /gh pr ready/);
   assert.match(workflow, /gh pr merge/);

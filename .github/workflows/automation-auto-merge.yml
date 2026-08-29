@@ -7,6 +7,8 @@ on:
       - Same-repo authors only
       - Security
     types: [completed]
+  pull_request_review:
+    types: [submitted]
 
 permissions:
   contents: write
@@ -16,23 +18,37 @@ permissions:
 jobs:
   auto-merge:
     name: Merge green automation pull requests
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request'
+    if: >
+      (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'pull_request') ||
+      (github.event_name == 'pull_request_review' &&
+        github.event.review.state == 'approved' &&
+        startsWith(github.event.pull_request.head.ref, 'automation/'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Merge automation pull request when checks pass
+      - name: Merge approved automation pull request when checks pass
         env:
           GH_TOKEN: ${{ github.token }}
-          BRANCH: ${{ github.event.workflow_run.head_branch }}
           REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          REVIEW_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
+          if [ "$EVENT_NAME" = "workflow_run" ]; then
+            BRANCH="$WORKFLOW_BRANCH"
+          else
+            BRANCH="$REVIEW_BRANCH"
+          fi
+
           if ! echo "$BRANCH" | grep -q '^automation/'; then
             echo "Branch $BRANCH is not automation/*; skipping."
             exit 0
           fi
 
           PR_JSON=$(gh pr list --repo "$REPOSITORY" --head "$BRANCH" --state open \
-            --json number,isDraft,mergeable,statusCheckRollup)
+            --json number,isDraft,mergeable,reviewDecision,statusCheckRollup)
           PR_NUMBER=$(echo "$PR_JSON" | jq -r '.[0].number // empty')
           if [ -z "$PR_NUMBER" ]; then
             echo "No open pull request for $BRANCH."
@@ -43,6 +59,12 @@ jobs:
           if [ "$IS_DRAFT" = "true" ]; then
             gh pr ready "$PR_NUMBER" --repo "$REPOSITORY"
             echo "Marked PR #$PR_NUMBER ready; waiting for checks to rerun."
+            exit 0
+          fi
+
+          REVIEW_DECISION=$(echo "$PR_JSON" | jq -r '.[0].reviewDecision // empty')
+          if [ "$REVIEW_DECISION" != "APPROVED" ]; then
+            echo "PR #$PR_NUMBER is not approved (reviewDecision=$REVIEW_DECISION)."
             exit 0
           fi
 
