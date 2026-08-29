@@ -8,6 +8,7 @@
 }(typeof globalThis === 'object' ? globalThis : this, () => {
   const WEBVIEW_MESSAGE_TYPES = new Set([
     'diagnosisRequestCopied',
+    'diagnosisRequestSent',
     'outputCopied',
     'projectHttpPulse',
     'projectMetrics',
@@ -20,6 +21,7 @@
     'approveComposeImport',
     'closeScreen',
     'copyDiagnosisRequest',
+    'askAgentForDiagnosis',
     'copyOutput',
     'copyPhoneUrl',
     'copyProjectPath',
