@@ -693,6 +693,69 @@ test('keeps conflict-owner HTML escaped while announcing its raw name', () => {
   assert.doesNotMatch(result.lifecycleStatus.textContent, /&amp;|&lt;|&gt;/);
 });
 
+test('shows blocking service name and port on not-ready and not-responding list rows', () => {
+  const notReady = renderNonEmptyProjectList([
+    {
+      activeLaunchProfileId: 'default',
+      activeLaunchProfileName: 'Default',
+      detailsExpanded: false,
+      folder: 'C:\\Projects\\Example',
+      id: 'example',
+      launchProfiles: [],
+      name: 'Example',
+      openPorts: [3000],
+      pinned: false,
+      reviewRequired: false,
+      services: [
+        { name: 'Web', port: 3000 },
+        { name: 'API', port: 4000 }
+      ],
+      serviceReadiness: {
+        ready: [{ name: 'Web', port: 3000 }],
+        waiting: [{ name: 'API', port: 4000 }],
+        notResponding: []
+      },
+      status: 'not-ready',
+      tags: [],
+      timeline: { launchedAt: Date.now() - 5000 }
+    }
+  ]);
+
+  assert.match(notReady.app.innerHTML, /Taking longer — API :4000/);
+  assert.doesNotMatch(notReady.app.innerHTML, /class="project-readiness-detail"/);
+
+  const notResponding = renderNonEmptyProjectList([
+    {
+      activeLaunchProfileId: 'default',
+      activeLaunchProfileName: 'Default',
+      detailsExpanded: false,
+      folder: 'C:\\Projects\\Example',
+      id: 'example',
+      launchProfiles: [],
+      name: 'Example',
+      openPorts: [3000, 4000],
+      pinned: false,
+      reviewRequired: false,
+      services: [
+        { name: 'Web', port: 3000 },
+        { name: 'API', port: 4000 },
+        { name: 'Worker', port: 5000 }
+      ],
+      serviceReadiness: {
+        ready: [{ name: 'Web', port: 3000 }],
+        waiting: [],
+        notResponding: [{ name: 'API', port: 4000 }, { name: 'Worker', port: 5000 }]
+      },
+      status: 'not-responding',
+      tags: [],
+      timeline: { launchedAt: Date.now() - 5000 }
+    }
+  ]);
+
+  assert.match(notResponding.app.innerHTML, /Web service not responding — API :4000 \+1 more/);
+  assert.doesNotMatch(notResponding.app.innerHTML, /class="project-readiness-detail"/);
+});
+
 test('announces contextual project and service status changes once without noisy repeats', () => {
   const result = renderNonEmptyProjectList([
     {
