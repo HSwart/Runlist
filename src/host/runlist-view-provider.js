@@ -199,7 +199,15 @@ const {
   resolveLaunchProfile,
   selectedLaunchProfileId
 } = require('../projects/launch-profile');
-const { ProjectLifecycleCoordinator, stopAllConfirmation } = require('../lifecycle/project-lifecycle');
+const {
+  buildStartFailureClipboardText,
+  buildStopFailureClipboardText
+} = require('../integrations/failure-clipboard');
+const {
+  ProjectLifecycleCoordinator,
+  stopAllConfirmation,
+  stopGroupConfirmation
+} = require('../lifecycle/project-lifecycle');
 const { RunlistDiagnostics } = require('../lifecycle/runlist-diagnostics');
 const { mapWithConcurrency } = require('../lifecycle/bounded-work');
 const { createRunlistWebviewRouter } = require('../webview/webview-message-router');
@@ -1147,6 +1155,43 @@ class RunlistViewProvider {
       this.showLifecycleBlocked(blockedProject);
       return false;
     }
+    if (!group) {
+      return false;
+    }
+
+    const ownership = this.processOwnership.snapshot();
+    const groupProjects = group.projectIds
+      .map((projectId) => this.projects.find((project) => project.id === projectId))
+      .filter(Boolean)
+      .map((project) => ({
+        ...projectStopStrategy(project, ownership.get(project.id)),
+        status: this.getProjectStatus(project.id)
+      }));
+    const stoppableIds = stoppableProjectIds(groupProjects);
+    if (!stoppableIds.length) {
+      this.renderProjectList();
+      return false;
+    }
+
+    const stoppableNames = stoppableIds.map((projectId) => (
+      this.projects.find((project) => project.id === projectId)?.name
+    )).filter(Boolean);
+    const confirmation = stopGroupConfirmation({
+      groupName: group.name,
+      stoppableCount: stoppableIds.length,
+      projectNames: stoppableNames
+    });
+    const choice = await vscode.window.showWarningMessage(
+      confirmation.message,
+      { modal: true, detail: confirmation.detail },
+      confirmation.confirmLabel
+    );
+    if (choice !== confirmation.confirmLabel) {
+      this.focusTarget = { type: 'action', action: 'stop-group', id };
+      this.renderProjectList();
+      return false;
+    }
+
     return this.lifecycle.stopGroup(id);
   }
 
@@ -2507,6 +2552,45 @@ class RunlistViewProvider {
       type: 'diagnosisRequestCopied',
       messageToken: this.webviewMessageToken
     });
+  }
+
+  async copyProjectFailure(id) {
+    const project = this.projects.find((item) => item.id === id);
+    if (!project) {
+      return;
+    }
+    const status = this.getProjectStatus(id);
+    const output = this.redactProjectOutputText(id, this.projectOutputs.get(id));
+    const stopFailure = this.projectStopFailures?.get(id);
+    const startFailure = this.rowStartFailureSummary(id, status);
+    let clipboardText;
+    let confirmationMessage;
+    if (stopFailure
+      && status !== 'stopped'
+      && status !== 'stopping') {
+      clipboardText = buildStopFailureClipboardText({
+        name: project.name,
+        stopFailure,
+        output
+      });
+      confirmationMessage = `Copied stop error for ${project.name}.`;
+    } else if (startFailure) {
+      clipboardText = buildStartFailureClipboardText({
+        name: project.name,
+        failureSummary: startFailure,
+        output
+      });
+      confirmationMessage = `Copied start error for ${project.name}.`;
+    } else {
+      vscode.window.showWarningMessage(`No start error is available for ${project.name}.`);
+      this.focusTarget = { type: 'project-menu', id };
+      this.renderProjectList();
+      return;
+    }
+    await vscode.env.clipboard.writeText(clipboardText);
+    vscode.window.showInformationMessage(confirmationMessage);
+    this.focusTarget = { type: 'project-menu', id };
+    this.renderProjectList();
   }
 
   async askAgentForDiagnosis(id) {

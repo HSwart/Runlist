@@ -59,6 +59,7 @@ let firstListRender = true;
 let tagsExpanded = Boolean(persistedWebviewState.tagsExpanded);
 let groupsExpanded = Boolean(persistedWebviewState.groupsExpanded);
 let selectedGroupFilter = String(persistedWebviewState.groupFilter || '');
+let reviewFilterActive = persistedWebviewState.reviewFilterActive === true;
 let attentionFocusSignature = String(persistedWebviewState.attentionFocusSignature || '');
 let lastAttentionFocusId = String(persistedWebviewState.lastAttentionFocusId || '');
 let runGroupDraft = undefined;
@@ -516,6 +517,7 @@ function saveWebviewState() {
     tagsExpanded,
     groupsExpanded,
     groupFilter: selectedGroupFilter,
+    reviewFilterActive,
     filterRevisionSeen,
     filterRevision,
     searchQuery,
@@ -962,6 +964,19 @@ function statusSummaryHtml(projects) {
   return `<span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running${startingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${startingCount} starting` : ''}${notReadyCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notReadyCount} taking longer` : ''}${notRespondingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notRespondingCount} not responding` : ''}${stoppingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${stoppingCount} stopping` : ''}${ownershipLostCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${ownershipLostCount} control unavailable` : ''} <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped${reviewCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${reviewCount} to review` : ''}${conflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${conflictCount} unavailable` : ''}${unsupportedCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${unsupportedCount} local only` : ''}`;
 }
 
+function reviewFilterSummaryHtml(projects) {
+  const reviewCount = (projects || []).filter((project) => project.reviewRequired).length;
+  if (!reviewCount) {
+    return '';
+  }
+  const label = `Review setup (${reviewCount})`;
+  const pressed = reviewFilterActive ? 'true' : 'false';
+  const ariaLabel = reviewFilterActive
+    ? `Showing ${reviewCount} ${reviewCount === 1 ? 'project' : 'projects'} to review. Clear review filter.`
+    : `Show ${reviewCount} ${reviewCount === 1 ? 'project' : 'projects'} to review`;
+  return `<button type="button" class="active-review-chip" data-action="toggle-review-filter" aria-pressed="${pressed}" aria-label="${escapeHtml(ariaLabel)}" title="${escapeHtml(label)}">${escapeHtml(label)}${reviewFilterActive ? ` ${icon('close')}` : ''}</button>`;
+}
+
 function attentionSummaryHtml(projects) {
   const attentionProjects = (projects || []).filter((project) => projectNeedsAttention(project));
   if (!attentionProjects.length) {
@@ -983,7 +998,7 @@ function attentionSummaryHtml(projects) {
   }
   const attentionButton = `<button type="button" class="summary-attention" data-action="focus-attention" aria-label="${escapeHtml(ariaLabel)}">${autoScrollHtml(escapeHtml(label))}</button>`;
   if (hiddenCount > 0) {
-    const clearButton = `<button type="button" class="summary-attention-clear" data-action="clear-filters-for-attention" aria-label="Clear search, tag, and group filters to show projects that need attention">${escapeHtml('Clear filters')}</button>`;
+    const clearButton = `<button type="button" class="summary-attention-clear" data-action="clear-filters-for-attention" aria-label="Clear search, tag, group, and review filters to show projects that need attention">${escapeHtml('Clear filters')}</button>`;
     return `<div class="summary-attention-group">${attentionButton}${clearButton}</div>`;
   }
   return attentionButton;
@@ -1138,6 +1153,11 @@ function renderList() {
   if (syncAttentionFocusState(state.projects)) {
     webviewStateChanged = true;
   }
+  const reviewCount = state.projects.filter((project) => project.reviewRequired).length;
+  if (!reviewCount && reviewFilterActive) {
+    reviewFilterActive = false;
+    webviewStateChanged = true;
+  }
   if (webviewStateChanged) {
     saveWebviewState();
   }
@@ -1219,7 +1239,7 @@ function renderList() {
           </button>` : ''}
       </span>
     </header>
-    <div id="summary-attention-slot" class="summary-attention-slot">${attentionSummaryHtml(state.projects)}</div>
+    <div id="summary-attention-slot" class="summary-attention-slot">${reviewFilterSummaryHtml(state.projects)}${attentionSummaryHtml(state.projects)}</div>
     <span id="attention-focus-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span>
     <span id="project-lifecycle-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span>
     ${state.routeNotice ? `
@@ -1301,6 +1321,14 @@ function renderList() {
         const blocked = conflicted || project.lifecycleBlocked;
         const showAddStopCommand = !reviewRequired
           && ((detectedWithoutStop || ownershipLostWithoutStop) && !project.stopFailure);
+        const showCopyError = !transitioning
+          && !project.handoffInProgress
+          && ((!reviewRequired
+            && projectStatus === 'stopped'
+            && project.failureSummary)
+          || (Boolean(project.stopFailure)
+            && projectStatus !== 'stopped'
+            && projectStatus !== 'stopping'));
         const primaryButtonClass = reviewRequired
           || primaryAction.action === 'edit'
           || primaryAction.action === 'add-stop-command'
@@ -1459,6 +1487,10 @@ function renderList() {
                   <button data-action="copy-project-path" data-id="${projectId}" role="menuitem" title="Copy the saved folder path for ${projectName}">
                     ${icon('copy', 'menu-icon')}<span>Copy project path</span>
                   </button>
+                  ${showCopyError ? `
+                  <button data-action="copy-error" data-id="${projectId}" role="menuitem" aria-label="Copy ${project.stopFailure && projectStatus !== 'stopped' ? 'stop' : 'start'} error for ${projectName}" title="Copy the latest error for ${projectName}">
+                    ${icon('copy', 'menu-icon')}<span>Copy error</span>
+                  </button>` : ''}
                   <button data-action="output" data-id="${projectId}" role="menuitem">
                     ${icon('terminal', 'menu-icon')}<span>View output</span>
                   </button>
@@ -1513,7 +1545,7 @@ function renderList() {
       <div class="search-empty" data-search-empty hidden>
         <h2>No matching projects</h2>
         <p>Try a different search or clear your filters.</p>
-        <button type="button" class="primary-button" data-action="clear-filters" aria-label="Clear search, tag, and group filters">Clear filters</button>
+        <button type="button" class="primary-button" data-action="clear-filters" aria-label="Clear search, tag, group, and review filters">Clear filters</button>
       </div>
     </section>`;
 
@@ -1602,6 +1634,7 @@ function clearProjectFilters() {
   searchQuery = '';
   selectedTagFilter = '';
   selectedGroupFilter = '';
+  reviewFilterActive = false;
   publishFilterState('setSearchQuery');
   applyProjectFilter('');
 }
@@ -1635,7 +1668,8 @@ function applyProjectFilter(query) {
       normalizeTagIdentity(tag) === normalizedTag
     ));
     const matchesGroup = !groupMemberIds || groupMemberIds.has(String(project.id));
-    return matchesQuery && matchesTag && matchesGroup;
+    const matchesReview = !reviewFilterActive || project.reviewRequired === true;
+    return matchesQuery && matchesTag && matchesGroup && matchesReview;
   });
   const matchingIds = new Set(matchingProjects.map((project) => String(project.id)));
 
@@ -1643,7 +1677,10 @@ function applyProjectFilter(query) {
     row.hidden = !matchingIds.has(row.dataset.projectId);
   });
 
-  const filtering = normalizedQuery.length > 0 || normalizedTag.length > 0 || Boolean(activeGroup);
+  const filtering = normalizedQuery.length > 0
+    || normalizedTag.length > 0
+    || Boolean(activeGroup)
+    || reviewFilterActive;
   const projectCount = document.getElementById('project-count');
   if (projectCount) {
     projectCount.innerHTML = filtering
@@ -1669,7 +1706,8 @@ function applyProjectFilter(query) {
   if (status) {
     const filters = [
       normalizedTag ? `tag ${selectedTagFilter}` : '',
-      activeGroup ? `group ${activeGroup.name}` : ''
+      activeGroup ? `group ${activeGroup.name}` : '',
+      reviewFilterActive ? 'review setup' : ''
     ].filter(Boolean);
     status.textContent = filtering
       ? `${matchingIds.size} ${matchingIds.size === 1 ? 'project' : 'projects'} shown${filters.length ? `, filtered by ${filters.join(' and ')}` : ''}`
@@ -3005,6 +3043,13 @@ app.addEventListener('click', (event) => {
       renderList();
       requestAnimationFrame(() => document.querySelector('[data-action="toggle-group-filter"]')?.focus());
     },
+    'toggle-review-filter': () => {
+      reviewFilterActive = !reviewFilterActive;
+      saveWebviewState();
+      publishFilterState('setSearchQuery');
+      renderList();
+      requestAnimationFrame(() => document.querySelector('[data-action="toggle-review-filter"]')?.focus());
+    },
     'create-run-group': () => {
       beginRunGroupDraft();
       renderRunGroupsEditor();
@@ -3209,6 +3254,10 @@ app.addEventListener('click', (event) => {
     'copy-project-path': () => {
       closeMenus();
       vscode.postMessage({ type: 'copyProjectPath', id: button.dataset.id });
+    },
+    'copy-error': () => {
+      closeMenus();
+      vscode.postMessage({ type: 'copyProjectFailure', id: button.dataset.id });
     },
     'relink-folder': () => {
       closeMenus();

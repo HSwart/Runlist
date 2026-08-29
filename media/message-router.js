@@ -21,6 +21,7 @@
     'approveComposeImport',
     'closeScreen',
     'copyDiagnosisRequest',
+    'copyProjectFailure',
     'askAgentForDiagnosis',
     'copyOutput',
     'copyPhoneUrl',
@@ -81,6 +82,7 @@
   ]);
   const ID_COMMAND_TYPES = new Set([
     'copyProjectPath',
+    'copyProjectFailure',
     'deleteProject',
     'forceCloseProjectPorts',
     'forceCloseProjectPortsAndStart',

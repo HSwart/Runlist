@@ -138,6 +138,11 @@ test('askAgentForDiagnosis falls back to diagnosis screen when no agent is conne
   provider.projects = [project];
   provider.mode = 'output';
   provider.selectedProjectId = project.id;
+  provider.agentConnections = {
+    copilot: { status: 'idle', message: '' },
+    codex: { status: 'idle', message: '' },
+    claude: { status: 'idle', message: '' }
+  };
 
   await provider.askAgentForDiagnosis(project.id);
 

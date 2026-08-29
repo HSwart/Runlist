@@ -1918,7 +1918,7 @@ test('active filters with zero matches show help text and Clear filters', () => 
 
   assert.match(result.app.innerHTML, /data-search-empty/);
   assert.match(result.app.innerHTML, /Try a different search or clear your filters\./);
-  assert.match(result.app.innerHTML, /data-action="clear-filters"[^>]*aria-label="Clear search, tag, and group filters"/);
+  assert.match(result.app.innerHTML, /data-action="clear-filters"[^>]*aria-label="Clear search, tag, group, and review filters"/);
   assert.match(result.app.innerHTML, />Clear filters</);
   assert.equal(result.searchEmpty.hidden, false);
   assert.deepEqual(result.projectRows.map((row) => row.hidden), [true, true]);
