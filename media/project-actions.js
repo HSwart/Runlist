@@ -71,6 +71,17 @@
         mode: 'review'
       };
     }
+    if (status === 'stopped'
+      && project.failureSummary
+      && typeof project.failureSummary === 'object'
+      && !isMissingRequiredEnvFailure(project.failureSummary)) {
+      return {
+        action: 'output',
+        disabled: busy,
+        label: `View output for ${name}`,
+        mode: 'output'
+      };
+    }
     if (status === 'stopping') {
       return {
         action: 'stop',

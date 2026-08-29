@@ -1354,7 +1354,9 @@ function renderList() {
                     ? icon('edit')
                     : primaryAction.action === 'relink-folder'
                       ? icon('folder')
-                      : productIcon(primaryAction.mode === 'stop' ? 'stop' : 'play')}
+                      : primaryAction.action === 'output'
+                        ? icon('terminal')
+                        : productIcon(primaryAction.mode === 'stop' ? 'stop' : 'play')}
                 </button>
                 ${canRestart ? `
                 <button class="run-button restart" data-action="restart" data-id="${projectId}" aria-label="Restart ${projectName}" title="Restart ${projectName}" ${transitioning ? 'disabled' : ''}>
@@ -1380,6 +1382,10 @@ function renderList() {
                   <button data-action="output" data-id="${projectId}" role="menuitem">
                     ${icon('terminal', 'menu-icon')}<span>View output</span>
                   </button>
+                  ${primaryAction.action === 'output' ? `
+                  <button data-action="start" data-id="${projectId}" role="menuitem" aria-label="Start ${projectName}" title="Start ${projectName}" ${primaryAction.disabled || blocked ? 'disabled' : ''}>
+                    ${productIcon('play', 'menu-icon')}<span>Start</span>
+                  </button>` : ''}
                   <button data-action="restart" data-id="${projectId}" role="menuitem" aria-label="Restart ${projectName}" ${canRestart ? '' : 'disabled'}>
                     ${icon('refresh', 'menu-icon')}<span>Restart</span>
                   </button>
