@@ -16,6 +16,7 @@ const { readShippedHostSource } = require('./helpers/extension-source');
 test('allowlists the complete host-to-webview message contract', () => {
   assert.deepEqual([...WEBVIEW_MESSAGE_TYPES].sort(), [
     'diagnosisRequestCopied',
+    'diagnosisRequestSent',
     'outputCopied',
     'projectHttpPulse',
     'projectMetrics',
