@@ -1348,6 +1348,43 @@ test('Edit and Review setup screens do not show Add-form start chips', () => {
   assert.doesNotMatch(review.app.innerHTML, /data-action="use-draft-start-script"/);
 });
 
+test('not-ready row names the first blocking service on line 2 without expanding readiness detail', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: '/Users/shared/Projects/example',
+    id: 'example',
+    launchProfiles: [],
+    name: 'Example',
+    openPorts: [3000],
+    pinned: false,
+    previewExpanded: false,
+    reviewRequired: false,
+    services: [
+      { name: 'Web', port: 3000 },
+      { name: 'API', port: 4000 },
+      { name: 'Worker', port: 5000 }
+    ],
+    serviceReadiness: {
+      ready: [{ name: 'Web', port: 3000 }],
+      waiting: [
+        { name: 'API', port: 4000 },
+        { name: 'Worker', port: 5000 }
+      ],
+      notResponding: []
+    },
+    status: 'not-ready',
+    tags: []
+  }]);
+
+  assert.match(
+    result.app.innerHTML,
+    /class="project-status status-not-ready"[^>]*>[\s\S]*<span>Taking longer… — API :4000 \+1 more<\/span>/
+  );
+  assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
+});
+
 test('renders everyday project rows without a competing folder path', () => {
   const result = renderNonEmptyProjectList([{
     activeLaunchProfileId: 'default',

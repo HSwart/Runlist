@@ -4,6 +4,7 @@ const { createWebviewMessageRouter } = window.RunlistMessageRouter;
 const { projectCanRelinkFolder, projectPrimaryAction } = window.RunlistProjectActions;
 const {
   projectDisplayedStatus,
+  projectRowStatusText,
   projectShowsMissingFolder,
   projectStartFailureText,
   projectStatusAnnouncement,
@@ -1278,7 +1279,7 @@ function renderList() {
               : project.failureSummary?.kind === 'missing-required-env'
                 ? 'Add the missing environment variables, then try Start again.'
                 : '';
-        const displayedStatus = projectDisplayedStatus(project);
+        const displayedStatus = projectRowStatusText(project);
         const startFailureText = projectStartFailureText(project);
         const stopFailureText = projectStopFailureText(project);
         const folderMissing = projectShowsMissingFolder(project);

@@ -157,6 +157,39 @@
     return rows.join('. ');
   }
 
+  function blockingServices(project = {}, status) {
+    const details = project.serviceReadiness || {};
+    if (status === 'not-responding') {
+      return details.notResponding || [];
+    }
+    if (status === 'not-ready') {
+      return [...(details.waiting || []), ...(details.notResponding || [])];
+    }
+    return [];
+  }
+
+  function formatBlockingServiceLabel(services) {
+    if (!services.length) {
+      return '';
+    }
+    const first = `${services[0].name} :${services[0].port}`;
+    const extra = services.length > 1 ? ` +${services.length - 1} more` : '';
+    return `${first}${extra}`;
+  }
+
+  function projectRowStatusText(project = {}) {
+    const code = projectStatusCode(project);
+    if (!['not-ready', 'not-responding'].includes(code)) {
+      return projectDisplayedStatus(project);
+    }
+    const blocking = blockingServices(project, code);
+    if (!blocking.length) {
+      return projectDisplayedStatus(project);
+    }
+    const label = projectStatusFullLabels(project)[code];
+    return `${label} — ${formatBlockingServiceLabel(blocking)}`;
+  }
+
   function projectStatusDetailText(project = {}) {
     if (project.forceClosing || project.handoffInProgress) {
       return '';
@@ -216,6 +249,7 @@
   return {
     projectDisplayedStatus,
     projectPrimaryStatusCode,
+    projectRowStatusText,
     projectShowsMissingFolder,
     projectStartFailureText,
     projectStatusAnnouncement,

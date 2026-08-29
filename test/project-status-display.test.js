@@ -3,6 +3,7 @@ const test = require('node:test');
 const {
   projectDisplayedStatus,
   projectPrimaryStatusCode,
+  projectRowStatusText,
   projectShowsMissingFolder,
   projectStatusAnnouncement,
   projectStatusDetailText
@@ -23,6 +24,93 @@ test('keeps Running, Starting, and Stopped as the status capsule on the happy pa
       portConflict: { ownerName: 'API' }
     }),
     /blocked by API/
+  );
+});
+
+test('names blocking services on not-ready and not-responding row line 2', () => {
+  assert.equal(projectRowStatusText({ name: 'App', status: 'not-ready' }), 'Starting…');
+  assert.equal(
+    projectRowStatusText({
+      name: 'App',
+      status: 'not-ready',
+      serviceReadiness: {
+        ready: [{ name: 'Web', port: 3000 }],
+        waiting: [{ name: 'API', port: 4000 }],
+        notResponding: []
+      }
+    }),
+    'Taking longer… — API :4000'
+  );
+  assert.equal(
+    projectRowStatusText({
+      name: 'App',
+      status: 'not-ready',
+      serviceReadiness: {
+        ready: [],
+        waiting: [
+          { name: 'API', port: 4000 },
+          { name: 'Worker', port: 5000 },
+          { name: 'Docs', port: 6000 }
+        ],
+        notResponding: []
+      }
+    }),
+    'Taking longer… — API :4000 +2 more'
+  );
+  assert.equal(
+    projectRowStatusText({
+      name: 'App',
+      status: 'not-ready',
+      serviceReadiness: {
+        ready: [],
+        waiting: [{ name: 'API', port: 4000 }],
+        notResponding: [{ name: 'Docs', port: 6000 }]
+      }
+    }),
+    'Taking longer… — API :4000 +1 more'
+  );
+
+  assert.equal(projectRowStatusText({ name: 'App', status: 'not-responding' }), 'Web service not responding');
+  assert.equal(
+    projectRowStatusText({
+      name: 'App',
+      status: 'not-responding',
+      serviceReadiness: {
+        ready: [{ name: 'Web', port: 3000 }],
+        waiting: [],
+        notResponding: [{ name: 'Docs', port: 4173 }]
+      }
+    }),
+    'Web service not responding — Docs :4173'
+  );
+  assert.equal(
+    projectRowStatusText({
+      name: 'App',
+      status: 'not-responding',
+      serviceReadiness: {
+        ready: [],
+        waiting: [],
+        notResponding: [
+          { name: 'Docs', port: 4173 },
+          { name: 'API', port: 4311 }
+        ]
+      }
+    }),
+    'Web service not responding — Docs :4173 +1 more'
+  );
+
+  assert.equal(projectRowStatusText({ name: 'App', status: 'running' }), 'Running');
+  assert.equal(
+    projectStatusAnnouncement({
+      name: 'App',
+      status: 'not-ready',
+      serviceReadiness: {
+        ready: [{ name: 'Web', port: 3000 }],
+        waiting: [{ name: 'API', port: 4000 }],
+        notResponding: []
+      }
+    }),
+    'App: Taking longer… Ready: Web :3000. Still checking: API :4000'
   );
 });
 
