@@ -3116,8 +3116,6 @@ app.addEventListener('click', (event) => {
       vscode.postMessage({ type: 'handoffProject', id: button.dataset.id });
     },
     'stop-all': () => {
-      button.disabled = true;
-      button.innerHTML = `${productIcon('loading', 'status-progress')}Stopping all…`;
       vscode.postMessage({ type: 'stopAllProjects' });
     }
   };
