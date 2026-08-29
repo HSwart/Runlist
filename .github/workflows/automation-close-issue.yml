@@ -1,0 +1,36 @@
+name: Automation issue lifecycle
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  issues: write
+  pull-requests: read
+
+jobs:
+  close-automation-issue:
+    name: Close automation issue on merge
+    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'automation/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Close issue from automation branch name
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          ISSUE=$(echo "$BRANCH" | sed -n 's|^automation/\([0-9][0-9]*\)-.*|\1|p')
+          if [ -z "$ISSUE" ]; then
+            echo "No issue number in branch $BRANCH; nothing to close."
+            exit 0
+          fi
+          STATE=$(gh issue view "$ISSUE" --repo "$REPOSITORY" --json state -q .state)
+          if [ "$STATE" != "OPEN" ]; then
+            echo "Issue #$ISSUE is already $STATE."
+            exit 0
+          fi
+          gh issue close "$ISSUE" --repo "$REPOSITORY" \
+            --comment "Closed automatically when automation PR #${PR_NUMBER} merged."
