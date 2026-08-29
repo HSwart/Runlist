@@ -25,7 +25,7 @@ async function main() {
   try {
     const phases = process.env.RUNLIST_SMOKE_PHASES
       ? process.env.RUNLIST_SMOKE_PHASES.split(',').map((phase) => phase.trim()).filter(Boolean)
-      : ['setup', 'lifecycle', 'adversarial'];
+      : ['setup', 'lifecycle', 'adversarial', 'env-presence'];
     for (const phase of phases) {
       process.stdout.write(`Starting Runlist extension-host smoke phase: ${phase}.\n`);
       await runTests({
