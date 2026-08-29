@@ -367,4 +367,18 @@ class ProjectLifecycleCoordinator {
   }
 }
 
-module.exports = { ProjectLifecycleCoordinator };
+function stopAllConfirmation(stoppableCount) {
+  return {
+    message: 'Stop all running projects?',
+    confirmLabel: 'Stop all',
+    detail: [
+      `This stops ${stoppableCount} running projects that Runlist started in this VS Code window.`,
+      '',
+      'Runlist does not stop external listeners or apps running in other VS Code windows.',
+      '',
+      'Are you sure you want to continue?'
+    ].join('\n')
+  };
+}
+
+module.exports = { ProjectLifecycleCoordinator, stopAllConfirmation };

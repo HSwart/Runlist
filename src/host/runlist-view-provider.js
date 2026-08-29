@@ -192,7 +192,7 @@ const {
   resolveLaunchProfile,
   selectedLaunchProfileId
 } = require('../projects/launch-profile');
-const { ProjectLifecycleCoordinator } = require('../lifecycle/project-lifecycle');
+const { ProjectLifecycleCoordinator, stopAllConfirmation } = require('../lifecycle/project-lifecycle');
 const { RunlistDiagnostics } = require('../lifecycle/runlist-diagnostics');
 const { mapWithConcurrency } = require('../lifecycle/bounded-work');
 const { createRunlistWebviewRouter } = require('../webview/webview-message-router');
@@ -5274,7 +5274,31 @@ class RunlistViewProvider {
     return choice === 'Run custom Stop';
   }
 
-  stopAllProjects() {
+  async stopAllProjects() {
+    const ownership = this.processOwnership.snapshot();
+    const stateProjects = this.projects.map((project) => ({
+      ...projectStopStrategy(project, ownership.get(project.id)),
+      status: this.getProjectStatus(project.id)
+    }));
+    const stoppableIds = stoppableProjectIds(stateProjects);
+    if (stoppableIds.length <= 1) {
+      this.lifecycle.stopAll();
+      return;
+    }
+
+    const confirmation = stopAllConfirmation(stoppableIds.length);
+    const choice = await vscode.window.showWarningMessage(
+      confirmation.message,
+      { modal: true, detail: confirmation.detail },
+      confirmation.confirmLabel
+    );
+
+    if (choice !== confirmation.confirmLabel) {
+      this.focusTarget = { type: 'action', action: 'stop-all' };
+      this.renderProjectList();
+      return;
+    }
+
     this.lifecycle.stopAll();
   }
 
