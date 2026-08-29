@@ -993,6 +993,45 @@ function autoScrollHtml(text) {
   return `<span class="auto-scroll"><span class="auto-scroll-content">${text}</span></span>`;
 }
 
+function groupProgressHtml(group) {
+  if (!group.progress) {
+    return `${group.projectIds.length} project${group.projectIds.length === 1 ? '' : 's'}`;
+  }
+  if (group.blockingProjectId) {
+    const projectName = escapeHtml(group.blockingProjectName || 'project');
+    const projectId = escapeHtml(String(group.blockingProjectId));
+    const focusButton = `<button type="button" class="group-blocking-focus" data-action="focus-group-blocking" data-project-id="${projectId}" aria-label="Show ${projectName}">${autoScrollHtml(projectName)}</button>`;
+    return `<span class="group-progress-failure">${escapeHtml(group.progress)} ${focusButton}</span>`;
+  }
+  return escapeHtml(group.progress);
+}
+
+function focusGroupBlockingProject(projectId) {
+  const project = state.projects.find((entry) => String(entry.id) === String(projectId));
+  if (!project) {
+    return;
+  }
+  const row = document.querySelector(`.project-row[data-project-id="${CSS.escape(String(projectId))}"]`);
+  if (!row) {
+    return;
+  }
+  if (row.hidden) {
+    clearProjectFilters();
+    renderList();
+    requestAnimationFrame(() => {
+      focusGroupBlockingProject(projectId);
+    });
+    return;
+  }
+  row.scrollIntoView({ block: 'nearest' });
+  const control = document.querySelector(`.run-button[data-id="${CSS.escape(String(projectId))}"]`);
+  control?.focus();
+  const status = document.getElementById('project-lifecycle-status');
+  if (status && project.name) {
+    status.textContent = `Focused ${project.name}.`;
+  }
+}
+
 function groupFilterHtml() {
   if (!state.groups?.length) {
     return '';
@@ -1017,7 +1056,7 @@ function groupFilterHtml() {
             <div class="group-choice-row">
               <button type="button" class="group-choice-name" data-action="select-group-filter" data-id="${groupId}" aria-pressed="${pressed}" title="${groupName}">
                 <strong>${groupName}</strong>
-                <span>${group.progress ? escapeHtml(group.progress) : `${group.projectIds.length} project${group.projectIds.length === 1 ? '' : 's'}`}</span>
+                <span>${groupProgressHtml(group)}</span>
               </button>
               <div class="group-choice-actions">
                 ${group.canStop
@@ -3088,6 +3127,7 @@ app.addEventListener('click', (event) => {
       });
     },
     'focus-attention': () => focusNextAttentionProject(),
+    'focus-group-blocking': () => focusGroupBlockingProject(button.dataset.projectId),
     'clear-filters-for-attention': () => handleClearFiltersForAttention(),
     'copy-phone-url': () => vscode.postMessage({
       type: 'copyPhoneUrl',

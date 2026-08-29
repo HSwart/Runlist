@@ -1172,9 +1172,18 @@ class RunlistViewProvider {
     return capability.supported;
   }
 
+  formatRunGroupFailureMessage(project, reason) {
+    const name = String(project?.name || '').trim() || 'a project';
+    const detail = String(reason || '').trim();
+    return detail ? `Blocked by ${name}. ${detail}` : `Blocked by ${name}.`;
+  }
+
   updateRunGroupProgress(group, progress) {
+    const failedProjectId = progress.project?.id
+      || progress.projectId
+      || progress.failedProjectIds?.[0];
     const project = progress.project
-      || readProjects(this.projectsFile).find((candidate) => candidate.id === progress.projectId);
+      || readProjects(this.projectsFile).find((candidate) => candidate.id === failedProjectId);
     const states = {
       starting: {
         busy: true,
@@ -1208,10 +1217,10 @@ class RunlistViewProvider {
       stopped: { busy: false, message: '' },
       failed: {
         busy: false,
-        message: progress.reason
-          || (project
-            ? `Blocked by ${project.name}.`
-            : 'The group could not complete safely.')
+        message: project
+          ? this.formatRunGroupFailureMessage(project, progress.reason)
+          : (progress.reason || 'The group could not complete safely.'),
+        ...(failedProjectId ? { failedProjectId } : {})
       }
     };
     this.runGroupStates.set(group.id, states[progress.status] || {
@@ -5549,7 +5558,11 @@ class RunlistViewProvider {
           return project && !this.lifecycleCapabilityFor(project).supported;
         }),
         memberNames: group.projectIds.map((id) => projectsById.get(id)?.name || 'Missing project'),
-        progress: progress?.message
+        progress: progress?.message,
+        blockingProjectId: progress?.failedProjectId,
+        blockingProjectName: progress?.failedProjectId
+          ? projectsById.get(progress.failedProjectId)?.name
+          : undefined
       };
     });
     const state = {

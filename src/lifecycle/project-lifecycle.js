@@ -136,11 +136,23 @@ class ProjectLifecycleCoordinator {
       this.showWarningMessage(`${group.name} is already starting or stopping in another VS Code window.`);
       this.host.renderProjectList();
     } else if (result.status === 'failed') {
-      this.showErrorMessage(
-        result.failureReason
-          ? `Could not finish stopping ${group.name}: ${result.failureReason}`
-          : `Runlist could not confirm that every owned process in ${group.name} stopped.`
-      );
+      const failedProject = readProjects(this.host.projectsFile)
+        .find((project) => project.id === result.failedProjectId);
+      if (result.failureReason && result.failedProjectId) {
+        this.showErrorMessage(
+          `${group.name} stopped at ${failedProject?.name || 'a missing project'}. ${result.failureReason}`
+        );
+      } else if (result.failureReason) {
+        this.showErrorMessage(`Could not finish stopping ${group.name}: ${result.failureReason}`);
+      } else if (result.failedProjectId) {
+        this.showErrorMessage(
+          `Runlist could not confirm that ${failedProject?.name || 'a project'} in ${group.name} stopped.`
+        );
+      } else {
+        this.showErrorMessage(
+          `Runlist could not confirm that every owned process in ${group.name} stopped.`
+        );
+      }
     }
     return result.status === 'stopped';
   }

@@ -46,6 +46,7 @@ function renderNonEmptyProjectList(projects = [{
     focus() {
       this.focusCount += 1;
     },
+    scrollIntoView() {},
     selectionStart: 0,
     selectionEnd: 0,
     setSelectionRange(start, end) {
@@ -151,6 +152,14 @@ function renderNonEmptyProjectList(projects = [{
       }
       if (selector === '[data-search-empty]') {
         return searchEmpty;
+      }
+      const projectId = selector.match(/data-project-id="([^"]*)"/)?.[1]
+        || selector.match(/data-id="([^"]*)"/)?.[1];
+      if (selector.includes('.project-row')) {
+        return projectRows.find((row) => row.dataset.projectId === projectId);
+      }
+      if (selector.includes('.run-button')) {
+        return projectRows.find((row) => row.dataset.projectId === projectId);
       }
       return undefined;
     },
@@ -1993,4 +2002,65 @@ test('typing in search does not announce the Clear filters recovery message', ()
 
   assert.match(result.searchStatus.textContent, /0 projects shown/);
   assert.notEqual(result.searchStatus.textContent, 'No projects match. Filters cleared.');
+});
+
+test('group failure names the blocking project and offers focus control', () => {
+  const result = renderNonEmptyProjectList([
+    sampleProject('alpha', 'Alpha app', { tags: ['frontend'] }),
+    sampleProject('beta', 'Beta API', { tags: ['backend'] })
+  ], {
+    stateOverrides: {
+      groups: [{
+        id: 'daily',
+        name: 'Daily stack',
+        projectIds: ['alpha', 'beta'],
+        progress: 'Blocked by Beta API. The project is port-in-use and cannot be started safely.',
+        blockingProjectId: 'beta',
+        blockingProjectName: 'Beta API'
+      }]
+    },
+    persistedWebviewState: { groupsExpanded: true }
+  });
+
+  assert.match(result.app.innerHTML, /Blocked by Beta API\. The project is port-in-use/);
+  assert.match(result.app.innerHTML, /data-action="focus-group-blocking"[^>]*data-project-id="beta"/);
+  assert.match(result.app.innerHTML, /aria-label="Show Beta API"/);
+});
+
+test('focus-group-blocking clears filters when the blocking row is hidden', () => {
+  const projects = [
+    sampleProject('alpha', 'Alpha app', { tags: ['frontend'] }),
+    sampleProject('beta', 'Beta API', { tags: ['backend'] })
+  ];
+  const result = renderNonEmptyProjectList(projects, {
+    stateOverrides: {
+      tags: ['frontend', 'backend'],
+      groups: [{
+        id: 'daily',
+        name: 'Daily stack',
+        projectIds: ['alpha', 'beta'],
+        progress: 'Blocked by Beta API. Runlist blocked or could not start this project.',
+        blockingProjectId: 'beta',
+        blockingProjectName: 'Beta API'
+      }]
+    },
+    persistedWebviewState: {
+      groupsExpanded: true,
+      tagFilter: 'frontend',
+      filterRevision: 1
+    }
+  });
+
+  assert.equal(result.evaluate('selectedTagFilter'), 'frontend');
+  assert.equal(result.projectRows.find((row) => row.dataset.projectId === 'beta').hidden, true);
+
+  result.evaluate('focusGroupBlockingProject("beta")');
+  const addedFrames = result.scheduledFrames.slice();
+  for (const frame of addedFrames) {
+    frame();
+  }
+
+  assert.equal(result.evaluate('selectedTagFilter'), '');
+  assert.equal(result.projectRows.find((row) => row.dataset.projectId === 'beta').hidden, false);
+  assert.equal(result.lifecycleStatus.textContent, 'Focused Beta API.');
 });

@@ -72,6 +72,19 @@ test('routes group commands through the bounded group coordinator', () => {
   assert.match(extension, /registerCommand\('runlist\.manageGroups'/);
 });
 
+test('names blocking projects in group failure messaging and offers row focus', () => {
+  assert.match(extension, /formatRunGroupFailureMessage\(project, reason\)/);
+  assert.match(extension, /Blocked by \$\{name\}\./);
+  assert.match(extension, /blockingProjectId: progress\?\.failedProjectId/);
+  assert.match(webview, /function groupProgressHtml\(/);
+  assert.match(webview, /function focusGroupBlockingProject\(/);
+  assert.match(webview, /data-action="focus-group-blocking"/);
+  assert.match(webview, /'focus-group-blocking': \(\) => focusGroupBlockingProject\(button\.dataset\.projectId\)/);
+  assert.match(webview, /if \(row\.hidden\)[\s\S]*clearProjectFilters\(\)[\s\S]*focusGroupBlockingProject\(projectId\)/);
+  assert.match(styles, /\.group-blocking-focus\b/);
+  assert.match(extension, /formatRunGroupFailureMessage\(project, progress\.reason\)/);
+});
+
 test('validates saveRunGroup and removeRunGroup webview payloads', () => {
   assert.equal(validateWebviewCommand({
     type: 'saveRunGroup',

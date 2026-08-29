@@ -317,6 +317,41 @@ button:active:not(:disabled) {
   font-size: 11px;
 }
 
+.group-progress-failure {
+  display: inline;
+}
+
+.group-blocking-focus {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  color: var(--vscode-textLink-foreground);
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+  vertical-align: baseline;
+  max-width: 100%;
+}
+
+.group-blocking-focus .auto-scroll {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: bottom;
+}
+
+.group-blocking-focus:hover {
+  color: var(--vscode-textLink-activeForeground);
+  text-decoration: underline;
+}
+
+.group-blocking-focus:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
 .group-choice-name[aria-pressed="true"] span {
   color: inherit;
   opacity: 0.85;
