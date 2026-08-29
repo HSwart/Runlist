@@ -1391,7 +1391,11 @@ function renderList() {
                   <button data-action="output" data-id="${projectId}" role="menuitem">
                     ${icon('terminal', 'menu-icon')}<span>View output</span>
                   </button>
-                  ${primaryAction.action === 'output' ? `
+                  ${primaryAction.action === 'output' && stopState && projectStatus !== 'not-ready' && !detectedWithoutStop && !ownershipLostWithoutStop ? `
+                  <button data-action="stop" data-id="${projectId}" role="menuitem" aria-label="Stop ${projectName}" title="Stop ${projectName}" ${primaryAction.disabled || blocked ? 'disabled' : ''}>
+                    ${productIcon('stop', 'menu-icon')}<span>Stop</span>
+                  </button>` : ''}
+                  ${primaryAction.action === 'output' && !stopState ? `
                   <button data-action="start" data-id="${projectId}" role="menuitem" aria-label="Start ${projectName}" title="Start ${projectName}" ${primaryAction.disabled || blocked ? 'disabled' : ''}>
                     ${productIcon('play', 'menu-icon')}<span>Start</span>
                   </button>` : ''}

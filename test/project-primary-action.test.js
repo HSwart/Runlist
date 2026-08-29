@@ -126,6 +126,45 @@ test('review setup still gates missing-env rows', () => {
   }).action, 'edit');
 });
 
+test('uses View output for not-responding and active httpUnresponsive rows', () => {
+  assert.deepEqual(projectPrimaryAction({
+    name: 'App',
+    status: 'not-responding'
+  }), {
+    action: 'output',
+    disabled: false,
+    label: 'View output for App',
+    mode: 'output'
+  });
+  assert.deepEqual(projectPrimaryAction({
+    name: 'App',
+    status: 'active',
+    stopCommand: 'docker compose down',
+    httpUnresponsive: true
+  }), {
+    action: 'output',
+    disabled: false,
+    label: 'View output for App',
+    mode: 'output'
+  });
+});
+
+test('keeps Stop primary for not-ready rows and stopFailure overrides', () => {
+  assert.equal(projectPrimaryAction({ name: 'App', status: 'not-ready' }).action, 'stop');
+  assert.equal(projectPrimaryAction({
+    name: 'App',
+    status: 'not-responding',
+    stopFailure: 'Port :3000 is still up'
+  }).action, 'stop');
+  assert.equal(projectPrimaryAction({
+    name: 'App',
+    status: 'active',
+    stopCommand: 'docker compose down',
+    httpUnresponsive: true,
+    stopFailure: 'Port :3000 is still up'
+  }).action, 'stop');
+});
+
 test('preserves ordinary Start, Stop, custom Stop, review, and transition behavior', () => {
   assert.equal(projectPrimaryAction({ name: 'App', status: 'stopped' }).action, 'start');
   assert.equal(projectPrimaryAction({ name: 'App', status: 'running' }).action, 'stop');

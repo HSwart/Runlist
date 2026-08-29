@@ -105,13 +105,13 @@ test('compose start block keeps Stop available for a running project', () => {
   assert.match(action.label, /Stop Api/);
 });
 
-test('compose start block keeps Stop available while not-responding', () => {
+test('compose start block keeps View output primary while not-responding', () => {
   const action = projectPrimaryAction({
     name: 'Api',
     status: 'not-responding',
     composeStartBlocked: true,
     composeStartBlockedReason: 'Docker is not ready'
   });
-  assert.equal(action.action, 'stop');
-  assert.equal(action.mode, 'stop');
+  assert.equal(action.action, 'output');
+  assert.equal(action.mode, 'output');
 });
