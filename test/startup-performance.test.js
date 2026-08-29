@@ -44,11 +44,18 @@ test('Runlist defers stale port-lock cleanup during store construction', () => {
 });
 
 test('Runlist shows a loading shell before the first full render', () => {
-  const source = readShippedHostSource('src/host/runlist-view-provider.js');
-  assert.match(source, /renderLoadingShell\(\)/);
-  assert.match(source, /Loading Runlist/);
+  const providerSource = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'host', 'runlist-view-provider.js'),
+    'utf8'
+  );
+  const styles = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.css'), 'utf8');
+  assert.match(providerSource, /renderLoadingShell\(\)/);
+  assert.match(providerSource, /Loading Runlist/);
+  assert.match(providerSource, /runlist\.svg/);
+  assert.match(providerSource, /class="loading-shell"/);
+  assert.match(styles, /\.loading-shell-logo/);
   assert.match(
-    source,
+    providerSource,
     /resolveWebviewView\(view\)[\s\S]*renderLoadingShell\(\)[\s\S]*setImmediate\(\(\) => \{[\s\S]*this\.render\(\)/
   );
 });

@@ -5394,6 +5394,9 @@ class RunlistViewProvider {
     const stylesUri = this.view.webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'media', 'styles.css')
     );
+    const logoUri = this.view.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, 'media', 'runlist.svg')
+    );
     const nonce = crypto.randomBytes(16).toString('base64');
     this.webviewMessageToken = nonce;
     this.view.webview.html = `<!doctype html>
@@ -5401,13 +5404,14 @@ class RunlistViewProvider {
         <head>
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this.view.webview.cspSource};">
+          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${this.view.webview.cspSource}; style-src ${this.view.webview.cspSource};">
           <link rel="stylesheet" href="${stylesUri}">
           <title>Runlist</title>
         </head>
         <body>
-          <main id="app" role="status" aria-live="polite" style="padding: 12px; color: var(--vscode-foreground); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size);">
-            <p style="margin: 0;">Loading Runlist…</p>
+          <main id="app" class="loading-shell" role="status" aria-live="polite">
+            <img class="loading-shell-logo" src="${logoUri}" width="48" height="48" alt="" aria-hidden="true">
+            <p class="loading-shell-label">Loading Runlist…</p>
           </main>
         </body>
       </html>`;
