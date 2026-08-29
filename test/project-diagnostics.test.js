@@ -129,12 +129,16 @@ test('wires retained-failure diagnosis into the sidebar without sending to an ag
 
   assert.match(extension, /showProjectDiagnosis[\s\S]*readProjectDiagnostics/);
   assert.doesNotMatch(extension, /showProjectDiagnosis[\s\S]{0,300}projectFailureSummaries\.has/);
+  assert.match(extension, /askAgentForDiagnosis[\s\S]*openAgentHandoff/);
+  assert.match(extension, /askAgentForDiagnosis[\s\S]*showProjectDiagnosis/);
+  assert.match(extension, /copyDiagnosisRequest[\s\S]*buildDiagnosisHandoff/);
   assert.match(extension, /copyDiagnosisRequest[\s\S]*vscode\.env\.clipboard\.writeText/);
   assert.doesNotMatch(extension, /copyDiagnosisRequest[\s\S]{0,1000}(?:fetch\(|openExternal|spawn\()/);
   assert.match(extension, /installMcpBridge[\s\S]*project-output\.js[\s\S]*project-diagnostics\.js/);
   assert.match(extension, /savedProjectRevision = projectConfigurationRevision\(project\)/);
   assert.match(extension, /projectRevision: savedProjectRevision/);
   assert.match(webview, /projectOutput\.canAskAgent[\s\S]*Ask your agent/);
+  assert.match(webview, /askAgentForDiagnosis/);
   assert.match(webview, /Nothing is sent automatically/);
   assert.match(webview, /Open Agent connections/);
   assert.match(webview, /data-action="copy-diagnosis-request"/);

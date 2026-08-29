@@ -14,6 +14,11 @@ const {
   installAgentSkill
 } = require('../integrations/skill-installation');
 const {
+  buildDiagnosisHandoff,
+  hasConnectedAgent,
+  openAgentHandoff
+} = require('../integrations/diagnosis-handoff');
+const {
   hasUnownedPortReservation,
   managedServiceReadinessTimedOut,
   managedRuntimeProjectIds,
@@ -413,6 +418,7 @@ class RunlistViewProvider {
     this.agentConnections = Object.fromEntries(
       ['copilot', 'codex', 'claude'].map((agent) => [agent, initialAgentConnection(agent)])
     );
+    this.agentHandoffNotice = undefined;
   }
 
   resolveWebviewView(view) {
@@ -2085,6 +2091,9 @@ class RunlistViewProvider {
       return;
     }
 
+    if (this.selectedProjectId !== id) {
+      this.agentHandoffNotice = undefined;
+    }
     this.mode = 'output';
     this.routeNotice = undefined;
     this.diagnosisProjectIncarnation = undefined;
@@ -2100,6 +2109,7 @@ class RunlistViewProvider {
       return;
     }
 
+    this.agentHandoffNotice = undefined;
     let projectIncarnation = this.projectIncarnations.get(id);
     if (!projectIncarnation) {
       this.projectIncarnationSequence += 1;
@@ -2134,6 +2144,7 @@ class RunlistViewProvider {
     this.selectedProjectId = undefined;
     this.diagnosisProjectIncarnation = undefined;
     this.approvedRepairProjectId = undefined;
+    this.agentHandoffNotice = undefined;
     this.portListeningReport = undefined;
     this.portResolve = undefined;
     this.composeImport = undefined;
@@ -2484,20 +2495,49 @@ class RunlistViewProvider {
 
   async copyDiagnosisRequest() {
     const project = this.projects.find((item) => item.id === this.selectedProjectId);
-    if (!project || !readProjectDiagnostics(this.projectsFile, project.id)) {
+    const diagnostic = project
+      ? readProjectDiagnostics(this.projectsFile, project.id)
+      : undefined;
+    if (!project || !diagnostic) {
       return;
     }
-    const request = [
-      `Use the Runlist MCP tool runlist_get_project_diagnostics with projectId "${project.id}" to inspect ${project.name}'s latest failed start.`,
-      'Explain the likely cause and the smallest safe fix.',
-      'If the saved setup should change, use runlist_propose_project_repair with the returned revision and failedAt value so I can review it in Runlist.',
-      'Do not run commands or change the saved setup yourself.'
-    ].join(' ');
-    await vscode.env.clipboard.writeText(request);
+    const { prompt } = buildDiagnosisHandoff(project, diagnostic);
+    await vscode.env.clipboard.writeText(prompt);
     this.view?.webview.postMessage({
       type: 'diagnosisRequestCopied',
       messageToken: this.webviewMessageToken
     });
+  }
+
+  async askAgentForDiagnosis(id) {
+    const project = this.projects.find((item) => item.id === id);
+    const diagnostic = project
+      ? readProjectDiagnostics(this.projectsFile, project.id)
+      : undefined;
+    if (!project || !diagnostic) {
+      return;
+    }
+    if (!hasConnectedAgent(this.agentConnections)) {
+      this.showProjectDiagnosis(id);
+      return;
+    }
+    try {
+      const { prompt } = buildDiagnosisHandoff(project, diagnostic);
+      await openAgentHandoff(prompt, (command, args) => vscode.commands.executeCommand(command, args));
+      this.agentHandoffNotice = `Sent ${project.name} failure details to your agent.`;
+      await vscode.window.showInformationMessage(this.agentHandoffNotice);
+      this.view?.webview.postMessage({
+        type: 'diagnosisRequestSent',
+        messageToken: this.webviewMessageToken
+      });
+      if (this.mode === 'output' && this.selectedProjectId === id) {
+        this.render();
+        return;
+      }
+      this.showProjectOutput(id);
+    } catch {
+      this.showProjectDiagnosis(id);
+    }
   }
 
   refreshProjectRepair() {
@@ -5621,6 +5661,7 @@ class RunlistViewProvider {
       servicesLocked: this.mode === 'edit'
         && this.projectSetupLocked(this.selectedProjectId),
       projectOutput: outputProject ? {
+        agentHandoffNotice: this.agentHandoffNotice,
         canAskAgent: Boolean(outputDiagnostics),
         entries: formatProjectOutput(rawProjectOutput),
         failureSummary: this.projectFailureSummaries.get(outputProject.id)

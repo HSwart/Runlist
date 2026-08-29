@@ -2190,6 +2190,7 @@ function renderProjectOutput() {
       <p class="screen-copy">${escapeHtml(projectOutput.name)}</p>
       <div id="project-output-failure">${outputFailureSummaryHtml(projectOutput.failureSummary)}</div>
       ${projectOutput.canAskAgent ? `<button class="diagnosis-open-button" data-action="ask-agent" data-id="${escapeHtml(projectOutput.projectId)}">Ask your agent</button>` : ''}
+      ${projectOutput.agentHandoffNotice ? `<p class="diagnosis-copy-status" role="status" aria-live="polite">${escapeHtml(projectOutput.agentHandoffNotice)}</p>` : ''}
       <div class="output-panel-wrap">
         <div class="output-panel" data-empty="${projectOutput.output ? 'false' : 'true'}" tabindex="0" aria-label="Recent output for ${escapeHtml(projectOutput.name)}">
           <div id="project-output">${outputEntriesHtml(projectOutput.entries, projectOutput.failureSummary)}</div>
@@ -3216,7 +3217,7 @@ app.addEventListener('click', (event) => {
       closeMenus();
       vscode.postMessage({ type: 'showOutput', id: button.dataset.id });
     },
-    'ask-agent': () => vscode.postMessage({ type: 'showDiagnosis', id: button.dataset.id }),
+    'ask-agent': () => vscode.postMessage({ type: 'askAgentForDiagnosis', id: button.dataset.id }),
     'copy-diagnosis-request': () => vscode.postMessage({ type: 'copyDiagnosisRequest' }),
     'refresh-repair': () => vscode.postMessage({ type: 'refreshProjectRepair' }),
     'approve-repair': () => vscode.postMessage({
@@ -3497,6 +3498,11 @@ const hostMessageHandlers = {
     const status = document.getElementById('diagnosis-copy-status');
     if (status) {
       status.textContent = 'Diagnosis request copied. Paste it into your agent chat.';
+    }
+  },
+  diagnosisRequestSent: () => {
+    if (state.mode === 'output' && state.projectOutput?.agentHandoffNotice) {
+      renderProjectOutput();
     }
   },
   projectOutput: (message) => {
