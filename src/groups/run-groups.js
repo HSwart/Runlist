@@ -361,17 +361,23 @@ async function stopRunGroup(group, options) {
       }
     }
     const status = failedProjectIds.length || coordinationLost ? 'failed' : 'stopped';
+    const failedProjectId = failedProjectIds[0];
+    const failureReason = coordinationLost
+      ? groupLeaseLostReason()
+      : (failedProjectIds.length ? 'Runlist could not confirm this project stopped.' : undefined);
     notify(options, {
       status,
+      projectId: failedProjectId,
       stoppedProjectIds,
       failedProjectIds,
-      ...(coordinationLost ? { reason: groupLeaseLostReason() } : {})
+      ...(failureReason ? { reason: failureReason } : {})
     });
     return {
       status,
       stoppedProjectIds,
       failedProjectIds,
-      ...(coordinationLost ? { failureReason: groupLeaseLostReason() } : {})
+      ...(failedProjectId ? { failedProjectId } : {}),
+      ...(failureReason ? { failureReason } : {})
     };
   } finally {
     options.coordinator.release(group.id);

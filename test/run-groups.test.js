@@ -453,6 +453,25 @@ test('stops only Runlist-owned members in reverse order', async () => {
   assert.deepEqual(calls, ['stop:third', 'stopped:third', 'stop:first', 'stopped:first', 'release']);
 });
 
+test('reports the blocking project when a group stop cannot be confirmed', async () => {
+  const result = await stopRunGroup({
+    id: 'daily',
+    name: 'Daily',
+    projectIds: ['first', 'second']
+  }, {
+    coordinator: { acquire: () => true, release: () => {} },
+    isOwned: () => true,
+    stopProject: async (id) => id === 'second',
+    waitUntilStopped: async (id) => id !== 'second'
+  });
+
+  assert.equal(result.status, 'failed');
+  assert.equal(result.failedProjectId, 'second');
+  assert.equal(result.failureReason, 'Runlist could not confirm this project stopped.');
+  assert.deepEqual(result.stoppedProjectIds, []);
+  assert.deepEqual(result.failedProjectIds, ['second', 'first']);
+});
+
 test('stops no further group members after losing the cross-window lease', async () => {
   const calls = [];
   let leaseHeld = true;
