@@ -1765,10 +1765,18 @@ test('stop honesty keeps Stop and does not say Stopped while a port is up', () =
     result.app.innerHTML,
     /class="project-status status-stop-failed"[^>]*>[\s\S]*<span>Port :3000 is still up<\/span>/
   );
-  assert.match(result.app.innerHTML, /class="run-button stop"[^>]*data-action="stop"[^>]*aria-label="Stop Live App"/);
+  assert.match(
+    result.app.innerHTML,
+    /class="run-button output"[^>]*data-action="output"[^>]*aria-label="View output for Live App"/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /data-action="stop" data-id="live" role="menuitem"[^>]*aria-label="Stop Live App"/
+  );
   assert.match(result.app.innerHTML, /data-action="force-close-ports"/);
   assert.doesNotMatch(result.app.innerHTML, />Stopped</);
   assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
+  assert.doesNotMatch(result.app.innerHTML, /class="run-button stop"[^>]*data-action="stop"/);
 });
 
 function sampleProject(id, name, extras = {}) {

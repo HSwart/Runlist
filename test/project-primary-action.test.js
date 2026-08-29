@@ -149,20 +149,20 @@ test('uses View output for not-responding and active httpUnresponsive rows', () 
   });
 });
 
-test('keeps Stop primary for not-ready rows and stopFailure overrides', () => {
+test('keeps Stop primary for not-ready rows and uses View output when stop failed', () => {
   assert.equal(projectPrimaryAction({ name: 'App', status: 'not-ready' }).action, 'stop');
   assert.equal(projectPrimaryAction({
     name: 'App',
     status: 'not-responding',
     stopFailure: 'Port :3000 is still up'
-  }).action, 'stop');
+  }).action, 'output');
   assert.equal(projectPrimaryAction({
     name: 'App',
     status: 'active',
     stopCommand: 'docker compose down',
     httpUnresponsive: true,
     stopFailure: 'Port :3000 is still up'
-  }).action, 'stop');
+  }).action, 'output');
 });
 
 test('preserves ordinary Start, Stop, custom Stop, review, and transition behavior', () => {
@@ -176,13 +176,13 @@ test('preserves ordinary Start, Stop, custom Stop, review, and transition behavi
     name: 'App',
     status: 'running',
     stopFailure: 'Stop failed'
-  }).action, 'stop');
+  }).action, 'output');
   assert.equal(projectPrimaryAction({
     name: 'App',
     status: 'active',
     stopCommand: '',
     stopFailure: 'Port :3000 is still up'
-  }).action, 'stop');
+  }).action, 'output');
 });
 
 test('disables lifecycle actions when the project environment cannot be verified', () => {

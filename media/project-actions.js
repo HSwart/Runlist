@@ -132,9 +132,16 @@
         mode: 'output'
       };
     }
+    if (project.stopFailure && status !== 'stopped' && status !== 'stopping') {
+      return {
+        action: 'output',
+        disabled: busy,
+        label: `View output for ${name}`,
+        mode: 'output'
+      };
+    }
 
-    const stopsProject = (Boolean(project.stopFailure) && status !== 'stopped' && status !== 'stopping')
-      || ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active']
+    const stopsProject = ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active']
         .includes(status);
     if (stopsProject) {
       return { action: 'stop', disabled: busy, label: `Stop ${name}`, mode: 'stop' };
