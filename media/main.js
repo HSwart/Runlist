@@ -805,6 +805,7 @@ function projectDetailTabsHtml(project, projectName) {
         <div class="preview-fallback" data-preview-fallback hidden>
           <strong>Preview unavailable</strong>
           <span>This app may block embedded views.</span>
+          ${project.previewUrl ? `<button class="preview-fallback-open" data-action="open" data-id="${projectId}" aria-label="Open ${projectName} in browser" title="Open in browser">${icon('external')}<span>Open in browser</span></button>` : ''}
         </div>
       </div>
       ${phoneHandoffContent}

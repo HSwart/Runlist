@@ -113,6 +113,8 @@ test('renders one lazy, sandboxed, accessible expandable preview', () => {
   assert.match(webview, /sandbox="allow-forms allow-scripts allow-same-origin" referrerpolicy="no-referrer"/);
   assert.match(webview, /frame\.src = source/);
   assert.match(webview, /Preview unavailable[\s\S]*This app may block embedded views/);
+  assert.match(webview, /data-preview-fallback[\s\S]*data-action="open"[\s\S]*aria-label="Open \$\{projectName\} in browser"[\s\S]*Open in browser/);
+  assert.match(webview, /\$\{project\.previewUrl \? `[\s\S]*preview-fallback-open[\s\S]*data-action="open"/);
   assert.match(styles, /\.preview-frame-wrap \{[\s\S]*aspect-ratio: 16 \/ 10/);
   assert.match(styles, /@media \(prefers-reduced-motion: no-preference\)[\s\S]*\.preview-frame/);
 });

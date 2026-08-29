@@ -912,6 +912,25 @@ test('clears a preview failure after success and announces a later retry once', 
   );
 });
 
+test('renders an open-in-browser action in the preview fallback when open is allowed', () => {
+  const result = renderNonEmptyProjectList([previewFailureProject({
+    defaultDetailTab: 'preview',
+    detailTabs: ['overview', 'preview'],
+    previewPort: 3000
+  })]);
+  assert.match(
+    result.app.innerHTML,
+    /data-preview-fallback[\s\S]*data-action="open" data-id="preview"[\s\S]*aria-label="Open Preview &amp; &lt;team&gt; in browser"[\s\S]*Open in browser/
+  );
+
+  const blocked = renderNonEmptyProjectList([previewFailureProject({
+    defaultDetailTab: 'preview',
+    detailTabs: ['overview', 'preview'],
+    previewUrl: ''
+  })]);
+  assert.doesNotMatch(blocked.app.innerHTML, /data-preview-fallback[\s\S]*data-action="open"/);
+});
+
 test('does not announce an empty preview source', () => {
   const result = renderNonEmptyProjectList([previewFailureProject({
     previewExpanded: false,

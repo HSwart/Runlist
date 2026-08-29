@@ -1946,6 +1946,32 @@ button.project-listener-owner:hover {
   color: var(--vscode-foreground);
 }
 
+.preview-fallback-open {
+  min-height: 26px;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 4px;
+  padding: 3px 7px;
+  max-width: 100%;
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+  border: 1px solid transparent;
+  border-radius: 3px;
+  white-space: normal;
+  text-align: center;
+}
+
+.preview-fallback-open:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.preview-fallback-open span {
+  min-width: 0;
+}
+
 .preview-loading[hidden],
 .preview-fallback[hidden] {
   display: none;
@@ -2255,6 +2281,11 @@ button.project-listener-owner:hover {
 
   .phone-handoff-toggle {
     align-self: flex-start;
+    white-space: normal;
+  }
+
+  .preview-fallback-open {
+    align-self: center;
     white-space: normal;
   }
 
@@ -3321,7 +3352,8 @@ select[aria-invalid='true'] {
   .output-copy-button,
   .project-port-chip,
   .service-detail-toggle,
-  .service-detail-actions button {
+  .service-detail-actions button,
+  .preview-fallback-open {
     min-height: 44px;
   }
 
