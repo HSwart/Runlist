@@ -1,6 +1,6 @@
 ---
 name: runlist
-description: Set up or update a local development project in Runlist, inspect saved project status, or diagnose a retained failed start. Use for Runlist setup requests, questions about saved projects or running ports, and copied Runlist diagnosis requests.
+description: Set up or update a local development project in Runlist, inspect saved project status, diagnose a retained failed start, or continue a direct Ask your agent handoff. Use for Runlist setup requests, questions about saved projects or running ports, copied Runlist diagnosis requests, and prefilled failure handoffs from Runlist.
 ---
 
 <!-- Managed by the Runlist VS Code extension. -->
@@ -22,7 +22,21 @@ description: Set up or update a local development project in Runlist, inspect sa
 
 When the repository already has a committed Runlist stack file (`runlist.json` or `.runlist/projects.json`), tell the user they can use **Runlist → Import or Export → Load stack from this workspace**, review the exact folders and commands, and approve before anything can run. The stack file may reference an `envFile` path relative to each project folder, but must not include secret values or an `env` map. Prefer a committed `.env.example` and a local `.env` that stays out of git.
 
-If the Runlist MCP tool is unavailable, tell the user to open **Runlist → Agent connections** in VS Code and select **Set up** for this agent. Do not edit Runlist's storage file directly.
+If the Runlist MCP tool is unavailable, tell the user to open **Runlist → Agent connections** in VS Code and select **Set up** for this agent. Cursor uses the same VS Code MCP integration as Copilot. Do not edit Runlist's storage file directly.
+
+# Runlist MCP tools
+
+Runlist exposes five MCP tools. Use only the ones that match the user's request:
+
+| Tool | Purpose |
+| --- | --- |
+| `runlist_setup_project` | Save or update a project's start command, services, and optional stop command after inspecting the repo. |
+| `runlist_list_projects` | Read-only list of saved projects, configured ports, coarse lifecycle state, and whether this VS Code window can control each project. |
+| `runlist_get_project_status` | Read-only status for one project, including retained failure summary, diagnostics availability, repair availability, and `projectRevision`. |
+| `runlist_get_project_diagnostics` | Retained failure details for one project after a failed start. |
+| `runlist_propose_project_repair` | Propose setup changes for user review after diagnostics. |
+
+**Never** start, stop, restart, edit, or close ports through MCP. Tell the user to use the Runlist sidebar for those actions.
 
 # Inspect saved Runlist projects
 
@@ -33,7 +47,19 @@ When the user asks what projects are saved, which ports are configured, or what 
 3. Treat status responses as read-only. They come from saved project and ownership records (including configured service ports) and may differ from the Runlist sidebar in another VS Code window. Runlist does not read project environment files or probe live ports or listeners for status.
 4. Do **not** start, stop, restart, edit, or close ports through MCP. Tell the user to use the Runlist sidebar for those actions.
 
-# Diagnose a failed Runlist start
+# Continue a direct Ask your agent handoff
+
+When the user pressed **Ask your agent** in Runlist and chat opened with a prefilled request, or when the pasted text includes `projectId`, `projectRevision`, and `failedAt` from Runlist:
+
+1. Treat the handoff as permission to diagnose that one project only. Do not run commands, install dependencies, edit files, or retry the project.
+2. Call `runlist_get_project_diagnostics` with the exact `projectId` from the handoff.
+3. Explain the likely cause from the returned saved setup, platform, lifecycle result, failure summary, and sanitized retained output.
+4. If setup fields should change, call `runlist_propose_project_repair` with the exact `projectId`, `projectRevision`, and `failedAt` from the handoff or diagnostics response.
+5. Tell the user to select **Refresh proposal** in Runlist, review the comparison, and approve or reject there. Runlist never applies or retries automatically.
+
+If no retained failure is available, tell the user to start the project from Runlist again and use **View output → Ask your agent** after the failure.
+
+# Diagnose a copied Runlist diagnosis request
 
 When the user pastes a Runlist diagnosis request containing a project ID, or `runlist_get_project_status` shows diagnostics are available:
 
@@ -42,5 +68,3 @@ When the user pastes a Runlist diagnosis request containing a project ID, or `ru
 3. Do not run commands, install dependencies, edit files, rerun the project, or change its saved Runlist setup.
 4. If the saved name, folder, start command, stop command, or services should change, call `runlist_propose_project_repair` with the exact `projectId`, `projectRevision`, and `failedAt` values returned by the diagnostics. Include only the setup fields that should change.
 5. Tell the user to select **Refresh proposal** in Runlist, inspect the complete current-versus-proposed comparison, and approve or reject it there. Runlist never applies or retries the proposal automatically.
-
-If no retained failure is available, tell the user to start the project from Runlist again and use **View output → Ask your agent** after the failure.

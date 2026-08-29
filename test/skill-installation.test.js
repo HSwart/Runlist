@@ -46,6 +46,21 @@ test('managed setup leaves temporary port variables to the launch-time recovery 
   assert.doesNotMatch(skill, /port variable/i);
 });
 
+test('bundled skill documents all five Runlist MCP tools', () => {
+  const skill = fs.readFileSync(path.join(__dirname, '..', 'skills', 'runlist', 'SKILL.md'), 'utf8');
+  for (const tool of [
+    'runlist_setup_project',
+    'runlist_list_projects',
+    'runlist_get_project_status',
+    'runlist_get_project_diagnostics',
+    'runlist_propose_project_repair'
+  ]) {
+    assert.match(skill, new RegExp(tool));
+  }
+  assert.match(skill, /Never.*start, stop, restart, edit, or close ports through MCP/i);
+  assert.match(skill, /Continue a direct Ask your agent handoff/i);
+});
+
 test('resolves personal skill folders on macOS and Linux', () => {
   const environment = { HOME: '/Users/example' };
   assert.equal(agentSkillPath('codex', environment, 'darwin'), '/Users/example/.codex/skills/runlist');
