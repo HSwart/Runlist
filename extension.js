@@ -18,6 +18,7 @@ function installMcpBridge(context) {
   const serverPath = path.join(mcpRoot, 'server.js');
   const bridgeFiles = [
     'mcp/server.js',
+    'mcp/persisted-ownership.js',
     'src/lifecycle/atomic-json-record.js',
     'src/lifecycle/exclusive-json-lock.js',
     'src/lifecycle/process-identity.js',
