@@ -2168,10 +2168,11 @@ function renderAgentSetup() {
         <h2>Agent connections</h2>
         <button class="icon-button" data-action="close-screen" aria-label="Close agent connections screen">${icon('close')}</button>
       </header>
+      <p class="screen-copy">Connect an agent to save projects, read saved status with MCP, and send failed-start details from <strong>Ask your agent</strong> without copying a request. Cursor uses the same VS Code MCP integration as Copilot.</p>
       <div class="agent-list" aria-label="Supported coding agents">
-        ${agentCard('copilot', 'GitHub Copilot', 'Adds /runlist. The connection is discovered automatically through VS Code.')}
-        ${agentCard('codex', 'Codex', 'Registers the connection and adds $runlist.')}
-        ${agentCard('claude', 'Claude Code', 'Registers the connection and adds /runlist.')}
+        ${agentCard('copilot', 'GitHub Copilot', 'Adds /runlist. Read saved project status with MCP and receive direct failure handoffs when connected.')}
+        ${agentCard('codex', 'Codex', 'Registers the connection and adds $runlist. Read saved project status with MCP and receive direct failure handoffs when connected.')}
+        ${agentCard('claude', 'Claude Code', 'Registers the connection and adds /runlist. Read saved project status with MCP and receive direct failure handoffs when connected.')}
       </div>
     </section>`;
 }

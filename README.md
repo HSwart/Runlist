@@ -92,6 +92,7 @@ Runlist stays out of the way until you need it, then gives you the controls that
 - Clear actions when something fails
 - Safe coordination when the same projects are open in more than one VS Code window
 - Agent setup that still requires review before a new project can start
+- Connected agents can read saved project status through MCP and receive direct failure handoffs from **Ask your agent**
 
 Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=hankoswart.runlist).
 
