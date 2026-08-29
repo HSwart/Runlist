@@ -41,11 +41,7 @@ function loadRunlistProvider() {
   }
 }
 
-test('host env gate tags missing-required-env without parsing the message', () => {
-  assert.match(
-    host,
-    /showStartFailure\(project, \{[\s\S]*failureKind: MISSING_REQUIRED_ENV_FAILURE_KIND/
-  );
+test('host env recovery still keys off missing-required-env kind for persisted failures', () => {
   assert.match(
     host,
     /rowStartFailureSummary\(id, status\)[\s\S]*kind === MISSING_REQUIRED_ENV_FAILURE_KIND/

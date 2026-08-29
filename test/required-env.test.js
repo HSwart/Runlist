@@ -35,7 +35,7 @@ test('does not treat .env.example keys as required blockers', () => {
   assert.equal(missing.advisoryMissing.includes('OPTIONAL'), false);
 });
 
-test('only explicit launch-profile required keys can block Start', () => {
+test('classifies explicit launch-profile required keys as missing or empty', () => {
   assert.deepEqual(normalizeRequiredEnvKeys([' API_KEY ', 'DATABASE_URL', 'API_KEY']), [
     'API_KEY',
     'DATABASE_URL'
@@ -150,16 +150,20 @@ test('scans project env files for advisory empty keys without repo crawl', (t) =
   });
 });
 
-test('advisory warnings include empty keys by source', () => {
+test('advisory warnings include required missing and empty keys by source', () => {
   const warnings = formatEnvPresenceWarnings({
+    requiredMissing: ['API_KEY'],
+    requiredEmptyBySource: {
+      '.env.local': ['DATABASE_URL']
+    },
     advisoryEmptyBySource: {
-      '.env.local': ['TOKEN'],
       'local.settings.json': ['AzureWebJobsStorage']
     }
   });
-  assert.equal(warnings.length, 2);
-  assert.match(warnings[0], /Empty variables in \.env\.local/);
-  assert.match(warnings[1], /Empty variables in local\.settings\.json/);
+  assert.equal(warnings.length, 3);
+  assert.match(warnings[0], /Required variables are missing \(Start continues\): API_KEY/);
+  assert.match(warnings[1], /Required variables are empty in \.env\.local \(Start continues\): DATABASE_URL/);
+  assert.match(warnings[2], /Empty variables in local\.settings\.json/);
 });
 
 test('identifies missing-required-env failures by kind, not free-text', () => {
@@ -195,19 +199,21 @@ test('suggests attaching reviewed .env.local when present and unused', () => {
   assert.equal(envLocalAttachHint(undefined, false), undefined);
 });
 
-test('host Start never hard-fails on .env.example alone or nested PowerShell lint', () => {
+test('host Start warns on env presence without blocking Start', () => {
   const { readShippedHostSource } = require('./helpers/extension-source');
   const extension = readShippedHostSource();
   assert.match(extension, /resolveExplicitRequiredEnvKeys\(launchProject\)/);
   assert.match(extension, /classifyRequiredEnvPresence/);
   assert.match(extension, /collectAdvisoryEmptyEnvBySource/);
-  assert.match(extension, /formatRequiredEnvFailureDetail/);
+  assert.match(extension, /formatEnvPresenceWarnings/);
+  assert.match(extension, /requiredMissing: requiredPresence\.missing/);
+  assert.match(extension, /requiredEmptyBySource/);
+  assert.match(extension, /for \(const warning of formatEnvPresenceWarnings\(\{[\s\S]*requiredMissing: requiredPresence\.missing/);
   assert.match(extension, /exampleEnvAdvisoryMissing/);
   assert.match(extension, /envLocalAttachHint/);
-  assert.match(extension, /formatEnvPresenceWarnings/);
-  assert.match(
+  assert.doesNotMatch(
     extension,
-    /showStartFailure\(project, \{[\s\S]*failureKind: MISSING_REQUIRED_ENV_FAILURE_KIND/
+    /classifyRequiredEnvPresence[\s\S]{0,500}showStartFailure\(project, \{[\s\S]*failureKind: MISSING_REQUIRED_ENV_FAILURE_KIND/
   );
   assert.doesNotMatch(extension, /Missing required environment variables from \.env\.example/);
   assert.doesNotMatch(extension, /requiredEnvKeysFromExample/);
