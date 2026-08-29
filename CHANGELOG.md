@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.6 — VSIX packaging fix
+
+- Include `diagnosis-handoff` and `persisted-ownership` in the reviewed VSIX allowlist so 0.1.5 features activate from Marketplace installs.
+
 ## 0.1.5 — Agents can see your apps
 
 - Add read-only MCP tools **`runlist_list_projects`** and **`runlist_get_project_status`** so agents can inspect saved projects and configured ports without starting or stopping anything.
