@@ -30,7 +30,7 @@ const SUPPORTED_PROTOCOL_VERSIONS = new Set([
 const PROJECTS_FILE = process.env.RUNLIST_PROJECTS_FILE;
 const EXTENSION_HOST_PID = Number.parseInt(process.env.RUNLIST_EXTENSION_HOST_PID || '', 10);
 const MAX_LISTED_PROJECTS = 64;
-const STATUS_STALENESS_NOTE = 'Lifecycle state comes from shared ownership records and may differ from the Runlist sidebar in another VS Code window until ownership changes.';
+const STATUS_STALENESS_NOTE = 'Lifecycle state comes from saved project and ownership records and may differ from the Runlist sidebar in another VS Code window until ownership changes.';
 const processOwnership = PROJECTS_FILE
   ? new ProcessOwnershipStore(path.join(path.dirname(PROJECTS_FILE), 'process-ownership'))
   : undefined;
@@ -313,7 +313,7 @@ const repairTool = {
 const listProjectsTool = {
   name: 'runlist_list_projects',
   title: 'List saved Runlist projects',
-  description: 'Return saved Runlist projects with coarse lifecycle state and whether the connected VS Code window can start or stop each project. Read-only. Does not inspect files, environment variables, processes, or network listeners.',
+  description: 'Return saved Runlist projects with coarse lifecycle state and whether the connected VS Code window can start or stop each project. Read-only. Derives status from saved project and ownership records only; does not inspect project files, environment variables, ports, processes, or network listeners.',
   inputSchema: {
     type: 'object',
     properties: {},
@@ -380,7 +380,7 @@ const listProjectsTool = {
 const projectStatusTool = {
   name: 'runlist_get_project_status',
   title: 'Get Runlist project status',
-  description: 'Return read-only status for one saved Runlist project: lifecycle state, configured service ports, retained failure summary when available, and whether diagnostics or a repair proposal are available. Does not inspect files, environment variables, processes, or network listeners.',
+  description: 'Return read-only status for one saved Runlist project: lifecycle state, configured service ports, retained failure summary when available, and whether diagnostics or a repair proposal are available. Derives status from saved project and ownership records only; does not inspect project files, environment variables, ports, processes, or network listeners.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -639,8 +639,8 @@ function setupToolProject(project) {
   };
 }
 
-function readOwnershipSnapshot() {
-  return processOwnership?.peekSnapshot() || new Map();
+function readOwnershipSnapshot(projectId) {
+  return processOwnership?.readPersistedSnapshot(projectId) || new Map();
 }
 
 function statusServices(project) {
@@ -661,19 +661,17 @@ function coarseLifecycleState(project, ownership) {
   if (!ownership) {
     return 'stopped';
   }
-  if (ownership.state === 'stopping' || ownership.state === 'reclaiming') {
-    return ownership.state;
+  const state = ownership.state || 'stopped';
+  if (state === 'stopping' || state === 'reclaiming') {
+    return state;
   }
-  if (ownership.processActive && ownership.ownerAvailable === false) {
-    return 'ownership-lost';
-  }
-  if (ownership.state === 'starting') {
+  if (state === 'starting') {
     return 'starting';
   }
-  if (ownership.processActive) {
+  if (state === 'running' || state === 'detached') {
     return ownership.detached ? 'active' : 'running';
   }
-  return ownership.state || 'stopped';
+  return state;
 }
 
 function controllableInThisWindow(project, ownership) {
@@ -686,10 +684,12 @@ function controllableInThisWindow(project, ownership) {
   if (!Number.isInteger(EXTENSION_HOST_PID) || EXTENSION_HOST_PID <= 0) {
     return false;
   }
-  if (ownership.hostPid === EXTENSION_HOST_PID && ownership.ownerAvailable) {
+  const fresh = ownership.ownerHeartbeatFresh === true;
+  const activeState = ['starting', 'running', 'detached', 'stopping'].includes(ownership.state);
+  if (ownership.hostPid === EXTENSION_HOST_PID && fresh) {
     return ownership.state !== 'stopping' && ownership.state !== 'reclaiming';
   }
-  if (ownership.ownerAvailable && ownership.processActive) {
+  if (fresh && activeState && ownership.hostPid !== EXTENSION_HOST_PID) {
     return false;
   }
   return true;
@@ -800,7 +800,7 @@ function callProjectStatusTool(message) {
     if (!project) {
       throw new Error('That saved Runlist project was not found.');
     }
-    const ownership = readOwnershipSnapshot().get(project.id);
+    const ownership = readOwnershipSnapshot(project.id).get(project.id);
     const diagnostic = readProjectDiagnostics(PROJECTS_FILE, projectId);
     const projectRevision = projectConfigurationRevision(project);
     const failureSummary = retainedFailureSummary(diagnostic);
@@ -823,7 +823,7 @@ function callProjectStatusTool(message) {
     result(message.id, {
       content: [{
         type: 'text',
-        text: `Runlist returned read-only status for ${project.name}. No files, environment variables, processes, or network data were inspected.\n${JSON.stringify(structuredContent)}`
+        text: `Runlist returned read-only status for ${project.name}. Status is derived from saved project and ownership records; no project files, environment variables, ports, processes, or network listeners were inspected.\n${JSON.stringify(structuredContent)}`
       }],
       structuredContent,
       isError: false

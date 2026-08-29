@@ -30,7 +30,7 @@ When the user asks what projects are saved, which ports are configured, or what 
 
 1. Call `runlist_list_projects` with no arguments. Use the returned project IDs, names, configured service ports, coarse lifecycle state, and `controllableInThisWindow` value.
 2. For one project, call `runlist_get_project_status` with its exact `projectId` when you need retained failure summary, diagnostics availability, repair availability, or `projectRevision`.
-3. Treat status responses as read-only. They come from shared ownership records and may differ from the Runlist sidebar in another VS Code window.
+3. Treat status responses as read-only. They come from saved project and ownership records and may differ from the Runlist sidebar in another VS Code window.
 4. Do **not** start, stop, restart, edit, or close ports through MCP. Tell the user to use the Runlist sidebar for those actions.
 
 # Diagnose a failed Runlist start

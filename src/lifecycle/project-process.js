@@ -1886,26 +1886,27 @@ class ProcessOwnershipStore {
   }
 
   peekSnapshot() {
+    return this.readPersistedSnapshot();
+  }
+
+  readPersistedSnapshot(projectId) {
     const projects = new Map();
+    if (!fs.existsSync(this.directory)) {
+      return projects;
+    }
     for (const filename of fs.readdirSync(this.directory).filter((name) => name.endsWith('.json'))) {
       const ownershipPath = path.join(this.directory, filename);
       const ownership = readJson(ownershipPath);
       if (!validOwnership(ownership)) {
         continue;
       }
-      const hostDecision = this.hostIdentityDecision(ownership, { fresh: true });
-      const hostAlive = runtimeHostOwnerState(hostDecision, {
-        heartbeatAt: ownership.heartbeatAt,
-        heartbeatTimeoutMs: this.ownerHeartbeatTimeoutMs,
-        now: this.now()
-      }) === 'available';
-      const childLiveness = this.childProcessLiveness(ownership);
-      const processAlive = childLiveness === true;
+      if (projectId && ownership.projectId !== projectId) {
+        continue;
+      }
       const stopRequested = readJson(this.stopRequestPath(ownership.projectId))?.token === ownership.token;
       projects.set(ownership.projectId, {
         ...ownership,
-        ownerAvailable: hostAlive,
-        processActive: Boolean(processAlive),
+        ownerHeartbeatFresh: !this.ownerHeartbeatExpired(ownership),
         state: stopRequested ? 'stopping' : ownership.state
       });
     }

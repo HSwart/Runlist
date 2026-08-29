@@ -750,20 +750,18 @@ test('installs the complete MCP lifecycle dependency closure', () => {
   }
 });
 
-test('derives coarse lifecycle and controllable state from ownership snapshots', () => {
+test('derives coarse lifecycle and controllable state from persisted ownership records', () => {
   const project = { id: 'p1', reviewRequired: false };
   assert.equal(coarseLifecycleState({ ...project, reviewRequired: true }), 'needs-review');
   assert.equal(coarseLifecycleState(project), 'stopped');
-  assert.equal(coarseLifecycleState(project, { state: 'starting', processActive: true, ownerAvailable: true }), 'starting');
-  assert.equal(coarseLifecycleState(project, { state: 'running', processActive: true, ownerAvailable: true }), 'running');
-  assert.equal(coarseLifecycleState(project, { state: 'running', processActive: true, ownerAvailable: true, detached: true }), 'active');
-  assert.equal(coarseLifecycleState(project, { state: 'running', processActive: true, ownerAvailable: false }), 'ownership-lost');
+  assert.equal(coarseLifecycleState(project, { state: 'starting' }), 'starting');
+  assert.equal(coarseLifecycleState(project, { state: 'running' }), 'running');
+  assert.equal(coarseLifecycleState(project, { state: 'running', detached: true }), 'active');
   assert.equal(controllableInThisWindow(project), true);
   assert.equal(controllableInThisWindow({ ...project, reviewRequired: true }), false);
   assert.equal(controllableInThisWindow(project, {
     hostPid: 999999,
-    ownerAvailable: true,
-    processActive: true,
+    ownerHeartbeatFresh: true,
     state: 'running'
   }), false);
 });
