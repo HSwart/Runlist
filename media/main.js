@@ -1289,8 +1289,8 @@ function renderList() {
         const startFailureText = projectStartFailureText(project);
         const stopFailureText = projectStopFailureText(project);
         const folderMissing = projectShowsMissingFolder(project);
-        const rowStatusTitle = statusTitle
-          || (readinessRowText ? escapeHtml(projectStatusDetailText(project)) : '')
+        const rowStatusTitle = (readinessRowText ? escapeHtml(projectStatusDetailText(project)) : '')
+          || statusTitle
           || (folderMissing ? 'The saved folder is missing or cannot be opened.' : '')
           || (startFailureText ? escapeHtml(startFailureText) : '')
           || (stopFailureText ? escapeHtml(stopFailureText) : '');

@@ -20,7 +20,10 @@ test('project row status uses auto-scroll instead of ellipsis truncation', () =>
 
 test('readiness row text keeps full detail in the status title', () => {
   assert.match(webview, /const readinessRowText = projectRowReadinessStatusText\(project\)/);
-  assert.match(webview, /readinessRowText \? escapeHtml\(projectStatusDetailText\(project\)\) : ''/);
+  assert.match(
+    webview,
+    /const rowStatusTitle = \(readinessRowText \? escapeHtml\(projectStatusDetailText\(project\)\) : ''\)[\s\S]*\|\| statusTitle/
+  );
 });
 
 test('Needs attention control scrolls overflowing labels', () => {
