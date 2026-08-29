@@ -48,7 +48,7 @@ test('summary offers a quiet Needs attention control that focuses a row', () => 
   assert.match(webview, /function attentionSummaryHtml\(/);
   assert.match(webview, /id="summary-attention-slot"/);
   assert.match(webview, /class="summary-attention" data-action="focus-attention"/);
-  assert.match(webview, /'focus-attention': \(\) => \{/);
+  assert.match(webview, /'focus-attention': \(\) => focusNextAttentionProject\(\)/);
   assert.match(webview, /scrollIntoView\(\{ block: 'nearest' \}\)/);
   assert.match(styles, /\.summary-attention-slot:empty \{[\s\S]*display: none/);
   assert.match(styles, /\.summary-attention \{[\s\S]*width: 100%/);
