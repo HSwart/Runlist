@@ -136,6 +136,36 @@
     return fullLabels.stopped;
   }
 
+  function projectBlockingServices(project = {}) {
+    const status = projectStatusCode(project);
+    const details = project.serviceReadiness || {};
+    if (status === 'not-ready') {
+      return [...(details.waiting || []), ...(details.notResponding || [])];
+    }
+    if (status === 'not-responding') {
+      return details.notResponding || [];
+    }
+    return [];
+  }
+
+  function projectRowReadinessStatusText(project = {}) {
+    if (project.forceClosing || project.handoffInProgress || project.reviewRequired) {
+      return '';
+    }
+    const status = projectStatusCode(project);
+    if (!['not-ready', 'not-responding'].includes(status)) {
+      return '';
+    }
+    const blocking = projectBlockingServices(project);
+    if (!blocking.length) {
+      return '';
+    }
+    const prefix = status === 'not-ready' ? 'Taking longer' : 'Web service not responding';
+    const first = `${blocking[0].name} :${blocking[0].port}`;
+    const extra = blocking.length > 1 ? ` +${blocking.length - 1} more` : '';
+    return `${prefix} — ${first}${extra}`;
+  }
+
   function serviceReadinessDetailsText(project = {}, status) {
     if (!['not-ready', 'not-responding'].includes(status)) {
       return '';
@@ -214,8 +244,10 @@
   }
 
   return {
+    projectBlockingServices,
     projectDisplayedStatus,
     projectPrimaryStatusCode,
+    projectRowReadinessStatusText,
     projectShowsMissingFolder,
     projectStartFailureText,
     projectStatusAnnouncement,

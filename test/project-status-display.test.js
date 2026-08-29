@@ -3,6 +3,7 @@ const test = require('node:test');
 const {
   projectDisplayedStatus,
   projectPrimaryStatusCode,
+  projectRowReadinessStatusText,
   projectShowsMissingFolder,
   projectStatusAnnouncement,
   projectStatusDetailText
@@ -24,6 +25,78 @@ test('keeps Running, Starting, and Stopped as the status capsule on the happy pa
     }),
     /blocked by API/
   );
+});
+
+test('names blocking services on not-ready and not-responding row line 2', () => {
+  assert.equal(
+    projectRowReadinessStatusText({
+      name: 'App',
+      status: 'not-ready',
+      serviceReadiness: {
+        ready: [{ name: 'Web', port: 3000 }],
+        waiting: [{ name: 'API', port: 4000 }],
+        notResponding: []
+      }
+    }),
+    'Taking longer — API :4000'
+  );
+  assert.equal(
+    projectRowReadinessStatusText({
+      name: 'App',
+      status: 'not-ready',
+      serviceReadiness: {
+        ready: [],
+        waiting: [{ name: 'Web', port: 3000 }, { name: 'API', port: 4000 }, { name: 'Worker', port: 5000 }],
+        notResponding: []
+      }
+    }),
+    'Taking longer — Web :3000 +2 more'
+  );
+  assert.equal(
+    projectRowReadinessStatusText({
+      name: 'App',
+      status: 'not-ready',
+      serviceReadiness: {
+        ready: [],
+        waiting: [{ name: 'Web', port: 3000 }],
+        notResponding: [{ name: 'API', port: 4000 }]
+      }
+    }),
+    'Taking longer — Web :3000 +1 more'
+  );
+  assert.equal(
+    projectRowReadinessStatusText({
+      name: 'App',
+      status: 'not-responding',
+      serviceReadiness: {
+        ready: [{ name: 'Web', port: 3000 }],
+        waiting: [],
+        notResponding: [{ name: 'API', port: 4000 }]
+      }
+    }),
+    'Web service not responding — API :4000'
+  );
+  assert.equal(
+    projectRowReadinessStatusText({
+      name: 'App',
+      status: 'not-responding',
+      serviceReadiness: {
+        ready: [],
+        waiting: [],
+        notResponding: [
+          { name: 'Web', port: 3000 },
+          { name: 'API', port: 4000 },
+          { name: 'Worker', port: 5000 }
+        ]
+      }
+    }),
+    'Web service not responding — Web :3000 +2 more'
+  );
+  assert.equal(projectRowReadinessStatusText({ name: 'App', status: 'not-ready' }), '');
+  assert.equal(projectRowReadinessStatusText({ name: 'App', status: 'not-ready', serviceReadiness: {} }), '');
+  assert.equal(projectRowReadinessStatusText({ name: 'App', status: 'running' }), '');
+  assert.equal(projectDisplayedStatus({ name: 'App', status: 'not-ready' }), 'Starting…');
+  assert.equal(projectDisplayedStatus({ name: 'App', status: 'not-responding' }), 'Web service not responding');
 });
 
 test('moves uncommon lifecycle phrases off the capsule without renaming them as Running', () => {
