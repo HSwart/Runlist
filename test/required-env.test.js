@@ -208,6 +208,7 @@ test('host Start warns on env presence without blocking Start', () => {
   assert.match(extension, /formatEnvPresenceWarnings/);
   assert.match(extension, /requiredMissing: requiredPresence\.missing/);
   assert.match(extension, /requiredEmptyBySource/);
+  assert.match(extension, /for \(const warning of formatEnvPresenceWarnings\(\{[\s\S]*requiredMissing: requiredPresence\.missing/);
   assert.match(extension, /exampleEnvAdvisoryMissing/);
   assert.match(extension, /envLocalAttachHint/);
   assert.doesNotMatch(

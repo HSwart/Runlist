@@ -3867,16 +3867,22 @@ class RunlistViewProvider {
       for (const issue of windowsIssues) {
         this.addProjectOutput(id, `Runlist: ${issue}\n`, savedProjectRevision);
       }
+      const explicitRequired = resolveExplicitRequiredEnvKeys(launchProject);
+      const requiredPresence = classifyRequiredEnvPresence(
+        explicitRequired,
+        launchEnvironment
+      );
+      const requiredEmptyBySource = attributeRequiredEmptySources(
+        launchProject,
+        requiredPresence.empty
+      );
+      for (const warning of formatEnvPresenceWarnings({
+        requiredMissing: requiredPresence.missing,
+        requiredEmptyBySource
+      })) {
+        this.addProjectOutput(id, `Runlist: ${warning}\n`, savedProjectRevision);
+      }
       try {
-        const explicitRequired = resolveExplicitRequiredEnvKeys(launchProject);
-        const requiredPresence = classifyRequiredEnvPresence(
-          explicitRequired,
-          launchEnvironment
-        );
-        const requiredEmptyBySource = attributeRequiredEmptySources(
-          launchProject,
-          requiredPresence.empty
-        );
         const examplePath = path.join(launchProject.folder, '.env.example');
         const localEnvPath = path.join(launchProject.folder, '.env.local');
         const advisory = fs.existsSync(examplePath)
@@ -3898,8 +3904,6 @@ class RunlistViewProvider {
           }
         }
         const warnings = formatEnvPresenceWarnings({
-          requiredMissing: requiredPresence.missing,
-          requiredEmptyBySource,
           advisoryMissing: advisory.advisoryMissing,
           advisoryEmptyBySource: filteredAdvisoryEmpty,
           envLocalHint: envLocalAttachHint(
@@ -3911,7 +3915,7 @@ class RunlistViewProvider {
           this.addProjectOutput(id, `Runlist: ${warning}\n`, savedProjectRevision);
         }
       } catch {
-        // Env presence is best-effort and must not crash Start on unreadable examples.
+        // Optional env files are best-effort and must not crash Start when unreadable.
       }
       const runtimeDrift = detectRuntimeDrift(launchProject);
       if (runtimeDrift?.message) {
