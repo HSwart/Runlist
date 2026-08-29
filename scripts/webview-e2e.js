@@ -163,8 +163,11 @@ async function captureIdeScreenshots(browser, ready, root, extensionDevelopmentP
   await hideWorkbenchChrome(page);
   await applyMarketplaceFonts(page, browser);
   const frameAPath = path.join(artifactDir, 'ide-frame-a-empty.png');
-  await captureRetinaPng(page, frameAPath);
+  const frameACapture = await captureRetinaPng(page, frameAPath);
   assert.ok(fs.statSync(frameAPath).size > 10000, 'Frame A IDE screenshot was unexpectedly small.');
+  const featuresOutputPath = path.join(extensionDevelopmentPath, 'media', 'gallery-03-features.png');
+  await composeGalleryStill(page, frameAPath, featuresOutputPath, frameACapture.deviceScaleFactor);
+  fs.copyFileSync(featuresOutputPath, path.join(artifactDir, 'gallery-03-features.png'));
 
   const seeded = await hostCommand(root, 'seed-gallery-screenshot', {}, 45000);
   assert.ok(['running', 'active'].includes(seeded.status), `Expected running project, got ${seeded.status}`);
@@ -184,8 +187,11 @@ async function captureIdeScreenshots(browser, ready, root, extensionDevelopmentP
   // Prove the webview actually resolved RunlistInter before we shoot.
   await assertMarketplaceFontApplied(browser);
   const frameBPath = path.join(artifactDir, 'ide-frame-b-running-row.png');
-  await captureRetinaPng(page, frameBPath);
+  const frameBCapture = await captureRetinaPng(page, frameBPath);
   assert.ok(fs.statSync(frameBPath).size > 10000, 'Frame B IDE screenshot was unexpectedly small.');
+  const statusOutputPath = path.join(extensionDevelopmentPath, 'media', 'gallery-02-status.png');
+  await composeGalleryStill(page, frameBPath, statusOutputPath, frameBCapture.deviceScaleFactor);
+  fs.copyFileSync(statusOutputPath, path.join(artifactDir, 'gallery-02-status.png'));
 
   await page.setViewportSize({ width: 1440, height: 1080 });
   await hostCommand(root, 'prepare-screenshot');
@@ -238,6 +244,12 @@ async function captureIdeScreenshots(browser, ready, root, extensionDevelopmentP
   } catch {
     // Screenshot assets are already written; cleanup is best-effort.
   }
+}
+
+async function composeGalleryStill(page, sourcePath, outputPath, deviceScaleFactor = 2) {
+  const heroFrame = await measureWorkbenchHeroFrame(page);
+  heroFrame.deviceScaleFactor = deviceScaleFactor;
+  composeGalleryHero(sourcePath, outputPath, heroFrame);
 }
 
 async function prepareGalleryHeroLayout(browser, root, seeded) {
