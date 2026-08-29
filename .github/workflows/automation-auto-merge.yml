@@ -1,0 +1,62 @@
+name: Automation auto-merge
+
+on:
+  workflow_run:
+    workflows:
+      - Test
+      - Same-repo authors only
+      - Security
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+
+jobs:
+  auto-merge:
+    name: Merge green automation pull requests
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Merge automation pull request when checks pass
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          if ! echo "$BRANCH" | grep -q '^automation/'; then
+            echo "Branch $BRANCH is not automation/*; skipping."
+            exit 0
+          fi
+
+          PR_JSON=$(gh pr list --repo "$REPOSITORY" --head "$BRANCH" --state open \
+            --json number,isDraft,mergeable,statusCheckRollup)
+          PR_NUMBER=$(echo "$PR_JSON" | jq -r '.[0].number // empty')
+          if [ -z "$PR_NUMBER" ]; then
+            echo "No open pull request for $BRANCH."
+            exit 0
+          fi
+
+          IS_DRAFT=$(echo "$PR_JSON" | jq -r '.[0].isDraft')
+          if [ "$IS_DRAFT" = "true" ]; then
+            gh pr ready "$PR_NUMBER" --repo "$REPOSITORY"
+            echo "Marked PR #$PR_NUMBER ready; waiting for checks to rerun."
+            exit 0
+          fi
+
+          FAILING=$(echo "$PR_JSON" | jq '[.[] | .statusCheckRollup[]? | select(.name != "Merge green automation pull requests") | select(.status != "COMPLETED" or (.conclusion != "SUCCESS" and .conclusion != "NEUTRAL" and .conclusion != "SKIPPED"))] | length')
+          if [ "$FAILING" != "0" ]; then
+            echo "PR #$PR_NUMBER still has incomplete or failing checks."
+            exit 0
+          fi
+
+          MERGEABLE=$(echo "$PR_JSON" | jq -r '.[0].mergeable')
+          if [ "$MERGEABLE" != "MERGEABLE" ]; then
+            echo "PR #$PR_NUMBER is not mergeable ($MERGEABLE)."
+            exit 0
+          fi
+
+          gh pr merge "$PR_NUMBER" --repo "$REPOSITORY" --squash --delete-branch
+          echo "Merged PR #$PR_NUMBER."
