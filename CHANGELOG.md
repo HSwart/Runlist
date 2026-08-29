@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.4 — Find and fix what's wrong
+
+- Warn about **empty** environment variables in `.env.local` and `local.settings.json` before Start (advisory; Start continues), with variable names only (never values).
+- Block Start when a launch profile **required** key is **missing or empty**, with detail grouped by file.
+- Show which project blocked a **group start** or **group stop** when the action fails.
+- Clear sidebar filters when **Needs attention** targets rows hidden by search, tag, or group filters.
+
 ## 0.1.3 — Failure recovery polish
 
 - Make **View output** the primary action when a web service is not responding.
