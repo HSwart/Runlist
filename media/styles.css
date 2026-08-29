@@ -130,7 +130,7 @@ button:active:not(:disabled) {
 }
 
 .summary-attention {
-  display: block;
+  display: flex;
   width: 100%;
   box-sizing: border-box;
   margin: 0;
@@ -145,8 +145,13 @@ button:active:not(:disabled) {
   font-size: 11px;
   font-weight: 600;
   line-height: 16px;
-  white-space: nowrap;
   cursor: pointer;
+  min-width: 0;
+}
+
+.summary-attention .auto-scroll {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .summary-attention:hover {
@@ -789,15 +794,17 @@ button:active:not(:disabled) {
   font-size: 11px;
   font-weight: 400;
   line-height: 16px;
-  white-space: nowrap;
   overflow: hidden;
 }
 
-.project-status span {
+.project-status .auto-scroll {
+  flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.project-status .status-dot,
+.project-status .status-progress {
+  flex: 0 0 auto;
 }
 
 .project-status.status-running,
@@ -1949,27 +1956,35 @@ button.project-listener-owner:hover {
 .preview-fallback-open {
   min-height: 26px;
   display: inline-flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: center;
   gap: 5px;
   margin-top: 4px;
   padding: 3px 7px;
   max-width: 100%;
+  min-width: 0;
   color: var(--vscode-button-secondaryForeground);
   background: var(--vscode-button-secondaryBackground);
   border: 1px solid transparent;
   border-radius: 3px;
-  white-space: normal;
+  white-space: nowrap;
   text-align: center;
+}
+
+.preview-fallback-open .auto-scroll {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .preview-fallback-open:hover {
   background: var(--vscode-button-secondaryHoverBackground);
 }
 
-.preview-fallback-open span {
-  min-width: 0;
+@media (max-width: 300px) {
+  .preview-fallback-open .auto-scroll {
+    display: none;
+  }
 }
 
 .preview-loading[hidden],
@@ -2286,7 +2301,7 @@ button.project-listener-owner:hover {
 
   .preview-fallback-open {
     align-self: center;
-    white-space: normal;
+    white-space: nowrap;
   }
 
   .phone-handoff {
@@ -3313,12 +3328,6 @@ select[aria-invalid='true'] {
 
   .project-status {
     min-width: 0;
-  }
-
-  .project-status span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .run-button,
