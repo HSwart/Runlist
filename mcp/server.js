@@ -31,7 +31,7 @@ const PROJECTS_FILE = process.env.RUNLIST_PROJECTS_FILE;
 const EXTENSION_HOST_PID = Number.parseInt(process.env.RUNLIST_EXTENSION_HOST_PID || '', 10);
 const MAX_LISTED_PROJECTS = 64;
 const STATUS_STALENESS_NOTE = 'Lifecycle state comes from saved project and ownership records and may differ from the Runlist sidebar in another VS Code window until ownership changes.';
-const STATUS_SOURCE_NOTE = 'Status fields come from saved project and ownership records. Runlist does not read project files, environment variables, service ports, or network listeners to build this response.';
+const STATUS_SOURCE_NOTE = 'Status fields come from saved project and ownership records, including configured service names and ports. Runlist does not read project environment files or probe live ports, listeners, or network state to build this response.';
 let processOwnership;
 
 const setupTool = {
@@ -312,7 +312,7 @@ const repairTool = {
 const listProjectsTool = {
   name: 'runlist_list_projects',
   title: 'List saved Runlist projects',
-  description: 'Return saved Runlist projects with coarse lifecycle state and whether the connected VS Code window can start or stop each project. Read-only. Status fields come from saved project and ownership records; Runlist does not read project files, environment variables, service ports, or network listeners to build this response.',
+  description: 'Return saved Runlist projects with coarse lifecycle state and whether the connected VS Code window can start or stop each project. Read-only. Status fields come from saved project and ownership records, including configured service names and ports. Runlist does not read project environment files or probe live ports, listeners, or network state to build this response.',
   inputSchema: {
     type: 'object',
     properties: {},
@@ -379,7 +379,7 @@ const listProjectsTool = {
 const projectStatusTool = {
   name: 'runlist_get_project_status',
   title: 'Get Runlist project status',
-  description: 'Return read-only status for one saved Runlist project: lifecycle state, configured service ports, retained failure summary when available, and whether diagnostics or a repair proposal are available. Status fields come from saved project and ownership records; Runlist does not read project files, environment variables, service ports, or network listeners to build this response.',
+  description: 'Return read-only status for one saved Runlist project: lifecycle state, configured service ports, retained failure summary when available, and whether diagnostics or a repair proposal are available. Status fields come from saved project and ownership records, including configured service names and ports. Runlist does not read project environment files or probe live ports, listeners, or network state to build this response.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -787,7 +787,7 @@ function callListProjectsTool(message) {
     result(message.id, {
       content: [{
         type: 'text',
-        text: `Runlist returned ${projects.length} saved project${projects.length === 1 ? '' : 's'}. Status is read-only and may differ from another VS Code window.\n${JSON.stringify(structuredContent)}`
+        text: `Runlist returned ${projects.length} saved project${projects.length === 1 ? '' : 's'}. ${STATUS_SOURCE_NOTE}\n${JSON.stringify(structuredContent)}`
       }],
       structuredContent,
       isError: false
