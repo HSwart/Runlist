@@ -348,17 +348,17 @@ test('falls back safely to an exit code, signal, or explicit spawn error', () =>
 
 test('tags missing-required-env summaries from the env gate, not message text', () => {
   assert.deepEqual(startFailureSummary('', {
-    detail: 'Missing required environment variables for this launch profile: API_KEY.',
+    detail: 'Required environment variables are not set for this launch profile. Missing: API_KEY.',
     failureKind: 'missing-required-env'
   }), {
     title: 'Start failed',
-    message: 'Missing required environment variables for this launch profile: API_KEY.',
+    message: 'Required environment variables are not set for this launch profile. Missing: API_KEY.',
     outcome: '',
     kind: 'missing-required-env'
   });
   assert.equal(
     startFailureSummary('', {
-      detail: 'Missing required environment variables for this launch profile: API_KEY.'
+      detail: 'Required environment variables are not set for this launch profile. Empty in .env.local: API_KEY.'
     }).kind,
     undefined
   );

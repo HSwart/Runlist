@@ -1721,7 +1721,7 @@ test('missing-required-env start failure uses Fix environment as the primary row
     detailsExpanded: false,
     failureSummary: {
       title: 'Start failed',
-      message: 'Missing required environment variables for this launch profile: API_KEY, DATABASE_URL.',
+      message: 'Required environment variables are not set for this launch profile. Missing: API_KEY, DATABASE_URL.',
       kind: 'missing-required-env'
     },
     folder: '/Users/shared/Projects/api',

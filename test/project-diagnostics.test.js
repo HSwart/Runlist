@@ -106,7 +106,7 @@ test('retains missing-required-env kind on the diagnostic summary', (t) => {
   const record = writeProjectDiagnostics(projectsFile, 'api', {
     summary: {
       title: 'Start failed',
-      message: 'Missing required environment variables for this launch profile: API_KEY.',
+      message: 'Required environment variables are not set for this launch profile. Missing: API_KEY.',
       kind: 'missing-required-env'
     },
     output: ''

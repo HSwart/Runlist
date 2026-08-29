@@ -45,13 +45,121 @@ function resolveExplicitRequiredEnvKeys(project = {}) {
   return normalizeRequiredEnvKeys(project.requiredEnvKeys) || [];
 }
 
+function isEnvValueEmpty(value) {
+  return typeof value === 'string' && value.trim().length === 0;
+}
+
+function isEnvValuePresent(value) {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
 function missingRequiredEnvKeys(requiredKeys, environment = {}) {
   const present = new Set(
     Object.entries(environment || {})
-      .filter(([, value]) => typeof value === 'string' && value.length > 0)
+      .filter(([, value]) => isEnvValuePresent(value))
       .map(([key]) => key)
   );
   return (requiredKeys || []).filter((key) => !present.has(key));
+}
+
+function emptyEnvKeysFromDotenv(map) {
+  return Object.entries(map || {})
+    .filter(([, value]) => isEnvValueEmpty(value))
+    .map(([key]) => key)
+    .sort();
+}
+
+function emptyEnvKeysFromLocalSettings(json) {
+  const values = json?.Values ?? json?.values;
+  if (!values || typeof values !== 'object' || Array.isArray(values)) {
+    return [];
+  }
+  return Object.entries(values)
+    .filter(([, value]) => typeof value === 'string' && isEnvValueEmpty(value))
+    .map(([key]) => key)
+    .sort();
+}
+
+function classifyRequiredEnvPresence(requiredKeys, mergedEnv = {}, sources = []) {
+  const missing = [];
+  const emptyBySource = [];
+  const emptySourceIndex = new Map();
+
+  for (const key of requiredKeys || []) {
+    if (!Object.hasOwn(mergedEnv, key)) {
+      missing.push(key);
+      continue;
+    }
+    if (!isEnvValueEmpty(mergedEnv[key])) {
+      continue;
+    }
+    let attributed = false;
+    for (let index = sources.length - 1; index >= 0; index -= 1) {
+      const source = sources[index];
+      const env = source?.env;
+      if (!env || !Object.hasOwn(env, key) || !isEnvValueEmpty(env[key])) {
+        continue;
+      }
+      const label = String(source.label || 'environment');
+      if (!emptySourceIndex.has(label)) {
+        emptySourceIndex.set(label, emptyBySource.length);
+        emptyBySource.push({ source: label, keys: [] });
+      }
+      emptyBySource[emptySourceIndex.get(label)].keys.push(key);
+      attributed = true;
+      break;
+    }
+    if (!attributed) {
+      const label = 'environment';
+      if (!emptySourceIndex.has(label)) {
+        emptySourceIndex.set(label, emptyBySource.length);
+        emptyBySource.push({ source: label, keys: [] });
+      }
+      emptyBySource[emptySourceIndex.get(label)].keys.push(key);
+    }
+  }
+
+  for (const entry of emptyBySource) {
+    entry.keys.sort();
+  }
+  missing.sort();
+  return { missing, emptyBySource };
+}
+
+function collectAdvisoryEmptyKeysBySource(entries = []) {
+  const result = [];
+  for (const entry of entries) {
+    const keys = entry.map
+      ? emptyEnvKeysFromDotenv(entry.map)
+      : emptyEnvKeysFromLocalSettings(entry.settings);
+    if (keys.length) {
+      result.push({ source: entry.label, keys });
+    }
+  }
+  return result;
+}
+
+function formatRequiredEnvFailureDetail({ missing = [], emptyBySource = [] } = {}) {
+  const parts = [];
+  if (missing.length) {
+    parts.push(`Missing: ${missing.join(', ')}`);
+  }
+  for (const { source, keys } of emptyBySource) {
+    if (keys.length) {
+      parts.push(`Empty in ${source}: ${keys.join(', ')}`);
+    }
+  }
+  if (!parts.length) {
+    return 'Required environment variables are not set for this launch profile.';
+  }
+  return `Required environment variables are not set for this launch profile. ${parts.join('; ')}.`;
+}
+
+function hasRequiredEnvPresenceIssues({ missing = [], emptyBySource = [] } = {}) {
+  if (missing.length) {
+    return true;
+  }
+  return emptyBySource.some((entry) => entry.keys?.length);
 }
 
 function isMissingRequiredEnvFailure(failure = {}) {
@@ -93,7 +201,7 @@ function exampleEnvKeys(text) {
 function exampleEnvAdvisoryMissing(exampleText, environment = {}) {
   const present = new Set(
     Object.entries(environment || {})
-      .filter(([, value]) => typeof value === 'string' && value.length > 0)
+      .filter(([, value]) => isEnvValuePresent(value))
       .map(([key]) => key)
   );
   const advisoryMissing = exampleEnvKeys(exampleText).filter((key) => !present.has(key));
@@ -107,6 +215,7 @@ function exampleEnvAdvisoryMissing(exampleText, environment = {}) {
 function formatEnvPresenceWarnings({
   requiredMissing = [],
   advisoryMissing = [],
+  advisoryEmptyBySource = [],
   envLocalHint
 } = {}) {
   const warnings = [];
@@ -126,6 +235,13 @@ function formatEnvPresenceWarnings({
     warnings.push(
       `Test-only .env.example keys are unset (Start continues): ${testOnly.join(', ')}.`
     );
+  }
+  for (const { source, keys } of advisoryEmptyBySource) {
+    if (keys.length) {
+      warnings.push(
+        `Empty environment variables in ${source} (Start continues): ${keys.join(', ')}.`
+      );
+    }
   }
   if (envLocalHint) {
     warnings.push(envLocalHint);
@@ -147,10 +263,18 @@ function envLocalAttachHint(envFile, localExists) {
 module.exports = {
   MAX_REQUIRED_ENV_KEYS,
   MISSING_REQUIRED_ENV_FAILURE_KIND,
+  classifyRequiredEnvPresence,
+  collectAdvisoryEmptyKeysBySource,
+  emptyEnvKeysFromDotenv,
+  emptyEnvKeysFromLocalSettings,
   envLocalAttachHint,
   exampleEnvAdvisoryMissing,
   exampleEnvKeys,
   formatEnvPresenceWarnings,
+  formatRequiredEnvFailureDetail,
+  hasRequiredEnvPresenceIssues,
+  isEnvValueEmpty,
+  isEnvValuePresent,
   isMissingRequiredEnvFailure,
   isTestOnlyEnvKey,
   missingRequiredEnvKeys,

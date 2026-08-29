@@ -110,6 +110,10 @@ const {
 const {
   LaunchEnvError,
   collectLaunchEnvSecretValues,
+  normalizeEnvFile,
+  normalizeEnvMap,
+  parseDotenv,
+  readProjectEnvFile,
   redactKnownEnvValues,
   resolveProjectLaunchEnvironment
 } = require('../projects/launch-env');
@@ -118,10 +122,13 @@ const {
   windowsStartCommandIssues
 } = require('../projects/command-display');
 const {
+  classifyRequiredEnvPresence,
+  collectAdvisoryEmptyKeysBySource,
   envLocalAttachHint,
   exampleEnvAdvisoryMissing,
   formatEnvPresenceWarnings,
-  missingRequiredEnvKeys,
+  formatRequiredEnvFailureDetail,
+  hasRequiredEnvPresenceIssues,
   MISSING_REQUIRED_ENV_FAILURE_KIND,
   resolveExplicitRequiredEnvKeys
 } = require('../projects/required-env');
@@ -3867,8 +3874,31 @@ class RunlistViewProvider {
       }
       try {
         const explicitRequired = resolveExplicitRequiredEnvKeys(launchProject);
-        const requiredMissing = missingRequiredEnvKeys(explicitRequired, launchEnvironment);
-        if (requiredMissing.length) {
+        const requiredSources = [];
+        const normalizedEnvFile = normalizeEnvFile(launchProject.envFile);
+        if (normalizedEnvFile) {
+          try {
+            requiredSources.push({
+              label: normalizedEnvFile,
+              env: readProjectEnvFile(launchProject.folder, launchProject.envFile)
+            });
+          } catch {
+            // Unreadable env files are handled when resolving launch environment.
+          }
+        }
+        const explicitEnvironment = normalizeEnvMap(launchProject.env) || {};
+        if (Object.keys(explicitEnvironment).length) {
+          requiredSources.push({
+            label: 'launch profile env map',
+            env: explicitEnvironment
+          });
+        }
+        const requiredPresence = classifyRequiredEnvPresence(
+          explicitRequired,
+          launchEnvironment,
+          requiredSources
+        );
+        if (hasRequiredEnvPresenceIssues(requiredPresence)) {
           this.managedProjectIds.delete(id);
           this.processOwnership.release(id);
           this.releaseStartReservation(id);
@@ -3876,7 +3906,7 @@ class RunlistViewProvider {
           this.startReadinessDeadlines.delete(id);
           this.projectAttemptMetadata.delete(id);
           this.showStartFailure(project, {
-            detail: `Missing required environment variables for this launch profile: ${requiredMissing.join(', ')}.`,
+            detail: formatRequiredEnvFailureDetail(requiredPresence),
             failureKind: MISSING_REQUIRED_ENV_FAILURE_KIND,
             projectRevision: savedProjectRevision
           });
@@ -3888,8 +3918,41 @@ class RunlistViewProvider {
         const advisory = fs.existsSync(examplePath)
           ? exampleEnvAdvisoryMissing(fs.readFileSync(examplePath, 'utf8'), launchEnvironment)
           : { requiredMissing: [], advisoryMissing: [] };
+        const advisoryScanEntries = [];
+        if (fs.existsSync(localEnvPath)) {
+          try {
+            advisoryScanEntries.push({
+              label: '.env.local',
+              map: parseDotenv(fs.readFileSync(localEnvPath, 'utf8'))
+            });
+          } catch {
+            // Unreadable local env files must not crash Start.
+          }
+        }
+        if (normalizedEnvFile && normalizedEnvFile !== '.env.local') {
+          try {
+            advisoryScanEntries.push({
+              label: normalizedEnvFile,
+              map: readProjectEnvFile(launchProject.folder, launchProject.envFile)
+            });
+          } catch {
+            // Missing or unreadable env files are handled elsewhere.
+          }
+        }
+        const localSettingsPath = path.join(launchProject.folder, 'local.settings.json');
+        if (fs.existsSync(localSettingsPath)) {
+          try {
+            advisoryScanEntries.push({
+              label: 'local.settings.json',
+              settings: JSON.parse(fs.readFileSync(localSettingsPath, 'utf8'))
+            });
+          } catch {
+            // Invalid local.settings.json must not crash Start.
+          }
+        }
         const warnings = formatEnvPresenceWarnings({
           advisoryMissing: advisory.advisoryMissing,
+          advisoryEmptyBySource: collectAdvisoryEmptyKeysBySource(advisoryScanEntries),
           envLocalHint: envLocalAttachHint(
             launchProject.envFile,
             fs.existsSync(localEnvPath)

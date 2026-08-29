@@ -93,7 +93,7 @@ test('turns a missing-required-env start failure into Fix environment', () => {
     status: 'stopped',
     failureSummary: {
       title: 'Start failed',
-      message: 'Missing required environment variables for this launch profile: API_KEY.',
+      message: 'Required environment variables are not set for this launch profile. Missing: API_KEY.',
       kind: 'missing-required-env'
     }
   }), {
