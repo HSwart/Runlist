@@ -79,7 +79,7 @@ test('view title commands use plain-language icon titles', () => {
     manifest.contributes.commands.map((item) => [item.command, item.title])
   );
 
-  assert.equal(byId['runlist.addProject'], 'Add Project');
+  assert.equal(byId['runlist.addProject'], 'Add This Folder');
   assert.equal(byId['runlist.showAgentSetup'], 'Set Up Agents');
   assert.equal(byId['runlist.transferProjects'], 'Import or Export');
   assert.equal(byId['runlist.manageGroups'], 'Manage Groups');
