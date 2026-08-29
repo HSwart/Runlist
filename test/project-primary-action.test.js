@@ -104,12 +104,17 @@ test('turns a missing-required-env start failure into Fix environment', () => {
   });
 });
 
-test('keeps Start for other retained start failures', () => {
-  assert.equal(projectPrimaryAction({
+test('uses View output for other retained start failures', () => {
+  assert.deepEqual(projectPrimaryAction({
     name: 'App',
     status: 'stopped',
     failureSummary: { title: 'Start failed', message: 'command not found' }
-  }).action, 'start');
+  }), {
+    action: 'output',
+    disabled: false,
+    label: 'View output for App',
+    mode: 'output'
+  });
 });
 
 test('review setup still gates missing-env rows', () => {

@@ -1515,7 +1515,7 @@ test('review setup stays primary and hides Add stop command until review is done
   assert.doesNotMatch(result.app.innerHTML, /data-action="add-stop-command"/);
 });
 
-test('failed start keeps a two-line row with the reason and Start', () => {
+test('failed start keeps a two-line row with the reason and View output', () => {
   const result = renderNonEmptyProjectList([{
     activeLaunchProfileId: 'default',
     activeLaunchProfileName: 'Default',
@@ -1542,11 +1542,12 @@ test('failed start keeps a two-line row with the reason and Start', () => {
     result.app.innerHTML,
     /class="project-status status-start-failed"[^>]*title="\/bin\/sh: vite: command not found"[^>]*>[\s\S]*<span>Start failed<\/span>/
   );
-  assert.match(result.app.innerHTML, /class="run-button start"[^>]*data-action="start"[^>]*aria-label="Start Broken App"/);
+  assert.match(result.app.innerHTML, /class="run-button output"[^>]*data-action="output"[^>]*aria-label="View output for Broken App"/);
+  assert.match(result.app.innerHTML, /data-action="start"[^>]*role="menuitem"[^>]*aria-label="Start Broken App"/);
   assert.doesNotMatch(result.app.innerHTML, />Stopped</);
   assert.doesNotMatch(result.app.innerHTML, />Running</);
   assert.doesNotMatch(result.app.innerHTML, /class="project-readiness-detail"/);
-  assert.doesNotMatch(result.app.innerHTML, /data-action="output"[^>]*class="run-button"/);
+  assert.doesNotMatch(result.app.innerHTML, /class="run-button start"[^>]*data-action="start"/);
   assert.doesNotMatch(result.app.innerHTML, /Ask your agent|copy-diagnosis-request/);
 });
 
