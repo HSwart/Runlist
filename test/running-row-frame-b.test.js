@@ -25,7 +25,8 @@ test('running row keeps status and port on one second line', () => {
   assert.doesNotMatch(styles, /fonts\.googleapis/);
   assert.doesNotMatch(webview, /class="project-services-summary"/);
   assert.match(styles, /\.project-status\.status-start-failed/);
-  assert.match(styles, /\.project-status span \{[\s\S]*text-overflow: ellipsis;/);
+  assert.match(webview, /class="project-status status-\$\{rowStatusClass\}"[\s\S]*auto-scroll/);
+  assert.doesNotMatch(styles, /\.project-status span \{[\s\S]*text-overflow: ellipsis;/);
 });
 
 test('running row shows Stop and Restart as row actions', () => {

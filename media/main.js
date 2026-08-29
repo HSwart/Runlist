@@ -8,6 +8,7 @@ const {
   projectShowsMissingFolder,
   projectStartFailureText,
   projectStatusAnnouncement,
+  projectStatusDetailText,
   projectStatusFullLabels,
   projectStopFailureText
 } = window.RunlistProjectStatus;
@@ -806,7 +807,7 @@ function projectDetailTabsHtml(project, projectName) {
         <div class="preview-fallback" data-preview-fallback hidden>
           <strong>Preview unavailable</strong>
           <span>This app may block embedded views.</span>
-          ${project.previewUrl ? `<button class="preview-fallback-open" data-action="open" data-id="${projectId}" aria-label="Open ${projectName} in browser" title="Open in browser">${icon('external')}<span>Open in browser</span></button>` : ''}
+          ${project.previewUrl ? `<button class="preview-fallback-open" data-action="open" data-id="${projectId}" aria-label="Open ${projectName} in browser" title="Open in browser">${icon('external')}${autoScrollHtml('<span>Open in browser</span>')}</button>` : ''}
         </div>
       </div>
       ${phoneHandoffContent}
@@ -953,7 +954,11 @@ function attentionSummaryHtml(projects) {
   const ariaLabel = count > 1
     ? `Focus next project that needs attention, ${count} projects`
     : 'Focus project that needs attention';
-  return `<button type="button" class="summary-attention" data-action="focus-attention" aria-label="${escapeHtml(ariaLabel)}">${escapeHtml(label)}</button>`;
+  return `<button type="button" class="summary-attention" data-action="focus-attention" aria-label="${escapeHtml(ariaLabel)}">${autoScrollHtml(escapeHtml(label))}</button>`;
+}
+
+function autoScrollHtml(text) {
+  return `<span class="auto-scroll"><span class="auto-scroll-content">${text}</span></span>`;
 }
 
 function groupFilterHtml() {
@@ -1279,11 +1284,13 @@ function renderList() {
               : project.failureSummary?.kind === 'missing-required-env'
                 ? 'Add the missing environment variables, then try Start again.'
                 : '';
-        const displayedStatus = projectRowReadinessStatusText(project) || projectDisplayedStatus(project);
+        const readinessRowText = projectRowReadinessStatusText(project);
+        const displayedStatus = readinessRowText || projectDisplayedStatus(project);
         const startFailureText = projectStartFailureText(project);
         const stopFailureText = projectStopFailureText(project);
         const folderMissing = projectShowsMissingFolder(project);
         const rowStatusTitle = statusTitle
+          || (readinessRowText ? escapeHtml(projectStatusDetailText(project)) : '')
           || (folderMissing ? 'The saved folder is missing or cannot be opened.' : '')
           || (startFailureText ? escapeHtml(startFailureText) : '')
           || (stopFailureText ? escapeHtml(stopFailureText) : '');
@@ -1325,7 +1332,7 @@ function renderList() {
                   </h2>
                 </div>
                 <div class="project-meta">
-                  <div class="project-status status-${rowStatusClass}"${rowStatusTitle ? ` title="${rowStatusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : `<span class="status-dot ${statusDotClass}" aria-hidden="true"></span>`}<span>${escapeHtml(displayedStatus)}</span></div>
+                  <div class="project-status status-${rowStatusClass}"${rowStatusTitle ? ` title="${rowStatusTitle}"` : ''}>${!reviewRequired && transitioning ? productIcon('loading', 'status-progress') : `<span class="status-dot ${statusDotClass}" aria-hidden="true"></span>`}${autoScrollHtml(`<span>${escapeHtml(displayedStatus)}</span>`)}</div>
                   ${Number.isFinite(rowElapsedStartedAt) ? `
                     <span class="project-row-elapsed" data-row-elapsed data-started-at="${rowElapsedStartedAt}" aria-label="Running for ${escapeHtml(rowElapsedLabel)}">${escapeHtml(rowElapsedLabel)}</span>` : ''}
                   ${rowPort ? `

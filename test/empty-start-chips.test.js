@@ -116,5 +116,5 @@ test('narrow sidebar keeps Frame B actions from collapsing', () => {
     styles,
     /@media \(max-width: 300px\) \{[\s\S]*\.project-actions \{[\s\S]*\.run-button,[\s\S]*\.more-button \{[\s\S]*flex: 0 0 auto;/
   );
-  assert.match(styles, /@media \(max-width: 300px\) \{[\s\S]*\.project-status span \{[\s\S]*text-overflow: ellipsis;/);
+  assert.doesNotMatch(styles, /@media \(max-width: 300px\) \{[\s\S]*\.project-status span \{[\s\S]*text-overflow: ellipsis;/);
 });
