@@ -6,7 +6,7 @@ const {
   readProjectDiagnostics,
   redactSensitiveText
 } = require('../src/projects/project-diagnostics');
-const { ProcessOwnershipStore } = require('../src/lifecycle/project-process');
+const { readPersistedOwnershipSnapshot } = require('./persisted-ownership');
 const {
   createProjectRepairProposal,
   projectConfigurationRevision,
@@ -31,9 +31,8 @@ const PROJECTS_FILE = process.env.RUNLIST_PROJECTS_FILE;
 const EXTENSION_HOST_PID = Number.parseInt(process.env.RUNLIST_EXTENSION_HOST_PID || '', 10);
 const MAX_LISTED_PROJECTS = 64;
 const STATUS_STALENESS_NOTE = 'Lifecycle state comes from saved project and ownership records and may differ from the Runlist sidebar in another VS Code window until ownership changes.';
-const processOwnership = PROJECTS_FILE
-  ? new ProcessOwnershipStore(path.join(path.dirname(PROJECTS_FILE), 'process-ownership'))
-  : undefined;
+const STATUS_SOURCE_NOTE = 'Status fields come from saved project and ownership records. Runlist does not read project files, environment variables, service ports, or network listeners to build this response.';
+let processOwnership;
 
 const setupTool = {
   name: 'runlist_setup_project',
@@ -313,7 +312,7 @@ const repairTool = {
 const listProjectsTool = {
   name: 'runlist_list_projects',
   title: 'List saved Runlist projects',
-  description: 'Return saved Runlist projects with coarse lifecycle state and whether the connected VS Code window can start or stop each project. Read-only. Derives status from saved project and ownership records only; does not inspect project files, environment variables, ports, processes, or network listeners.',
+  description: 'Return saved Runlist projects with coarse lifecycle state and whether the connected VS Code window can start or stop each project. Read-only. Status fields come from saved project and ownership records; Runlist does not read project files, environment variables, service ports, or network listeners to build this response.',
   inputSchema: {
     type: 'object',
     properties: {},
@@ -380,7 +379,7 @@ const listProjectsTool = {
 const projectStatusTool = {
   name: 'runlist_get_project_status',
   title: 'Get Runlist project status',
-  description: 'Return read-only status for one saved Runlist project: lifecycle state, configured service ports, retained failure summary when available, and whether diagnostics or a repair proposal are available. Derives status from saved project and ownership records only; does not inspect project files, environment variables, ports, processes, or network listeners.',
+  description: 'Return read-only status for one saved Runlist project: lifecycle state, configured service ports, retained failure summary when available, and whether diagnostics or a repair proposal are available. Status fields come from saved project and ownership records; Runlist does not read project files, environment variables, service ports, or network listeners to build this response.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -526,6 +525,19 @@ function handleRequest(message) {
   }
 }
 
+function setupProcessOwnership() {
+  if (!PROJECTS_FILE) {
+    return undefined;
+  }
+  if (!processOwnership) {
+    const { ProcessOwnershipStore } = require('../src/lifecycle/project-process');
+    processOwnership = new ProcessOwnershipStore(
+      path.join(path.dirname(PROJECTS_FILE), 'process-ownership')
+    );
+  }
+  return processOwnership;
+}
+
 function callTool(message) {
   const name = message.params?.name;
   if (name === listProjectsTool.name) {
@@ -579,9 +591,10 @@ function callTool(message) {
     });
 
     const existingProject = findProjectByFolder(PROJECTS_FILE, argumentsValue.folder);
+    const ownershipStore = setupProcessOwnership();
     let updateReserved = false;
     if (existingProject) {
-      const ownershipConflict = processOwnership.reserve(existingProject.id);
+      const ownershipConflict = ownershipStore.reserve(existingProject.id);
       if (ownershipConflict) {
         throw new Error(`Stop ${existingProject.name} before asking an agent to update its setup.`);
       }
@@ -601,7 +614,7 @@ function callTool(message) {
       });
     } finally {
       if (updateReserved) {
-        processOwnership.release(existingProject.id);
+        ownershipStore.release(existingProject.id);
       }
     }
     const structuredContent = {
@@ -640,7 +653,7 @@ function setupToolProject(project) {
 }
 
 function readOwnershipSnapshot(projectId) {
-  return processOwnership?.readPersistedSnapshot(projectId) || new Map();
+  return readPersistedOwnershipSnapshot(PROJECTS_FILE, projectId);
 }
 
 function statusServices(project) {
@@ -823,7 +836,7 @@ function callProjectStatusTool(message) {
     result(message.id, {
       content: [{
         type: 'text',
-        text: `Runlist returned read-only status for ${project.name}. Status is derived from saved project and ownership records; no project files, environment variables, ports, processes, or network listeners were inspected.\n${JSON.stringify(structuredContent)}`
+        text: `Runlist returned read-only status for ${project.name}. ${STATUS_SOURCE_NOTE}\n${JSON.stringify(structuredContent)}`
       }],
       structuredContent,
       isError: false
@@ -1041,6 +1054,7 @@ if (require.main === module) {
 
 module.exports = {
   MAX_LISTED_PROJECTS,
+  STATUS_SOURCE_NOTE,
   STATUS_STALENESS_NOTE,
   coarseLifecycleState,
   controllableInThisWindow,

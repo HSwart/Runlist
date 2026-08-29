@@ -220,6 +220,7 @@ test('serves the setup tool over MCP stdio', async (t) => {
   fs.mkdirSync(installedMcpRoot, { recursive: true });
   const bridgeFiles = [
     'mcp/server.js',
+    'mcp/persisted-ownership.js',
     'src/lifecycle/atomic-json-record.js',
     'src/lifecycle/exclusive-json-lock.js',
     'src/lifecycle/process-identity.js',
@@ -772,6 +773,9 @@ test('keeps MCP port variables launch-only and rejects stale setup fields', () =
   assert.match(serverSource, /const serviceKeys = new Set\(\['name', 'port', 'url'\]\)/);
   assert.match(serverSource, /expectedProject: existingProject/);
   assert.match(serverSource, /expectProjectAbsent: true/);
+  assert.doesNotMatch(serverSource, /^const \{ ProcessOwnershipStore \} = require\('\.\.\/src\/lifecycle\/project-process'\);/m);
+  assert.match(serverSource, /function setupProcessOwnership\(\)/);
+  assert.match(serverSource, /readPersistedOwnershipSnapshot/);
 });
 
 test('does not probe review-required projects before approval', () => {
