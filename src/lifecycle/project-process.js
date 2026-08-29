@@ -1885,6 +1885,33 @@ class ProcessOwnershipStore {
     return projects;
   }
 
+  peekSnapshot() {
+    const projects = new Map();
+    for (const filename of fs.readdirSync(this.directory).filter((name) => name.endsWith('.json'))) {
+      const ownershipPath = path.join(this.directory, filename);
+      const ownership = readJson(ownershipPath);
+      if (!validOwnership(ownership)) {
+        continue;
+      }
+      const hostDecision = this.hostIdentityDecision(ownership, { fresh: true });
+      const hostAlive = runtimeHostOwnerState(hostDecision, {
+        heartbeatAt: ownership.heartbeatAt,
+        heartbeatTimeoutMs: this.ownerHeartbeatTimeoutMs,
+        now: this.now()
+      }) === 'available';
+      const childLiveness = this.childProcessLiveness(ownership);
+      const processAlive = childLiveness === true;
+      const stopRequested = readJson(this.stopRequestPath(ownership.projectId))?.token === ownership.token;
+      projects.set(ownership.projectId, {
+        ...ownership,
+        ownerAvailable: hostAlive,
+        processActive: Boolean(processAlive),
+        state: stopRequested ? 'stopping' : ownership.state
+      });
+    }
+    return projects;
+  }
+
   requestStop(projectId, expectedToken) {
     const ownership = readJson(this.ownershipPath(projectId));
     if (!validOwnership(ownership, projectId)) {

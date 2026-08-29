@@ -1,6 +1,6 @@
 ---
 name: runlist
-description: Set up or update a local development project in Runlist, or diagnose a retained failed start when the user provides a Runlist project ID. Use for Runlist setup requests and copied Runlist diagnosis requests.
+description: Set up or update a local development project in Runlist, inspect saved project status, or diagnose a retained failed start. Use for Runlist setup requests, questions about saved projects or running ports, and copied Runlist diagnosis requests.
 ---
 
 <!-- Managed by the Runlist VS Code extension. -->
@@ -24,9 +24,18 @@ When the repository already has a committed Runlist stack file (`runlist.json` o
 
 If the Runlist MCP tool is unavailable, tell the user to open **Runlist → Agent connections** in VS Code and select **Set up** for this agent. Do not edit Runlist's storage file directly.
 
+# Inspect saved Runlist projects
+
+When the user asks what projects are saved, which ports are configured, or what is running in Runlist:
+
+1. Call `runlist_list_projects` with no arguments. Use the returned project IDs, names, configured service ports, coarse lifecycle state, and `controllableInThisWindow` value.
+2. For one project, call `runlist_get_project_status` with its exact `projectId` when you need retained failure summary, diagnostics availability, repair availability, or `projectRevision`.
+3. Treat status responses as read-only. They come from shared ownership records and may differ from the Runlist sidebar in another VS Code window.
+4. Do **not** start, stop, restart, edit, or close ports through MCP. Tell the user to use the Runlist sidebar for those actions.
+
 # Diagnose a failed Runlist start
 
-When the user pastes a Runlist diagnosis request containing a project ID:
+When the user pastes a Runlist diagnosis request containing a project ID, or `runlist_get_project_status` shows diagnostics are available:
 
 1. Call `runlist_get_project_diagnostics` with that exact project ID. Do not substitute a name or folder and do not request diagnostics for other projects.
 2. Diagnose only the returned saved setup, platform, lifecycle result, failure summary, and sanitized retained output. Explain the likely cause and the smallest safe next step.
