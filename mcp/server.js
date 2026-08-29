@@ -750,10 +750,7 @@ function callListProjectsTool(message) {
     if (argumentsValue && Object.keys(argumentsValue).length > 0) {
       throw new Error('runlist_list_projects does not accept arguments.');
     }
-    if (!fs.existsSync(PROJECTS_FILE)) {
-      throw new Error('Runlist project storage is unavailable.');
-    }
-    const savedProjects = readProjects(PROJECTS_FILE);
+    const savedProjects = fs.existsSync(PROJECTS_FILE) ? readProjects(PROJECTS_FILE) : [];
     const ownership = readOwnershipSnapshot();
     const truncated = savedProjects.length > MAX_LISTED_PROJECTS;
     const projects = savedProjects.slice(0, MAX_LISTED_PROJECTS).map((project) => {
