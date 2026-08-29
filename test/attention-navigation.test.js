@@ -299,6 +299,162 @@ test('projectNeedsAttention includes stopped relink rows and not-ready rows', ()
   }), true);
 });
 
+test('projectNeedsAttention includes running-elsewhere and ownership-lost rows that need Add stop command', () => {
+  const harness = renderAttentionNavigationHarness([]);
+  const needsAttention = (project) => harness.evaluate(`projectNeedsAttention(${JSON.stringify(project)})`);
+
+  assert.equal(needsAttention({
+    id: 'detected',
+    name: 'Detected app',
+    status: 'active',
+    stopCommand: '',
+    folder: '/detected',
+    services: []
+  }), true);
+  assert.equal(needsAttention({
+    id: 'ownership-lost',
+    name: 'Lost app',
+    status: 'ownership-lost',
+    stopCommand: '',
+    folder: '/lost',
+    services: []
+  }), true);
+});
+
+test('projectNeedsAttention excludes detected rows that already have a stop command', () => {
+  const harness = renderAttentionNavigationHarness([]);
+  const needsAttention = (project) => harness.evaluate(`projectNeedsAttention(${JSON.stringify(project)})`);
+
+  assert.equal(needsAttention({
+    id: 'detected-stop',
+    name: 'Detected app',
+    status: 'active',
+    stopCommand: 'docker compose down',
+    folder: '/detected',
+    services: []
+  }), false);
+  assert.equal(needsAttention({
+    id: 'ownership-stop',
+    name: 'Lost app',
+    status: 'ownership-lost',
+    stopCommand: 'docker compose down',
+    folder: '/lost',
+    services: []
+  }), false);
+});
+
+test('projectNeedsAttention does not double-count review, stop failure, or httpUnresponsive rows', () => {
+  const harness = renderAttentionNavigationHarness([]);
+  const needsAttention = (project) => harness.evaluate(`projectNeedsAttention(${JSON.stringify(project)})`);
+  const attentionCount = (projects) => harness.evaluate(`(${JSON.stringify(projects)}).filter((project) => projectNeedsAttention(project)).length`);
+
+  assert.equal(needsAttention({
+    id: 'review',
+    name: 'Review app',
+    status: 'active',
+    stopCommand: '',
+    reviewRequired: true,
+    folder: '/review',
+    services: []
+  }), true);
+  assert.equal(needsAttention({
+    id: 'stop-failure',
+    name: 'Stop failed app',
+    status: 'active',
+    stopCommand: '',
+    stopFailure: 'Port :3000 is still up',
+    folder: '/stop-failure',
+    services: []
+  }), true);
+  assert.equal(needsAttention({
+    id: 'unresponsive',
+    name: 'Unresponsive app',
+    status: 'active',
+    stopCommand: '',
+    httpUnresponsive: true,
+    folder: '/unresponsive',
+    services: []
+  }), true);
+  assert.equal(attentionCount([
+    {
+      id: 'review',
+      name: 'Review app',
+      status: 'active',
+      stopCommand: '',
+      reviewRequired: true,
+      folder: '/review',
+      services: []
+    },
+    {
+      id: 'stop-failure',
+      name: 'Stop failed app',
+      status: 'active',
+      stopCommand: '',
+      stopFailure: 'Port :3000 is still up',
+      folder: '/stop-failure',
+      services: []
+    },
+    {
+      id: 'unresponsive',
+      name: 'Unresponsive app',
+      status: 'active',
+      stopCommand: '',
+      httpUnresponsive: true,
+      folder: '/unresponsive',
+      services: []
+    }
+  ]), 3);
+});
+
+test('running-elsewhere attention rows drop out after a stop command is saved', () => {
+  const harness = renderAttentionNavigationHarness([]);
+  const needsAttention = (project) => harness.evaluate(`projectNeedsAttention(${JSON.stringify(project)})`);
+
+  const detected = {
+    id: 'detected',
+    name: 'Detected app',
+    status: 'active',
+    stopCommand: '',
+    folder: '/detected',
+    services: []
+  };
+  assert.equal(needsAttention(detected), true);
+  assert.equal(needsAttention({ ...detected, stopCommand: 'docker compose down' }), false);
+});
+
+test('cycles through running-elsewhere attention rows and focuses Add stop command primary', () => {
+  const projects = [
+    {
+      id: 'detected',
+      name: 'Detected app',
+      status: 'active',
+      stopCommand: '',
+      folder: '/detected',
+      services: []
+    },
+    {
+      id: 'ownership-lost',
+      name: 'Lost app',
+      status: 'ownership-lost',
+      stopCommand: '',
+      folder: '/lost',
+      services: []
+    }
+  ];
+  const harness = renderAttentionNavigationHarness(projects);
+
+  harness.evaluate('focusNextAttentionProject()');
+  assert.equal(harness.runButtons[0].focusCount, 1);
+  assert.equal(harness.attentionFocusStatus.textContent, 'Focused Detected app.');
+
+  harness.evaluate('focusNextAttentionProject()');
+  assert.equal(harness.runButtons[1].focusCount, 1);
+  assert.equal(harness.attentionFocusStatus.textContent, 'Focused Lost app.');
+
+  harness.evaluate('focusNextAttentionProject()');
+  assert.equal(harness.runButtons[0].focusCount, 2);
+});
+
 test('projectNeedsAttention excludes starting-only and live missing-folder rows', () => {
   const harness = renderAttentionNavigationHarness([]);
   const needsAttention = (project) => harness.evaluate(`projectNeedsAttention(${JSON.stringify(project)})`);
