@@ -103,7 +103,8 @@ function activate(context) {
     [serverPath],
     {
       ELECTRON_RUN_AS_NODE: '1',
-      RUNLIST_PROJECTS_FILE: projectsFile
+      RUNLIST_PROJECTS_FILE: projectsFile,
+      RUNLIST_EXTENSION_HOST_PID: String(process.pid)
     },
     context.extension.packageJSON.version
   );
