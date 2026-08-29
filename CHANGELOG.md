@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5 — Agents can see your apps
+
+- Add read-only MCP tools **`runlist_list_projects`** and **`runlist_get_project_status`** so agents can inspect saved projects and configured ports without starting or stopping anything.
+- **Ask your agent** opens VS Code chat with a prefilled diagnosis request when Copilot is connected, instead of requiring clipboard copy.
+- Update the bundled Runlist skill and Agent connections screen for MCP status tools, the handoff flow, and Cursor's VS Code MCP path.
+
 ## 0.1.4 — Find and fix what's wrong
 
 - Warn about **missing or empty** environment variables in `.env.local`, `local.settings.json`, and launch-profile required keys before Start (advisory only; Start continues), with variable names only (never values).
