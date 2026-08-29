@@ -149,20 +149,30 @@ test('uses View output for not-responding and active httpUnresponsive rows', () 
   });
 });
 
-test('keeps Stop primary for not-ready rows and stopFailure overrides', () => {
+test('keeps Stop primary for not-ready rows and uses View output for stopFailure', () => {
   assert.equal(projectPrimaryAction({ name: 'App', status: 'not-ready' }).action, 'stop');
-  assert.equal(projectPrimaryAction({
+  assert.deepEqual(projectPrimaryAction({
     name: 'App',
     status: 'not-responding',
     stopFailure: 'Port :3000 is still up'
-  }).action, 'stop');
-  assert.equal(projectPrimaryAction({
+  }), {
+    action: 'output',
+    disabled: false,
+    label: 'View output for App',
+    mode: 'output'
+  });
+  assert.deepEqual(projectPrimaryAction({
     name: 'App',
     status: 'active',
     stopCommand: 'docker compose down',
     httpUnresponsive: true,
     stopFailure: 'Port :3000 is still up'
-  }).action, 'stop');
+  }), {
+    action: 'output',
+    disabled: false,
+    label: 'View output for App',
+    mode: 'output'
+  });
 });
 
 test('preserves ordinary Start, Stop, custom Stop, review, and transition behavior', () => {
@@ -172,17 +182,27 @@ test('preserves ordinary Start, Stop, custom Stop, review, and transition behavi
   assert.equal(projectPrimaryAction({ name: 'App', status: 'stopped', reviewRequired: true }).action, 'edit');
   assert.equal(projectPrimaryAction({ name: 'App', status: 'stopping' }).disabled, true);
   assert.equal(projectPrimaryAction({ name: 'App', status: 'active', forceClosing: true }).disabled, true);
-  assert.equal(projectPrimaryAction({
+  assert.deepEqual(projectPrimaryAction({
     name: 'App',
     status: 'running',
     stopFailure: 'Stop failed'
-  }).action, 'stop');
-  assert.equal(projectPrimaryAction({
+  }), {
+    action: 'output',
+    disabled: false,
+    label: 'View output for App',
+    mode: 'output'
+  });
+  assert.deepEqual(projectPrimaryAction({
     name: 'App',
     status: 'active',
     stopCommand: '',
     stopFailure: 'Port :3000 is still up'
-  }).action, 'stop');
+  }), {
+    action: 'output',
+    disabled: false,
+    label: 'View output for App',
+    mode: 'output'
+  });
 });
 
 test('disables lifecycle actions when the project environment cannot be verified', () => {
