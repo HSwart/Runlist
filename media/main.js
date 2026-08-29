@@ -57,6 +57,8 @@ let firstListRender = true;
 let tagsExpanded = Boolean(persistedWebviewState.tagsExpanded);
 let groupsExpanded = Boolean(persistedWebviewState.groupsExpanded);
 let selectedGroupFilter = String(persistedWebviewState.groupFilter || '');
+let attentionFocusSignature = String(persistedWebviewState.attentionFocusSignature || '');
+let lastAttentionFocusId = String(persistedWebviewState.lastAttentionFocusId || '');
 let runGroupDraft = undefined;
 let outputFollowLatest = true;
 let announcedProjectStatuses = new Map();
@@ -518,7 +520,9 @@ function saveWebviewState() {
     tagFilter: selectedTagFilter,
     searchSelectionStart,
     searchSelectionEnd,
-    searchFocused
+    searchFocused,
+    attentionFocusSignature,
+    lastAttentionFocusId
   });
 }
 
@@ -840,6 +844,70 @@ function projectNeedsAttention(project) {
   return Boolean(projectStartFailureText(project) || projectStopFailureText(project));
 }
 
+function attentionProjectSignature(projects) {
+  return (projects || [])
+    .filter((project) => projectNeedsAttention(project))
+    .map((project) => String(project.id))
+    .join('\n');
+}
+
+function syncAttentionFocusState(projects) {
+  const signature = attentionProjectSignature(projects);
+  if (signature === attentionFocusSignature) {
+    return false;
+  }
+  attentionFocusSignature = signature;
+  lastAttentionFocusId = '';
+  return true;
+}
+
+function visibleAttentionProjects(projects) {
+  return (projects || []).filter((project) => {
+    if (!projectNeedsAttention(project)) {
+      return false;
+    }
+    const row = document.querySelector(`.project-row[data-project-id="${CSS.escape(String(project.id))}"]`);
+    return row && row.hidden !== true;
+  });
+}
+
+function announceAttentionFocus(project) {
+  const status = document.getElementById('attention-focus-status');
+  if (status && project?.name) {
+    status.textContent = `Focused ${project.name}.`;
+  }
+}
+
+function focusAttentionProject(project) {
+  if (!project) {
+    return;
+  }
+  const projectId = String(project.id);
+  const row = document.querySelector(`.project-row[data-project-id="${CSS.escape(projectId)}"]`);
+  row?.scrollIntoView({ block: 'nearest' });
+  const control = document.querySelector(`.run-button[data-id="${CSS.escape(projectId)}"]`);
+  control?.focus();
+  announceAttentionFocus(project);
+}
+
+function focusNextAttentionProject() {
+  syncAttentionFocusState(state.projects);
+  const visible = visibleAttentionProjects(state.projects);
+  if (!visible.length) {
+    return;
+  }
+  const visibleIds = visible.map((project) => String(project.id));
+  let nextIndex = 0;
+  if (lastAttentionFocusId && visibleIds.includes(lastAttentionFocusId)) {
+    const currentIndex = visibleIds.indexOf(lastAttentionFocusId);
+    nextIndex = (currentIndex + 1) % visibleIds.length;
+  }
+  const project = visible[nextIndex];
+  lastAttentionFocusId = String(project.id);
+  saveWebviewState();
+  focusAttentionProject(project);
+}
+
 function statusSummaryHtml(projects) {
   const reviewCount = projects.filter((project) => project.reviewRequired).length;
   const runningCount = projects
@@ -868,10 +936,16 @@ function statusSummaryHtml(projects) {
 }
 
 function attentionSummaryHtml(projects) {
-  if (!projects.some((project) => projectNeedsAttention(project))) {
+  const attentionProjects = (projects || []).filter((project) => projectNeedsAttention(project));
+  if (!attentionProjects.length) {
     return '';
   }
-  return `<button type="button" class="summary-attention" data-action="focus-attention" aria-label="Focus first project that needs attention">Needs attention</button>`;
+  const count = attentionProjects.length;
+  const label = count > 1 ? `Needs attention (${count})` : 'Needs attention';
+  const ariaLabel = count > 1
+    ? `Focus next project that needs attention, ${count} projects`
+    : 'Focus project that needs attention';
+  return `<button type="button" class="summary-attention" data-action="focus-attention" aria-label="${escapeHtml(ariaLabel)}">${escapeHtml(label)}</button>`;
 }
 
 function groupFilterHtml() {
@@ -977,6 +1051,9 @@ function renderList() {
       webviewStateChanged = true;
     }
   }
+  if (syncAttentionFocusState(state.projects)) {
+    webviewStateChanged = true;
+  }
   if (webviewStateChanged) {
     saveWebviewState();
   }
@@ -1059,6 +1136,7 @@ function renderList() {
       </span>
     </header>
     <div id="summary-attention-slot" class="summary-attention-slot">${attentionSummaryHtml(state.projects)}</div>
+    <span id="attention-focus-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span>
     <span id="project-lifecycle-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span>
     ${state.routeNotice ? `
       <section id="route-notice" class="diagnosis-notice" role="status" aria-live="polite" aria-atomic="true">
@@ -2952,23 +3030,7 @@ app.addEventListener('click', (event) => {
         action: button.dataset.resolveAction
       });
     },
-    'focus-attention': () => {
-      const project = (state.projects || []).find((item) => {
-        if (!projectNeedsAttention(item)) {
-          return false;
-        }
-        const row = document.querySelector(`.project-row[data-project-id="${CSS.escape(String(item.id))}"]`);
-        return row && row.hidden !== true;
-      });
-      if (!project) {
-        return;
-      }
-      const projectId = String(project.id);
-      const row = document.querySelector(`.project-row[data-project-id="${CSS.escape(projectId)}"]`);
-      row?.scrollIntoView({ block: 'nearest' });
-      const control = document.querySelector(`.run-button[data-id="${CSS.escape(projectId)}"]`);
-      control?.focus();
-    },
+    'focus-attention': () => focusNextAttentionProject(),
     'copy-phone-url': () => vscode.postMessage({
       type: 'copyPhoneUrl',
       id: button.dataset.id,
