@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3 — Failure recovery polish
+
+- Make **View output** the primary action when a web service is not responding.
+- Make **View output** the primary action after a stop failure while the process or port may still be up.
+- Include **Running elsewhere** rows in **Needs attention** so users are guided to add a stop command.
+
 ## 0.1.2 — Narrow sidebar readability
 
 - Scroll overflowing row status, Needs attention, and preview fallback labels instead of truncating them with ellipsis on narrow sidebars.
