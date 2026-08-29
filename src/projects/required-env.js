@@ -265,6 +265,7 @@ function exampleEnvAdvisoryMissing(exampleText, environment = {}) {
 
 function formatEnvPresenceWarnings({
   requiredMissing = [],
+  requiredEmptyBySource = {},
   advisoryMissing = [],
   advisoryEmptyBySource = {},
   envLocalHint
@@ -272,7 +273,16 @@ function formatEnvPresenceWarnings({
   const warnings = [];
   if (requiredMissing.length) {
     warnings.push(
-      `Missing required environment variables for this launch profile: ${requiredMissing.join(', ')}.`
+      `Required variables are missing (Start continues): ${[...requiredMissing].sort().join(', ')}.`
+    );
+  }
+  for (const source of Object.keys(requiredEmptyBySource).sort()) {
+    const keys = requiredEmptyBySource[source];
+    if (!keys.length) {
+      continue;
+    }
+    warnings.push(
+      `Required variables are empty in ${source} (Start continues): ${keys.join(', ')}.`
     );
   }
   const testOnly = advisoryMissing.filter((key) => isTestOnlyEnvKey(key));
