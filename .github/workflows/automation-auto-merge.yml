@@ -63,8 +63,14 @@ jobs:
           fi
 
           REVIEW_DECISION=$(echo "$PR_JSON" | jq -r '.[0].reviewDecision // empty')
-          if [ "$REVIEW_DECISION" != "APPROVED" ]; then
-            echo "PR #$PR_NUMBER is not approved (reviewDecision=$REVIEW_DECISION)."
+          if [ "$REVIEW_DECISION" = "CHANGES_REQUESTED" ]; then
+            echo "PR #$PR_NUMBER has requested changes; skipping merge."
+            exit 0
+          fi
+
+          REVIEW_CHECK=$(echo "$PR_JSON" | jq '[.[] | .statusCheckRollup[]? | select(.name == "Cursor Automation: 3. Runlist - Review automation PRs") | select(.status == "COMPLETED" and .conclusion == "SUCCESS")] | length')
+          if [ "$REVIEW_DECISION" != "APPROVED" ] && [ "$REVIEW_CHECK" = "0" ]; then
+            echo "PR #$PR_NUMBER is not approved and Automation 3 review check has not passed."
             exit 0
           fi
 
