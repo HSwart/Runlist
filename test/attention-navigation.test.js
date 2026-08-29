@@ -299,6 +299,38 @@ test('projectNeedsAttention includes stopped relink rows and not-ready rows', ()
   }), true);
 });
 
+test('projectNeedsAttention includes running-elsewhere rows without a stop command', () => {
+  const harness = renderAttentionNavigationHarness([]);
+  const needsAttention = (project) => harness.evaluate(`projectNeedsAttention(${JSON.stringify(project)})`);
+
+  assert.equal(needsAttention({
+    id: 'detected',
+    name: 'Detected app',
+    status: 'active',
+    stopCommand: ''
+  }), true);
+  assert.equal(needsAttention({
+    id: 'detected-managed',
+    name: 'Managed app',
+    status: 'active',
+    stopCommand: 'npm run stop'
+  }), false);
+  assert.equal(needsAttention({
+    id: 'detected-stop-failure',
+    name: 'Detected stop failure',
+    status: 'active',
+    stopCommand: '',
+    stopFailure: 'Port :3000 is still up'
+  }), true);
+  assert.equal(needsAttention({
+    id: 'detected-review',
+    name: 'Detected review',
+    status: 'active',
+    stopCommand: '',
+    reviewRequired: true
+  }), true);
+});
+
 test('projectNeedsAttention excludes starting-only and live missing-folder rows', () => {
   const harness = renderAttentionNavigationHarness([]);
   const needsAttention = (project) => harness.evaluate(`projectNeedsAttention(${JSON.stringify(project)})`);

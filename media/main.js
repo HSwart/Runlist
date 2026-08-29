@@ -847,6 +847,11 @@ function projectNeedsAttention(project) {
   if (project.status === 'active' && project.httpUnresponsive) {
     return true;
   }
+  if (project.status === 'active'
+    && !String(project.stopCommand || '').trim()
+    && !project.stopFailure) {
+    return true;
+  }
   if (projectCanRelinkFolder(project)) {
     return true;
   }
