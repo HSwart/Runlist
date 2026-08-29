@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2 — Narrow sidebar readability
+
+- Scroll overflowing row status, Needs attention, and preview fallback labels instead of truncating them with ellipsis on narrow sidebars.
+- Put full readiness detail in the row title when line 2 uses compact blocking-service text.
+- Hide the preview fallback Open in browser label at 300px or narrower (icon-only) to avoid sidebar blowout.
+
 ## 0.1.1 — Safety and recovery polish
 
 - Cancel an in-flight start when Delete is confirmed on a Starting row so no ghost process can appear after the row is gone.
