@@ -1,14 +1,22 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
+  attributeRequiredEmptySources,
+  classifyRequiredEnvPresence,
+  collectAdvisoryEmptyEnvBySource,
+  emptyEnvKeysFromDotenv,
+  emptyEnvKeysFromLocalSettings,
   envLocalAttachHint,
   exampleEnvAdvisoryMissing,
+  formatEnvPresenceWarnings,
+  formatRequiredEnvFailureDetail,
   isMissingRequiredEnvFailure,
   isTestOnlyEnvKey,
   missingRequiredEnvKeys,
   normalizeRequiredEnvKeys,
   resolveExplicitRequiredEnvKeys
 } = require('../src/projects/required-env');
+const { parseDotenv } = require('../src/projects/launch-env');
 
 test('does not treat .env.example keys as required blockers', () => {
   const missing = exampleEnvAdvisoryMissing([
@@ -43,6 +51,115 @@ test('only explicit launch-profile required keys can block Start', () => {
     ['API_KEY', 'DATABASE_URL'],
     { API_KEY: 'present', EXTRA: 'x' }
   ), ['DATABASE_URL']);
+  assert.deepEqual(missingRequiredEnvKeys(
+    ['API_KEY', 'DATABASE_URL'],
+    { API_KEY: 'present', DATABASE_URL: '' }
+  ), ['DATABASE_URL']);
+  assert.deepEqual(missingRequiredEnvKeys(
+    ['API_KEY'],
+    { API_KEY: '   ' }
+  ), ['API_KEY']);
+});
+
+test('classifies required keys as missing or empty', () => {
+  assert.deepEqual(classifyRequiredEnvPresence(['A', 'B', 'C'], {
+    A: 'ok',
+    B: '',
+    C: '  '
+  }), { missing: [], empty: ['B', 'C'] });
+  assert.deepEqual(classifyRequiredEnvPresence(['A', 'B'], { A: 'ok' }), {
+    missing: ['B'],
+    empty: []
+  });
+});
+
+test('detects empty dotenv keys including quoted empties', () => {
+  const map = parseDotenv('KEY=\nQUOTED=""\nSINGLE=\'\'\nSPACE=   \nPRESENT=value\n');
+  assert.deepEqual(emptyEnvKeysFromDotenv(map), ['KEY', 'QUOTED', 'SINGLE', 'SPACE']);
+});
+
+test('detects empty local.settings.json Values entries', () => {
+  assert.deepEqual(emptyEnvKeysFromLocalSettings({
+    Values: {
+      AzureWebJobsStorage: '',
+      FUNCTIONS_WORKER_RUNTIME: 'python',
+      COUNT: 3
+    }
+  }), ['AzureWebJobsStorage']);
+  assert.deepEqual(emptyEnvKeysFromLocalSettings({}), []);
+  assert.deepEqual(emptyEnvKeysFromLocalSettings(null), []);
+});
+
+test('formats required-env failure detail with missing and empty sources', () => {
+  const detail = formatRequiredEnvFailureDetail({
+    missing: ['API_KEY'],
+    emptyBySource: {
+      '.env.local': ['DATABASE_URL'],
+      'launch profile env map': ['SECRET']
+    }
+  });
+  assert.match(detail, /Missing: API_KEY/);
+  assert.match(detail, /Empty in \.env\.local: DATABASE_URL/);
+  assert.match(detail, /Empty in launch profile env map: SECRET/);
+});
+
+test('attributes empty required keys to env map or env file', (t) => {
+  const root = require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'runlist-req-env-'));
+  t.after(() => require('node:fs').rmSync(root, { recursive: true, force: true }));
+  require('node:fs').writeFileSync(require('node:path').join(root, '.env.local'), 'DATABASE_URL=\n');
+
+  assert.deepEqual(attributeRequiredEmptySources({
+    folder: root,
+    envFile: '.env.local',
+    env: { API_KEY: '' }
+  }, ['API_KEY', 'DATABASE_URL']), {
+    'launch profile env map': ['API_KEY'],
+    '.env.local': ['DATABASE_URL']
+  });
+});
+
+test('scans project env files for advisory empty keys without repo crawl', (t) => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-env-scan-'));
+  const api = path.join(root, 'api');
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(api);
+  fs.writeFileSync(path.join(api, 'host.json'), '{}');
+  fs.writeFileSync(path.join(api, 'local.settings.json'), JSON.stringify({
+    Values: { AzureWebJobsStorage: '', FUNCTIONS_WORKER_RUNTIME: 'python' }
+  }));
+  fs.writeFileSync(path.join(api, '.env.local'), 'UNATTACHED=\n');
+  fs.writeFileSync(path.join(api, 'api.env.local'), 'ATTACHED=\n');
+  fs.writeFileSync(path.join(root, '.env.local'), 'ROOT_ONLY=\n');
+
+  assert.deepEqual(collectAdvisoryEmptyEnvBySource(api, {
+    envFile: 'api.env.local',
+    env: { MAP_EMPTY: '' }
+  }), {
+    'api.env.local': ['ATTACHED'],
+    '.env.local': ['UNATTACHED'],
+    'launch profile env map': ['MAP_EMPTY'],
+    'local.settings.json': ['AzureWebJobsStorage']
+  });
+  assert.equal(fs.existsSync(path.join(root, '.env.local')), true);
+  assert.deepEqual(collectAdvisoryEmptyEnvBySource(api, {}), {
+    '.env.local': ['UNATTACHED'],
+    'local.settings.json': ['AzureWebJobsStorage']
+  });
+});
+
+test('advisory warnings include empty keys by source', () => {
+  const warnings = formatEnvPresenceWarnings({
+    advisoryEmptyBySource: {
+      '.env.local': ['TOKEN'],
+      'local.settings.json': ['AzureWebJobsStorage']
+    }
+  });
+  assert.equal(warnings.length, 2);
+  assert.match(warnings[0], /Empty variables in \.env\.local/);
+  assert.match(warnings[1], /Empty variables in local\.settings\.json/);
 });
 
 test('identifies missing-required-env failures by kind, not free-text', () => {
@@ -82,6 +199,9 @@ test('host Start never hard-fails on .env.example alone or nested PowerShell lin
   const { readShippedHostSource } = require('./helpers/extension-source');
   const extension = readShippedHostSource();
   assert.match(extension, /resolveExplicitRequiredEnvKeys\(launchProject\)/);
+  assert.match(extension, /classifyRequiredEnvPresence/);
+  assert.match(extension, /collectAdvisoryEmptyEnvBySource/);
+  assert.match(extension, /formatRequiredEnvFailureDetail/);
   assert.match(extension, /exampleEnvAdvisoryMissing/);
   assert.match(extension, /envLocalAttachHint/);
   assert.match(extension, /formatEnvPresenceWarnings/);

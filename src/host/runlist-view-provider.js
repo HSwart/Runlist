@@ -118,10 +118,13 @@ const {
   windowsStartCommandIssues
 } = require('../projects/command-display');
 const {
+  attributeRequiredEmptySources,
+  classifyRequiredEnvPresence,
+  collectAdvisoryEmptyEnvBySource,
   envLocalAttachHint,
   exampleEnvAdvisoryMissing,
   formatEnvPresenceWarnings,
-  missingRequiredEnvKeys,
+  formatRequiredEnvFailureDetail,
   MISSING_REQUIRED_ENV_FAILURE_KIND,
   resolveExplicitRequiredEnvKeys
 } = require('../projects/required-env');
@@ -3867,8 +3870,15 @@ class RunlistViewProvider {
       }
       try {
         const explicitRequired = resolveExplicitRequiredEnvKeys(launchProject);
-        const requiredMissing = missingRequiredEnvKeys(explicitRequired, launchEnvironment);
-        if (requiredMissing.length) {
+        const requiredPresence = classifyRequiredEnvPresence(
+          explicitRequired,
+          launchEnvironment
+        );
+        if (requiredPresence.missing.length || requiredPresence.empty.length) {
+          const emptyBySource = attributeRequiredEmptySources(
+            launchProject,
+            requiredPresence.empty
+          );
           this.managedProjectIds.delete(id);
           this.processOwnership.release(id);
           this.releaseStartReservation(id);
@@ -3876,7 +3886,10 @@ class RunlistViewProvider {
           this.startReadinessDeadlines.delete(id);
           this.projectAttemptMetadata.delete(id);
           this.showStartFailure(project, {
-            detail: `Missing required environment variables for this launch profile: ${requiredMissing.join(', ')}.`,
+            detail: formatRequiredEnvFailureDetail({
+              missing: requiredPresence.missing,
+              emptyBySource
+            }),
             failureKind: MISSING_REQUIRED_ENV_FAILURE_KIND,
             projectRevision: savedProjectRevision
           });
@@ -3888,8 +3901,21 @@ class RunlistViewProvider {
         const advisory = fs.existsSync(examplePath)
           ? exampleEnvAdvisoryMissing(fs.readFileSync(examplePath, 'utf8'), launchEnvironment)
           : { requiredMissing: [], advisoryMissing: [] };
+        const advisoryEmptyBySource = collectAdvisoryEmptyEnvBySource(
+          launchProject.folder,
+          launchProject
+        );
+        const requiredKeySet = new Set(explicitRequired);
+        const filteredAdvisoryEmpty = {};
+        for (const [source, keys] of Object.entries(advisoryEmptyBySource)) {
+          const filtered = keys.filter((key) => !requiredKeySet.has(key));
+          if (filtered.length) {
+            filteredAdvisoryEmpty[source] = filtered;
+          }
+        }
         const warnings = formatEnvPresenceWarnings({
           advisoryMissing: advisory.advisoryMissing,
+          advisoryEmptyBySource: filteredAdvisoryEmpty,
           envLocalHint: envLocalAttachHint(
             launchProject.envFile,
             fs.existsSync(localEnvPath)
