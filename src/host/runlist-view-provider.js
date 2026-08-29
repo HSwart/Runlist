@@ -429,7 +429,12 @@ class RunlistViewProvider {
     };
 
     view.webview.onDidReceiveMessage((message) => this.handleMessage(message));
-    this.render();
+    this.renderLoadingShell();
+    setImmediate(() => {
+      if (!this.disposed && this.view === view) {
+        this.render();
+      }
+    });
   }
 
   workspaceRoot() {
@@ -1119,7 +1124,17 @@ class RunlistViewProvider {
   }
 
   get projects() {
-    return pinnedProjectsFirst(readProjects(this.projectsFile));
+    try {
+      const mtimeMs = fs.statSync(this.projectsFile).mtimeMs;
+      if (this._projectsSnapshot && this._projectsSnapshotMtime === mtimeMs) {
+        return this._projectsSnapshot;
+      }
+      this._projectsSnapshot = pinnedProjectsFirst(readProjects(this.projectsFile));
+      this._projectsSnapshotMtime = mtimeMs;
+      return this._projectsSnapshot;
+    } catch {
+      return pinnedProjectsFirst(readProjects(this.projectsFile));
+    }
   }
 
   get groups() {
@@ -1303,7 +1318,11 @@ class RunlistViewProvider {
   }
 
   startStatusMonitoring() {
-    this.refreshProjectStatuses();
+    setImmediate(() => {
+      if (!this.disposed) {
+        void this.refreshProjectStatuses();
+      }
+    });
     const timer = setInterval(() => {
       if (Date.now() >= (this.statusRefreshRetryAt || 0)) {
         this.refreshProjectStatuses();
@@ -5365,6 +5384,33 @@ class RunlistViewProvider {
     }
 
     this.lifecycle.stopAll();
+  }
+
+  renderLoadingShell() {
+    if (!this.view) {
+      return;
+    }
+
+    const stylesUri = this.view.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, 'media', 'styles.css')
+    );
+    const nonce = crypto.randomBytes(16).toString('base64');
+    this.webviewMessageToken = nonce;
+    this.view.webview.html = `<!doctype html>
+      <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this.view.webview.cspSource};">
+          <link rel="stylesheet" href="${stylesUri}">
+          <title>Runlist</title>
+        </head>
+        <body>
+          <main id="app" role="status" aria-live="polite" style="padding: 12px; color: var(--vscode-foreground); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size);">
+            <p style="margin: 0;">Loading Runlist…</p>
+          </main>
+        </body>
+      </html>`;
   }
 
   render() {

@@ -42,14 +42,25 @@ function installMcpBridge(context) {
     'package.json'
   ];
   for (const relativePath of bridgeFiles) {
+    const sourcePath = vscode.Uri.joinPath(context.extensionUri, ...relativePath.split('/')).fsPath;
     const targetPath = path.join(storageRoot, ...relativePath.split('/'));
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-    fs.copyFileSync(
-      vscode.Uri.joinPath(context.extensionUri, ...relativePath.split('/')).fsPath,
-      targetPath
-    );
+    if (bridgeFileNeedsCopy(sourcePath, targetPath)) {
+      fs.copyFileSync(sourcePath, targetPath);
+    }
   }
   return serverPath;
+}
+
+function bridgeFileNeedsCopy(sourcePath, targetPath) {
+  try {
+    const sourceStat = fs.statSync(sourcePath);
+    const targetStat = fs.statSync(targetPath);
+    return sourceStat.size !== targetStat.size
+      || sourceStat.mtimeMs !== targetStat.mtimeMs;
+  } catch {
+    return true;
+  }
 }
 
 let activeProvider;
@@ -155,4 +166,4 @@ function deactivate() {
   return provider?.dispose();
 }
 
-module.exports = { activate, deactivate };
+module.exports = { activate, deactivate, bridgeFileNeedsCopy, installMcpBridge };

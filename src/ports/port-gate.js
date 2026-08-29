@@ -110,7 +110,29 @@ class PortReservationStore {
       ? capturedHostIdentity
       : undefined;
     fs.mkdirSync(directory, { recursive: true });
-    this.withReservationTransaction(() => this.removeStaleLocks());
+    this._staleLockCleanupScheduled = false;
+    this.scheduleStaleLockCleanup();
+  }
+
+  scheduleStaleLockCleanup() {
+    if (this._staleLockCleanupScheduled) {
+      return;
+    }
+    this._staleLockCleanupScheduled = true;
+    setImmediate(() => {
+      if (this._staleLockCleanupDone) {
+        this._staleLockCleanupScheduled = false;
+        return;
+      }
+      try {
+        this.withReservationTransaction(() => this.removeStaleLocks());
+        this._staleLockCleanupDone = true;
+      } catch {
+        // Retry on the next refresh; startup must not block on stale-lock cleanup.
+      } finally {
+        this._staleLockCleanupScheduled = false;
+      }
+    });
   }
 
   reserve(project) {
