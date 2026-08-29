@@ -43,8 +43,8 @@ test('auto-merges approved automation pull requests when checks pass', () => {
   assert.match(workflow, /- Security/);
   assert.match(workflow, /github\.event\.workflow_run\.conclusion == 'success'/);
   assert.match(workflow, /reviewDecision/);
-  assert.match(workflow, /REVIEW_DECISION/);
-  assert.match(workflow, /!= "APPROVED"/);
+  assert.match(workflow, /CHANGES_REQUESTED/);
+  assert.match(workflow, /Cursor Automation: 3\. Runlist - Review automation PRs/);
   assert.match(workflow, /automation\//);
   assert.match(workflow, /gh pr ready/);
   assert.match(workflow, /gh pr merge/);
