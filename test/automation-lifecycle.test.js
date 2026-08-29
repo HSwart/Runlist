@@ -48,7 +48,8 @@ test('auto-merges approved automation pull requests when checks pass', () => {
   assert.match(workflow, /automation\//);
   assert.match(workflow, /gh pr ready/);
   assert.match(workflow, /gh pr merge/);
-  assert.match(workflow, /--squash --delete-branch/);
+  assert.match(workflow, /issues: write/);
+  assert.match(workflow, /gh issue close/);
   assert.doesNotMatch(workflow, /actions\/checkout/);
   assert.doesNotMatch(workflow, unpinnedAction);
 });
