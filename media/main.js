@@ -2182,8 +2182,12 @@ function renderAgentSetup() {
   const agentCard = (id, name, description) => {
     const connection = state.agentConnections?.[id] || { status: 'idle', message: '' };
     const busy = connection.status === 'loading';
-    const registered = connection.status === 'success';
+    const handoffReady = connection.status === 'success';
+    const skillInstalled = connection.status === 'installed' || handoffReady;
     const messageId = `${id}-connection-message`;
+    const statusLabel = handoffReady
+      ? 'Ready for handoff'
+      : (skillInstalled ? 'Skill installed' : '');
     return `
       <article class="agent-card">
         <div class="agent-card-heading">
@@ -2191,10 +2195,10 @@ function renderAgentSetup() {
             <h3>${escapeHtml(name)}</h3>
             <p>${escapeHtml(description)}</p>
           </div>
-          ${registered ? '<span class="connection-label"><span class="status-dot running" aria-hidden="true"></span>Ready</span>' : ''}
+          ${statusLabel ? `<span class="connection-label"><span class="status-dot running" aria-hidden="true"></span>${escapeHtml(statusLabel)}</span>` : ''}
         </div>
         <button class="secondary-button agent-register-button" data-action="register-agent" data-agent="${id}" ${busy ? 'disabled aria-busy="true"' : ''} ${connection.message ? `aria-describedby="${messageId}"` : ''}>
-          ${busy ? 'Setting up…' : registered ? 'Refresh setup' : 'Set up'}
+          ${busy ? 'Setting up…' : skillInstalled ? 'Refresh setup' : 'Set up'}
         </button>
         ${connection.message ? `<p id="${messageId}" class="connection-message ${connection.status}" ${connection.status === 'error' ? 'role="alert"' : 'role="status"'}>${escapeHtml(connection.message)}</p>` : ''}
       </article>`;
@@ -2206,11 +2210,11 @@ function renderAgentSetup() {
         <h2>Agent connections</h2>
         <button class="icon-button" data-action="close-screen" aria-label="Close agent connections screen">${icon('close')}</button>
       </header>
-      <p class="screen-copy">Connect an agent to save projects and read saved status with MCP. When GitHub Copilot is connected, <strong>Ask your agent</strong> opens VS Code chat with a prefilled diagnosis request. Cursor uses the same VS Code MCP integration as Copilot.</p>
+      <p class="screen-copy">Connect an agent to save projects and read saved status with MCP. After you set up GitHub Copilot here, <strong>Ask your agent</strong> opens VS Code chat with a prefilled diagnosis request you can send. Codex and Claude setup installs the skill for MCP only. Cursor uses the same VS Code MCP integration as Copilot.</p>
       <div class="agent-list" aria-label="Supported coding agents">
-        ${agentCard('copilot', 'GitHub Copilot', 'Adds /runlist. Read saved project status with MCP. Direct failure handoffs from Ask your agent open VS Code chat.')}
-        ${agentCard('codex', 'Codex', 'Registers the connection and adds $runlist. Read saved project status with MCP.')}
-        ${agentCard('claude', 'Claude Code', 'Registers the connection and adds /runlist. Read saved project status with MCP.')}
+        ${agentCard('copilot', 'GitHub Copilot', 'Adds /runlist. Read saved project status with MCP. After setup here, Ask your agent opens VS Code chat with a prefilled diagnosis request.')}
+        ${agentCard('codex', 'Codex', 'Registers the connection and adds $runlist. Read saved project status with MCP. Does not open VS Code chat handoffs.')}
+        ${agentCard('claude', 'Claude Code', 'Registers the connection and adds /runlist. Read saved project status with MCP. Does not open VS Code chat handoffs.')}
       </div>
     </section>`;
 }
@@ -2637,8 +2641,8 @@ function renderProjectDiagnosis() {
       ${repairHtml}
       ${diagnosis.agentReady ? '' : `
         <div class="diagnosis-setup">
-          <strong>Need to connect an agent?</strong>
-          <p>Use Runlist's existing Agent connections screen for Copilot, Codex, or Claude.</p>
+          <strong>Need Copilot chat handoff?</strong>
+          <p>Set up GitHub Copilot in Agent connections. Codex and Claude skills support MCP status only.</p>
           <button class="secondary-button" data-action="show-agent-connections">Open Agent connections</button>
         </div>`}
       <p class="diagnosis-review-note">A proposal never changes the saved setup or retries the project until you explicitly approve and then choose Retry start.</p>

@@ -15,7 +15,9 @@ const {
 } = require('../integrations/skill-installation');
 const {
   buildDiagnosisHandoff,
-  hasConnectedAgent,
+  hasHandoffReadyAgent,
+  agentHandoffConfirmationMessage,
+  agentRegistrationStatus,
   openAgentHandoff
 } = require('../integrations/diagnosis-handoff');
 const {
@@ -2063,7 +2065,7 @@ class RunlistViewProvider {
         sourceDirectory: this.skillSourceDirectory
       });
       this.agentConnections[agent] = {
-        status: 'success',
+        status: agentRegistrationStatus(agent, { setupComplete: true }),
         message: registration.success
       };
     } catch (error) {
@@ -2601,14 +2603,14 @@ class RunlistViewProvider {
     if (!project || !diagnostic) {
       return;
     }
-    if (!hasConnectedAgent(this.agentConnections)) {
+    if (!hasHandoffReadyAgent(this.agentConnections)) {
       this.showProjectDiagnosis(id);
       return;
     }
     try {
       const { prompt } = buildDiagnosisHandoff(project, diagnostic);
       await openAgentHandoff(prompt, (command, args) => vscode.commands.executeCommand(command, args));
-      this.agentHandoffNotice = `Sent ${project.name} failure details to your agent.`;
+      this.agentHandoffNotice = agentHandoffConfirmationMessage(project.name);
       await vscode.window.showInformationMessage(this.agentHandoffNotice);
       this.view?.webview.postMessage({
         type: 'diagnosisRequestSent',
@@ -5755,8 +5757,7 @@ class RunlistViewProvider {
         projectId: outputProject.id
       } : undefined,
       diagnosis: diagnosisProject && diagnosisRecord ? {
-        agentReady: Object.values(this.agentConnections)
-          .some((connection) => connection.status === 'success'),
+        agentReady: hasHandoffReadyAgent(this.agentConnections),
         approved: this.approvedRepairProjectId === diagnosisProject.id,
         name: diagnosisProject.name,
         outputAvailable: Boolean(diagnosisRecord.retainedOutput),
@@ -5998,7 +5999,7 @@ function initialAgentConnection(agent) {
     const skill = agentSkillStatus({ agent, environment: process.env, platform: process.platform });
     if (skill.status === 'installed') {
       return {
-        status: 'success',
+        status: 'installed',
         message: `Runlist skill installed. Use ${skill.invocation}, or select Refresh setup after an extension update.`
       };
     }

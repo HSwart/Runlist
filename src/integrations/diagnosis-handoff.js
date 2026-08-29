@@ -1,6 +1,7 @@
 const { redactSensitiveText } = require('../projects/project-diagnostics');
 
 const CONNECTED_AGENT_ORDER = ['copilot', 'codex', 'claude'];
+const HANDOFF_CAPABLE_AGENTS = new Set(['copilot']);
 const AGENT_CHAT_COMMAND = 'workbench.action.chat.open';
 
 function sanitizeFailureSummary(summary) {
@@ -42,12 +43,29 @@ function buildDiagnosisHandoff(project, diagnostic) {
   };
 }
 
+function hasHandoffReadyAgent(agentConnections) {
+  return HANDOFF_CAPABLE_AGENTS.has('copilot')
+    && agentConnections?.copilot?.status === 'success';
+}
+
 function hasConnectedAgent(agentConnections) {
-  return Object.values(agentConnections || {}).some((connection) => connection?.status === 'success');
+  return hasHandoffReadyAgent(agentConnections);
+}
+
+function agentRegistrationStatus(agent, { setupComplete = false } = {}) {
+  if (HANDOFF_CAPABLE_AGENTS.has(agent)) {
+    return setupComplete ? 'success' : 'installed';
+  }
+  return setupComplete ? 'installed' : 'idle';
+}
+
+function agentHandoffConfirmationMessage(projectName) {
+  const name = String(projectName || 'project').trim() || 'project';
+  return `Opened VS Code chat with a prefilled diagnosis request for ${name}. Send the message when you are ready.`;
 }
 
 function firstConnectedAgent(agentConnections) {
-  return CONNECTED_AGENT_ORDER.find((agent) => agentConnections?.[agent]?.status === 'success');
+  return hasHandoffReadyAgent(agentConnections) ? 'copilot' : undefined;
 }
 
 async function openAgentHandoff(prompt, executeCommand) {
@@ -63,9 +81,13 @@ async function openAgentHandoff(prompt, executeCommand) {
 module.exports = {
   AGENT_CHAT_COMMAND,
   CONNECTED_AGENT_ORDER,
+  HANDOFF_CAPABLE_AGENTS,
+  agentHandoffConfirmationMessage,
+  agentRegistrationStatus,
   buildDiagnosisHandoff,
   firstConnectedAgent,
   hasConnectedAgent,
+  hasHandoffReadyAgent,
   openAgentHandoff,
   sanitizeFailureSummary
 };

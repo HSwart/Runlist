@@ -39,9 +39,36 @@ test('sanitizeFailureSummary preserves missing-required-env kind', () => {
   assert.equal(summary.kind, 'missing-required-env');
 });
 
-test('hasConnectedAgent follows agent connection success state', () => {
+test('hasHandoffReadyAgent only treats Copilot setup success as handoff-ready', () => {
+  const { hasHandoffReadyAgent } = require('../src/integrations/diagnosis-handoff');
+  assert.equal(hasHandoffReadyAgent({ copilot: { status: 'idle' } }), false);
+  assert.equal(hasHandoffReadyAgent({ copilot: { status: 'installed' } }), false);
+  assert.equal(hasHandoffReadyAgent({ copilot: { status: 'success' } }), true);
+  assert.equal(hasHandoffReadyAgent({ codex: { status: 'success' } }), false);
+  assert.equal(hasHandoffReadyAgent({ codex: { status: 'installed' } }), false);
+});
+
+test('hasConnectedAgent follows handoff-ready Copilot state', () => {
   assert.equal(hasConnectedAgent({ copilot: { status: 'idle' } }), false);
-  assert.equal(hasConnectedAgent({ codex: { status: 'success' } }), true);
+  assert.equal(hasConnectedAgent({ codex: { status: 'success' } }), false);
+  assert.equal(hasConnectedAgent({ copilot: { status: 'success' } }), true);
+});
+
+test('agentRegistrationStatus distinguishes Copilot handoff from CLI agents', () => {
+  const { agentRegistrationStatus } = require('../src/integrations/diagnosis-handoff');
+  assert.equal(agentRegistrationStatus('copilot', { setupComplete: true }), 'success');
+  assert.equal(agentRegistrationStatus('codex', { setupComplete: true }), 'installed');
+  assert.equal(agentRegistrationStatus('claude', { setupComplete: true }), 'installed');
+});
+
+test('agentHandoffConfirmationMessage does not claim the draft was sent', () => {
+  const { agentHandoffConfirmationMessage } = require('../src/integrations/diagnosis-handoff');
+  assert.match(
+    agentHandoffConfirmationMessage('API'),
+    /prefilled diagnosis request for API/
+  );
+  assert.match(agentHandoffConfirmationMessage('API'), /Send the message when you are ready/);
+  assert.doesNotMatch(agentHandoffConfirmationMessage('API'), /Sent .* to your agent/);
 });
 
 test('openAgentHandoff opens chat with a partial query', async () => {
