@@ -754,6 +754,78 @@ test('shows blocking service name and port on not-ready and not-responding list 
 
   assert.match(notResponding.app.innerHTML, /Web service not responding — API :4000 \+1 more/);
   assert.doesNotMatch(notResponding.app.innerHTML, /class="project-readiness-detail"/);
+  assert.match(
+    notResponding.app.innerHTML,
+    /class="run-button output"[^>]*data-action="output"[^>]*aria-label="View output for Example"/
+  );
+  assert.match(
+    notResponding.app.innerHTML,
+    /data-action="stop" data-id="example" role="menuitem"[^>]*aria-label="Stop Example"/
+  );
+  assert.match(
+    notResponding.app.innerHTML,
+    /data-action="restart" data-id="example" role="menuitem"[^>]*aria-label="Restart Example"/
+  );
+  assert.doesNotMatch(notResponding.app.innerHTML, /class="run-button stop"[^>]*data-action="stop"/);
+});
+
+test('active httpUnresponsive row uses View output primary with Stop in More', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: 'C:\\Projects\\Detected',
+    httpUnresponsive: true,
+    id: 'detected',
+    launchProfiles: [],
+    name: 'Detected App',
+    openPorts: [3000],
+    pinned: false,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 3000 }],
+    status: 'active',
+    stopCommand: 'npm run stop',
+    tags: []
+  }]);
+
+  assert.match(
+    result.app.innerHTML,
+    /class="run-button output"[^>]*data-action="output"[^>]*aria-label="View output for Detected App"/
+  );
+  assert.match(
+    result.app.innerHTML,
+    /data-action="stop" data-id="detected" role="menuitem"[^>]*aria-label="Stop Detected App"/
+  );
+  assert.doesNotMatch(result.app.innerHTML, /class="run-button stop"[^>]*data-action="stop"/);
+});
+
+test('not-ready row keeps Stop as the primary action', () => {
+  const result = renderNonEmptyProjectList([{
+    activeLaunchProfileId: 'default',
+    activeLaunchProfileName: 'Default',
+    detailsExpanded: false,
+    folder: 'C:\\Projects\\Example',
+    id: 'example',
+    launchProfiles: [],
+    name: 'Example',
+    openPorts: [3000],
+    pinned: false,
+    reviewRequired: false,
+    services: [{ name: 'web', port: 3000 }],
+    serviceReadiness: {
+      ready: [],
+      waiting: [{ name: 'web', port: 3000 }],
+      notResponding: []
+    },
+    status: 'not-ready',
+    tags: []
+  }]);
+
+  assert.match(
+    result.app.innerHTML,
+    /class="run-button stop"[^>]*data-action="stop"[^>]*aria-label="Stop Example"/
+  );
+  assert.doesNotMatch(result.app.innerHTML, /class="run-button output"[^>]*data-action="output"/);
 });
 
 test('announces contextual project and service status changes once without noisy repeats', () => {
