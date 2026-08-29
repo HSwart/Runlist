@@ -129,6 +129,44 @@ button:active:not(:disabled) {
   display: none;
 }
 
+.summary-attention-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  width: 100%;
+}
+
+.summary-attention-group .summary-attention {
+  flex: 1 1 auto;
+  min-width: min(100%, 12rem);
+}
+
+.summary-attention-clear {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 3px 12px 4px;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
+  border: 0;
+  border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-widget-border));
+  border-radius: 0;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.summary-attention-clear:hover {
+  background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
+}
+
+.summary-attention-clear:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
 .summary-attention {
   display: flex;
   width: 100%;

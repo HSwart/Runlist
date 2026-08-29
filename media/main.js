@@ -902,10 +902,25 @@ function focusAttentionProject(project) {
   announceAttentionFocus(project);
 }
 
+function handleClearFiltersForAttention() {
+  clearProjectFilters();
+  requestAnimationFrame(() => {
+    focusNextAttentionProject();
+  });
+}
+
 function focusNextAttentionProject() {
   syncAttentionFocusState(state.projects);
   const visible = visibleAttentionProjects(state.projects);
   if (!visible.length) {
+    const hiddenCount = (state.projects || [])
+      .filter((project) => projectNeedsAttention(project)).length;
+    if (hiddenCount > 0) {
+      const status = document.getElementById('project-search-status');
+      if (status) {
+        status.textContent = 'Some projects that need attention are hidden by your filters.';
+      }
+    }
     return;
   }
   const visibleIds = visible.map((project) => String(project.id));
@@ -953,11 +968,25 @@ function attentionSummaryHtml(projects) {
     return '';
   }
   const count = attentionProjects.length;
+  const visibleCount = visibleAttentionProjects(projects).length;
+  const hiddenCount = count - visibleCount;
   const label = count > 1 ? `Needs attention (${count})` : 'Needs attention';
-  const ariaLabel = count > 1
-    ? `Focus next project that needs attention, ${count} projects`
-    : 'Focus project that needs attention';
-  return `<button type="button" class="summary-attention" data-action="focus-attention" aria-label="${escapeHtml(ariaLabel)}">${autoScrollHtml(escapeHtml(label))}</button>`;
+  let ariaLabel;
+  if (hiddenCount > 0) {
+    ariaLabel = visibleCount > 0
+      ? `Focus next project that needs attention, ${visibleCount} of ${count} visible, ${hiddenCount} hidden by filters`
+      : `Focus project that needs attention, ${count} hidden by filters`;
+  } else {
+    ariaLabel = count > 1
+      ? `Focus next project that needs attention, ${count} projects`
+      : 'Focus project that needs attention';
+  }
+  const attentionButton = `<button type="button" class="summary-attention" data-action="focus-attention" aria-label="${escapeHtml(ariaLabel)}">${autoScrollHtml(escapeHtml(label))}</button>`;
+  if (hiddenCount > 0) {
+    const clearButton = `<button type="button" class="summary-attention-clear" data-action="clear-filters-for-attention" aria-label="Clear search, tag, and group filters to show projects that need attention">${escapeHtml('Clear filters')}</button>`;
+    return `<div class="summary-attention-group">${attentionButton}${clearButton}</div>`;
+  }
+  return attentionButton;
 }
 
 function autoScrollHtml(text) {
@@ -1589,7 +1618,7 @@ function applyProjectFilter(query) {
   }
   const attentionSlot = document.getElementById('summary-attention-slot');
   if (attentionSlot) {
-    attentionSlot.innerHTML = attentionSummaryHtml(matchingProjects);
+    attentionSlot.innerHTML = attentionSummaryHtml(state.projects);
   }
 
   const emptyState = document.querySelector('[data-search-empty]');
@@ -3059,6 +3088,7 @@ app.addEventListener('click', (event) => {
       });
     },
     'focus-attention': () => focusNextAttentionProject(),
+    'clear-filters-for-attention': () => handleClearFiltersForAttention(),
     'copy-phone-url': () => vscode.postMessage({
       type: 'copyPhoneUrl',
       id: button.dataset.id,
