@@ -1301,7 +1301,21 @@ function removeProjectLocked(filePath, id, options = {}) {
       'This project changed in another VS Code window. Reopen it before removing it.'
     );
   }
-  const nextProjects = projects.filter((project) => project.id !== id);
+  const nextProjects = projects
+    .filter((project) => project.id !== id)
+    .map((project) => {
+      if (!Array.isArray(project.dependsOn) || !project.dependsOn.includes(id)) {
+        return project;
+      }
+      const dependsOn = project.dependsOn.filter((dependencyId) => dependencyId !== id);
+      const updated = { ...project };
+      if (dependsOn.length) {
+        updated.dependsOn = dependsOn;
+      } else {
+        delete updated.dependsOn;
+      }
+      return updated;
+    });
   if (nextProjects.length === projects.length) {
     return false;
   }

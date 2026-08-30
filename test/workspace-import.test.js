@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { buildWorkspaceImportProposal } = require('../src/projects/workspace-import');
+const { buildWorkspaceImportProposal, consolidateChosenImportEntries } = require('../src/projects/workspace-import');
 
 test('buildWorkspaceImportProposal aggregates workspace sources', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-workspace-import-'));
@@ -21,4 +21,26 @@ test('buildWorkspaceImportProposal aggregates workspace sources', () => {
   assert.ok(proposal.entries.some((entry) => entry.source === 'package.json'));
   assert.ok(proposal.entries.some((entry) => entry.source === 'workspace package'));
   assert.ok(proposal.entries.some((entry) => entry.source === 'Procfile'));
+});
+
+test('consolidateChosenImportEntries keeps one project per folder before saving', () => {
+  const root = '/workspace/app';
+  const consolidated = consolidateChosenImportEntries([
+    { kind: 'project', name: 'Start', folder: root, startCommand: 'npm start' },
+    { kind: 'project', name: 'Dev', folder: root, startCommand: 'npm run dev' }
+  ]);
+  assert.equal(consolidated.entries.length, 1);
+  assert.equal(consolidated.entries[0].name, 'Dev');
+  assert.equal(consolidated.skipped.length, 1);
+});
+
+test('consolidateChosenImportEntries rejects compose and project for the same folder', () => {
+  const root = '/workspace/app';
+  assert.throws(
+    () => consolidateChosenImportEntries([
+      { kind: 'project', name: 'Dev', folder: root, startCommand: 'npm run dev' },
+      { kind: 'compose', name: 'Compose', folder: root, startCommand: '', composeFiles: ['compose.yaml'] }
+    ]),
+    /Cannot import both Compose and separate projects/
+  );
 });

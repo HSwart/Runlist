@@ -307,6 +307,52 @@ test('rolls back only newly started members in reverse after a blocked start', a
   ]);
 });
 
+test('starts parallel group members in dependency layers', async () => {
+  const calls = [];
+  const readyResolvers = new Map();
+  const readiness = (id) => new Promise((resolve) => readyResolvers.set(id, resolve));
+  const run = startRunGroup({
+    id: 'parallel-deps',
+    name: 'Parallel deps',
+    projectIds: ['web', 'api'],
+    startMode: 'parallel'
+  }, {
+    coordinator: { acquire: () => true, release: () => calls.push('release') },
+    projects: [
+      { id: 'api', name: 'API', dependsOn: [] },
+      { id: 'web', name: 'Web', dependsOn: ['api'] }
+    ],
+    getStatus: () => 'stopped',
+    startProject: async (id) => {
+      calls.push(`start:${id}`);
+      return true;
+    },
+    waitUntilReady: async (id) => {
+      const ready = await readiness(id);
+      calls.push(`ready:${id}`);
+      return ready;
+    },
+    stopProject: async (id) => {
+      calls.push(`stop:${id}`);
+      return true;
+    },
+    waitUntilStopped: async (id) => {
+      calls.push(`stopped:${id}`);
+      return true;
+    }
+  });
+
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls, ['start:api']);
+  readyResolvers.get('api')(true);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls, ['start:api', 'ready:api', 'start:web']);
+  readyResolvers.get('web')(true);
+  const result = await run;
+  assert.equal(result.status, 'started');
+  assert.deepEqual(result.startedProjectIds, ['api', 'web']);
+});
+
 test('starts eligible parallel members together and rolls back started members in reverse saved order', async () => {
   const calls = [];
   const readyResolvers = new Map();

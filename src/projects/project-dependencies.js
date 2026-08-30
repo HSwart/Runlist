@@ -70,6 +70,11 @@ function dependencyCycleMessage(projectIds, dependsOnById) {
   return undefined;
 }
 
+function inGroupDependencies(projectId, projectIds, projectsById) {
+  const pending = new Set(projectIds);
+  return (projectsById.get(projectId)?.dependsOn || []).filter((dependencyId) => pending.has(dependencyId));
+}
+
 function orderProjectsByDependencies(projectIds, projectsById) {
   const ids = [...new Set(projectIds.filter((id) => projectsById.has(id)))];
   const dependsOnById = new Map(ids.map((id) => [id, projectsById.get(id)]));
@@ -82,7 +87,7 @@ function orderProjectsByDependencies(projectIds, projectsById) {
   while (pending.size) {
     let progressed = false;
     for (const projectId of [...pending]) {
-      const dependencies = projectsById.get(projectId)?.dependsOn || [];
+      const dependencies = inGroupDependencies(projectId, ids, projectsById);
       if (dependencies.every((dependencyId) => ordered.includes(dependencyId))) {
         ordered.push(projectId);
         pending.delete(projectId);
@@ -94,6 +99,27 @@ function orderProjectsByDependencies(projectIds, projectsById) {
     }
   }
   return ordered;
+}
+
+function dependencyLayers(projectIds, projectsById) {
+  const ordered = orderProjectsByDependencies(projectIds, projectsById);
+  const depthById = new Map();
+  for (const projectId of ordered) {
+    const dependencies = inGroupDependencies(projectId, projectIds, projectsById);
+    const depth = dependencies.length
+      ? Math.max(...dependencies.map((dependencyId) => depthById.get(dependencyId) ?? 0)) + 1
+      : 0;
+    depthById.set(projectId, depth);
+  }
+  const maxDepth = ordered.reduce(
+    (deepest, projectId) => Math.max(deepest, depthById.get(projectId) ?? 0),
+    0
+  );
+  const layers = [];
+  for (let depth = 0; depth <= maxDepth; depth += 1) {
+    layers.push(ordered.filter((projectId) => depthById.get(projectId) === depth));
+  }
+  return layers;
 }
 
 function unresolvedDependencies(project, projectsById, getStatus, when = 'ready') {
@@ -119,6 +145,7 @@ function unresolvedDependencies(project, projectsById, getStatus, when = 'ready'
 module.exports = {
   MAX_DEPENDS_ON,
   dependencyCycleMessage,
+  dependencyLayers,
   normalizeDependsOn,
   orderProjectsByDependencies,
   unresolvedDependencies

@@ -1,5 +1,5 @@
 const { ProcessOwnershipStore } = require('../lifecycle/project-process');
-const { orderProjectsByDependencies } = require('../projects/project-dependencies');
+const { dependencyLayers, orderProjectsByDependencies } = require('../projects/project-dependencies');
 
 class RunGroupCoordinator {
   constructor(directory, options = {}) {
@@ -215,97 +215,123 @@ async function startRunGroup(group, options) {
 }
 
 async function startRunGroupInParallel(group, options, projects, startedProjectIds) {
-  const eligible = [];
-  for (let index = 0; index < group.projectIds.length; index += 1) {
-    const projectId = group.projectIds[index];
-    const project = projects.get(projectId);
-    const status = options.getStatus(projectId);
-    const failureReason = parallelPreflightFailure(project, status);
-    if (failureReason) {
-      notify(options, { status: 'failed', project, reason: failureReason, rollbackFailures: [] });
+  let layers;
+  try {
+    layers = dependencyLayers(group.projectIds, projects);
+  } catch (error) {
+    notify(options, { status: 'failed', reason: error.message, rollbackFailures: [] });
+    return {
+      status: 'failed',
+      startedProjectIds,
+      failedProjectId: group.projectIds[0],
+      failureReason: error.message,
+      rollbackFailures: []
+    };
+  }
+
+  for (const layerProjectIds of layers) {
+    const eligible = [];
+    for (let index = 0; index < layerProjectIds.length; index += 1) {
+      const projectId = layerProjectIds[index];
+      const project = projects.get(projectId);
+      const status = options.getStatus(projectId);
+      const failureReason = parallelPreflightFailure(project, status);
+      if (failureReason) {
+        notify(options, { status: 'failed', project, reason: failureReason, rollbackFailures: [] });
+        return {
+          status: 'failed',
+          startedProjectIds,
+          failedProjectId: projectId,
+          failedProjectIds: [projectId],
+          failureReason,
+          rollbackFailures: []
+        };
+      }
+      if (['running', 'active'].includes(status)) {
+        notify(options, {
+          status: 'skipped',
+          project,
+          index: group.projectIds.indexOf(projectId),
+          total: group.projectIds.length,
+          mode: 'parallel'
+        });
+      } else {
+        eligible.push({ project, projectId, index: group.projectIds.indexOf(projectId) });
+      }
+    }
+
+    if (!eligible.length) {
+      continue;
+    }
+
+    notify(options, {
+      status: 'starting-parallel',
+      total: group.projectIds.length,
+      eligibleTotal: eligible.length,
+      mode: 'parallel'
+    });
+    let readyCount = 0;
+    const results = await Promise.all(eligible.map(async ({ project, projectId, index }) => {
+      try {
+        if (!groupLeaseIsHeld(options.coordinator, group.id)) {
+          return { projectId, reason: groupLeaseLostReason() };
+        }
+        const started = await options.startProject(projectId);
+        if (!started) {
+          return { projectId, reason: 'Runlist blocked or could not start this project.' };
+        }
+        startedProjectIds.push(projectId);
+        if (!groupLeaseIsHeld(options.coordinator, group.id)) {
+          return { projectId, reason: groupLeaseLostReason() };
+        }
+        const ready = await options.waitUntilReady(projectId);
+        if (!groupLeaseIsHeld(options.coordinator, group.id)) {
+          return { projectId, reason: groupLeaseLostReason() };
+        }
+        if (!ready) {
+          return { projectId, reason: 'The project did not reach its ready state.' };
+        }
+        readyCount += 1;
+        notify(options, {
+          status: 'parallel-progress',
+          project,
+          index,
+          total: group.projectIds.length,
+          eligibleTotal: eligible.length,
+          readyCount,
+          mode: 'parallel'
+        });
+        return { projectId };
+      } catch (error) {
+        return { projectId, reason: error.message };
+      }
+    }));
+
+    const failures = results.filter((result) => result.reason);
+    if (failures.length) {
+      const orderedStartedIds = orderedProjectIds(group, startedProjectIds);
+      const rollbackFailures = await rollbackStartedProjects(orderedStartedIds, options);
+      const firstFailure = failures
+        .sort((left, right) => group.projectIds.indexOf(left.projectId) - group.projectIds.indexOf(right.projectId))[0];
+      notify(options, {
+        status: 'failed',
+        project: projects.get(firstFailure.projectId),
+        reason: firstFailure.reason,
+        rollbackFailures
+      });
       return {
         status: 'failed',
-        startedProjectIds,
-        failedProjectId: projectId,
-        failedProjectIds: [projectId],
-        failureReason,
-        rollbackFailures: []
+        startedProjectIds: orderedStartedIds,
+        failedProjectId: firstFailure.projectId,
+        failedProjectIds: failures.map((failure) => failure.projectId),
+        failureReason: firstFailure.reason,
+        rollbackFailures
       };
     }
-    if (['running', 'active'].includes(status)) {
-      notify(options, { status: 'skipped', project, index, total: group.projectIds.length, mode: 'parallel' });
-    } else {
-      eligible.push({ project, projectId, index });
-    }
   }
 
-  notify(options, {
-    status: 'starting-parallel',
-    total: group.projectIds.length,
-    eligibleTotal: eligible.length,
-    mode: 'parallel'
-  });
-  let readyCount = 0;
-  const results = await Promise.all(eligible.map(async ({ project, projectId, index }) => {
-    try {
-      if (!groupLeaseIsHeld(options.coordinator, group.id)) {
-        return { projectId, reason: groupLeaseLostReason() };
-      }
-      const started = await options.startProject(projectId);
-      if (!started) {
-        return { projectId, reason: 'Runlist blocked or could not start this project.' };
-      }
-      startedProjectIds.push(projectId);
-      if (!groupLeaseIsHeld(options.coordinator, group.id)) {
-        return { projectId, reason: groupLeaseLostReason() };
-      }
-      const ready = await options.waitUntilReady(projectId);
-      if (!groupLeaseIsHeld(options.coordinator, group.id)) {
-        return { projectId, reason: groupLeaseLostReason() };
-      }
-      if (!ready) {
-        return { projectId, reason: 'The project did not reach its ready state.' };
-      }
-      readyCount += 1;
-      notify(options, {
-        status: 'parallel-progress',
-        project,
-        index,
-        total: group.projectIds.length,
-        eligibleTotal: eligible.length,
-        readyCount,
-        mode: 'parallel'
-      });
-      return { projectId };
-    } catch (error) {
-      return { projectId, reason: error.message };
-    }
-  }));
-
-  const failures = results.filter((result) => result.reason);
-  if (!failures.length) {
-    notify(options, { status: 'started', total: group.projectIds.length, mode: 'parallel' });
-    return { status: 'started', startedProjectIds: orderedProjectIds(group, startedProjectIds) };
-  }
-
-  const orderedStartedIds = orderedProjectIds(group, startedProjectIds);
-  const rollbackFailures = await rollbackStartedProjects(orderedStartedIds, options);
-  const firstFailure = failures
-    .sort((left, right) => group.projectIds.indexOf(left.projectId) - group.projectIds.indexOf(right.projectId))[0];
-  notify(options, {
-    status: 'failed',
-    project: projects.get(firstFailure.projectId),
-    reason: firstFailure.reason,
-    rollbackFailures
-  });
-  return {
-    status: 'failed',
-    startedProjectIds: orderedStartedIds,
-    failedProjectId: firstFailure.projectId,
-    failedProjectIds: failures.map((failure) => failure.projectId),
-    failureReason: firstFailure.reason,
-    rollbackFailures
-  };
+  notify(options, { status: 'started', total: group.projectIds.length, mode: 'parallel' });
+  return { status: 'started', startedProjectIds: orderedProjectIds(group, startedProjectIds) };
 }
 
 function parallelPreflightFailure(project, status) {
