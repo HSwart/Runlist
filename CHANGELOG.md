@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.7 — Faster sidebar startup
+
+- Show a muted Runlist logo and loading label immediately when the sidebar opens, before the project list renders.
+- Defer the first port-status refresh and stale port-lock cleanup so extension activation is not blocked by slow process checks.
+- Cache project-list reads during render and skip unchanged MCP bridge file copies on repeat activation.
+
 ## 0.1.6 — VSIX packaging fix
 
 - Include `diagnosis-handoff` and `persisted-ownership` in the reviewed VSIX allowlist so 0.1.5 features activate from Marketplace installs.
