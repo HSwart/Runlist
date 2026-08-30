@@ -123,10 +123,11 @@ function providerFixture(t, vscodeOverrides = {}) {
 test('showProjectTerminal focuses the existing run terminal session', async (t) => {
   const { provider, terminals } = providerFixture(t);
   const folder = path.join(provider.projectsFile, '..', 'api');
-  fs.mkdirSync(folder);
+  fs.mkdirSync(folder, { recursive: true });
+  const resolvedFolder = fs.realpathSync(folder);
   const project = upsertProject(provider.projectsFile, {
     name: 'API',
-    folder,
+    folder: resolvedFolder,
     startCommand: 'npm start',
     services: []
   }, { reviewRequired: false }).project;
@@ -135,7 +136,7 @@ test('showProjectTerminal focuses the existing run terminal session', async (t) 
 
   assert.equal(terminals.length, 1);
   assert.equal(terminals[0].options.name, runlistTerminalName('API'));
-  assert.equal(terminals[0].options.cwd, folder);
+  assert.equal(terminals[0].options.cwd, resolvedFolder);
   terminals[0].showCalls = [];
 
   await provider.showProjectTerminal(project.id);
@@ -146,10 +147,11 @@ test('showProjectTerminal focuses the existing run terminal session', async (t) 
 test('showProjectTerminal opens a blank folder terminal after the run tab closes', async (t) => {
   const { provider, terminals } = providerFixture(t);
   const folder = path.join(provider.projectsFile, '..', 'api');
-  fs.mkdirSync(folder);
+  fs.mkdirSync(folder, { recursive: true });
+  const resolvedFolder = fs.realpathSync(folder);
   const project = upsertProject(provider.projectsFile, {
     name: 'API',
-    folder,
+    folder: resolvedFolder,
     startCommand: 'npm start',
     services: []
   }, { reviewRequired: false }).project;
@@ -164,7 +166,7 @@ test('showProjectTerminal opens a blank folder terminal after the run tab closes
 
   assert.equal(terminals.length, 1);
   assert.equal(terminals[0].options.name, undefined);
-  assert.equal(terminals[0].options.cwd, folder);
+  assert.equal(terminals[0].options.cwd, resolvedFolder);
 });
 
 test('addProjectOutput mirrors captured chunks into the run terminal', async (t) => {
@@ -303,9 +305,16 @@ test('installed Copilot skill initializes as handoff-ready after reload', async 
   });
 
   const originalHome = process.env.HOME;
+  const originalUserProfile = process.env.USERPROFILE;
   process.env.HOME = tempRoot;
+  process.env.USERPROFILE = tempRoot;
   t.after(() => {
     process.env.HOME = originalHome;
+    if (originalUserProfile === undefined) {
+      delete process.env.USERPROFILE;
+    } else {
+      process.env.USERPROFILE = originalUserProfile;
+    }
   });
 
   const { provider } = providerFixture(t);
