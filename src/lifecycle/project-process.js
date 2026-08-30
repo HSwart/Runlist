@@ -128,7 +128,7 @@ async function signalPosixProcessGroup(pid, signal, kill, options = {}) {
   } catch {
     return false;
   }
-  if (!Array.isArray(members) || !members.length) {
+  if (!Array.isArray(members) || !members.length || members.includes(pid)) {
     return false;
   }
   for (const memberPid of members) {
