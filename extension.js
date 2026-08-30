@@ -1,4 +1,5 @@
 const vscode = require('vscode');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { RunlistDiagnostics } = require('./src/lifecycle/runlist-diagnostics');
@@ -56,8 +57,12 @@ function bridgeFileNeedsCopy(sourcePath, targetPath) {
   try {
     const sourceStat = fs.statSync(sourcePath);
     const targetStat = fs.statSync(targetPath);
-    return sourceStat.size !== targetStat.size
-      || sourceStat.mtimeMs !== targetStat.mtimeMs;
+    if (sourceStat.size !== targetStat.size) {
+      return true;
+    }
+    const sourceDigest = crypto.createHash('sha256').update(fs.readFileSync(sourcePath)).digest();
+    const targetDigest = crypto.createHash('sha256').update(fs.readFileSync(targetPath)).digest();
+    return !sourceDigest.equals(targetDigest);
   } catch {
     return true;
   }

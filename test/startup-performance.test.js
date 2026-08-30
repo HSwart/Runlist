@@ -34,6 +34,8 @@ test('bridgeFileNeedsCopy skips unchanged MCP bridge files', (t) => {
   fs.writeFileSync(sourcePath, 'same');
   fs.writeFileSync(targetPath, 'same');
   assert.equal(bridgeFileNeedsCopy(sourcePath, targetPath), false);
+  fs.copyFileSync(sourcePath, targetPath);
+  assert.equal(bridgeFileNeedsCopy(sourcePath, targetPath), false);
   fs.writeFileSync(sourcePath, 'changed');
   assert.equal(bridgeFileNeedsCopy(sourcePath, targetPath), true);
 });
@@ -48,10 +50,20 @@ test('installMcpBridge skips unchanged files on repeat activation', (t) => {
   };
   const firstPath = extension.installMcpBridge(context);
   const serverPath = path.join(storageRoot, 'mcp', 'server.js');
+  const sourcePath = path.join(process.cwd(), 'mcp', 'server.js');
   assert.equal(firstPath, serverPath);
-  const beforeContents = fs.readFileSync(serverPath);
+  assert.equal(extension.bridgeFileNeedsCopy(sourcePath, serverPath), false);
+  const copySpy = fs.copyFileSync;
+  let copyCalls = 0;
+  fs.copyFileSync = (...args) => {
+    copyCalls += 1;
+    return copySpy(...args);
+  };
+  t.after(() => {
+    fs.copyFileSync = copySpy;
+  });
   extension.installMcpBridge(context);
-  assert.equal(fs.readFileSync(serverPath).compare(beforeContents), 0);
+  assert.equal(copyCalls, 0);
 });
 
 test('Runlist defers stale port-lock cleanup during store construction', () => {
@@ -92,7 +104,8 @@ test('Runlist defers the first status refresh until after activation', () => {
   );
 });
 
-test('Runlist caches projects by projects.json mtime during render', () => {
+test('Runlist caches projects during render and invalidates on store changes', () => {
   const source = readShippedHostSource();
-  assert.match(source, /get projects\(\) \{[\s\S]*_projectsSnapshotMtime/);
+  assert.match(source, /get projects\(\) \{[\s\S]*_projectsSnapshotKey/);
+  assert.match(source, /handleProjectStoreChange\(\)[\s\S]*invalidateProjectsSnapshot\(\)/);
 });

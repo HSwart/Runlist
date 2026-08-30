@@ -1125,16 +1125,22 @@ class RunlistViewProvider {
 
   get projects() {
     try {
-      const mtimeMs = fs.statSync(this.projectsFile).mtimeMs;
-      if (this._projectsSnapshot && this._projectsSnapshotMtime === mtimeMs) {
+      const stat = fs.statSync(this.projectsFile);
+      const cacheKey = `${stat.mtimeMs}:${stat.size}`;
+      if (this._projectsSnapshot && this._projectsSnapshotKey === cacheKey) {
         return this._projectsSnapshot;
       }
       this._projectsSnapshot = pinnedProjectsFirst(readProjects(this.projectsFile));
-      this._projectsSnapshotMtime = mtimeMs;
+      this._projectsSnapshotKey = cacheKey;
       return this._projectsSnapshot;
     } catch {
       return pinnedProjectsFirst(readProjects(this.projectsFile));
     }
+  }
+
+  invalidateProjectsSnapshot() {
+    this._projectsSnapshot = undefined;
+    this._projectsSnapshotKey = undefined;
   }
 
   get groups() {
@@ -1978,6 +1984,7 @@ class RunlistViewProvider {
       return;
     }
     this.statusRevision += 1;
+    this.invalidateProjectsSnapshot();
     if (this.mode === 'diagnosis') {
       this.render();
     } else {
