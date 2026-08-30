@@ -972,6 +972,9 @@ function normalizeProjectInput(input, options = {}) {
       || input.dependsOnFolderKeys.some((folder) => typeof folder !== 'string' || !folder.trim())) {
       throw new Error('dependsOnFolderKeys must be a list of project folders.');
     }
+    if (input.dependsOnFolderKeys.length > MAX_DEPENDS_ON) {
+      throw new Error(`dependsOnFolders cannot list more than ${MAX_DEPENDS_ON} projects.`);
+    }
     dependsOnFolderKeys = input.dependsOnFolderKeys.map((folder) => folder.trim());
   }
 

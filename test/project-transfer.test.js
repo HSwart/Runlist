@@ -235,3 +235,43 @@ test('rechecks and reserves updated projects immediately before applying an impo
   assert.deepEqual(requestedReservations, [['existing-id']]);
   assert.equal(fs.readFileSync(fixture.projectsFile, 'utf8'), beforeApply);
 });
+
+test('invalid unresolved dependency does not leave bad data in nextProjects', (t) => {
+  const fixture = transferFixture(t);
+  const existing = project('keep-id', 'Keep', fixture.folder('keep'));
+  const addFolder = fixture.folder('add');
+  const badFolder = fixture.folder('bad');
+  const preview = previewProjectImport([existing], [
+    project('add-id', 'Add', addFolder),
+    {
+      ...project('bad-id', 'Bad', badFolder),
+      dependsOnFolderKeys: [path.join(fixture.root, 'missing')]
+    }
+  ]);
+
+  assert.equal(preview.entries.find((entry) => entry.name === 'Add').status, 'add');
+  const badEntry = preview.entries.find((entry) => entry.name === 'Bad');
+  assert.equal(badEntry.status, 'invalid');
+  assert.match(badEntry.reason, /missing from this file/i);
+  assert.equal(preview.changeCount, 1);
+  assert.deepEqual(preview.nextProjects.map((item) => item.id), ['keep-id', 'add-id']);
+  assert.ok(!preview.nextProjects.some((item) => item.dependsOnFolderKeys));
+
+  writeProjects(fixture.projectsFile, [existing]);
+  applyProjectImport(fixture.projectsFile, preview);
+  assert.deepEqual(readProjects(fixture.projectsFile).map((item) => item.id), ['keep-id', 'add-id']);
+});
+
+test('rejects more than eight dependsOnFolderKeys during preview', (t) => {
+  const fixture = transferFixture(t);
+  const folders = Array.from({ length: 9 }, (_, index) => fixture.folder(`dep-${index}`));
+  const preview = previewProjectImport([], [{
+    ...project('many-id', 'Many', fixture.folder('many')),
+    dependsOnFolderKeys: folders
+  }]);
+
+  assert.equal(preview.entries[0].status, 'invalid');
+  assert.match(preview.entries[0].reason, /more than 8 projects/i);
+  assert.equal(preview.changeCount, 0);
+  assert.deepEqual(preview.nextProjects, []);
+});
