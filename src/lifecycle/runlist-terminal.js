@@ -5,7 +5,8 @@ function runlistTerminalName(projectName) {
 
 class RunlistTerminalSession {
   constructor(vscode, options = {}) {
-    const { name, cwd, env } = options;
+    const { name, cwd, env, onClose } = options;
+    this.onClose = onClose;
     this.writeEmitter = new vscode.EventEmitter();
     this.closeEmitter = new vscode.EventEmitter();
     const pty = {
@@ -13,7 +14,11 @@ class RunlistTerminalSession {
       onDidClose: this.closeEmitter.event,
       open: () => {},
       close: () => {
+        this.disposed = true;
         this.closeEmitter.fire(0);
+        if (typeof this.onClose === 'function') {
+          this.onClose();
+        }
       },
       handleInput: () => {}
     };

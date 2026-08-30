@@ -56,6 +56,46 @@ test('createRunlistTerminalSession mirrors output through a pseudoterminal', () 
   assert.deepEqual(writes, ['hello\n', 'world']);
 });
 
+test('RunlistTerminalSession notifies onClose when the terminal tab closes', () => {
+  let closed = 0;
+  let ptyRef;
+  const vscode = {
+    EventEmitter: class {
+      constructor() {
+        this.listeners = [];
+      }
+      get event() {
+        return (listener) => {
+          this.listeners.push(listener);
+          return { dispose: () => {} };
+        };
+      }
+      fire() {}
+    },
+    window: {
+      createTerminal: ({ pty }) => {
+        ptyRef = pty;
+        return {
+          show: () => {},
+          dispose: () => {}
+        };
+      }
+    }
+  };
+
+  const session = new RunlistTerminalSession(vscode, {
+    name: 'Runlist · App',
+    cwd: '/tmp',
+    onClose: () => {
+      closed += 1;
+    }
+  });
+  ptyRef.close();
+
+  assert.equal(closed, 1);
+  assert.equal(session.disposed, true);
+});
+
 test('RunlistTerminalSession show and dispose are idempotent', () => {
   let showCount = 0;
   let disposeCount = 0;

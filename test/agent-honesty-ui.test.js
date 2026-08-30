@@ -14,6 +14,11 @@ test('agent connections distinguish skill installed from handoff ready', () => {
   assert.match(webview, /Does not open VS Code chat handoffs/);
 });
 
+test('initialAgentConnection treats installed Copilot skill as handoff-ready', () => {
+  const host = fs.readFileSync(path.join(__dirname, '..', 'src', 'host', 'runlist-view-provider.js'), 'utf8');
+  assert.match(host, /if \(agent === 'copilot'\) \{[\s\S]*status: 'success'/);
+});
+
 test('README claims prefilled chat handoff only after Copilot setup', () => {
   assert.match(readme, /after you set up GitHub Copilot/);
   assert.match(readme, /prefilled diagnosis request you can send/);

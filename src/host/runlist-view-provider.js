@@ -2192,10 +2192,16 @@ class RunlistViewProvider {
 
   ensureRunlistTerminal(id, project, launchEnvironment) {
     this.disposeProjectTerminal(id);
-    const session = createRunlistTerminalSession(vscode, {
+    let session;
+    session = createRunlistTerminalSession(vscode, {
       name: runlistTerminalName(project.name),
       cwd: project.folder,
-      env: launchEnvironment
+      env: launchEnvironment,
+      onClose: () => {
+        if (this.projectRunTerminals.get(id) === session) {
+          this.projectRunTerminals.delete(id);
+        }
+      }
     });
     this.projectRunTerminals.set(id, session);
     session.show(true);
@@ -6123,6 +6129,12 @@ function initialAgentConnection(agent) {
   try {
     const skill = agentSkillStatus({ agent, environment: process.env, platform: process.platform });
     if (skill.status === 'installed') {
+      if (agent === 'copilot') {
+        return {
+          status: 'success',
+          message: 'Runlist skill installed. Ask Copilot agent mode to set up projects, or select Refresh setup after an extension update.'
+        };
+      }
       return {
         status: 'installed',
         message: `Runlist skill installed. Use ${skill.invocation}, or select Refresh setup after an extension update.`

@@ -1694,7 +1694,7 @@ function applyProjectFilter(query) {
   }
   const attentionSlot = document.getElementById('summary-attention-slot');
   if (attentionSlot) {
-    attentionSlot.innerHTML = attentionSummaryHtml(state.projects);
+    attentionSlot.innerHTML = `${reviewFilterSummaryHtml(state.projects)}${attentionSummaryHtml(state.projects)}`;
   }
 
   const emptyState = document.querySelector('[data-search-empty]');

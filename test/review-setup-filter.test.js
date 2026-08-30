@@ -25,9 +25,9 @@ test('review filter chip uses summary attention styling', () => {
   assert.match(styles, /\.active-review-chip/);
 });
 
-test('review filter clears when no projects need review', () => {
+test('applyProjectFilter keeps the review filter chip in the attention slot', () => {
   assert.match(
     webview,
-    /if \(!reviewCount && reviewFilterActive\) \{[\s\S]*reviewFilterActive = false/
+    /attentionSlot\.innerHTML = `\$\{reviewFilterSummaryHtml\(state\.projects\)\}\$\{attentionSummaryHtml\(state\.projects\)\}`/
   );
 });
