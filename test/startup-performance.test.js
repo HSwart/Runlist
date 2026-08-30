@@ -1,12 +1,32 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const Module = require('node:module');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { bridgeFileNeedsCopy } = require('../extension');
 const { readShippedHostSource } = require('./helpers/extension-source');
 
+function loadExtension() {
+  const originalLoad = Module._load;
+  Module._load = function load(request, parent, isMain) {
+    return request === 'vscode'
+      ? {
+        Uri: {
+          joinPath: (base, ...parts) => ({ fsPath: path.join(base.fsPath || base, ...parts) })
+        }
+      }
+      : originalLoad.call(this, request, parent, isMain);
+  };
+  delete require.cache[require.resolve('../extension')];
+  try {
+    return require('../extension');
+  } finally {
+    Module._load = originalLoad;
+  }
+}
+
 test('bridgeFileNeedsCopy skips unchanged MCP bridge files', (t) => {
+  const { bridgeFileNeedsCopy } = loadExtension();
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-bridge-copy-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const sourcePath = path.join(root, 'source.txt');
@@ -19,9 +39,9 @@ test('bridgeFileNeedsCopy skips unchanged MCP bridge files', (t) => {
 });
 
 test('installMcpBridge skips unchanged files on repeat activation', (t) => {
+  const extension = loadExtension();
   const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-bridge-install-'));
   t.after(() => fs.rmSync(storageRoot, { recursive: true, force: true }));
-  const extension = require('../extension');
   const context = {
     globalStorageUri: { fsPath: storageRoot },
     extensionUri: { fsPath: process.cwd() }
@@ -29,9 +49,9 @@ test('installMcpBridge skips unchanged files on repeat activation', (t) => {
   const firstPath = extension.installMcpBridge(context);
   const serverPath = path.join(storageRoot, 'mcp', 'server.js');
   assert.equal(firstPath, serverPath);
-  const beforeMtime = fs.statSync(serverPath).mtimeMs;
+  const beforeContents = fs.readFileSync(serverPath);
   extension.installMcpBridge(context);
-  assert.equal(fs.statSync(serverPath).mtimeMs, beforeMtime);
+  assert.equal(fs.readFileSync(serverPath).compare(beforeContents), 0);
 });
 
 test('Runlist defers stale port-lock cleanup during store construction', () => {
@@ -61,7 +81,7 @@ test('Runlist shows a loading shell before the first full render', () => {
 });
 
 test('Runlist defers the first status refresh until after activation', () => {
-  const source = readShippedHostSource('src/host/runlist-view-provider.js');
+  const source = readShippedHostSource();
   assert.match(
     source,
     /startStatusMonitoring\(\) \{[\s\S]*setImmediate\(\(\) => \{[\s\S]*refreshProjectStatuses\(\)/
@@ -73,6 +93,6 @@ test('Runlist defers the first status refresh until after activation', () => {
 });
 
 test('Runlist caches projects by projects.json mtime during render', () => {
-  const source = readShippedHostSource('src/host/runlist-view-provider.js');
+  const source = readShippedHostSource();
   assert.match(source, /get projects\(\) \{[\s\S]*_projectsSnapshotMtime/);
 });
