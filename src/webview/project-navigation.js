@@ -6,6 +6,14 @@ function openProjectInNewWindow(vscode, folder) {
   );
 }
 
+function openWorkspaceFolderInCurrentWindow(vscode, folder) {
+  return vscode.commands.executeCommand(
+    'vscode.openFolder',
+    vscode.Uri.file(folder),
+    { forceNewWindow: false }
+  );
+}
+
 function projectFolderIsAccessible(fileSystem, folder) {
   try {
     fileSystem.accessSync(
@@ -34,5 +42,6 @@ module.exports = {
   copyProjectPath,
   openProjectInNewWindow,
   openProjectTerminal,
+  openWorkspaceFolderInCurrentWindow,
   projectFolderIsAccessible
 };

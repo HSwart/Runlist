@@ -1,6 +1,7 @@
 const vscode = require('vscode');
 const crypto = require('crypto');
 const fs = require('fs');
+const os = require('node:os');
 const path = require('path');
 const { safeHttpUrl } = require('../services/external-url');
 const {
@@ -43,10 +44,14 @@ const {
   copyProjectPath: writeProjectPathToClipboard,
   openProjectInNewWindow,
   openProjectTerminal,
+  openWorkspaceFolderInCurrentWindow,
   projectFolderIsAccessible
 } = require('../webview/project-navigation');
 const { previewFrameSources, projectPreviewService } = require('../webview/preview-security');
-const { createPhoneHandoff } = require('../webview/phone-handoff');
+const {
+  createPhoneHandoff,
+  listPrivateLanIpv4Candidates
+} = require('../webview/phone-handoff');
 const { OwnedProcessMetrics } = require('../lifecycle/process-metrics');
 const {
   findListeningProcesses,
@@ -394,6 +399,7 @@ class RunlistViewProvider {
     this.readyOpenOffered = new Map();
     this.readyOpenPending = new Map();
     this.readyOpenOpened = new Map();
+    this.phoneHandoffNetworkChoice = undefined;
     this.restartingProjectIds = new Set();
     this.handoffProjectIds = new Set();
     this.forceClosingProjectIds = new Set();
@@ -3011,6 +3017,119 @@ class RunlistViewProvider {
     }
   }
 
+  phoneHandoffNetworkCandidates() {
+    return listPrivateLanIpv4Candidates(os.networkInterfaces());
+  }
+
+  resolvePhoneHandoffForUrl(serviceUrl) {
+    const candidates = this.phoneHandoffNetworkCandidates();
+    if (!candidates.length) {
+      return {
+        phoneHandoff: undefined,
+        phoneHandoffEligible: false,
+        phoneHandoffCanChangeNetwork: false,
+        phoneHandoffNeedsNetworkChoice: false
+      };
+    }
+
+    let chosen = this.phoneHandoffNetworkChoice;
+    if (chosen && !candidates.some((candidate) => candidate.address === chosen)) {
+      chosen = undefined;
+      this.phoneHandoffNetworkChoice = undefined;
+    }
+    if (!chosen && candidates.length === 1) {
+      chosen = candidates[0].address;
+    }
+
+    const phoneHandoff = chosen
+      ? createPhoneHandoff(serviceUrl, os.networkInterfaces(), chosen)
+      : undefined;
+    return {
+      phoneHandoff,
+      phoneHandoffEligible: true,
+      phoneHandoffCanChangeNetwork: candidates.length > 1 && Boolean(phoneHandoff),
+      phoneHandoffNeedsNetworkChoice: candidates.length > 1 && !chosen
+    };
+  }
+
+  async choosePhoneHandoffNetwork(title = 'Open on phone') {
+    const candidates = this.phoneHandoffNetworkCandidates();
+    if (candidates.length <= 1) {
+      return candidates[0]?.address;
+    }
+    const pick = await vscode.window.showQuickPick(
+      candidates.map((candidate) => ({
+        label: candidate.label,
+        description: 'Private network',
+        address: candidate.address
+      })),
+      {
+        placeHolder: 'Choose a network for phone sharing',
+        title
+      }
+    );
+    if (!pick) {
+      return undefined;
+    }
+    this.phoneHandoffNetworkChoice = pick.address;
+    return pick.address;
+  }
+
+  async openPhoneHandoff(id) {
+    const savedProject = this.projects.find((item) => item.id === id);
+    const project = projectStopStrategy(
+      savedProject,
+      this.processOwnership.snapshot().get(id)
+    );
+    const status = this.getProjectStatus(id);
+    const previewService = projectPreviewService(
+      project,
+      status,
+      this.projectServiceUrls.get(id),
+      this.projectPortConflicts.has(id)
+    );
+    if (!previewService?.url) {
+      return;
+    }
+
+    const candidates = this.phoneHandoffNetworkCandidates();
+    if (!candidates.length) {
+      return;
+    }
+
+    let chosen = this.phoneHandoffNetworkChoice;
+    if (!chosen || !candidates.some((candidate) => candidate.address === chosen)) {
+      chosen = candidates.length === 1
+        ? candidates[0].address
+        : await this.choosePhoneHandoffNetwork(`Open ${project.name} on your phone`);
+      if (!chosen) {
+        this.focusTarget = { type: 'project-control', id };
+        this.renderProjectList();
+        return;
+      }
+      if (candidates.length === 1) {
+        this.phoneHandoffNetworkChoice = chosen;
+      }
+    }
+
+    this.toggleProjectPreview(id, 'focus-phone-handoff');
+  }
+
+  async changePhoneHandoffNetwork(id) {
+    const savedProject = this.projects.find((item) => item.id === id);
+    if (!savedProject) {
+      return;
+    }
+    const chosen = await this.choosePhoneHandoffNetwork(`Change network for ${savedProject.name}`);
+    if (!chosen) {
+      this.focusTarget = { type: 'action', action: 'focus-phone-handoff', id };
+      this.renderProjectList();
+      return;
+    }
+    this.focusTarget = { type: 'action', action: 'focus-phone-handoff', id };
+    this.renderProjectList();
+  }
+
   async copyPhoneUrl(id, requestedUrl) {
     const savedProject = this.projects.find((item) => item.id === id);
     const project = projectStopStrategy(
@@ -3036,7 +3155,7 @@ class RunlistViewProvider {
         resolveUrl: (url) => this.externalServiceUrl(url)
       })
     );
-    const phoneHandoff = createPhoneHandoff(reachable?.url);
+    const phoneHandoff = this.resolvePhoneHandoffForUrl(reachable?.url).phoneHandoff;
     if (!phoneHandoff || phoneHandoff.url !== requestedUrl) {
       vscode.window.showInformationMessage('The local network address changed. Reopen Open on phone and try again.');
       await this.refreshProjectStatuses();
@@ -3438,6 +3557,25 @@ class RunlistViewProvider {
       this.focusTarget = { type: 'field', id: 'folder' };
       this.render();
     }
+  }
+
+  async openWorkspaceFolder() {
+    const selection = await vscode.window.showOpenDialog({
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      openLabel: 'Open folder'
+    });
+
+    if (!selection?.[0]) {
+      this.focusTarget = { type: 'action', action: 'open-workspace-folder' };
+      this.render();
+      return;
+    }
+
+    await openWorkspaceFolderInCurrentWindow(vscode, selection[0].fsPath);
+    this.focusTarget = { type: 'action', action: 'show-add' };
+    this.render();
   }
 
   async useCurrentWorkspace(draft = {}) {
@@ -5708,9 +5846,20 @@ class RunlistViewProvider {
       const detailsExpanded = this.expandedPreviewProjectId === project.id
         && (!canPreview || this.expandedPreviewServicePort === previewService.port);
       const previewExpanded = canPreview && detailsExpanded;
-      const phoneHandoff = previewService?.url
-        ? createPhoneHandoff(previewService.url)
-        : undefined;
+      const phoneHandoffState = previewService?.url
+        ? this.resolvePhoneHandoffForUrl(previewService.url)
+        : {
+          phoneHandoff: undefined,
+          phoneHandoffEligible: false,
+          phoneHandoffCanChangeNetwork: false,
+          phoneHandoffNeedsNetworkChoice: false
+        };
+      const {
+        phoneHandoff,
+        phoneHandoffEligible,
+        phoneHandoffCanChangeNetwork,
+        phoneHandoffNeedsNetworkChoice
+      } = phoneHandoffState;
       const outputPeekVisible = detailsExpanded
         && ['starting', 'running', 'not-ready', 'not-responding', 'ownership-lost'].includes(status)
         && (this.managedProjectIds.has(project.id)
@@ -5786,6 +5935,9 @@ class RunlistViewProvider {
         previewPort: previewService?.port,
         previewUrl: previewService?.url,
         phoneHandoff,
+        phoneHandoffEligible,
+        phoneHandoffCanChangeNetwork,
+        phoneHandoffNeedsNetworkChoice,
         startupHistory,
         averageReadyDurationMs: averageReadyDuration(startupHistory),
         resourceMetrics: previewExpanded

@@ -791,6 +791,7 @@ function projectDetailTabsHtml(project, projectName) {
           <p>Scan while your phone is on the same network.</p>
           <code>${escapeHtml(project.phoneHandoff.url)}</code>
           <button data-action="copy-phone-url" data-id="${projectId}" data-url="${escapeHtml(project.phoneHandoff.url)}">Copy phone URL</button>
+          ${project.phoneHandoffCanChangeNetwork ? `<button data-action="change-phone-network" data-id="${projectId}">Change network</button>` : ''}
         </div>
       </section>` : '<p class="preview-help">If the app blocks this view, use Open in browser.</p>';
   const previewContent = project.previewExpanded ? `
@@ -1133,6 +1134,18 @@ function renderList() {
     ? focusedElement.selectionEnd
     : undefined;
   let webviewStateChanged = reconcilePerItemWebviewState(state.projects);
+  if (state.focusTarget?.type === 'action'
+    && state.focusTarget.action === 'focus-phone-handoff'
+    && state.focusTarget.id) {
+    if (!phoneHandoffState[state.focusTarget.id]) {
+      phoneHandoffState[state.focusTarget.id] = true;
+      webviewStateChanged = true;
+    }
+    if (detailTabState[state.focusTarget.id] !== 'preview') {
+      detailTabState[state.focusTarget.id] = 'preview';
+      webviewStateChanged = true;
+    }
+  }
   for (const project of state.projects) {
     if (!project.detailsExpanded && detailTabState[project.id]) {
       delete detailTabState[project.id];
@@ -1205,6 +1218,7 @@ function renderList() {
           </div>` : ''}
         ${state.lifecycleWindowSupported === false ? `<p>Start and Stop work for apps on this computer. You can still save projects here. Remote SSH, Dev Containers, GitHub Codespaces, VS Code Tunnels, and Windows WSL network paths will not start or stop processes in this release.</p>` : ''}
         <div class="empty-actions">
+          ${!workspaceFolder && workspaceFolders.length <= 1 ? `<button class="primary-button" data-action="open-workspace-folder" aria-label="Open a folder in this window" title="Open a folder in this window">Open folder</button>` : ''}
           ${workspaceFolder ? `<button class="primary-button" data-action="show-add">${addLabel}</button>` : ''}
           ${stackPending ? `<button class="secondary-button" data-action="load-workspace-stack">Load stack</button>` : ''}
           ${workspaceFolder && startScripts.length ? `
@@ -1304,7 +1318,7 @@ function renderList() {
           || project.handoffInProgress
           || ['starting', 'not-ready', 'stopping'].includes(projectStatus);
         const canOpen = Boolean(project.previewUrl);
-        const canOpenOnPhone = Boolean(project.phoneHandoff);
+        const canOpenOnPhone = Boolean(project.phoneHandoffEligible);
         const detectedWithoutStop = projectStatus === 'active' && !project.stopCommand;
         const ownershipLostWithoutStop = projectStatus === 'ownership-lost' && !project.stopCommand;
         const stopState = ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active'].includes(projectStatus);
@@ -1354,7 +1368,9 @@ function renderList() {
               ? `${projectName} does not have a responding web service yet`
               : `Start ${projectName} before opening it`;
         const openOnPhoneTitle = canOpenOnPhone
-          ? `Open ${projectName} on your phone`
+          ? (project.phoneHandoffNeedsNetworkChoice
+            ? `Choose a network, then open ${projectName} on your phone`
+            : `Open ${projectName} on your phone`)
           : canOpen
             ? `Phone sharing needs one private LAN address and a localhost preview for ${projectName}`
             : openTitle;
@@ -2906,6 +2922,7 @@ app.addEventListener('click', (event) => {
   const actions = {
     'show-add': () => vscode.postMessage({ type: 'showAdd' }),
     'load-workspace-stack': () => vscode.postMessage({ type: 'loadWorkspaceStack' }),
+    'open-workspace-folder': () => vscode.postMessage({ type: 'openWorkspaceFolder' }),
     'select-workspace-folder': () => vscode.postMessage({
       type: 'selectWorkspaceFolder',
       folder: button.dataset.folder,
@@ -3188,18 +3205,15 @@ app.addEventListener('click', (event) => {
     'toggle-phone-handoff': () => togglePhoneHandoff(button.dataset.id, button),
     'open-on-phone': () => {
       closeMenus();
-      const id = button.dataset.id;
-      const project = state.projects.find((item) => String(item.id) === String(id));
-      if (!project?.phoneHandoff) {
-        return;
-      }
-      phoneHandoffState[id] = true;
-      detailTabState[id] = 'preview';
-      saveWebviewState();
       vscode.postMessage({
-        type: 'toggleProjectPreview',
-        id,
-        focusAction: 'focus-phone-handoff'
+        type: 'openPhoneHandoff',
+        id: button.dataset.id
+      });
+    },
+    'change-phone-network': () => {
+      vscode.postMessage({
+        type: 'changePhoneHandoffNetwork',
+        id: button.dataset.id
       });
     },
     'show-startup-failure': () => showStartupFailure(button.dataset.id, button.dataset.entryKey),
