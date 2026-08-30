@@ -222,6 +222,9 @@ function previewProjectImport(currentProjects, importedProjects, options = {}) {
   }
 
   nextProjects = buildNextProjectsFromEntries(currentProjects, entries);
+  while (invalidateEntriesWithMissingDependencies(entries, nextProjects)) {
+    nextProjects = buildNextProjectsFromEntries(currentProjects, entries);
+  }
 
   return {
     fingerprint: projectListFingerprint(currentProjects),
@@ -521,6 +524,27 @@ function buildNextProjectsFromEntries(currentProjects, entries) {
     }
   }
   return nextProjects;
+}
+
+function invalidateEntriesWithMissingDependencies(entries, nextProjects) {
+  const projectIds = new Set(nextProjects.map((project) => project.id));
+  let changed = false;
+  for (const entry of entries) {
+    if (!['add', 'update'].includes(entry.status) || !entry.project) {
+      continue;
+    }
+    const dependsOn = entry.project.dependsOn;
+    if (!Array.isArray(dependsOn) || !dependsOn.length) {
+      continue;
+    }
+    if (dependsOn.some((dependencyId) => !projectIds.has(dependencyId))) {
+      entry.status = 'invalid';
+      entry.reason = 'The import depends on a project that is missing or invalid in this file.';
+      delete entry.project;
+      changed = true;
+    }
+  }
+  return changed;
 }
 
 function resolveImportedDependsOnFolders(nextProjects, entries) {
