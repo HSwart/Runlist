@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { archiveContentMismatches, readArchive, validateVsix } = require('../scripts/validate-vsix');
+const { archiveContentMismatches, readArchive, validateSourcePackaging, validateVsix } = require('../scripts/validate-vsix');
 
 const root = path.join(__dirname, '..');
 
@@ -122,8 +122,18 @@ function fixtureDependencies(candidateFixture) {
   };
 }
 
-test('accepts the reviewed VSIX only when identity, version, and contents match', async () => {
-  await assert.doesNotReject(validateVsix(root));
+test('accepts the reviewed VSIX only when identity, version, and contents match', async (t) => {
+  const { fixtureRoot, candidateFixture } = temporaryFixtureRoot(
+    t,
+    [{ name: 'extension/skills/runlist/SKILL.md', contents: '# Runlist\n' }],
+    [{ name: 'extension/skills/runlist/SKILL.md', contents: '# Runlist\n' }]
+  );
+
+  await assert.doesNotReject(validateVsix(fixtureRoot, fixtureDependencies(candidateFixture)));
+});
+
+test('accepts current source packaging without requiring the tracked VSIX to match', async () => {
+  await assert.doesNotReject(validateSourcePackaging(root));
 });
 
 test('refuses to publish a stale VSIX', async () => {

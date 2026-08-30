@@ -170,6 +170,47 @@ async function readArchive(packagePath) {
   return result;
 }
 
+async function validateSourcePackaging(root, dependencies = {}) {
+  const readPackage = typeof dependencies === 'function'
+    ? dependencies
+    : dependencies.readPackage || readVSIXPackage;
+  const createCandidate = dependencies.createCandidate || (async ({ packagePath }) => {
+    const { createReviewedCandidate } = require('./package-vsix');
+    await createReviewedCandidate(root, packagePath);
+  });
+  const readArchiveContents = dependencies.readArchive || readArchive;
+  const expected = require(path.join(root, 'package.json'));
+  const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-vsix-validation-'));
+  const candidatePath = path.join(temporaryDirectory, 'runlist-candidate.vsix');
+  try {
+    await createCandidate({
+      cwd: root,
+      packageManager: PackageManager.None,
+      packagePath: candidatePath
+    });
+    const { manifest: actual } = await readPackage(candidatePath);
+    const mismatches = [];
+
+    for (const field of ['publisher', 'name', 'version']) {
+      if (actual[field] !== expected[field]) {
+        mismatches.push(`${field} is ${actual[field]} in the packaged VSIX but ${expected[field]} in package.json`);
+      }
+    }
+
+    if (mismatches.length > 0) {
+      throw new Error(`Refusing to package a stale or incorrect VSIX: ${mismatches.join('; ')}.`);
+    }
+
+    const candidate = await readArchiveContents(candidatePath);
+    if (candidate.has('extension.vsixmanifest') && candidate.has('extension/package.json') && candidate.has('extension/readme.md')) {
+      const { assertMarketplaceGalleryPackaging } = require('./package-vsix');
+      assertMarketplaceGalleryPackaging(candidate);
+    }
+  } finally {
+    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+}
+
 async function validateVsix(root, dependencies = {}) {
   const readPackage = typeof dependencies === 'function'
     ? dependencies
@@ -223,13 +264,19 @@ async function validateVsix(root, dependencies = {}) {
   }
 }
 
+module.exports = { archiveContentMismatches, readArchive, validateSourcePackaging, validateVsix };
+
 if (require.main === module) {
-  validateVsix(path.join(__dirname, '..'))
-    .then(() => process.stdout.write('Marketplace VSIX identity, version, and packaged contents match current source.\n'))
+  const root = path.join(__dirname, '..');
+  const sourceOnly = process.argv.includes('--source-only');
+  const validate = sourceOnly ? validateSourcePackaging : validateVsix;
+  const successMessage = sourceOnly
+    ? 'Current source packages a valid Marketplace VSIX.\n'
+    : 'Marketplace VSIX identity, version, and packaged contents match current source.\n';
+  validate(root)
+    .then(() => process.stdout.write(successMessage))
     .catch((error) => {
       process.stderr.write(`${error.message}\n`);
       process.exitCode = 1;
     });
 }
-
-module.exports = { archiveContentMismatches, readArchive, validateVsix };

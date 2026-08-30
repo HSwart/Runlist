@@ -15,7 +15,7 @@ test('enforces focused static analysis, critical coverage, SBOM, and package ide
   assert.match(manifest.scripts.quality, /npm run scan:secrets/);
   assert.match(manifest.scripts.quality, /npm run test:critical-coverage/);
   assert.match(manifest.scripts.quality, /npm run validate:sbom/);
-  assert.match(manifest.scripts.quality, /npm run validate:marketplace:vsix/);
+  assert.match(manifest.scripts.quality, /npm run validate:marketplace:packaging/);
   assert.match(coverage, /--test-coverage-branches=80/);
   assert.match(coverage, /src\/lifecycle\/project-process\.js/);
   assert.match(coverage, /src\/ports\/port-gate\.js/);
