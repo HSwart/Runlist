@@ -222,8 +222,29 @@ function previewProjectImport(currentProjects, importedProjects, options = {}) {
   }
 
   nextProjects = buildNextProjectsFromEntries(currentProjects, entries);
-  while (invalidateEntriesWithMissingDependencies(entries, nextProjects)) {
-    nextProjects = buildNextProjectsFromEntries(currentProjects, entries);
+  let stabilized = true;
+  while (stabilized) {
+    stabilized = false;
+    if (invalidateEntriesWithMissingDependencies(entries, nextProjects)) {
+      nextProjects = buildNextProjectsFromEntries(currentProjects, entries);
+      stabilized = true;
+    }
+    const rebuiltCycle = dependencyCycleMessage(
+      nextProjects.map((project) => project.id),
+      new Map(nextProjects.map((project) => [project.id, project]))
+    );
+    if (rebuiltCycle) {
+      for (const entry of entries) {
+        if (!['add', 'update'].includes(entry.status)) {
+          continue;
+        }
+        entry.status = 'invalid';
+        entry.reason = rebuiltCycle;
+        delete entry.project;
+      }
+      nextProjects = buildNextProjectsFromEntries(currentProjects, entries);
+      stabilized = true;
+    }
   }
 
   return {
