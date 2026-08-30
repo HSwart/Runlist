@@ -163,6 +163,12 @@ function activate(context) {
   if (process.env.RUNLIST_EXTENSION_SMOKE === '1') {
     return { projectsFile, provider };
   }
+
+  if (process.env.RUNLIST_RECOVERY_AUTO_SEED === '1') {
+    const { seedRecoveryVisualDemo } = require('./smoke/recovery-visual-bootstrap');
+    void seedRecoveryVisualDemo(provider, { projectsFile, provider });
+    return { projectsFile, provider };
+  }
 }
 
 function deactivate() {
