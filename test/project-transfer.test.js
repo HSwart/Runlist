@@ -298,3 +298,30 @@ test('invalidates dependents when a referenced import project is invalid', (t) =
   assert.equal(preview.changeCount, 0);
   assert.deepEqual(preview.nextProjects, []);
 });
+
+test('rechecks cycles after restoring saved projects from invalidated updates', (t) => {
+  const fixture = transferFixture(t);
+  const aFolder = fixture.folder('a');
+  const cFolder = fixture.folder('c');
+  const saved = [
+    project('a-id', 'A', aFolder, { dependsOn: ['c-id'] }),
+    project('c-id', 'C', cFolder)
+  ];
+  writeProjects(fixture.projectsFile, saved);
+  const preview = previewProjectImport(readProjects(fixture.projectsFile), [
+    {
+      ...project('a-id', 'A', aFolder),
+      dependsOnFolderKeys: [path.join(fixture.root, 'missing')]
+    },
+    {
+      ...project('c-id', 'C', cFolder),
+      dependsOn: ['a-id']
+    }
+  ]);
+
+  assert.equal(preview.entries.find((entry) => entry.name === 'A').status, 'invalid');
+  assert.equal(preview.entries.find((entry) => entry.name === 'C').status, 'invalid');
+  assert.equal(preview.changeCount, 0);
+  assert.deepEqual(preview.nextProjects.map((item) => item.id), ['a-id', 'c-id']);
+  assert.deepEqual(preview.nextProjects.find((item) => item.id === 'a-id').dependsOn, ['c-id']);
+});
