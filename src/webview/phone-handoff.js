@@ -33,8 +33,9 @@ function isLikelyVirtualInterface(name) {
     .test(String(name || ''));
 }
 
-function choosePrivateLanIpv4(interfaces = {}) {
-  const candidates = new Set();
+function listPrivateLanIpv4Candidates(interfaces = {}) {
+  const seen = new Set();
+  const candidates = [];
   for (const [name, addresses] of Object.entries(interfaces || {})) {
     if (isLikelyVirtualInterface(name)) {
       continue;
@@ -44,12 +45,23 @@ function choosePrivateLanIpv4(interfaces = {}) {
       const priority = isIpv4 && !address.internal
         ? privateIpv4Priority(address.address)
         : 0;
-      if (priority) {
-        candidates.add(address.address);
+      if (!priority || seen.has(address.address)) {
+        continue;
       }
+      seen.add(address.address);
+      candidates.push({
+        interfaceName: name,
+        address: address.address,
+        label: `${name} — ${address.address}`
+      });
     }
   }
-  return candidates.size === 1 ? candidates.values().next().value : undefined;
+  return candidates;
+}
+
+function choosePrivateLanIpv4(interfaces = {}) {
+  const candidates = listPrivateLanIpv4Candidates(interfaces);
+  return candidates.length === 1 ? candidates[0].address : undefined;
 }
 
 function isLoopbackHostname(hostname) {
@@ -62,7 +74,11 @@ function isLoopbackHostname(hostname) {
     || parts?.[0] === 127;
 }
 
-function derivePhoneHandoffUrl(serviceUrl, interfaces = os.networkInterfaces()) {
+function derivePhoneHandoffUrl(
+  serviceUrl,
+  interfaces = os.networkInterfaces(),
+  chosenAddress
+) {
   const safeUrl = safeServiceUrl(serviceUrl);
   if (!safeUrl) {
     return undefined;
@@ -71,7 +87,9 @@ function derivePhoneHandoffUrl(serviceUrl, interfaces = os.networkInterfaces()) 
   if (!isLoopbackHostname(url.hostname)) {
     return undefined;
   }
-  const address = choosePrivateLanIpv4(interfaces);
+  const address = typeof chosenAddress === 'string' && chosenAddress.trim()
+    ? chosenAddress.trim()
+    : choosePrivateLanIpv4(interfaces);
   if (!address) {
     return undefined;
   }
@@ -87,8 +105,12 @@ function createPhoneQrSvg(url, qrFactory = qrcode) {
     .replace('<svg ', '<svg aria-hidden="true" focusable="false" ');
 }
 
-function createPhoneHandoff(serviceUrl, interfaces = os.networkInterfaces()) {
-  const url = derivePhoneHandoffUrl(serviceUrl, interfaces);
+function createPhoneHandoff(
+  serviceUrl,
+  interfaces = os.networkInterfaces(),
+  chosenAddress
+) {
+  const url = derivePhoneHandoffUrl(serviceUrl, interfaces, chosenAddress);
   if (!url) {
     return undefined;
   }
@@ -107,5 +129,6 @@ module.exports = {
   createPhoneHandoff,
   createPhoneQrSvg,
   derivePhoneHandoffUrl,
+  listPrivateLanIpv4Candidates,
   privateIpv4Priority
 };

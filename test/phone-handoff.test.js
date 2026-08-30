@@ -7,6 +7,7 @@ const {
   createPhoneHandoff,
   createPhoneQrSvg,
   derivePhoneHandoffUrl,
+  listPrivateLanIpv4Candidates,
   privateIpv4Priority
 } = require('../src/webview/phone-handoff');
 const { readShippedHostSource } = require('./helpers/extension-source');
@@ -34,10 +35,36 @@ test('selects one unambiguous safe physical private IPv4 address', () => {
 });
 
 test('does not guess between multiple physical private networks', () => {
-  assert.equal(choosePrivateLanIpv4({
+  const multi = {
     WiFi: [{ address: '192.168.68.42', family: 'IPv4', internal: false }],
     Ethernet: [{ address: '10.20.30.40', family: 4, internal: false }]
-  }), undefined);
+  };
+  assert.equal(choosePrivateLanIpv4(multi), undefined);
+  assert.deepEqual(listPrivateLanIpv4Candidates(multi), [
+    {
+      interfaceName: 'WiFi',
+      address: '192.168.68.42',
+      label: 'WiFi — 192.168.68.42'
+    },
+    {
+      interfaceName: 'Ethernet',
+      address: '10.20.30.40',
+      label: 'Ethernet — 10.20.30.40'
+    }
+  ]);
+});
+
+test('builds a LAN URL when the caller chooses a network explicitly', () => {
+  const multi = {
+    WiFi: [{ address: '192.168.68.42', family: 'IPv4', internal: false }],
+    Ethernet: [{ address: '10.20.30.40', family: 4, internal: false }]
+  };
+  assert.equal(
+    derivePhoneHandoffUrl('http://localhost:4310/', multi, '10.20.30.40'),
+    'http://10.20.30.40:4310/'
+  );
+  const handoff = createPhoneHandoff('http://localhost:4310/', multi, '10.20.30.40');
+  assert.equal(handoff.url, 'http://10.20.30.40:4310/');
 });
 
 test('preserves the local URL while replacing only its loopback hostname', () => {
@@ -96,16 +123,18 @@ test('shows the handoff only for an eligible preview and copies its exact URL', 
   const webview = fs.readFileSync(path.join(root, 'media', 'main.js'), 'utf8');
   const styles = fs.readFileSync(path.join(root, 'media', 'styles.css'), 'utf8');
 
-  assert.match(extension, /const phoneHandoff = previewService\?\.url\s*\?\s*createPhoneHandoff\(previewService\.url\)/);
+  assert.match(extension, /const phoneHandoffState = previewService\?\.url[\s\S]*resolvePhoneHandoffForUrl\(previewService\.url\)/);
   assert.match(webview, /project\.phoneHandoff \? `[\s\S]*Open on phone[\s\S]*project\.phoneHandoff\.qrSvg/);
+  assert.match(webview, /phoneHandoffEligible/);
+  assert.match(webview, /type: 'openPhoneHandoff'/);
+  assert.match(webview, /change-phone-network/);
   assert.match(webview, /<code>\$\{escapeHtml\(project\.phoneHandoff\.url\)\}<\/code>/);
   assert.match(webview, /data-url="\$\{escapeHtml\(project\.phoneHandoff\.url\)\}"/);
   assert.match(extension, /phoneHandoff\.url !== requestedUrl[\s\S]*clipboard\.writeText\(phoneHandoff\.url\)/);
   assert.match(webview, /aria-expanded="\$\{phoneHandoffOpen\}"[\s\S]*aria-controls="phone-handoff-/);
   assert.match(webview, /data-action="open-on-phone"/);
-  assert.match(webview, /canOpenOnPhone = Boolean\(project\.phoneHandoff\)/);
+  assert.match(webview, /canOpenOnPhone = Boolean\(project\.phoneHandoffEligible\)/);
   assert.match(webview, /\$\{canOpenOnPhone \? '' : 'disabled'\}/);
-  assert.match(webview, /focusAction: 'focus-phone-handoff'/);
   assert.match(webview, /target\.action === 'focus-phone-handoff'/);
   assert.match(webview, /'open-on-phone':/);
   assert.doesNotMatch(webview, /class="[^"]*share-(?:section|strip|band)/);

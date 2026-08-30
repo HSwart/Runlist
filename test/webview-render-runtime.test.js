@@ -1292,6 +1292,8 @@ test('empty state hides Add this folder when no workspace folder is open', () =>
   const result = renderNonEmptyProjectList([]);
 
   assert.match(result.app.innerHTML, /Open a folder in this window first\./);
+  assert.match(result.app.innerHTML, /data-action="open-workspace-folder"/);
+  assert.match(result.app.innerHTML, /aria-label="Open a folder in this window"/);
   assert.doesNotMatch(result.app.innerHTML, /Add this folder/);
   assert.doesNotMatch(result.app.innerHTML, />Add project</);
 });
