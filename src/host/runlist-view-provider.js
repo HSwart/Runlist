@@ -877,17 +877,17 @@ class RunlistViewProvider {
     // Stack discovery is empty-state / Global ⋯ only — no toast above the list.
   }
 
-  stackContractPendingForEmptyState() {
+  stackContractEmptyState() {
     if (this.projects.length > 0) {
-      return false;
+      return undefined;
     }
     const workspaceRoot = this.workspaceRoot();
     if (!workspaceRoot) {
-      return false;
+      return undefined;
     }
     const contractPath = detectStackContract(workspaceRoot);
     if (!contractPath) {
-      return false;
+      return undefined;
     }
     try {
       const parsed = parseStackContract(fs.readFileSync(contractPath), { workspaceRoot, contractPath });
@@ -895,10 +895,24 @@ class RunlistViewProvider {
         replaceOptionalMetadata: false,
         isProjectActive: () => false
       });
-      return preview.changeCount > 0;
+      if (!preview.changeCount) {
+        return undefined;
+      }
+      const addCount = preview.entries.filter((entry) => entry.status === 'add').length;
+      const updateCount = preview.entries.filter((entry) => entry.status === 'update').length;
+      return {
+        pending: true,
+        changeCount: preview.changeCount,
+        addCount,
+        updateCount
+      };
     } catch {
-      return false;
+      return undefined;
     }
+  }
+
+  stackContractPendingForEmptyState() {
+    return Boolean(this.stackContractEmptyState()?.pending);
   }
 
   async showProjectTransferLoadStack() {
@@ -6022,6 +6036,7 @@ class RunlistViewProvider {
         ? this.draftStartCommandNotice
         : undefined,
       stackContractPending: this.stackContractPendingForEmptyState(),
+      stackContractSummary: this.stackContractEmptyState(),
       focusTarget: this.focusTarget || this.lastFocusTarget,
       formErrors: this.formErrors,
       groups,

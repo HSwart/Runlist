@@ -1281,11 +1281,20 @@ test('empty state shows Load stack when a stack contract is pending', () => {
     stateOverrides: {
       currentWorkspaceFolder: '/Users/example/app',
       currentWorkspaceFolderName: 'app',
-      stackContractPending: true
+      stackContractPending: true,
+      stackContractSummary: {
+        pending: true,
+        changeCount: 3,
+        addCount: 3,
+        updateCount: 0
+      }
     }
   });
 
-  assert.match(result.app.innerHTML, /data-action="load-workspace-stack">Load stack</);
+  assert.match(result.app.innerHTML, /<h2>Load team stack<\/h2>/);
+  assert.match(result.app.innerHTML, /3 project setups to review/);
+  assert.match(result.app.innerHTML, /class="primary-button"[^>]*data-action="load-workspace-stack"[^>]*>Load stack \(3\)</);
+  assert.match(result.app.innerHTML, /class="secondary-button"[^>]*data-action="show-add">Add this folder</);
 });
 
 test('empty state hides Add this folder when no workspace folder is open', () => {

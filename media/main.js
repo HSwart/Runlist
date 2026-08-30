@@ -1203,11 +1203,18 @@ function renderList() {
         && typeof script.startCommand === 'string')
       : [];
     const stackPending = state.stackContractPending === true;
+    const stackSummary = state.stackContractSummary && typeof state.stackContractSummary === 'object'
+      ? state.stackContractSummary
+      : undefined;
+    const stackChangeCount = Number.isInteger(stackSummary?.changeCount) ? stackSummary.changeCount : 0;
+    const stackHeroCopy = stackPending && workspaceFolder && stackChangeCount > 0
+      ? `This workspace has a Runlist stack with ${stackChangeCount} project setup${stackChangeCount === 1 ? '' : 's'} to review.`
+      : '';
     app.innerHTML = `
       ${groupFilterHtml()}
       <section class="empty-state">
-        <h2>No projects yet</h2>
-        <p>${escapeHtml(emptyCopy)}</p>
+        <h2>${stackHeroCopy ? 'Load team stack' : 'No projects yet'}</h2>
+        <p>${escapeHtml(stackHeroCopy || emptyCopy)}</p>
         ${workspaceFolderName ? `<p class="empty-folder" title="${escapeHtml(workspaceFolder)}">${escapeHtml(workspaceFolderName)}</p>` : ''}
         ${!workspaceFolder && workspaceFolders.length > 1 ? `
           <div class="empty-workspace-choices" role="group" aria-label="Workspace folders in this window">
@@ -1219,8 +1226,8 @@ function renderList() {
         ${state.lifecycleWindowSupported === false ? `<p>Start and Stop work for apps on this computer. You can still save projects here. Remote SSH, Dev Containers, GitHub Codespaces, VS Code Tunnels, and Windows WSL network paths will not start or stop processes in this release.</p>` : ''}
         <div class="empty-actions">
           ${!workspaceFolder && workspaceFolders.length <= 1 ? `<button class="primary-button" data-action="open-workspace-folder" aria-label="Open a folder in this window" title="Open a folder in this window">Open folder</button>` : ''}
-          ${workspaceFolder ? `<button class="primary-button" data-action="show-add">${addLabel}</button>` : ''}
-          ${stackPending ? `<button class="secondary-button" data-action="load-workspace-stack">Load stack</button>` : ''}
+          ${stackPending && workspaceFolder ? `<button class="primary-button" data-action="load-workspace-stack" aria-label="Load ${stackChangeCount} project setup${stackChangeCount === 1 ? '' : 's'} from this workspace" title="Review and load the Runlist stack in this repo">Load stack (${stackChangeCount})</button>` : ''}
+          ${workspaceFolder ? `<button class="${stackPending ? 'secondary-button' : 'primary-button'}" data-action="show-add">${addLabel}</button>` : ''}
           ${workspaceFolder && startScripts.length ? `
             <div class="empty-start-chips" role="group" aria-label="Start options for this folder">
               ${startScripts.map((script) => {
