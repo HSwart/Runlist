@@ -394,7 +394,7 @@ test('renders an accessible bounded live peek without replacing active selection
   assert.match(extension, /projectIncarnation: this\.projectIncarnations\.get\(project\.id\)/);
   assert.match(webview, /class="project-output-peek" tabindex="0" aria-label="Latest output for/);
   assert.match(webview, /type: 'showOutput'[\s\S]*projectIncarnation/);
-  assert.match(webview, /data-action="output"[\s\S]*View output/);
+  assert.match(webview, /data-action="show-terminal"[\s\S]*Show terminal/);
   assert.match(webview, /slot\.contains\(document\.activeElement\)/);
   assert.match(webview, /selection\.getRangeAt\(0\)\.intersectsNode\(slot\)/);
   assert.match(webview, /pendingOutputPeeks\.set\(key, \{[\s\S]*entries: entries \|\| \[\],[\s\S]*projectIncarnation[\s\S]*\}\)/);

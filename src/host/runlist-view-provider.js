@@ -87,6 +87,10 @@ const {
   workspaceStartDevScripts
 } = require('../projects/project-workspace');
 const {
+  createRunlistTerminalSession,
+  runlistTerminalName
+} = require('../lifecycle/runlist-terminal');
+const {
   cleanupTrackedProcessForDeletion,
   customStopSpawnOptions,
   detachedServiceIdentityDecision,
@@ -334,6 +338,7 @@ class RunlistViewProvider {
       this.render();
     });
     this.projectOutputs = new Map();
+    this.projectRunTerminals = new Map();
     this.projectLaunchSecrets = new Map();
     this.projectIncarnations = new Map();
     this.projectIncarnationSequence = 0;
@@ -2176,6 +2181,66 @@ class RunlistViewProvider {
     this.render();
   }
 
+  disposeProjectTerminal(id) {
+    const session = this.projectRunTerminals.get(id);
+    if (!session) {
+      return;
+    }
+    session.dispose();
+    this.projectRunTerminals.delete(id);
+  }
+
+  ensureRunlistTerminal(id, project, launchEnvironment) {
+    this.disposeProjectTerminal(id);
+    const session = createRunlistTerminalSession(vscode, {
+      name: runlistTerminalName(project.name),
+      cwd: project.folder,
+      env: launchEnvironment
+    });
+    this.projectRunTerminals.set(id, session);
+    session.show(true);
+    return session;
+  }
+
+  writeProjectTerminal(id, chunk) {
+    this.projectRunTerminals.get(id)?.write(chunk);
+  }
+
+  async showProjectTerminal(id) {
+    const project = this.projects.find((item) => item.id === id);
+    if (!project) {
+      return;
+    }
+    const session = this.projectRunTerminals.get(id);
+    if (session) {
+      session.show();
+      return;
+    }
+    if (!projectFolderIsAccessible(fs, project.folder)) {
+      const canRelink = !project.reviewRequired && !isComposeManagedProject(project);
+      const selection = await vscode.window.showErrorMessage(
+        `Could not show a terminal for ${project.name}: its saved folder is missing or inaccessible.`,
+        ...(canRelink ? ['Choose folder', 'Edit project'] : ['Edit project'])
+      );
+      if (selection === 'Choose folder') {
+        await this.relinkProjectFolder(id);
+      } else if (selection === 'Edit project') {
+        this.showEditProject(id);
+      } else {
+        this.focusTarget = { type: 'project-menu', id };
+        this.renderProjectList();
+      }
+      return;
+    }
+    try {
+      openProjectTerminal(vscode, project.folder);
+    } catch {
+      await vscode.window.showErrorMessage(`Could not show a terminal for ${project.name}.`);
+      this.focusTarget = { type: 'project-menu', id };
+      this.renderProjectList();
+    }
+  }
+
   showProjectDiagnosis(id) {
     const project = this.projects.find((item) => item.id === id);
     if (!project || !readProjectDiagnostics(this.projectsFile, id)) {
@@ -2269,6 +2334,7 @@ class RunlistViewProvider {
       || (this.mode === 'list' && this.expandedPreviewProjectId === id)) {
       this.outputUpdateScheduler.schedule(id);
     }
+    this.writeProjectTerminal(id, chunk);
   }
 
   isCurrentProjectRevision(id, projectRevision) {
@@ -2486,10 +2552,10 @@ class RunlistViewProvider {
       );
       void vscode.window.showWarningMessage(
         `${project.name} is still running, but one or more web services are not responding.`,
-        'View output'
+        'Show terminal'
       ).then((choice) => {
-        if (choice === 'View output') {
-          this.showProjectOutput(project.id);
+        if (choice === 'Show terminal') {
+          void this.showProjectTerminal(project.id);
         }
       });
       return;
@@ -2506,10 +2572,10 @@ class RunlistViewProvider {
     );
     void vscode.window.showWarningMessage(
       `${project.name} is still running. Runlist is still checking ${waiting}.`,
-      'View output'
+      'Show terminal'
     ).then((choice) => {
-      if (choice === 'View output') {
-        this.showProjectOutput(project.id);
+      if (choice === 'Show terminal') {
+        void this.showProjectTerminal(project.id);
       }
     });
   }
@@ -2531,10 +2597,10 @@ class RunlistViewProvider {
     }
     void vscode.window.showErrorMessage(
       `Could not start ${project.name}: ${summary.message}`,
-      'View output'
+      'Show terminal'
     ).then((choice) => {
-      if (choice === 'View output') {
-        this.showProjectOutput(project.id);
+      if (choice === 'Show terminal') {
+        void this.showProjectTerminal(project.id);
       }
     });
     return true;
@@ -3639,6 +3705,7 @@ class RunlistViewProvider {
       this.stoppingProjectIds.delete(id);
       this.remoteStopRequests.delete(id);
       this.projectOutputs.delete(id);
+      this.disposeProjectTerminal(id);
       this.projectLaunchSecrets.delete(id);
       this.projectFailureSummaries.delete(id);
       this.projectFailureDetails.delete(id);
@@ -4087,6 +4154,7 @@ class RunlistViewProvider {
         ? composeProcessArgv(launchProject, 'up', { env: launchEnvironment })
         : undefined;
       const launchCommand = stripPackageManagerSilentFlags(launchProject.startCommand);
+      this.ensureRunlistTerminal(id, launchProject, launchEnvironment);
       const child = spawnProjectCommand(launchCommand, {
         cwd: launchProject.folder,
         stdio: ['ignore', 'pipe', 'pipe'],

@@ -466,7 +466,7 @@ function projectTimelineHtml(project, projectName) {
       <span>${escapeHtml(stage.label)}</span>
     </li>`).join('');
   const outputLink = (timeline.failed || timeline.attention) && timeline.outputAvailable
-    ? `<button class="timeline-output-link" data-action="output" data-id="${escapeHtml(project.id)}">View Recent Output</button>`
+    ? `<button class="timeline-output-link" data-action="show-terminal" data-id="${escapeHtml(project.id)}">Show terminal</button>`
     : '';
   return `
     <div class="project-timeline" aria-label="Startup timeline for ${projectName}">
@@ -492,7 +492,7 @@ function projectOutputPeekHtml(entries, projectId, projectName) {
   const safeProjectName = escapeHtml(String(projectName || 'project'));
   return `
     <section class="project-output-peek" tabindex="0" aria-label="Latest output for ${safeProjectName}">
-      <header><span>Live output</span><button data-action="output" data-id="${safeProjectId}">View output</button></header>
+      <header><span>Live output</span><button data-action="show-terminal" data-id="${safeProjectId}">Show terminal</button></header>
       ${entries?.length
         ? `<ol>${outputPeekEntriesHtml(entries)}</ol>`
         : '<p class="output-peek-empty">No output yet.</p>'}
@@ -1462,7 +1462,7 @@ function renderList() {
                     ? icon('edit')
                     : primaryAction.action === 'relink-folder'
                       ? icon('folder')
-                      : primaryAction.action === 'output'
+                      : primaryAction.action === 'show-terminal'
                         ? icon('terminal')
                         : productIcon(primaryAction.mode === 'stop' ? 'stop' : 'play')}
                 </button>
@@ -1491,14 +1491,14 @@ function renderList() {
                   <button data-action="copy-error" data-id="${projectId}" role="menuitem" aria-label="Copy ${project.stopFailure && projectStatus !== 'stopped' ? 'stop' : 'start'} error for ${projectName}" title="Copy the latest error for ${projectName}">
                     ${icon('copy', 'menu-icon')}<span>Copy error</span>
                   </button>` : ''}
-                  <button data-action="output" data-id="${projectId}" role="menuitem">
-                    ${icon('terminal', 'menu-icon')}<span>View output</span>
+                  <button data-action="show-terminal" data-id="${projectId}" role="menuitem">
+                    ${icon('terminal', 'menu-icon')}<span>Show terminal</span>
                   </button>
-                  ${primaryAction.action === 'output' && stopState && projectStatus !== 'not-ready' && !detectedWithoutStop && !ownershipLostWithoutStop ? `
+                  ${primaryAction.action === 'show-terminal' && stopState && projectStatus !== 'not-ready' && !detectedWithoutStop && !ownershipLostWithoutStop ? `
                   <button data-action="stop" data-id="${projectId}" role="menuitem" aria-label="Stop ${projectName}" title="Stop ${projectName}" ${primaryAction.disabled || blocked ? 'disabled' : ''}>
                     ${productIcon('stop', 'menu-icon')}<span>Stop</span>
                   </button>` : ''}
-                  ${primaryAction.action === 'output' && !stopState ? `
+                  ${primaryAction.action === 'show-terminal' && !stopState ? `
                   <button data-action="start" data-id="${projectId}" role="menuitem" aria-label="Start ${projectName}" title="Start ${projectName}" ${primaryAction.disabled || blocked ? 'disabled' : ''}>
                     ${productIcon('play', 'menu-icon')}<span>Start</span>
                   </button>` : ''}
@@ -3269,7 +3269,11 @@ app.addEventListener('click', (event) => {
     },
     output: () => {
       closeMenus();
-      vscode.postMessage({ type: 'showOutput', id: button.dataset.id });
+      vscode.postMessage({ type: 'showTerminal', id: button.dataset.id });
+    },
+    'show-terminal': () => {
+      closeMenus();
+      vscode.postMessage({ type: 'showTerminal', id: button.dataset.id });
     },
     'ask-agent': () => vscode.postMessage({ type: 'askAgentForDiagnosis', id: button.dataset.id }),
     'copy-diagnosis-request': () => vscode.postMessage({ type: 'copyDiagnosisRequest' }),
