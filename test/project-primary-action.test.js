@@ -104,16 +104,16 @@ test('turns a missing-required-env start failure into Fix environment', () => {
   });
 });
 
-test('uses View output for other retained start failures', () => {
+test('uses Show terminal for other retained start failures', () => {
   assert.deepEqual(projectPrimaryAction({
     name: 'App',
     status: 'stopped',
     failureSummary: { title: 'Start failed', message: 'command not found' }
   }), {
-    action: 'output',
+    action: 'show-terminal',
     disabled: false,
-    label: 'View output for App',
-    mode: 'output'
+    label: 'Show terminal for App',
+    mode: 'terminal'
   });
 });
 
@@ -126,15 +126,15 @@ test('review setup still gates missing-env rows', () => {
   }).action, 'edit');
 });
 
-test('uses View output for not-responding and active httpUnresponsive rows', () => {
+test('uses Show terminal for not-responding and active httpUnresponsive rows', () => {
   assert.deepEqual(projectPrimaryAction({
     name: 'App',
     status: 'not-responding'
   }), {
-    action: 'output',
+    action: 'show-terminal',
     disabled: false,
-    label: 'View output for App',
-    mode: 'output'
+    label: 'Show terminal for App',
+    mode: 'terminal'
   });
   assert.deepEqual(projectPrimaryAction({
     name: 'App',
@@ -142,24 +142,24 @@ test('uses View output for not-responding and active httpUnresponsive rows', () 
     stopCommand: 'docker compose down',
     httpUnresponsive: true
   }), {
-    action: 'output',
+    action: 'show-terminal',
     disabled: false,
-    label: 'View output for App',
-    mode: 'output'
+    label: 'Show terminal for App',
+    mode: 'terminal'
   });
 });
 
-test('keeps Stop primary for not-ready rows and uses View output for stopFailure', () => {
+test('keeps Stop primary for not-ready rows and uses Show terminal for stopFailure', () => {
   assert.equal(projectPrimaryAction({ name: 'App', status: 'not-ready' }).action, 'stop');
   assert.deepEqual(projectPrimaryAction({
     name: 'App',
     status: 'not-responding',
     stopFailure: 'Port :3000 is still up'
   }), {
-    action: 'output',
+    action: 'show-terminal',
     disabled: false,
-    label: 'View output for App',
-    mode: 'output'
+    label: 'Show terminal for App',
+    mode: 'terminal'
   });
   assert.deepEqual(projectPrimaryAction({
     name: 'App',
@@ -168,10 +168,10 @@ test('keeps Stop primary for not-ready rows and uses View output for stopFailure
     httpUnresponsive: true,
     stopFailure: 'Port :3000 is still up'
   }), {
-    action: 'output',
+    action: 'show-terminal',
     disabled: false,
-    label: 'View output for App',
-    mode: 'output'
+    label: 'Show terminal for App',
+    mode: 'terminal'
   });
 });
 
@@ -187,10 +187,10 @@ test('preserves ordinary Start, Stop, custom Stop, review, and transition behavi
     status: 'running',
     stopFailure: 'Stop failed'
   }), {
-    action: 'output',
+    action: 'show-terminal',
     disabled: false,
-    label: 'View output for App',
-    mode: 'output'
+    label: 'Show terminal for App',
+    mode: 'terminal'
   });
   assert.deepEqual(projectPrimaryAction({
     name: 'App',
@@ -198,10 +198,10 @@ test('preserves ordinary Start, Stop, custom Stop, review, and transition behavi
     stopCommand: '',
     stopFailure: 'Port :3000 is still up'
   }), {
-    action: 'output',
+    action: 'show-terminal',
     disabled: false,
-    label: 'View output for App',
-    mode: 'output'
+    label: 'Show terminal for App',
+    mode: 'terminal'
   });
 });
 

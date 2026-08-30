@@ -765,7 +765,7 @@ test('shows blocking service name and port on not-ready and not-responding list 
   assert.doesNotMatch(notResponding.app.innerHTML, /class="project-readiness-detail"/);
   assert.match(
     notResponding.app.innerHTML,
-    /class="run-button output"[^>]*data-action="output"[^>]*aria-label="View output for Example"/
+    /class="run-button terminal"[^>]*data-action="show-terminal"[^>]*aria-label="Show terminal for Example"/
   );
   assert.match(
     notResponding.app.innerHTML,
@@ -778,7 +778,7 @@ test('shows blocking service name and port on not-ready and not-responding list 
   assert.doesNotMatch(notResponding.app.innerHTML, /class="run-button stop"[^>]*data-action="stop"/);
 });
 
-test('active httpUnresponsive row uses View output primary with Stop in More', () => {
+test('active httpUnresponsive row uses Show terminal primary with Stop in More', () => {
   const result = renderNonEmptyProjectList([{
     activeLaunchProfileId: 'default',
     activeLaunchProfileName: 'Default',
@@ -799,7 +799,7 @@ test('active httpUnresponsive row uses View output primary with Stop in More', (
 
   assert.match(
     result.app.innerHTML,
-    /class="run-button output"[^>]*data-action="output"[^>]*aria-label="View output for Detected App"/
+    /class="run-button terminal"[^>]*data-action="show-terminal"[^>]*aria-label="Show terminal for Detected App"/
   );
   assert.match(
     result.app.innerHTML,
@@ -834,7 +834,7 @@ test('not-ready row keeps Stop as the primary action', () => {
     result.app.innerHTML,
     /class="run-button stop"[^>]*data-action="stop"[^>]*aria-label="Stop Example"/
   );
-  assert.doesNotMatch(result.app.innerHTML, /class="run-button output"[^>]*data-action="output"/);
+  assert.doesNotMatch(result.app.innerHTML, /class="run-button terminal"[^>]*data-action="show-terminal"/);
 });
 
 test('announces contextual project and service status changes once without noisy repeats', () => {
@@ -1678,7 +1678,7 @@ test('review setup stays primary and hides Add stop command until review is done
   assert.doesNotMatch(result.app.innerHTML, /data-action="add-stop-command"/);
 });
 
-test('failed start keeps a two-line row with the reason and View output', () => {
+test('failed start keeps a two-line row with the reason and Show terminal', () => {
   const result = renderNonEmptyProjectList([{
     activeLaunchProfileId: 'default',
     activeLaunchProfileName: 'Default',
@@ -1705,7 +1705,7 @@ test('failed start keeps a two-line row with the reason and View output', () => 
     result.app.innerHTML,
     /class="project-status status-start-failed"[^>]*title="\/bin\/sh: vite: command not found"[^>]*>[\s\S]*<span>Start failed<\/span>/
   );
-  assert.match(result.app.innerHTML, /class="run-button output"[^>]*data-action="output"[^>]*aria-label="View output for Broken App"/);
+  assert.match(result.app.innerHTML, /class="run-button terminal"[^>]*data-action="show-terminal"[^>]*aria-label="Show terminal for Broken App"/);
   assert.match(result.app.innerHTML, /data-action="start"[^>]*role="menuitem"[^>]*aria-label="Start Broken App"/);
   assert.doesNotMatch(result.app.innerHTML, />Stopped</);
   assert.doesNotMatch(result.app.innerHTML, />Running</);
@@ -1750,7 +1750,7 @@ test('missing-required-env start failure uses Fix environment as the primary row
   assert.doesNotMatch(result.app.innerHTML, /data-action="fix-environment"[^>]*role="menuitem"/);
 });
 
-test('stop honesty uses View output primary with Stop in More and does not say Stopped while a port is up', () => {
+test('stop honesty uses Show terminal primary with Stop in More and does not say Stopped while a port is up', () => {
   const result = renderNonEmptyProjectList([{
     activeLaunchProfileId: 'default',
     activeLaunchProfileName: 'Default',
@@ -1776,7 +1776,7 @@ test('stop honesty uses View output primary with Stop in More and does not say S
   );
   assert.match(
     result.app.innerHTML,
-    /class="run-button output"[^>]*data-action="output"[^>]*aria-label="View output for Live App"/
+    /class="run-button terminal"[^>]*data-action="show-terminal"[^>]*aria-label="Show terminal for Live App"/
   );
   assert.match(
     result.app.innerHTML,
@@ -1918,7 +1918,7 @@ test('active filters with zero matches show help text and Clear filters', () => 
 
   assert.match(result.app.innerHTML, /data-search-empty/);
   assert.match(result.app.innerHTML, /Try a different search or clear your filters\./);
-  assert.match(result.app.innerHTML, /data-action="clear-filters"[^>]*aria-label="Clear search, tag, and group filters"/);
+  assert.match(result.app.innerHTML, /data-action="clear-filters"[^>]*aria-label="Clear search, tag, group, and review filters"/);
   assert.match(result.app.innerHTML, />Clear filters</);
   assert.equal(result.searchEmpty.hidden, false);
   assert.deepEqual(result.projectRows.map((row) => row.hidden), [true, true]);

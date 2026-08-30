@@ -76,10 +76,10 @@
       && typeof project.failureSummary === 'object'
       && !isMissingRequiredEnvFailure(project.failureSummary)) {
       return {
-        action: 'output',
+        action: 'show-terminal',
         disabled: busy,
-        label: `View output for ${name}`,
-        mode: 'output'
+        label: `Show terminal for ${name}`,
+        mode: 'terminal'
       };
     }
     if (status === 'stopping') {
@@ -125,10 +125,10 @@
       && status !== 'stopping';
     if (stopFailureOutput) {
       return {
-        action: 'output',
+        action: 'show-terminal',
         disabled: busy,
-        label: `View output for ${name}`,
-        mode: 'output'
+        label: `Show terminal for ${name}`,
+        mode: 'terminal'
       };
     }
 
@@ -136,10 +136,10 @@
       || (status === 'active' && project.httpUnresponsive === true);
     if (httpUnresponsiveOutput) {
       return {
-        action: 'output',
+        action: 'show-terminal',
         disabled: busy,
-        label: `View output for ${name}`,
-        mode: 'output'
+        label: `Show terminal for ${name}`,
+        mode: 'terminal'
       };
     }
 

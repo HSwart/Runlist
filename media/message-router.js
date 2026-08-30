@@ -21,6 +21,7 @@
     'approveComposeImport',
     'closeScreen',
     'copyDiagnosisRequest',
+    'copyProjectFailure',
     'askAgentForDiagnosis',
     'copyOutput',
     'copyPhoneUrl',
@@ -65,6 +66,7 @@
     'selectWorkspaceFolder',
     'showDiagnosis',
     'showEdit',
+    'showTerminal',
     'showOutput',
     'startProject',
     'startRunGroup',
@@ -81,6 +83,7 @@
   ]);
   const ID_COMMAND_TYPES = new Set([
     'copyProjectPath',
+    'copyProjectFailure',
     'deleteProject',
     'forceCloseProjectPorts',
     'forceCloseProjectPortsAndStart',
@@ -95,6 +98,7 @@
     'restartProject',
     'showDiagnosis',
     'showEdit',
+    'showTerminal',
     'showOutput',
     'setRunGroupStartMode',
     'startProject',

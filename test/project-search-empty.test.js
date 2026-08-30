@@ -17,7 +17,7 @@ test('filtered-to-zero empty block includes help text and Clear filters', () => 
   assert.match(emptyBlock, /<p>Try a different search or clear your filters\.<\/p>/);
   assert.match(
     emptyBlock,
-    /<button type="button" class="primary-button" data-action="clear-filters" aria-label="Clear search, tag, and group filters">Clear filters<\/button>/
+    /<button type="button" class="primary-button" data-action="clear-filters" aria-label="Clear search, tag, group, and review filters">Clear filters<\/button>/
   );
   assert.doesNotMatch(emptyBlock, /<a[\s\S]*Clear filters/);
 });

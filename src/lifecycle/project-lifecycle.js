@@ -393,4 +393,34 @@ function stopAllConfirmation(stoppableCount) {
   };
 }
 
-module.exports = { ProjectLifecycleCoordinator, stopAllConfirmation };
+function stopGroupConfirmation({ groupName, stoppableCount, projectNames = [] }) {
+  const boundedNames = (projectNames || [])
+    .map((name) => String(name || '').trim())
+    .filter(Boolean)
+    .slice(0, 8);
+  const extraNames = Math.max(0, (projectNames || []).length - boundedNames.length);
+  const nameLines = boundedNames.length
+    ? [
+      '',
+      boundedNames.join('\n'),
+      ...(extraNames ? [`…and ${extraNames} more.`] : [])
+    ].join('\n')
+    : '';
+  const projectLabel = stoppableCount === 1 ? 'project' : 'projects';
+  return {
+    message: `Stop group ${groupName}?`,
+    confirmLabel: 'Stop group',
+    detail: [
+      `This stops ${stoppableCount} running ${projectLabel} that Runlist controls in this group from this window.`,
+      'Projects already stopped, running elsewhere, or without a stop command are skipped.',
+      'External listeners are not closed.',
+      nameLines
+    ].filter(Boolean).join('\n')
+  };
+}
+
+module.exports = {
+  ProjectLifecycleCoordinator,
+  stopAllConfirmation,
+  stopGroupConfirmation
+};
