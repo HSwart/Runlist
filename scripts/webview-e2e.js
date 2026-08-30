@@ -12,6 +12,7 @@ const {
   WEBVIEW_DEBUG_ENDPOINT_TIMEOUT_MS,
   WEBVIEW_FRAME_TIMEOUT_MS
 } = require('./webview-e2e-timeouts');
+const { resolveWebviewArtifactDir } = require('./webview-e2e-artifacts');
 
 const UPDATE_SCREENSHOT = process.argv.includes('--update-screenshot')
   || process.env.RUNLIST_UPDATE_SCREENSHOTS === '1';
@@ -139,7 +140,7 @@ async function main() {
 
 async function captureIdeScreenshots(browser, ready, root, extensionDevelopmentPath) {
   const page = await waitForWorkbenchPage(browser);
-  const artifactDir = path.join('/opt/cursor/artifacts/screenshots');
+  const artifactDir = resolveWebviewArtifactDir(root);
   fs.mkdirSync(artifactDir, { recursive: true });
 
   await hostCommand(root, 'set-theme', { theme: 'Default Dark Modern' });
@@ -553,7 +554,7 @@ async function runWebviewJourneys(browser, webview, ready, root, extensionDevelo
   let page = webview.page();
   await assertVisible(webview.getByRole('heading', { name: 'No projects yet' }));
 
-  const artifactDir = path.join('/opt/cursor/artifacts/screenshots');
+  const artifactDir = resolveWebviewArtifactDir(root);
   fs.mkdirSync(artifactDir, { recursive: true });
   fs.writeFileSync(path.join(ready.workspacePath, 'package.json'), JSON.stringify({
     name: 'acme-storefront',
