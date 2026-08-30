@@ -2,7 +2,7 @@
   "name": "runlist",
   "displayName": "Runlist",
   "description": "Start, stop, and switch local apps from one sidebar.",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "publisher": "hankoswart",
   "license": "SEE LICENSE IN LICENSE",
   "icon": "media/runlist.png",

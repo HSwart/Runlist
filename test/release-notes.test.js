@@ -12,8 +12,8 @@ const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
 
 test('builds GitHub release notes from the manifest version changelog section', () => {
   const notes = releaseNotesForCurrentVersion(root);
-  assert.match(notes, /## Faster sidebar startup/);
-  assert.match(notes, /muted Runlist logo/);
+  assert.match(notes, /## Import, dependencies, and log search/);
+  assert.match(notes, /Import from workspace/);
   assert.match(notes, /download `runlist\.vsix` from this release/);
   assert.match(notes, /Publish Marketplace/);
 });
