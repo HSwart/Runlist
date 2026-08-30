@@ -202,8 +202,9 @@ async function validateSourcePackaging(root, dependencies = {}) {
     }
 
     const candidate = await readArchiveContents(candidatePath);
+    const { assertArchiveMatchesAllowlist, assertMarketplaceGalleryPackaging } = require('./package-vsix');
+    assertArchiveMatchesAllowlist(candidate);
     if (candidate.has('extension.vsixmanifest') && candidate.has('extension/package.json') && candidate.has('extension/readme.md')) {
-      const { assertMarketplaceGalleryPackaging } = require('./package-vsix');
       assertMarketplaceGalleryPackaging(candidate);
     }
   } finally {

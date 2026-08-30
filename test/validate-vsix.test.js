@@ -136,6 +136,25 @@ test('accepts current source packaging without requiring the tracked VSIX to mat
   await assert.doesNotReject(validateSourcePackaging(root));
 });
 
+test('rejects incomplete source packaging missing reviewed allowlist entries', async () => {
+  const manifest = require('../package.json');
+  const { expectedArchiveFiles } = require('../scripts/package-vsix');
+  const incomplete = new Map(
+    [...expectedArchiveFiles()]
+      .filter((file) => file !== 'extension/src/projects/project-store.js')
+      .map((file) => [file, Buffer.from('reviewed')])
+  );
+
+  await assert.rejects(
+    validateSourcePackaging(root, {
+      readPackage: async () => ({ manifest }),
+      createCandidate: async () => {},
+      readArchive: async () => incomplete
+    }),
+    /missing reviewed entries: extension\/src\/projects\/project-store\.js/
+  );
+});
+
 test('refuses to publish a stale VSIX', async () => {
   const manifest = require('../package.json');
   const staleVersion = '0.0.0';
