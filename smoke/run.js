@@ -241,6 +241,26 @@ async function cleanupSmokeProcess(smokeRoot, child, processRecord, message) {
   await markSmokeProcessExited(smokeRoot, record);
 }
 
+async function readSmokePidFromFile(pidPath, message, timeoutMs = SMOKE_PROCESS_IDENTITY_TIMEOUT_MS) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() <= deadline) {
+    try {
+      if (fs.existsSync(pidPath)) {
+        const pid = Number(fs.readFileSync(pidPath, 'utf8').trim());
+        if (Number.isInteger(pid) && pid > 0) {
+          return pid;
+        }
+      }
+    } catch {
+      // Keep waiting until timeout.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(typeof message === 'string'
+    ? message
+    : 'Smoke helper did not expose a valid process identifier.');
+}
+
 async function registerSmokeProcess(smokeRoot, processOrPid, metadata = {}, options = {}) {
   const pid = Number(typeof processOrPid === 'object' ? processOrPid?.pid : processOrPid);
   if (!Number.isInteger(pid) || pid <= 0) {
@@ -488,6 +508,7 @@ module.exports = {
   cleanupSmokeProcess,
   main,
   markSmokeProcessExited,
+  readSmokePidFromFile,
   readSmokeProcessManifest,
   registerSmokeProcess,
   terminateSmokeProcess

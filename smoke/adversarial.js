@@ -12,6 +12,7 @@ const {
 const {
   cleanupSmokeProcess,
   markSmokeProcessExited,
+  readSmokePidFromFile,
   registerSmokeProcess,
   terminateSmokeProcess
 } = require('./run');
@@ -154,10 +155,9 @@ async function execIdentityScenario(context) {
   });
 
   assert.equal(await api.provider.startProject(project.id), true, 'The exec fixture did not start.');
-  await waitFor(() => fs.existsSync(pidPath), 'The exec fixture did not expose its process id.');
   const target = await registerSmokeProcess(
     smokeRoot,
-    Number(fs.readFileSync(pidPath, 'utf8')),
+    await readSmokePidFromFile(pidPath, 'The exec fixture did not expose its process id.'),
     { kind: 'exec-identity-target', terminateTree: false }
   );
   await waitFor(() => {
@@ -302,7 +302,7 @@ async function concurrentStopRestartScenario(context) {
   }, 'The concurrent fixture did not become ready.', 15000);
   const oldProcess = await registerSmokeProcess(
     smokeRoot,
-    Number(fs.readFileSync(pidPath, 'utf8')),
+    await readSmokePidFromFile(pidPath, 'The concurrent fixture did not expose a valid process id.', 15000),
     { kind: 'concurrent-old-generation', ports: [port], terminateTree: false }
   );
   fs.rmSync(pidPath, { force: true });
@@ -337,7 +337,7 @@ async function concurrentStopRestartScenario(context) {
   }, 'Concurrent lifecycle did not recover to one running generation.', 20000);
   const recoveredProcess = await registerSmokeProcess(
     smokeRoot,
-    Number(fs.readFileSync(pidPath, 'utf8')),
+    await readSmokePidFromFile(pidPath, 'Concurrent lifecycle did not expose a valid recovered process id.', 20000),
     { kind: 'concurrent-recovered-generation', ports: [port], terminateTree: false }
   );
   assert.equal(await api.provider.stopProject(project.id), true, 'Stop failed after concurrent lifecycle recovery.');
@@ -528,10 +528,9 @@ async function startAndStopIdleProject(provider, project, smokeRoot, pidFilename
   const pidPath = path.join(smokeRoot, pidFilename);
   fs.rmSync(pidPath, { force: true });
   assert.equal(await provider.startProject(project.id), true, `${project.name} did not recover on Start.`);
-  await waitFor(() => fs.existsSync(pidPath), `${project.name} did not expose its recovery PID.`);
   const processRecord = await registerSmokeProcess(
     smokeRoot,
-    Number(fs.readFileSync(pidPath, 'utf8')),
+    await readSmokePidFromFile(pidPath, `${project.name} did not expose its recovery PID.`),
     { kind: 'adversarial-recovery-target', terminateTree: false }
   );
   await waitFor(
