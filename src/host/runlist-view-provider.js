@@ -429,7 +429,12 @@ class RunlistViewProvider {
     };
 
     view.webview.onDidReceiveMessage((message) => this.handleMessage(message));
-    this.render();
+    this.renderLoadingShell();
+    setImmediate(() => {
+      if (!this.disposed && this.view === view) {
+        this.render();
+      }
+    });
   }
 
   workspaceRoot() {
@@ -1119,7 +1124,23 @@ class RunlistViewProvider {
   }
 
   get projects() {
-    return pinnedProjectsFirst(readProjects(this.projectsFile));
+    try {
+      const stat = fs.statSync(this.projectsFile);
+      const cacheKey = `${stat.mtimeMs}:${stat.size}`;
+      if (this._projectsSnapshot && this._projectsSnapshotKey === cacheKey) {
+        return this._projectsSnapshot;
+      }
+      this._projectsSnapshot = pinnedProjectsFirst(readProjects(this.projectsFile));
+      this._projectsSnapshotKey = cacheKey;
+      return this._projectsSnapshot;
+    } catch {
+      return pinnedProjectsFirst(readProjects(this.projectsFile));
+    }
+  }
+
+  invalidateProjectsSnapshot() {
+    this._projectsSnapshot = undefined;
+    this._projectsSnapshotKey = undefined;
   }
 
   get groups() {
@@ -1303,7 +1324,11 @@ class RunlistViewProvider {
   }
 
   startStatusMonitoring() {
-    this.refreshProjectStatuses();
+    setImmediate(() => {
+      if (!this.disposed) {
+        void this.refreshProjectStatuses();
+      }
+    });
     const timer = setInterval(() => {
       if (Date.now() >= (this.statusRefreshRetryAt || 0)) {
         this.refreshProjectStatuses();
@@ -1959,6 +1984,7 @@ class RunlistViewProvider {
       return;
     }
     this.statusRevision += 1;
+    this.invalidateProjectsSnapshot();
     if (this.mode === 'diagnosis') {
       this.render();
     } else {
@@ -5365,6 +5391,37 @@ class RunlistViewProvider {
     }
 
     this.lifecycle.stopAll();
+  }
+
+  renderLoadingShell() {
+    if (!this.view) {
+      return;
+    }
+
+    const stylesUri = this.view.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, 'media', 'styles.css')
+    );
+    const logoUri = this.view.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, 'media', 'runlist.svg')
+    );
+    const nonce = crypto.randomBytes(16).toString('base64');
+    this.webviewMessageToken = nonce;
+    this.view.webview.html = `<!doctype html>
+      <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${this.view.webview.cspSource}; style-src ${this.view.webview.cspSource};">
+          <link rel="stylesheet" href="${stylesUri}">
+          <title>Runlist</title>
+        </head>
+        <body>
+          <main id="app" class="loading-shell" role="status" aria-live="polite">
+            <img class="loading-shell-logo" src="${logoUri}" width="48" height="48" alt="" aria-hidden="true">
+            <p class="loading-shell-label">Loading Runlist…</p>
+          </main>
+        </body>
+      </html>`;
   }
 
   render() {

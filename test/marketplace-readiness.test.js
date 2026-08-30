@@ -132,6 +132,7 @@ test('documents GitHub Actions Marketplace publication from the marketplace envi
   const workflow = readText('.github', 'workflows', 'publish-marketplace.yml');
 
   assert.match(releaseGuide, /Actions → \*\*Publish Marketplace\*\* → \*\*Run workflow\*\*/);
+  assert.match(releaseGuide, /Actions → \*\*Publish GitHub Release\*\* → \*\*Run workflow\*\*/);
   assert.match(releaseGuide, /workflow_dispatch/);
   assert.match(releaseGuide, /only Ops publish path/);
   assert.match(releaseGuide, /not a second Ops route/);

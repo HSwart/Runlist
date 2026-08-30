@@ -595,6 +595,7 @@ test('keeps a live owner through a pending status scan with the real monitoring 
 
   try {
     const monitoring = provider.startStatusMonitoring();
+    await new Promise((resolve) => setImmediate(resolve));
     const initialRefresh = provider.statusRefreshPromise;
     await Promise.resolve();
     await Promise.resolve();
@@ -767,6 +768,7 @@ test('backs off scheduled refreshes after a failed status probe', async () => {
 
   try {
     const monitoring = provider.startStatusMonitoring();
+    await new Promise((resolve) => setImmediate(resolve));
     await provider.statusRefreshPromise;
     assert.equal(calls, 1);
     assert.equal(provider.statusRefreshRetryAt, 11000);

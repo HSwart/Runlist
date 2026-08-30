@@ -3360,6 +3360,30 @@ select[aria-invalid='true'] {
   color: var(--vscode-descriptionForeground);
 }
 
+.loading-shell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 120px;
+  padding: 24px 12px;
+  text-align: center;
+}
+
+.loading-shell-logo {
+  width: 48px;
+  height: 48px;
+  opacity: 0.38;
+}
+
+.loading-shell-label {
+  margin: 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 @media (max-width: 300px) {
   .summary {
     align-items: flex-start;

@@ -42,9 +42,12 @@ The **Publish Marketplace** workflow uses the `marketplace` GitHub Environment a
 
 How Ops publishes after the reviewed release is on `main` and its tests have passed:
 
-GitHub → Actions → **Publish Marketplace** → **Run workflow**, with the `main` branch selected (`workflow_dispatch`).
+1. GitHub → Actions → **Publish GitHub Release** → **Run workflow**, with the `main` branch selected (`workflow_dispatch`).
+2. GitHub → Actions → **Publish Marketplace** → **Run workflow**, with the `main` branch selected (`workflow_dispatch`).
 
-The workflow runs `npm ci`, then `npm run package` (strict Marketplace validation and a fresh `releases/runlist.vsix`), then `@vscode/vsce publish --packagePath releases/runlist.vsix` with `VSCE_PAT` from the environment. It does not run `npm run publish:marketplace` and does not pass `--azure-credential`.
+The **Publish GitHub Release** workflow runs `npm ci`, then `npm run package`, then creates tag `v<version>` and a GitHub release titled `Runlist <version>` with release notes from `CHANGELOG.md` and attaches `releases/runlist.vsix`.
+
+The **Publish Marketplace** workflow runs `npm ci`, then `npm run package` (strict Marketplace validation and a fresh `releases/runlist.vsix`), then `@vscode/vsce publish --packagePath releases/runlist.vsix` with `VSCE_PAT` from the environment. It does not run `npm run publish:marketplace` and does not pass `--azure-credential`.
 
 The `marketplace` environment is limited to protected branches. `main` is protected, so `workflow_dispatch` on `main` can use the environment. Publishing from a tag is not supported until that environment also allows tags. Do not change environment protection rules from this repository.
 
