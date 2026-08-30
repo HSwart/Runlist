@@ -15,11 +15,16 @@ function workspaceImportFolderKey(folder) {
   if (!trimmed) {
     return '';
   }
+  let resolved;
   try {
-    return fs.realpathSync(trimmed);
+    resolved = fs.realpathSync(trimmed);
   } catch {
-    return path.resolve(trimmed);
+    resolved = path.resolve(trimmed);
   }
+  if (process.platform === 'win32' || process.platform === 'darwin') {
+    return resolved.toLocaleLowerCase();
+  }
+  return resolved;
 }
 
 function preferImportEntry(left, right) {

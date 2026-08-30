@@ -11,7 +11,7 @@ const { withExclusiveJsonLock } = require('../lifecycle/exclusive-json-lock');
 const { safeServiceUrl } = require('../services/external-url');
 const { optionalPortVariableValidationMessage } = require('../ports/service-port-overrides');
 const { normalizeProjectTags } = require('./project-tags');
-const { MAX_DEPENDS_ON, normalizeDependsOn } = require('./project-dependencies');
+const { dependencyCycleMessage, MAX_DEPENDS_ON, normalizeDependsOn } = require('./project-dependencies');
 const { normalizeLocalHostname } = require('../services/local-hostname');
 const { normalizeEnvFile, normalizeEnvMap } = require('./launch-env');
 const {
@@ -679,6 +679,13 @@ function validateStoredProjects(value, options = {}) {
         }
       }
     });
+    const cycle = dependencyCycleMessage(
+      [...savedProjectIds],
+      new Map(validated.map((project) => [project.id, project]))
+    );
+    if (cycle) {
+      throw projectStoreError('INVALID_STORAGE', cycle);
+    }
   }
   return validated;
 }

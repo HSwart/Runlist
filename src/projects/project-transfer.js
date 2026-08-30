@@ -31,8 +31,12 @@ class ProjectTransferError extends Error {
   }
 }
 
-function exportProjectDocument(projects) {
-  return serializeProjectDocument(projects);
+function exportProjectDocument(projects, options = {}) {
+  const serializeOptions = {};
+  if (Array.isArray(options.groups) && options.groups.length) {
+    serializeOptions.groups = options.groups;
+  }
+  return serializeProjectDocument(projects, serializeOptions);
 }
 
 function parseImportDocument(contents) {
@@ -82,11 +86,28 @@ function previewProjectImport(currentProjects, importedProjects, options = {}) {
     currentProjects.map((project) => [folderIdentity(project.folder), project])
   );
   const currentById = new Map(currentProjects.map((project) => [project.id, project]));
+  const importProjectsById = new Map(
+    importedProjects
+      .filter((candidate) => candidate && typeof candidate.id === 'string' && candidate.id)
+      .map((candidate) => [candidate.id, candidate])
+  );
+  const projectsById = new Map(currentById);
+  for (const [id, candidate] of importProjectsById) {
+    if (!projectsById.has(id)) {
+      projectsById.set(id, {
+        id,
+        name: candidate.name || 'Unnamed project',
+        folder: candidate.folder || '',
+        startCommand: candidate.startCommand || ''
+      });
+    }
+  }
   const candidates = importedProjects.map((candidate) => {
     try {
       const normalized = normalizeProjectInput(candidate, {
         allowStoredName: true,
-        reviewRequired: true
+        reviewRequired: true,
+        projectsById
       });
       return {
         candidate,
@@ -128,7 +149,8 @@ function previewProjectImport(currentProjects, importedProjects, options = {}) {
       existing: replaceOptionalMetadata ? undefined : existing,
       id: existing?.id || candidate.id,
       normalizedFolder: candidate.normalized.folder,
-      reviewRequired: true
+      reviewRequired: true,
+      projectsById
     });
     if (existing && projectSetupFingerprint(existing) === projectSetupFingerprint(normalized)) {
       return {
@@ -321,9 +343,15 @@ async function exportProjects(options) {
   if (!target) {
     return { status: 'cancelled' };
   }
+  const selectedIds = new Set(selectedProjects.map((project) => project.id));
+  const groups = options.action === 'export-all'
+    ? readRunGroups(options.projectsFile).filter((group) => (
+      group.projectIds.length > 0 && group.projectIds.every((id) => selectedIds.has(id))
+    ))
+    : [];
   await options.workspace.fs.writeFile(
     target,
-    Buffer.from(exportProjectDocument(selectedProjects), 'utf8')
+    Buffer.from(exportProjectDocument(selectedProjects, { groups }), 'utf8')
   );
   const label = `${selectedProjects.length} project setup${selectedProjects.length === 1 ? '' : 's'}`;
   await options.window.showInformationMessage(`Exported ${label}. Saved commands are included in the file.`);
@@ -447,7 +475,8 @@ function projectSetupFingerprint(project) {
     pinned: project.pinned === true,
     localHostname: project.localHostname || '',
     envFile: project.envFile || '',
-    env: project.env || {}
+    env: project.env || {},
+    dependsOn: project.dependsOn || []
   });
 }
 
