@@ -59,6 +59,7 @@ let firstListRender = true;
 let tagsExpanded = Boolean(persistedWebviewState.tagsExpanded);
 let groupsExpanded = Boolean(persistedWebviewState.groupsExpanded);
 let selectedGroupFilter = String(persistedWebviewState.groupFilter || '');
+let reviewFilterActive = persistedWebviewState.reviewFilterActive === true;
 let attentionFocusSignature = String(persistedWebviewState.attentionFocusSignature || '');
 let lastAttentionFocusId = String(persistedWebviewState.lastAttentionFocusId || '');
 let runGroupDraft = undefined;
@@ -516,6 +517,7 @@ function saveWebviewState() {
     tagsExpanded,
     groupsExpanded,
     groupFilter: selectedGroupFilter,
+    reviewFilterActive,
     filterRevisionSeen,
     filterRevision,
     searchQuery,
@@ -962,6 +964,19 @@ function statusSummaryHtml(projects) {
   return `<span class="status-dot ${runningCount ? 'running' : ''}"></span>${runningCount} running${startingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${startingCount} starting` : ''}${notReadyCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notReadyCount} taking longer` : ''}${notRespondingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${notRespondingCount} not responding` : ''}${stoppingCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${stoppingCount} stopping` : ''}${ownershipLostCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${ownershipLostCount} control unavailable` : ''} <span class="summary-separator" aria-hidden="true">·</span> ${stoppedCount} stopped${reviewCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${reviewCount} to review` : ''}${conflictCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${conflictCount} unavailable` : ''}${unsupportedCount ? ` <span class="summary-separator" aria-hidden="true">·</span> ${unsupportedCount} local only` : ''}`;
 }
 
+function reviewFilterSummaryHtml(projects) {
+  const reviewCount = (projects || []).filter((project) => project.reviewRequired).length;
+  if (!reviewCount) {
+    return '';
+  }
+  const label = `Review setup (${reviewCount})`;
+  const pressed = reviewFilterActive ? 'true' : 'false';
+  const ariaLabel = reviewFilterActive
+    ? `Showing ${reviewCount} ${reviewCount === 1 ? 'project' : 'projects'} to review. Clear review filter.`
+    : `Show ${reviewCount} ${reviewCount === 1 ? 'project' : 'projects'} to review`;
+  return `<button type="button" class="active-review-chip" data-action="toggle-review-filter" aria-pressed="${pressed}" aria-label="${escapeHtml(ariaLabel)}" title="${escapeHtml(label)}">${escapeHtml(label)}${reviewFilterActive ? ` ${icon('close')}` : ''}</button>`;
+}
+
 function attentionSummaryHtml(projects) {
   const attentionProjects = (projects || []).filter((project) => projectNeedsAttention(project));
   if (!attentionProjects.length) {
@@ -983,7 +998,7 @@ function attentionSummaryHtml(projects) {
   }
   const attentionButton = `<button type="button" class="summary-attention" data-action="focus-attention" aria-label="${escapeHtml(ariaLabel)}">${autoScrollHtml(escapeHtml(label))}</button>`;
   if (hiddenCount > 0) {
-    const clearButton = `<button type="button" class="summary-attention-clear" data-action="clear-filters-for-attention" aria-label="Clear search, tag, and group filters to show projects that need attention">${escapeHtml('Clear filters')}</button>`;
+    const clearButton = `<button type="button" class="summary-attention-clear" data-action="clear-filters-for-attention" aria-label="Clear search, tag, group, and review filters to show projects that need attention">${escapeHtml('Clear filters')}</button>`;
     return `<div class="summary-attention-group">${attentionButton}${clearButton}</div>`;
   }
   return attentionButton;
@@ -1138,6 +1153,11 @@ function renderList() {
   if (syncAttentionFocusState(state.projects)) {
     webviewStateChanged = true;
   }
+  const reviewCount = state.projects.filter((project) => project.reviewRequired).length;
+  if (!reviewCount && reviewFilterActive) {
+    reviewFilterActive = false;
+    webviewStateChanged = true;
+  }
   if (webviewStateChanged) {
     saveWebviewState();
   }
@@ -1219,7 +1239,7 @@ function renderList() {
           </button>` : ''}
       </span>
     </header>
-    <div id="summary-attention-slot" class="summary-attention-slot">${attentionSummaryHtml(state.projects)}</div>
+    <div id="summary-attention-slot" class="summary-attention-slot">${reviewFilterSummaryHtml(state.projects)}${attentionSummaryHtml(state.projects)}</div>
     <span id="attention-focus-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span>
     <span id="project-lifecycle-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span>
     ${state.routeNotice ? `
@@ -1301,6 +1321,14 @@ function renderList() {
         const blocked = conflicted || project.lifecycleBlocked;
         const showAddStopCommand = !reviewRequired
           && ((detectedWithoutStop || ownershipLostWithoutStop) && !project.stopFailure);
+        const showCopyError = !transitioning
+          && !project.handoffInProgress
+          && ((!reviewRequired
+            && projectStatus === 'stopped'
+            && project.failureSummary)
+          || (Boolean(project.stopFailure)
+            && projectStatus !== 'stopped'
+            && projectStatus !== 'stopping'));
         const primaryButtonClass = reviewRequired
           || primaryAction.action === 'edit'
           || primaryAction.action === 'add-stop-command'
@@ -1459,6 +1487,10 @@ function renderList() {
                   <button data-action="copy-project-path" data-id="${projectId}" role="menuitem" title="Copy the saved folder path for ${projectName}">
                     ${icon('copy', 'menu-icon')}<span>Copy project path</span>
                   </button>
+                  ${showCopyError ? `
+                  <button data-action="copy-error" data-id="${projectId}" role="menuitem" aria-label="Copy ${project.stopFailure && projectStatus !== 'stopped' ? 'stop' : 'start'} error for ${projectName}" title="Copy the latest error for ${projectName}">
+                    ${icon('copy', 'menu-icon')}<span>Copy error</span>
+                  </button>` : ''}
                   <button data-action="output" data-id="${projectId}" role="menuitem">
                     ${icon('terminal', 'menu-icon')}<span>View output</span>
                   </button>
@@ -1513,7 +1545,7 @@ function renderList() {
       <div class="search-empty" data-search-empty hidden>
         <h2>No matching projects</h2>
         <p>Try a different search or clear your filters.</p>
-        <button type="button" class="primary-button" data-action="clear-filters" aria-label="Clear search, tag, and group filters">Clear filters</button>
+        <button type="button" class="primary-button" data-action="clear-filters" aria-label="Clear search, tag, group, and review filters">Clear filters</button>
       </div>
     </section>`;
 
@@ -1602,6 +1634,7 @@ function clearProjectFilters() {
   searchQuery = '';
   selectedTagFilter = '';
   selectedGroupFilter = '';
+  reviewFilterActive = false;
   publishFilterState('setSearchQuery');
   applyProjectFilter('');
 }
@@ -1635,7 +1668,8 @@ function applyProjectFilter(query) {
       normalizeTagIdentity(tag) === normalizedTag
     ));
     const matchesGroup = !groupMemberIds || groupMemberIds.has(String(project.id));
-    return matchesQuery && matchesTag && matchesGroup;
+    const matchesReview = !reviewFilterActive || project.reviewRequired === true;
+    return matchesQuery && matchesTag && matchesGroup && matchesReview;
   });
   const matchingIds = new Set(matchingProjects.map((project) => String(project.id)));
 
@@ -1643,7 +1677,10 @@ function applyProjectFilter(query) {
     row.hidden = !matchingIds.has(row.dataset.projectId);
   });
 
-  const filtering = normalizedQuery.length > 0 || normalizedTag.length > 0 || Boolean(activeGroup);
+  const filtering = normalizedQuery.length > 0
+    || normalizedTag.length > 0
+    || Boolean(activeGroup)
+    || reviewFilterActive;
   const projectCount = document.getElementById('project-count');
   if (projectCount) {
     projectCount.innerHTML = filtering
@@ -1669,7 +1706,8 @@ function applyProjectFilter(query) {
   if (status) {
     const filters = [
       normalizedTag ? `tag ${selectedTagFilter}` : '',
-      activeGroup ? `group ${activeGroup.name}` : ''
+      activeGroup ? `group ${activeGroup.name}` : '',
+      reviewFilterActive ? 'review setup' : ''
     ].filter(Boolean);
     status.textContent = filtering
       ? `${matchingIds.size} ${matchingIds.size === 1 ? 'project' : 'projects'} shown${filters.length ? `, filtered by ${filters.join(' and ')}` : ''}`
@@ -2144,8 +2182,12 @@ function renderAgentSetup() {
   const agentCard = (id, name, description) => {
     const connection = state.agentConnections?.[id] || { status: 'idle', message: '' };
     const busy = connection.status === 'loading';
-    const registered = connection.status === 'success';
+    const handoffReady = connection.status === 'success';
+    const skillInstalled = connection.status === 'installed' || handoffReady;
     const messageId = `${id}-connection-message`;
+    const statusLabel = handoffReady
+      ? 'Ready for handoff'
+      : (skillInstalled ? 'Skill installed' : '');
     return `
       <article class="agent-card">
         <div class="agent-card-heading">
@@ -2153,10 +2195,10 @@ function renderAgentSetup() {
             <h3>${escapeHtml(name)}</h3>
             <p>${escapeHtml(description)}</p>
           </div>
-          ${registered ? '<span class="connection-label"><span class="status-dot running" aria-hidden="true"></span>Ready</span>' : ''}
+          ${statusLabel ? `<span class="connection-label"><span class="status-dot running" aria-hidden="true"></span>${escapeHtml(statusLabel)}</span>` : ''}
         </div>
         <button class="secondary-button agent-register-button" data-action="register-agent" data-agent="${id}" ${busy ? 'disabled aria-busy="true"' : ''} ${connection.message ? `aria-describedby="${messageId}"` : ''}>
-          ${busy ? 'Setting up…' : registered ? 'Refresh setup' : 'Set up'}
+          ${busy ? 'Setting up…' : skillInstalled ? 'Refresh setup' : 'Set up'}
         </button>
         ${connection.message ? `<p id="${messageId}" class="connection-message ${connection.status}" ${connection.status === 'error' ? 'role="alert"' : 'role="status"'}>${escapeHtml(connection.message)}</p>` : ''}
       </article>`;
@@ -2168,11 +2210,11 @@ function renderAgentSetup() {
         <h2>Agent connections</h2>
         <button class="icon-button" data-action="close-screen" aria-label="Close agent connections screen">${icon('close')}</button>
       </header>
-      <p class="screen-copy">Connect an agent to save projects and read saved status with MCP. When GitHub Copilot is connected, <strong>Ask your agent</strong> opens VS Code chat with a prefilled diagnosis request. Cursor uses the same VS Code MCP integration as Copilot.</p>
+      <p class="screen-copy">Connect an agent to save projects and read saved status with MCP. After you set up GitHub Copilot here, <strong>Ask your agent</strong> opens VS Code chat with a prefilled diagnosis request you can send. Codex and Claude setup installs the skill for MCP only. Cursor uses the same VS Code MCP integration as Copilot.</p>
       <div class="agent-list" aria-label="Supported coding agents">
-        ${agentCard('copilot', 'GitHub Copilot', 'Adds /runlist. Read saved project status with MCP. Direct failure handoffs from Ask your agent open VS Code chat.')}
-        ${agentCard('codex', 'Codex', 'Registers the connection and adds $runlist. Read saved project status with MCP.')}
-        ${agentCard('claude', 'Claude Code', 'Registers the connection and adds /runlist. Read saved project status with MCP.')}
+        ${agentCard('copilot', 'GitHub Copilot', 'Adds /runlist. Read saved project status with MCP. After setup here, Ask your agent opens VS Code chat with a prefilled diagnosis request.')}
+        ${agentCard('codex', 'Codex', 'Registers the connection and adds $runlist. Read saved project status with MCP. Does not open VS Code chat handoffs.')}
+        ${agentCard('claude', 'Claude Code', 'Registers the connection and adds /runlist. Read saved project status with MCP. Does not open VS Code chat handoffs.')}
       </div>
     </section>`;
 }
@@ -2599,8 +2641,8 @@ function renderProjectDiagnosis() {
       ${repairHtml}
       ${diagnosis.agentReady ? '' : `
         <div class="diagnosis-setup">
-          <strong>Need to connect an agent?</strong>
-          <p>Use Runlist's existing Agent connections screen for Copilot, Codex, or Claude.</p>
+          <strong>Need Copilot chat handoff?</strong>
+          <p>Set up GitHub Copilot in Agent connections. Codex and Claude skills support MCP status only.</p>
           <button class="secondary-button" data-action="show-agent-connections">Open Agent connections</button>
         </div>`}
       <p class="diagnosis-review-note">A proposal never changes the saved setup or retries the project until you explicitly approve and then choose Retry start.</p>
@@ -3005,6 +3047,13 @@ app.addEventListener('click', (event) => {
       renderList();
       requestAnimationFrame(() => document.querySelector('[data-action="toggle-group-filter"]')?.focus());
     },
+    'toggle-review-filter': () => {
+      reviewFilterActive = !reviewFilterActive;
+      saveWebviewState();
+      publishFilterState('setSearchQuery');
+      renderList();
+      requestAnimationFrame(() => document.querySelector('[data-action="toggle-review-filter"]')?.focus());
+    },
     'create-run-group': () => {
       beginRunGroupDraft();
       renderRunGroupsEditor();
@@ -3209,6 +3258,10 @@ app.addEventListener('click', (event) => {
     'copy-project-path': () => {
       closeMenus();
       vscode.postMessage({ type: 'copyProjectPath', id: button.dataset.id });
+    },
+    'copy-error': () => {
+      closeMenus();
+      vscode.postMessage({ type: 'copyProjectFailure', id: button.dataset.id });
     },
     'relink-folder': () => {
       closeMenus();

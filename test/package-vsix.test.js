@@ -120,6 +120,7 @@ test('packages only the reviewed allowlist and excludes untracked root inputs', 
 
 test('reviewed allowlist includes runtime modules required by shipped handoff and MCP code', () => {
   assert.ok(REVIEWED_PACKAGE_FILES.includes('src/integrations/diagnosis-handoff.js'));
+  assert.ok(REVIEWED_PACKAGE_FILES.includes('src/integrations/failure-clipboard.js'));
   assert.ok(REVIEWED_PACKAGE_FILES.includes('mcp/persisted-ownership.js'));
 });
 

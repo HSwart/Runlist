@@ -15,7 +15,9 @@ const {
 } = require('../integrations/skill-installation');
 const {
   buildDiagnosisHandoff,
-  hasConnectedAgent,
+  hasHandoffReadyAgent,
+  agentHandoffConfirmationMessage,
+  agentRegistrationStatus,
   openAgentHandoff
 } = require('../integrations/diagnosis-handoff');
 const {
@@ -199,7 +201,15 @@ const {
   resolveLaunchProfile,
   selectedLaunchProfileId
 } = require('../projects/launch-profile');
-const { ProjectLifecycleCoordinator, stopAllConfirmation } = require('../lifecycle/project-lifecycle');
+const {
+  buildStartFailureClipboardText,
+  buildStopFailureClipboardText
+} = require('../integrations/failure-clipboard');
+const {
+  ProjectLifecycleCoordinator,
+  stopAllConfirmation,
+  stopGroupConfirmation
+} = require('../lifecycle/project-lifecycle');
 const { RunlistDiagnostics } = require('../lifecycle/runlist-diagnostics');
 const { mapWithConcurrency } = require('../lifecycle/bounded-work');
 const { createRunlistWebviewRouter } = require('../webview/webview-message-router');
@@ -1168,6 +1178,43 @@ class RunlistViewProvider {
       this.showLifecycleBlocked(blockedProject);
       return false;
     }
+    if (!group) {
+      return false;
+    }
+
+    const ownership = this.processOwnership.snapshot();
+    const groupProjects = group.projectIds
+      .map((projectId) => this.projects.find((project) => project.id === projectId))
+      .filter(Boolean)
+      .map((project) => ({
+        ...projectStopStrategy(project, ownership.get(project.id)),
+        status: this.getProjectStatus(project.id)
+      }));
+    const stoppableIds = stoppableProjectIds(groupProjects);
+    if (!stoppableIds.length) {
+      this.renderProjectList();
+      return false;
+    }
+
+    const stoppableNames = stoppableIds.map((projectId) => (
+      this.projects.find((project) => project.id === projectId)?.name
+    )).filter(Boolean);
+    const confirmation = stopGroupConfirmation({
+      groupName: group.name,
+      stoppableCount: stoppableIds.length,
+      projectNames: stoppableNames
+    });
+    const choice = await vscode.window.showWarningMessage(
+      confirmation.message,
+      { modal: true, detail: confirmation.detail },
+      confirmation.confirmLabel
+    );
+    if (choice !== confirmation.confirmLabel) {
+      this.focusTarget = { type: 'action', action: 'stop-group', id };
+      this.renderProjectList();
+      return false;
+    }
+
     return this.lifecycle.stopGroup(id);
   }
 
@@ -2044,7 +2091,7 @@ class RunlistViewProvider {
         sourceDirectory: this.skillSourceDirectory
       });
       this.agentConnections[agent] = {
-        status: 'success',
+        status: agentRegistrationStatus(agent, { setupComplete: true }),
         message: registration.success
       };
     } catch (error) {
@@ -2535,6 +2582,45 @@ class RunlistViewProvider {
     });
   }
 
+  async copyProjectFailure(id) {
+    const project = this.projects.find((item) => item.id === id);
+    if (!project) {
+      return;
+    }
+    const status = this.getProjectStatus(id);
+    const output = this.redactProjectOutputText(id, this.projectOutputs.get(id));
+    const stopFailure = this.projectStopFailures?.get(id);
+    const startFailure = this.rowStartFailureSummary(id, status);
+    let clipboardText;
+    let confirmationMessage;
+    if (stopFailure
+      && status !== 'stopped'
+      && status !== 'stopping') {
+      clipboardText = buildStopFailureClipboardText({
+        name: project.name,
+        stopFailure,
+        output
+      });
+      confirmationMessage = `Copied stop error for ${project.name}.`;
+    } else if (startFailure) {
+      clipboardText = buildStartFailureClipboardText({
+        name: project.name,
+        failureSummary: startFailure,
+        output
+      });
+      confirmationMessage = `Copied start error for ${project.name}.`;
+    } else {
+      vscode.window.showWarningMessage(`No start error is available for ${project.name}.`);
+      this.focusTarget = { type: 'project-menu', id };
+      this.renderProjectList();
+      return;
+    }
+    await vscode.env.clipboard.writeText(clipboardText);
+    vscode.window.showInformationMessage(confirmationMessage);
+    this.focusTarget = { type: 'project-menu', id };
+    this.renderProjectList();
+  }
+
   async askAgentForDiagnosis(id) {
     const project = this.projects.find((item) => item.id === id);
     const diagnostic = project
@@ -2543,14 +2629,14 @@ class RunlistViewProvider {
     if (!project || !diagnostic) {
       return;
     }
-    if (!hasConnectedAgent(this.agentConnections)) {
+    if (!hasHandoffReadyAgent(this.agentConnections)) {
       this.showProjectDiagnosis(id);
       return;
     }
     try {
       const { prompt } = buildDiagnosisHandoff(project, diagnostic);
       await openAgentHandoff(prompt, (command, args) => vscode.commands.executeCommand(command, args));
-      this.agentHandoffNotice = `Sent ${project.name} failure details to your agent.`;
+      this.agentHandoffNotice = agentHandoffConfirmationMessage(project.name);
       await vscode.window.showInformationMessage(this.agentHandoffNotice);
       this.view?.webview.postMessage({
         type: 'diagnosisRequestSent',
@@ -5728,8 +5814,7 @@ class RunlistViewProvider {
         projectId: outputProject.id
       } : undefined,
       diagnosis: diagnosisProject && diagnosisRecord ? {
-        agentReady: Object.values(this.agentConnections)
-          .some((connection) => connection.status === 'success'),
+        agentReady: hasHandoffReadyAgent(this.agentConnections),
         approved: this.approvedRepairProjectId === diagnosisProject.id,
         name: diagnosisProject.name,
         outputAvailable: Boolean(diagnosisRecord.retainedOutput),
@@ -5971,7 +6056,7 @@ function initialAgentConnection(agent) {
     const skill = agentSkillStatus({ agent, environment: process.env, platform: process.platform });
     if (skill.status === 'installed') {
       return {
-        status: 'success',
+        status: 'installed',
         message: `Runlist skill installed. Use ${skill.invocation}, or select Refresh setup after an extension update.`
       };
     }

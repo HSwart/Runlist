@@ -99,7 +99,8 @@ test('askAgentForDiagnosis opens chat when an agent is connected', async (t) => 
   assert.equal(commands[0][1].isPartialQuery, true);
   assert.equal(clipboard.length, 0);
   assert.equal(provider.mode, 'output');
-  assert.match(provider.agentHandoffNotice, /Sent API failure details to your agent/);
+  assert.match(provider.agentHandoffNotice, /prefilled diagnosis request for API/);
+  assert.match(provider.agentHandoffNotice, /Send the message when you are ready/);
 });
 
 test('askAgentForDiagnosis falls back to diagnosis screen when no agent is connected', async (t) => {
@@ -138,6 +139,11 @@ test('askAgentForDiagnosis falls back to diagnosis screen when no agent is conne
   provider.projects = [project];
   provider.mode = 'output';
   provider.selectedProjectId = project.id;
+  provider.agentConnections = {
+    copilot: { status: 'idle', message: '' },
+    codex: { status: 'idle', message: '' },
+    claude: { status: 'idle', message: '' }
+  };
 
   await provider.askAgentForDiagnosis(project.id);
 
