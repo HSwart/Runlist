@@ -966,6 +966,14 @@ function normalizeProjectInput(input, options = {}) {
   } else {
     dependsOn = normalizeDependsOn(input.dependsOn, id, projectsById);
   }
+  let dependsOnFolderKeys;
+  if (input.dependsOnFolderKeys !== undefined) {
+    if (!Array.isArray(input.dependsOnFolderKeys)
+      || input.dependsOnFolderKeys.some((folder) => typeof folder !== 'string' || !folder.trim())) {
+      throw new Error('dependsOnFolderKeys must be a list of project folders.');
+    }
+    dependsOnFolderKeys = input.dependsOnFolderKeys.map((folder) => folder.trim());
+  }
 
   const selectedProfile = input.selectedLaunchProfileId === undefined
     ? existing?.selectedLaunchProfileId
@@ -996,6 +1004,7 @@ function normalizeProjectInput(input, options = {}) {
     ...(runtime ? { runtime } : {}),
     ...(requiredEnvKeys ? { requiredEnvKeys } : {}),
     ...(dependsOn?.length ? { dependsOn } : {}),
+    ...(dependsOnFolderKeys?.length ? { dependsOnFolderKeys } : {}),
     reviewRequired: options.reviewRequired === undefined
       ? Boolean(existing?.reviewRequired)
       : Boolean(options.reviewRequired)

@@ -199,6 +199,19 @@ test('setLogSearchQuery updates results without a full render', () => {
   assert.doesNotMatch(setQuery, /this\.render\(\)/);
 });
 
+test('clearing a run group draft removes persisted webview state', () => {
+  const source = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '..', 'media', 'main.js'),
+    'utf8'
+  );
+  const saveState = source.slice(
+    source.indexOf('function saveWebviewState()'),
+    source.indexOf('function publishFilterState')
+  );
+  assert.match(saveState, /delete nextState\.runGroupDraft/);
+  assert.match(saveState, /delete persistedWebviewState\.runGroupDraft/);
+});
+
 test('imported run groups resolve members by folder when ids differ', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-import-group-folder-'));
   const projectsFile = path.join(root, 'target.json');

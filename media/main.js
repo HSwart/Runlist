@@ -525,7 +525,7 @@ const DETAIL_TAB_LABELS = {
 };
 
 function saveWebviewState() {
-  vscode.setState({
+  const nextState = {
     ...persistedWebviewState,
     detailTabs: detailTabState,
     phoneHandoffs: phoneHandoffState,
@@ -543,9 +543,16 @@ function saveWebviewState() {
     searchSelectionEnd,
     searchFocused,
     attentionFocusSignature,
-    lastAttentionFocusId,
-    ...(runGroupDraft ? { runGroupDraft } : {})
-  });
+    lastAttentionFocusId
+  };
+  if (runGroupDraft) {
+    nextState.runGroupDraft = runGroupDraft;
+    persistedWebviewState.runGroupDraft = runGroupDraft;
+  } else {
+    delete nextState.runGroupDraft;
+    delete persistedWebviewState.runGroupDraft;
+  }
+  vscode.setState(nextState);
 }
 
 function publishFilterState(type, sourceElement) {
