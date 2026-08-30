@@ -1213,6 +1213,12 @@ function renderList() {
         && typeof entry.name === 'string'
         && typeof entry.startCommand === 'string')
       : [];
+    const vscodeTasks = Array.isArray(state.vscodeTaskCandidates)
+      ? state.vscodeTaskCandidates.filter((entry) => entry
+        && typeof entry.folder === 'string'
+        && typeof entry.name === 'string'
+        && typeof entry.startCommand === 'string')
+      : [];
     const startScripts = Array.isArray(state.workspaceStartScripts)
       ? state.workspaceStartScripts.filter((script) => script
         && ['start', 'dev'].includes(script.name)
@@ -1261,6 +1267,16 @@ function renderList() {
                 const chipHint = `Save and start ${entry.name} with \`${entry.startCommand}\``;
                 return `
                 <button class="empty-start-chip" data-action="add-workspace-package" data-folder="${escapeHtml(entry.folder)}" data-start-command="${escapeHtml(entry.startCommand)}" title="${escapeHtml(chipHint)}" aria-label="${escapeHtml(chipHint)}">
+                  ${escapeHtml(entry.name)}
+                </button>`;
+              }).join('')}
+            </div>` : ''}
+          ${workspaceFolder && vscodeTasks.length ? `
+            <div class="empty-vscode-tasks" role="group" aria-label="VS Code npm tasks in this workspace">
+              ${vscodeTasks.map((entry) => {
+                const chipHint = `Save and start ${entry.name} with \`${entry.startCommand}\``;
+                return `
+                <button class="empty-start-chip" data-action="add-vscode-task" data-folder="${escapeHtml(entry.folder)}" data-start-command="${escapeHtml(entry.startCommand)}" title="${escapeHtml(chipHint)}" aria-label="${escapeHtml(chipHint)}">
                   ${escapeHtml(entry.name)}
                 </button>`;
               }).join('')}
@@ -2978,6 +2994,11 @@ app.addEventListener('click', (event) => {
     'start-workspace-script': () => vscode.postMessage({
       type: 'startWorkspaceScript',
       script: button.dataset.script
+    }),
+    'add-vscode-task': () => vscode.postMessage({
+      type: 'addVscodeTask',
+      folder: button.dataset.folder,
+      startCommand: button.dataset.startCommand
     }),
     'add-procfile-process': () => vscode.postMessage({
       type: 'addProcfileProcess',

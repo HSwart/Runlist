@@ -93,6 +93,7 @@ const {
   workspaceStartDevScripts
 } = require('../projects/project-workspace');
 const { discoverProcfileProcessCandidates } = require('../projects/procfile-discovery');
+const { discoverVscodeTaskCandidates } = require('../projects/vscode-tasks-discovery');
 const {
   createRunlistTerminalSession,
   runlistTerminalName
@@ -905,6 +906,45 @@ class RunlistViewProvider {
       )));
     } catch (error) {
       vscode.window.showErrorMessage(error?.message || 'Could not save this Procfile process in Runlist.');
+      this.mode = 'list';
+      this.render();
+      return false;
+    }
+    this.mode = 'list';
+    this.focusTarget = { type: 'project-control', id: project.id };
+    this.render();
+    return this.startProject(project.id);
+  }
+
+  async addVscodeTask(taskFolder, startCommand) {
+    if (!await this.confirmDiscardProjectChanges()) {
+      return false;
+    }
+    const workspaceRoot = this.workspaceRoot();
+    const candidate = discoverVscodeTaskCandidates(workspaceRoot)
+      .find((entry) => entry.folder === taskFolder && entry.startCommand === startCommand);
+    if (!workspaceRoot || !candidate) {
+      vscode.window.showWarningMessage('That VS Code task is no longer available.');
+      this.mode = 'list';
+      this.render();
+      return false;
+    }
+    if (this.projects.length > 0) {
+      this.mode = 'list';
+      this.render();
+      return false;
+    }
+    let project;
+    try {
+      ({ project } = await withProjectStoreLockAsync(this.projectsFile, () => (
+        upsertProject(this.projectsFile, {
+          name: candidate.name,
+          folder: candidate.folder,
+          startCommand: candidate.startCommand
+        }, { expectProjectAbsent: true })
+      )));
+    } catch (error) {
+      vscode.window.showErrorMessage(error?.message || 'Could not save this VS Code task in Runlist.');
       this.mode = 'list';
       this.render();
       return false;
@@ -6139,6 +6179,9 @@ class RunlistViewProvider {
         this.workspaceRoot() || ''
       ),
       procfileProcessCandidates: discoverProcfileProcessCandidates(
+        this.workspaceRoot() || ''
+      ),
+      vscodeTaskCandidates: discoverVscodeTaskCandidates(
         this.workspaceRoot() || ''
       ),
       composeImportCandidate: discoverComposeImportCandidate(

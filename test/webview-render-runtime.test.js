@@ -1356,6 +1356,28 @@ test('empty state shows Procfile process chips when Procfile.dev exists', () => 
   assert.match(result.app.innerHTML, /data-start-command="npm run dev"/);
 });
 
+test('empty state shows VS Code npm task chips from tasks.json', () => {
+  const result = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      currentWorkspaceFolder: '/Users/example/app',
+      currentWorkspaceFolderName: 'app',
+      vscodeTaskCandidates: [
+        {
+          folder: '/Users/example/app/packages/web',
+          name: 'Web dev',
+          scriptName: 'dev',
+          startCommand: 'npm run dev'
+        }
+      ]
+    }
+  });
+
+  assert.match(result.app.innerHTML, /data-action="add-vscode-task"/);
+  assert.match(result.app.innerHTML, /Web dev/);
+  assert.match(result.app.innerHTML, /data-folder="\/Users\/example\/app\/packages\/web"/);
+  assert.match(result.app.innerHTML, /data-start-command="npm run dev"/);
+});
+
 test('empty state hides Add this folder when no workspace folder is open', () => {
   const result = renderNonEmptyProjectList([]);
 
