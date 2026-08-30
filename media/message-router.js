@@ -61,6 +61,7 @@
     'showAgentSetup',
     'loadWorkspaceStack',
     'showPortListening',
+    'importWorkspaceCompose',
     'showComposeImport',
     'refreshPortListening',
     'copyPortListeningDetails',

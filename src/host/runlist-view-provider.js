@@ -162,6 +162,7 @@ const {
 const {
   ComposeFileError,
   detectComposeFiles,
+  discoverComposeImportCandidate,
   readComposeFile,
   resolveComposeFile
 } = require('../compose/compose-file');
@@ -628,17 +629,39 @@ class RunlistViewProvider {
     if (!await this.confirmDiscardProjectChanges()) {
       return;
     }
+    await this.beginComposeImport({ projectId });
+  }
+
+  async importWorkspaceCompose() {
+    if (!await this.confirmDiscardProjectChanges()) {
+      return false;
+    }
+    const folder = this.workspaceRoot();
+    const candidate = discoverComposeImportCandidate(folder);
+    if (!folder || !candidate) {
+      vscode.window.showWarningMessage('No Compose file was found in this workspace.');
+      return false;
+    }
+    if (this.projects.length > 0) {
+      this.mode = 'list';
+      this.render();
+      return false;
+    }
+    return this.beginComposeImport({ folder });
+  }
+
+  async beginComposeImport({ projectId, folder: initialFolder, preferredPath: initialPreferredPath } = {}) {
     let project;
-    let folder;
-    let preferredPath;
+    let folder = initialFolder;
+    let preferredPath = initialPreferredPath;
     if (typeof projectId === 'string' && projectId) {
       project = this.projects.find((item) => item.id === projectId);
       if (!project) {
         vscode.window.showWarningMessage('That project is no longer in Runlist.');
-        return;
+        return false;
       }
       folder = project.folder;
-    } else {
+    } else if (!folder) {
       const picked = await vscode.window.showOpenDialog({
         canSelectFiles: false,
         canSelectFolders: true,
@@ -647,24 +670,25 @@ class RunlistViewProvider {
         title: 'Choose a folder with a Compose file'
       });
       if (!picked?.length) {
-        return;
+        return false;
       }
       folder = picked[0].fsPath;
-      const detected = detectComposeFiles(folder);
-      if (detected.length > 1) {
-        const choice = await vscode.window.showQuickPick(
-          detected.map((filePath) => ({
-            label: path.basename(filePath),
-            description: filePath,
-            path: filePath
-          })),
-          { title: 'Choose a Compose file to review' }
-        );
-        if (!choice) {
-          return;
-        }
-        preferredPath = choice.path;
+    }
+
+    const detected = detectComposeFiles(folder);
+    if (!preferredPath && detected.length > 1) {
+      const choice = await vscode.window.showQuickPick(
+        detected.map((filePath) => ({
+          label: path.basename(filePath),
+          description: filePath,
+          path: filePath
+        })),
+        { title: 'Choose a Compose file to review' }
+      );
+      if (!choice) {
+        return false;
       }
+      preferredPath = choice.path;
     }
 
     try {
@@ -695,11 +719,13 @@ class RunlistViewProvider {
       this.selectedProjectId = undefined;
       await this.revealRunlistView();
       this.render();
+      return true;
     } catch (error) {
       const message = error instanceof ComposeFileError
         ? error.message
         : `Could not read Compose services: ${error.message}`;
       vscode.window.showErrorMessage(message);
+      return false;
     }
   }
 
@@ -6070,6 +6096,9 @@ class RunlistViewProvider {
         this.workspaceRoot() || ''
       ),
       workspacePackageCandidates: discoverWorkspacePackageCandidates(
+        this.workspaceRoot() || ''
+      ),
+      composeImportCandidate: discoverComposeImportCandidate(
         this.workspaceRoot() || ''
       ),
       draftStartScripts: this.mode === 'add'

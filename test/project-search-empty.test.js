@@ -52,7 +52,7 @@ test('true zero-project empty state does not render search-empty or Clear filter
   );
 
   assert.match(emptyState, /class="empty-state"/);
-  assert.match(emptyState, /<h2>No projects yet<\/h2>/);
+  assert.match(emptyState, /<h2>\$\{stackHeroCopy \? 'Load team stack' : 'No projects yet'\}<\/h2>/);
   assert.doesNotMatch(emptyState, /data-search-empty/);
   assert.doesNotMatch(emptyState, /data-action="clear-filters"/);
   assert.doesNotMatch(emptyState, /No matching projects/);

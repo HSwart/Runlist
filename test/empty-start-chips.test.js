@@ -47,7 +47,7 @@ test('hides npm empty-state chips for Azure Functions Python folders', (t) => {
 
 test('empty Frame A keeps Add this folder and optional start/dev chips', () => {
   const extension = readShippedHostSource(root);
-  assert.match(webview, /<h2>No projects yet<\/h2>/);
+  assert.match(webview, /<h2>\$\{stackHeroCopy \? 'Load team stack' : 'No projects yet'\}<\/h2>/);
   assert.match(webview, /const addLabel = 'Add this folder'/);
   assert.match(webview, /data-action="show-add">\$\{addLabel\}<\/button>/);
   assert.match(webview, /Add \$\{workspaceFolderName \|\| 'the folder'\} open in this window\./);

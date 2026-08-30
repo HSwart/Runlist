@@ -29,7 +29,7 @@ test('keeps the everyday list to two lines: wrapping name, then status and port'
 });
 
 test('does not explain the product on first-run or everyday screens', () => {
-  assert.match(webview, /<h2>No projects yet<\/h2>/);
+  assert.match(webview, /<h2>\$\{stackHeroCopy \? 'Load team stack' : 'No projects yet'\}<\/h2>/);
   assert.match(webview, /Add this folder/);
   assert.match(webview, /Add \$\{workspaceFolderName \|\| 'the folder'\} open in this window\./);
   assert.match(webview, /Open a folder in this window first\./);

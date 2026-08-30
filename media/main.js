@@ -1203,6 +1203,10 @@ function renderList() {
         && typeof entry.name === 'string'
         && typeof entry.startCommand === 'string')
       : [];
+    const composeFiles = state.composeImportCandidate
+      && Array.isArray(state.composeImportCandidate.composeFiles)
+      ? state.composeImportCandidate.composeFiles.filter((name) => typeof name === 'string' && name.trim())
+      : [];
     const startScripts = Array.isArray(state.workspaceStartScripts)
       ? state.workspaceStartScripts.filter((script) => script
         && ['start', 'dev'].includes(script.name)
@@ -1255,6 +1259,8 @@ function renderList() {
                 </button>`;
               }).join('')}
             </div>` : ''}
+          ${workspaceFolder && composeFiles.length ? `
+            <button class="secondary-button" data-action="import-workspace-compose" aria-label="Review Compose services in this workspace" title="Review services from ${escapeHtml(composeFiles.join(', '))}">Import Compose services</button>` : ''}
         </div>
       </section>`;
     firstListRender = false;
@@ -2945,6 +2951,7 @@ app.addEventListener('click', (event) => {
   const actions = {
     'show-add': () => vscode.postMessage({ type: 'showAdd' }),
     'load-workspace-stack': () => vscode.postMessage({ type: 'loadWorkspaceStack' }),
+    'import-workspace-compose': () => vscode.postMessage({ type: 'importWorkspaceCompose' }),
     'open-workspace-folder': () => vscode.postMessage({ type: 'openWorkspaceFolder' }),
     'select-workspace-folder': () => vscode.postMessage({
       type: 'selectWorkspaceFolder',

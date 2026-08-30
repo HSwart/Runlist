@@ -100,10 +100,26 @@ function composeError(code, message, options) {
   return new ComposeFileError(code, message, options);
 }
 
+function discoverComposeImportCandidate(folderPath) {
+  const folder = normalizeFolder(folderPath);
+  if (!folder) {
+    return undefined;
+  }
+  const detected = detectComposeFiles(folder);
+  if (!detected.length) {
+    return undefined;
+  }
+  return {
+    folder,
+    composeFiles: detected.map((filePath) => path.basename(filePath))
+  };
+}
+
 module.exports = {
   COMPOSE_FILE_NAMES,
   ComposeFileError,
   detectComposeFiles,
+  discoverComposeImportCandidate,
   readComposeFile,
   resolveComposeFile
 };

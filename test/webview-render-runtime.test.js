@@ -1318,6 +1318,23 @@ test('empty state shows workspace package chips for monorepo packages', () => {
   assert.match(result.app.innerHTML, /data-start-command="npm run dev"/);
 });
 
+test('empty state shows Import Compose services when a compose file exists', () => {
+  const result = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      currentWorkspaceFolder: '/Users/example/stack',
+      currentWorkspaceFolderName: 'stack',
+      composeImportCandidate: {
+        folder: '/Users/example/stack',
+        composeFiles: ['compose.yaml']
+      }
+    }
+  });
+
+  assert.match(result.app.innerHTML, /data-action="import-workspace-compose"/);
+  assert.match(result.app.innerHTML, />Import Compose services</);
+  assert.match(result.app.innerHTML, /title="Review services from compose\.yaml"/);
+});
+
 test('empty state hides Add this folder when no workspace folder is open', () => {
   const result = renderNonEmptyProjectList([]);
 
