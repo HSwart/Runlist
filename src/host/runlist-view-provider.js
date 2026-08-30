@@ -89,6 +89,7 @@ const {
   starterDraftForCurrentWorkspace,
   workspaceFolderChoices,
   workspaceFolderMatchesProject,
+  discoverWorkspacePackageCandidates,
   workspaceStartDevScripts
 } = require('../projects/project-workspace');
 const {
@@ -799,6 +800,45 @@ class RunlistViewProvider {
       )));
     } catch (error) {
       vscode.window.showErrorMessage(error?.message || 'Could not save this folder in Runlist.');
+      this.mode = 'list';
+      this.render();
+      return false;
+    }
+    this.mode = 'list';
+    this.focusTarget = { type: 'project-control', id: project.id };
+    this.render();
+    return this.startProject(project.id);
+  }
+
+  async addWorkspacePackage(packageFolder, startCommand) {
+    if (!await this.confirmDiscardProjectChanges()) {
+      return false;
+    }
+    const workspaceRoot = this.workspaceRoot();
+    const candidate = discoverWorkspacePackageCandidates(workspaceRoot)
+      .find((entry) => entry.folder === packageFolder && entry.startCommand === startCommand);
+    if (!workspaceRoot || !candidate) {
+      vscode.window.showWarningMessage('That workspace package is no longer available.');
+      this.mode = 'list';
+      this.render();
+      return false;
+    }
+    if (this.projects.length > 0) {
+      this.mode = 'list';
+      this.render();
+      return false;
+    }
+    let project;
+    try {
+      ({ project } = await withProjectStoreLockAsync(this.projectsFile, () => (
+        upsertProject(this.projectsFile, {
+          name: candidate.name,
+          folder: candidate.folder,
+          startCommand: candidate.startCommand
+        }, { expectProjectAbsent: true })
+      )));
+    } catch (error) {
+      vscode.window.showErrorMessage(error?.message || 'Could not save this workspace package in Runlist.');
       this.mode = 'list';
       this.render();
       return false;
@@ -6027,6 +6067,9 @@ class RunlistViewProvider {
         return folder ? path.basename(folder) : '';
       })(),
       workspaceStartScripts: workspaceStartDevScripts(
+        this.workspaceRoot() || ''
+      ),
+      workspacePackageCandidates: discoverWorkspacePackageCandidates(
         this.workspaceRoot() || ''
       ),
       draftStartScripts: this.mode === 'add'

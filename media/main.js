@@ -1197,6 +1197,12 @@ function renderList() {
       : workspaceFolders.length > 1
         ? 'Choose a folder open in this window.'
         : 'Open a folder in this window first.';
+    const workspacePackages = Array.isArray(state.workspacePackageCandidates)
+      ? state.workspacePackageCandidates.filter((entry) => entry
+        && typeof entry.folder === 'string'
+        && typeof entry.name === 'string'
+        && typeof entry.startCommand === 'string')
+      : [];
     const startScripts = Array.isArray(state.workspaceStartScripts)
       ? state.workspaceStartScripts.filter((script) => script
         && ['start', 'dev'].includes(script.name)
@@ -1236,6 +1242,16 @@ function renderList() {
                 return `
                 <button class="empty-start-chip" data-action="start-workspace-script" data-script="${escapeHtml(script.name)}" title="${escapeHtml(chipHint)}" aria-label="${escapeHtml(chipHint)}">
                   ${escapeHtml(chipLabel)}
+                </button>`;
+              }).join('')}
+            </div>` : ''}
+          ${workspaceFolder && workspacePackages.length ? `
+            <div class="empty-workspace-packages" role="group" aria-label="Workspace packages with start scripts">
+              ${workspacePackages.map((entry) => {
+                const chipHint = `Save and start ${entry.name} with \`${entry.startCommand}\``;
+                return `
+                <button class="empty-start-chip" data-action="add-workspace-package" data-folder="${escapeHtml(entry.folder)}" data-start-command="${escapeHtml(entry.startCommand)}" title="${escapeHtml(chipHint)}" aria-label="${escapeHtml(chipHint)}">
+                  ${escapeHtml(entry.name)}
                 </button>`;
               }).join('')}
             </div>` : ''}
@@ -2939,6 +2955,11 @@ app.addEventListener('click', (event) => {
     'start-workspace-script': () => vscode.postMessage({
       type: 'startWorkspaceScript',
       script: button.dataset.script
+    }),
+    'add-workspace-package': () => vscode.postMessage({
+      type: 'addWorkspacePackage',
+      folder: button.dataset.folder,
+      startCommand: button.dataset.startCommand
     }),
     'use-draft-start-script': () => vscode.postMessage({
       type: 'useDraftStartScript',

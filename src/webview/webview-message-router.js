@@ -158,6 +158,7 @@ function createRunlistWebviewRouter(host, adapters = {}) {
       showPortListening: () => host.showPortListeningDiagnosis(),
       copyPortListeningDetails: (message) => host.copyPortListeningDetails(message.port),
       startWorkspaceScript: (message) => host.startWorkspaceScript(message.script),
+      addWorkspacePackage: (message) => host.addWorkspacePackage(message.folder, message.startCommand),
       showDiagnosis: (message) => host.showProjectDiagnosis(message.id),
       showEdit: (message) => host.showEditProject(message.id, {
         focusField: message.focusField,

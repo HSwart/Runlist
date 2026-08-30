@@ -131,6 +131,92 @@ function startThisFolderDecision(projects, workspaceFolders, platform = process.
   };
 }
 
+function workspacePackagePatterns(packageJson) {
+  const workspaces = packageJson?.workspaces;
+  if (Array.isArray(workspaces)) {
+    return workspaces.filter((pattern) => typeof pattern === 'string' && pattern.trim());
+  }
+  if (workspaces && typeof workspaces === 'object' && Array.isArray(workspaces.packages)) {
+    return workspaces.packages.filter((pattern) => typeof pattern === 'string' && pattern.trim());
+  }
+  return [];
+}
+
+function expandWorkspacePackageFolders(rootFolder, patterns, readdirSync = fs.readdirSync) {
+  const folders = new Set();
+  for (const pattern of patterns) {
+    if (pattern.endsWith('/*')) {
+      const base = path.join(rootFolder, pattern.slice(0, -2));
+      try {
+        for (const entry of readdirSync(base, { withFileTypes: true })) {
+          if (entry.isDirectory()) {
+            folders.add(path.join(base, entry.name));
+          }
+        }
+      } catch {
+        // Ignore unreadable workspace roots.
+      }
+      continue;
+    }
+    folders.add(path.join(rootFolder, pattern));
+  }
+  return [...folders];
+}
+
+function packageStartDevProposal(packageFolder, readFileSync = fs.readFileSync) {
+  let packageJson;
+  try {
+    packageJson = JSON.parse(readFileSync(path.join(packageFolder, 'package.json'), 'utf8'));
+  } catch {
+    return undefined;
+  }
+  const scripts = packageJson && typeof packageJson === 'object'
+    ? packageJson.scripts
+    : undefined;
+  if (!scripts || typeof scripts !== 'object' || Array.isArray(scripts)) {
+    return undefined;
+  }
+  const name = typeof packageJson.name === 'string' && packageJson.name.trim()
+    ? packageJson.name.trim()
+    : path.basename(packageFolder);
+  for (const scriptName of ['dev', 'start']) {
+    if (typeof scripts[scriptName] !== 'string' || !scripts[scriptName].trim()) {
+      continue;
+    }
+    return {
+      folder: packageFolder,
+      name,
+      scriptName,
+      startCommand: scriptName === 'start' ? 'npm start' : 'npm run dev'
+    };
+  }
+  return undefined;
+}
+
+function discoverWorkspacePackageCandidates(rootFolder, options = {}) {
+  if (typeof rootFolder !== 'string' || !rootFolder.trim()) {
+    return [];
+  }
+  const readFileSync = options.readFileSync || fs.readFileSync;
+  const readdirSync = options.readdirSync || fs.readdirSync;
+  let rootPackage;
+  try {
+    rootPackage = JSON.parse(readFileSync(path.join(rootFolder, 'package.json'), 'utf8'));
+  } catch {
+    return [];
+  }
+  const patterns = workspacePackagePatterns(rootPackage);
+  if (!patterns.length) {
+    return [];
+  }
+  const limit = Number.isInteger(options.limit) && options.limit > 0 ? options.limit : 8;
+  return expandWorkspacePackageFolders(rootFolder, patterns, readdirSync)
+    .map((folder) => packageStartDevProposal(folder, readFileSync))
+    .filter(Boolean)
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .slice(0, limit);
+}
+
 function workspaceStartDevScripts(folder, readFileSync = fs.readFileSync) {
   if (typeof folder !== 'string' || !folder.trim()) {
     return [];
@@ -182,6 +268,7 @@ async function selectCurrentWorkspaceFolder(vscode, options = {}) {
 module.exports = {
   canUseCurrentWorkspace,
   currentWorkspaceFolderPath,
+  discoverWorkspacePackageCandidates,
   foldersReferToSamePath,
   localWorkspaceFolders,
   orderSidebarProjects,
