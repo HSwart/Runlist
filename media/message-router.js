@@ -19,6 +19,7 @@
   const WEBVIEW_COMMAND_TYPES = new Set([
     'approveProjectRepair',
     'approveComposeImport',
+    'approveWorkspaceImport',
     'closeScreen',
     'copyDiagnosisRequest',
     'copyProjectFailure',
@@ -61,6 +62,10 @@
     'showAgentSetup',
     'loadWorkspaceStack',
     'showPortListening',
+    'importWorkspaceCompose',
+    'showWorkspaceImport',
+    'showLogSearch',
+    'setLogSearchQuery',
     'showComposeImport',
     'refreshPortListening',
     'copyPortListeningDetails',
@@ -73,6 +78,9 @@
     'showOutput',
     'startProject',
     'startRunGroup',
+    'addVscodeTask',
+    'addProcfileProcess',
+    'addWorkspacePackage',
     'startWorkspaceScript',
     'stopAllProjects',
     'stopProject',
@@ -172,6 +180,33 @@
     }
     if (value.type === 'startWorkspaceScript'
       && !['start', 'dev'].includes(value.script)) {
+      return undefined;
+    }
+    if (value.type === 'addVscodeTask'
+      && (typeof value.folder !== 'string'
+        || !value.folder.trim()
+        || value.folder.length > 4096
+        || typeof value.startCommand !== 'string'
+        || !value.startCommand.trim()
+        || value.startCommand.length > 2000)) {
+      return undefined;
+    }
+    if (value.type === 'addProcfileProcess'
+      && (typeof value.name !== 'string'
+        || !value.name.trim()
+        || value.name.length > 200
+        || typeof value.startCommand !== 'string'
+        || !value.startCommand.trim()
+        || value.startCommand.length > 2000)) {
+      return undefined;
+    }
+    if (value.type === 'addWorkspacePackage'
+      && (typeof value.folder !== 'string'
+        || !value.folder.trim()
+        || value.folder.length > 4096
+        || typeof value.startCommand !== 'string'
+        || !value.startCommand.trim()
+        || value.startCommand.length > 2000)) {
       return undefined;
     }
     if (value.type === 'useDraftStartScript'

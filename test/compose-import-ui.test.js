@@ -23,6 +23,8 @@ test('Compose import review is read-only until save and never runs docker compos
   assert.match(webview, /Runlist has not started Docker or Compose/);
   assert.match(styles, /\.compose-import-row \{/);
   assert.match(host, /async showComposeImport\(/);
+  assert.match(host, /async importWorkspaceCompose\(/);
+  assert.match(host, /async beginComposeImport\(/);
   assert.match(host, /async approveComposeImport\(/);
   assert.match(host, /buildComposeImportProposal\(/);
   assert.match(host, /composeImportServicesForSave\(/);
@@ -35,9 +37,12 @@ test('Compose import review is read-only until save and never runs docker compos
   assert.match(approve, /saved\.project/);
   assert.doesNotMatch(host, /spawn\(.*docker|execFile\(.*docker|docker compose up/);
   assert.match(router, /showComposeImport: \(message\) => host\.showComposeImport\(message\.id\)/);
+  assert.match(router, /importWorkspaceCompose: \(\) => host\.importWorkspaceCompose\(\)/);
   assert.match(router, /approveComposeImport: \(\) => host\.approveComposeImport\(\)/);
   assert.match(messageRouter, /'showComposeImport'/);
+  assert.match(messageRouter, /'importWorkspaceCompose'/);
   assert.match(messageRouter, /'approveComposeImport'/);
+  assert.match(webview, /data-action="import-workspace-compose"/);
 });
 
 function loadRunlistProvider(messages) {

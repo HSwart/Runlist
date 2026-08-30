@@ -89,8 +89,14 @@ const {
   starterDraftForCurrentWorkspace,
   workspaceFolderChoices,
   workspaceFolderMatchesProject,
+  discoverWorkspacePackageCandidates,
   workspaceStartDevScripts
 } = require('../projects/project-workspace');
+const { discoverProcfileProcessCandidates } = require('../projects/procfile-discovery');
+const { discoverVscodeTaskCandidates } = require('../projects/vscode-tasks-discovery');
+const { buildWorkspaceImportProposal, workspaceImportKey } = require('../projects/workspace-import');
+const { searchProjectLogs } = require('../projects/project-log-search');
+const { unresolvedDependencies } = require('../projects/project-dependencies');
 const {
   createRunlistTerminalSession,
   runlistTerminalName
@@ -161,6 +167,7 @@ const {
 const {
   ComposeFileError,
   detectComposeFiles,
+  discoverComposeImportCandidate,
   readComposeFile,
   resolveComposeFile
 } = require('../compose/compose-file');
@@ -627,17 +634,172 @@ class RunlistViewProvider {
     if (!await this.confirmDiscardProjectChanges()) {
       return;
     }
+    await this.beginComposeImport({ projectId });
+  }
+
+  async importWorkspaceCompose() {
+    if (!await this.confirmDiscardProjectChanges()) {
+      return false;
+    }
+    const folder = this.workspaceRoot();
+    const candidate = discoverComposeImportCandidate(folder);
+    if (!folder || !candidate) {
+      vscode.window.showWarningMessage('No Compose file was found in this workspace.');
+      return false;
+    }
+    if (this.projects.length > 0) {
+      this.mode = 'list';
+      this.render();
+      return false;
+    }
+    return this.beginComposeImport({ folder });
+  }
+
+  async showWorkspaceImport() {
+    if (!await this.confirmDiscardProjectChanges()) {
+      return false;
+    }
+    const workspaceRoot = this.workspaceRoot();
+    if (!workspaceRoot) {
+      vscode.window.showWarningMessage('Open a workspace folder first.');
+      return false;
+    }
+    const proposal = buildWorkspaceImportProposal(workspaceRoot);
+    if (!proposal.entries.length) {
+      vscode.window.showInformationMessage('No importable projects were found in this workspace.');
+      return false;
+    }
+    this.mode = 'workspace-import';
+    this.routeNotice = undefined;
+    this.diagnosisProjectIncarnation = undefined;
+    this.portListeningReport = undefined;
+    this.portResolve = undefined;
+    this.composeImport = undefined;
+    this.stackReview = undefined;
+    this.runGroupsEditorFocusId = undefined;
+    this.draft = {};
+    this.workspaceImport = {
+      workspaceRoot,
+      entries: proposal.entries
+    };
+    this.focusTarget = { type: 'action', action: 'approve-workspace-import' };
+    this.returnFocus = this.defaultListFocusTarget();
+    this.selectedProjectId = undefined;
+    await this.revealRunlistView();
+    this.render();
+    return true;
+  }
+
+  async approveWorkspaceImport(selectedKeys) {
+    const review = this.workspaceImport;
+    if (!review?.entries?.length) {
+      vscode.window.showWarningMessage('This workspace import review is no longer available.');
+      this.workspaceImport = undefined;
+      this.mode = 'list';
+      this.render();
+      return false;
+    }
+    const selected = new Set((selectedKeys || []).map(String));
+    const chosen = review.entries.filter((entry) => selected.has(workspaceImportKey(entry)));
+    if (!chosen.length) {
+      vscode.window.showWarningMessage('Select at least one project to import.');
+      return false;
+    }
+    const savedIds = [];
+    try {
+      await withProjectStoreLockAsync(this.projectsFile, () => {
+        for (const entry of chosen) {
+          if (entry.kind === 'compose') {
+            const composePath = resolveComposeFile(entry.folder, entry.composeFiles?.[0]);
+            const file = readComposeFile(composePath);
+            const proposal = buildComposeImportProposal({
+              folder: entry.folder,
+              projectName: entry.name,
+              composePath: file.path,
+              contents: file.contents
+            });
+            const saved = upsertProject(this.projectsFile, {
+              ...proposal.proposedProject,
+              services: composeImportServicesForSave(proposal.proposedProject.services)
+            }, {
+              expectProjectAbsent: true,
+              reviewRequired: true,
+              lockHeld: true
+            });
+            savedIds.push(saved.project.id);
+            continue;
+          }
+          const saved = upsertProject(this.projectsFile, {
+            name: entry.name,
+            folder: entry.folder,
+            startCommand: entry.startCommand
+          }, {
+            expectProjectAbsent: true,
+            reviewRequired: true,
+            lockHeld: true
+          });
+          savedIds.push(saved.project.id);
+        }
+        if (savedIds.length >= 2) {
+          upsertRunGroup(this.projectsFile, {
+            name: 'Imported stack',
+            projectIds: savedIds,
+            startMode: 'sequential'
+          }, { lockHeld: true });
+        }
+      });
+    } catch (error) {
+      const message = error instanceof ComposeFileError
+        ? error.message
+        : error?.message || 'Could not import workspace projects.';
+      vscode.window.showErrorMessage(message);
+      return false;
+    }
+    this.workspaceImport = undefined;
+    this.mode = 'list';
+    this.focusTarget = savedIds.length === 1
+      ? { type: 'project-control', id: savedIds[0] }
+      : this.defaultListFocusTarget();
+    this.renderProjectList();
+    void this.refreshProjectStatuses();
+    vscode.window.showInformationMessage(
+      `Imported ${savedIds.length} project setup${savedIds.length === 1 ? '' : 's'}. Review each one before running.`
+    );
+    return true;
+  }
+
+  async showLogSearch() {
+    if (!await this.confirmDiscardProjectChanges()) {
+      return false;
+    }
+    this.mode = 'log-search';
+    this.logSearchQuery = this.logSearchQuery || '';
+    this.routeNotice = undefined;
+    this.focusTarget = { type: 'field', id: 'log-search-input' };
+    this.returnFocus = this.defaultListFocusTarget();
+    this.selectedProjectId = undefined;
+    await this.revealRunlistView();
+    this.render();
+    return true;
+  }
+
+  setLogSearchQuery(query) {
+    this.logSearchQuery = String(query || '').slice(0, 200);
+    this.render();
+  }
+
+  async beginComposeImport({ projectId, folder: initialFolder, preferredPath: initialPreferredPath } = {}) {
     let project;
-    let folder;
-    let preferredPath;
+    let folder = initialFolder;
+    let preferredPath = initialPreferredPath;
     if (typeof projectId === 'string' && projectId) {
       project = this.projects.find((item) => item.id === projectId);
       if (!project) {
         vscode.window.showWarningMessage('That project is no longer in Runlist.');
-        return;
+        return false;
       }
       folder = project.folder;
-    } else {
+    } else if (!folder) {
       const picked = await vscode.window.showOpenDialog({
         canSelectFiles: false,
         canSelectFolders: true,
@@ -646,24 +808,25 @@ class RunlistViewProvider {
         title: 'Choose a folder with a Compose file'
       });
       if (!picked?.length) {
-        return;
+        return false;
       }
       folder = picked[0].fsPath;
-      const detected = detectComposeFiles(folder);
-      if (detected.length > 1) {
-        const choice = await vscode.window.showQuickPick(
-          detected.map((filePath) => ({
-            label: path.basename(filePath),
-            description: filePath,
-            path: filePath
-          })),
-          { title: 'Choose a Compose file to review' }
-        );
-        if (!choice) {
-          return;
-        }
-        preferredPath = choice.path;
+    }
+
+    const detected = detectComposeFiles(folder);
+    if (!preferredPath && detected.length > 1) {
+      const choice = await vscode.window.showQuickPick(
+        detected.map((filePath) => ({
+          label: path.basename(filePath),
+          description: filePath,
+          path: filePath
+        })),
+        { title: 'Choose a Compose file to review' }
+      );
+      if (!choice) {
+        return false;
       }
+      preferredPath = choice.path;
     }
 
     try {
@@ -694,11 +857,13 @@ class RunlistViewProvider {
       this.selectedProjectId = undefined;
       await this.revealRunlistView();
       this.render();
+      return true;
     } catch (error) {
       const message = error instanceof ComposeFileError
         ? error.message
         : `Could not read Compose services: ${error.message}`;
       vscode.window.showErrorMessage(message);
+      return false;
     }
   }
 
@@ -809,6 +974,123 @@ class RunlistViewProvider {
     return this.startProject(project.id);
   }
 
+  async addWorkspacePackage(packageFolder, startCommand) {
+    if (!await this.confirmDiscardProjectChanges()) {
+      return false;
+    }
+    const workspaceRoot = this.workspaceRoot();
+    const candidate = discoverWorkspacePackageCandidates(workspaceRoot)
+      .find((entry) => entry.folder === packageFolder && entry.startCommand === startCommand);
+    if (!workspaceRoot || !candidate) {
+      vscode.window.showWarningMessage('That workspace package is no longer available.');
+      this.mode = 'list';
+      this.render();
+      return false;
+    }
+    if (this.projects.length > 0) {
+      this.mode = 'list';
+      this.render();
+      return false;
+    }
+    let project;
+    try {
+      ({ project } = await withProjectStoreLockAsync(this.projectsFile, () => (
+        upsertProject(this.projectsFile, {
+          name: candidate.name,
+          folder: candidate.folder,
+          startCommand: candidate.startCommand
+        }, { expectProjectAbsent: true })
+      )));
+    } catch (error) {
+      vscode.window.showErrorMessage(error?.message || 'Could not save this workspace package in Runlist.');
+      this.mode = 'list';
+      this.render();
+      return false;
+    }
+    this.mode = 'list';
+    this.focusTarget = { type: 'project-control', id: project.id };
+    this.render();
+    return this.startProject(project.id);
+  }
+
+  async addProcfileProcess(processName, startCommand) {
+    if (!await this.confirmDiscardProjectChanges()) {
+      return false;
+    }
+    const workspaceRoot = this.workspaceRoot();
+    const candidate = discoverProcfileProcessCandidates(workspaceRoot)
+      .find((entry) => entry.name === processName && entry.startCommand === startCommand);
+    if (!workspaceRoot || !candidate) {
+      vscode.window.showWarningMessage('That Procfile process is no longer available.');
+      this.mode = 'list';
+      this.render();
+      return false;
+    }
+    if (this.projects.length > 0) {
+      this.mode = 'list';
+      this.render();
+      return false;
+    }
+    let project;
+    try {
+      ({ project } = await withProjectStoreLockAsync(this.projectsFile, () => (
+        upsertProject(this.projectsFile, {
+          name: candidate.name,
+          folder: candidate.folder,
+          startCommand: candidate.startCommand
+        }, { expectProjectAbsent: true })
+      )));
+    } catch (error) {
+      vscode.window.showErrorMessage(error?.message || 'Could not save this Procfile process in Runlist.');
+      this.mode = 'list';
+      this.render();
+      return false;
+    }
+    this.mode = 'list';
+    this.focusTarget = { type: 'project-control', id: project.id };
+    this.render();
+    return this.startProject(project.id);
+  }
+
+  async addVscodeTask(taskFolder, startCommand) {
+    if (!await this.confirmDiscardProjectChanges()) {
+      return false;
+    }
+    const workspaceRoot = this.workspaceRoot();
+    const candidate = discoverVscodeTaskCandidates(workspaceRoot)
+      .find((entry) => entry.folder === taskFolder && entry.startCommand === startCommand);
+    if (!workspaceRoot || !candidate) {
+      vscode.window.showWarningMessage('That VS Code task is no longer available.');
+      this.mode = 'list';
+      this.render();
+      return false;
+    }
+    if (this.projects.length > 0) {
+      this.mode = 'list';
+      this.render();
+      return false;
+    }
+    let project;
+    try {
+      ({ project } = await withProjectStoreLockAsync(this.projectsFile, () => (
+        upsertProject(this.projectsFile, {
+          name: candidate.name,
+          folder: candidate.folder,
+          startCommand: candidate.startCommand
+        }, { expectProjectAbsent: true })
+      )));
+    } catch (error) {
+      vscode.window.showErrorMessage(error?.message || 'Could not save this VS Code task in Runlist.');
+      this.mode = 'list';
+      this.render();
+      return false;
+    }
+    this.mode = 'list';
+    this.focusTarget = { type: 'project-control', id: project.id };
+    this.render();
+    return this.startProject(project.id);
+  }
+
   async useDraftStartScript(scriptName, draft = {}) {
     if (this.mode !== 'add') {
       return false;
@@ -877,17 +1159,14 @@ class RunlistViewProvider {
     // Stack discovery is empty-state / Global ⋯ only — no toast above the list.
   }
 
-  stackContractPendingForEmptyState() {
-    if (this.projects.length > 0) {
-      return false;
-    }
+  stackContractSummary() {
     const workspaceRoot = this.workspaceRoot();
     if (!workspaceRoot) {
-      return false;
+      return undefined;
     }
     const contractPath = detectStackContract(workspaceRoot);
     if (!contractPath) {
-      return false;
+      return undefined;
     }
     try {
       const parsed = parseStackContract(fs.readFileSync(contractPath), { workspaceRoot, contractPath });
@@ -895,10 +1174,46 @@ class RunlistViewProvider {
         replaceOptionalMetadata: false,
         isProjectActive: () => false
       });
-      return preview.changeCount > 0;
+      if (!preview.changeCount) {
+        return undefined;
+      }
+      const addCount = preview.entries.filter((entry) => entry.status === 'add').length;
+      const updateCount = preview.entries.filter((entry) => entry.status === 'update').length;
+      return {
+        pending: true,
+        changeCount: preview.changeCount,
+        addCount,
+        updateCount
+      };
     } catch {
+      return undefined;
+    }
+  }
+
+  stackContractEmptyState() {
+    if (this.projects.length > 0) {
+      return undefined;
+    }
+    return this.stackContractSummary();
+  }
+
+  stackContractAttentionState() {
+    if (this.projects.length === 0) {
+      return undefined;
+    }
+    return this.stackContractSummary();
+  }
+
+  stackContractPendingForEmptyState() {
+    return Boolean(this.stackContractEmptyState()?.pending);
+  }
+
+  workspaceImportAvailable() {
+    const workspaceRoot = this.workspaceRoot();
+    if (!workspaceRoot) {
       return false;
     }
+    return buildWorkspaceImportProposal(workspaceRoot).entries.length > 0;
   }
 
   async showProjectTransferLoadStack() {
@@ -2124,8 +2439,14 @@ class RunlistViewProvider {
     this.routeNotice = undefined;
     this.diagnosisProjectIncarnation = undefined;
     this.selectedProjectId = id;
-    this.draft = projectFormValues(project);
-    this.formBaseline = projectFormValues(project);
+    const draft = projectFormValues(project);
+    if (project.dependsOn?.length) {
+      draft.dependsOn = project.dependsOn
+        .map((dependencyId) => this.projects.find((item) => item.id === dependencyId)?.name || dependencyId)
+        .join(', ');
+    }
+    this.draft = draft;
+    this.formBaseline = { ...draft };
     this.formProjectSnapshot = JSON.parse(JSON.stringify(project));
     this.formErrors = {};
     const requestedFocus = typeof options.focusTarget === 'string'
@@ -2140,7 +2461,8 @@ class RunlistViewProvider {
       'start-command',
       'stop-command',
       'env-file',
-      'env-map'
+      'env-map',
+      'depends-on'
     ]);
     const defaultFocus = project.reviewRequired ? 'start-command' : 'project-name';
     this.focusTarget = {
@@ -2298,6 +2620,7 @@ class RunlistViewProvider {
     this.portListeningReport = undefined;
     this.portResolve = undefined;
     this.composeImport = undefined;
+    this.workspaceImport = undefined;
     this.stackReview = undefined;
     this.runGroupsEditorFocusId = undefined;
     this.returnFocus = undefined;
@@ -3615,7 +3938,9 @@ class RunlistViewProvider {
     let projectId = validation.values.id || this.selectedProjectId;
     const name = validation.values.name.trim();
     const folder = validation.values.folder.trim();
-    const setup = projectFormSetup(validation.values);
+    const setup = projectFormSetup(validation.values, {
+      projectsById: new Map(this.projects.map((item) => [item.id, item]))
+    });
     const existingProject = this.projects.find((item) => item.id === projectId);
     const hostnameLabel = setup.localHostname
       || slugifyLocalHostname(name || path.basename(folder));
@@ -3966,6 +4291,19 @@ class RunlistViewProvider {
     if (project.reviewRequired) {
       vscode.window.showWarningMessage(`Review and approve ${project.name}'s setup before running its commands.`);
       this.showEditProject(id);
+      return false;
+    }
+    const projectsById = new Map(projects.map((item) => [item.id, item]));
+    const waitingOn = unresolvedDependencies(project, projectsById, (dependencyId) => (
+      this.getProjectStatus(dependencyId)
+    ));
+    if (waitingOn.length) {
+      const names = waitingOn.map((entry) => entry.name).join(', ');
+      vscode.window.showWarningMessage(
+        waitingOn.length === 1
+          ? `Start ${names} before ${project.name}.`
+          : `Start these projects before ${project.name}: ${names}.`
+      );
       return false;
     }
     if (!projectFolderIsAccessible(fs, project.folder)) {
@@ -6015,6 +6353,18 @@ class RunlistViewProvider {
       workspaceStartScripts: workspaceStartDevScripts(
         this.workspaceRoot() || ''
       ),
+      workspacePackageCandidates: discoverWorkspacePackageCandidates(
+        this.workspaceRoot() || ''
+      ),
+      procfileProcessCandidates: discoverProcfileProcessCandidates(
+        this.workspaceRoot() || ''
+      ),
+      vscodeTaskCandidates: discoverVscodeTaskCandidates(
+        this.workspaceRoot() || ''
+      ),
+      composeImportCandidate: discoverComposeImportCandidate(
+        this.workspaceRoot() || ''
+      ),
       draftStartScripts: this.mode === 'add'
         ? workspaceStartDevScripts(String(this.draft?.folder || ''))
         : [],
@@ -6022,6 +6372,9 @@ class RunlistViewProvider {
         ? this.draftStartCommandNotice
         : undefined,
       stackContractPending: this.stackContractPendingForEmptyState(),
+      stackContractSummary: this.stackContractEmptyState(),
+      stackContractAttention: this.stackContractAttentionState(),
+      workspaceImportAvailable: this.workspaceImportAvailable(),
       focusTarget: this.focusTarget || this.lastFocusTarget,
       formErrors: this.formErrors,
       groups,
@@ -6077,6 +6430,35 @@ class RunlistViewProvider {
         }
         : undefined,
       composeImport: this.mode === 'compose-import' ? this.composeImport : undefined,
+      workspaceImport: this.mode === 'workspace-import'
+        ? {
+          workspaceRoot: this.workspaceImport?.workspaceRoot || '',
+          entries: (this.workspaceImport?.entries || []).map((entry) => ({
+            key: workspaceImportKey(entry),
+            kind: entry.kind,
+            source: entry.source,
+            name: entry.name,
+            folder: entry.folder,
+            startCommand: entry.startCommand,
+            selected: entry.selected !== false
+          }))
+        }
+        : undefined,
+      logSearch: this.mode === 'log-search'
+        ? {
+          query: this.logSearchQuery || '',
+          results: searchProjectLogs(
+            this.projectOutputs,
+            this.projects,
+            this.logSearchQuery || ''
+          )
+        }
+        : undefined,
+      dependencyOptions: ['add', 'edit'].includes(this.mode)
+        ? this.projects
+          .filter((candidate) => candidate.id !== this.selectedProjectId)
+          .map((candidate) => ({ id: candidate.id, name: candidate.name }))
+        : [],
       projects: stateProjects,
       runningAppIds: runningAppProjectIds(stateProjects),
       stopAllCount: stoppableProjectIds(stateProjects).length,

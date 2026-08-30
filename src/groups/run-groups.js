@@ -1,4 +1,5 @@
 const { ProcessOwnershipStore } = require('../lifecycle/project-process');
+const { orderProjectsByDependencies } = require('../projects/project-dependencies');
 
 class RunGroupCoordinator {
   constructor(directory, options = {}) {
@@ -88,12 +89,28 @@ async function startRunGroup(group, options) {
   const startedProjectIds = [];
   let failedProjectId;
   let failureReason;
+  let orderedProjectIds;
+  try {
+    orderedProjectIds = orderProjectsByDependencies(group.projectIds, projects);
+  } catch (error) {
+    notify(options, { status: 'failed', reason: error.message, rollbackFailures: [] });
+    return {
+      status: 'failed',
+      startedProjectIds,
+      failedProjectId: group.projectIds[0],
+      failureReason: error.message,
+      rollbackFailures: []
+    };
+  }
   try {
     if (group.startMode === 'parallel') {
-      return await startRunGroupInParallel(group, options, projects, startedProjectIds);
+      return await startRunGroupInParallel({
+        ...group,
+        projectIds: orderedProjectIds
+      }, options, projects, startedProjectIds);
     }
-    for (let index = 0; index < group.projectIds.length; index += 1) {
-      const projectId = group.projectIds[index];
+    for (let index = 0; index < orderedProjectIds.length; index += 1) {
+      const projectId = orderedProjectIds[index];
       const project = projects.get(projectId);
       if (!groupLeaseIsHeld(options.coordinator, group.id)) {
         failedProjectId = projectId;
@@ -117,7 +134,7 @@ async function startRunGroup(group, options) {
           status: 'skipped',
           project,
           index,
-          total: group.projectIds.length
+          total: orderedProjectIds.length
         });
         continue;
       }
@@ -131,7 +148,7 @@ async function startRunGroup(group, options) {
         status: 'starting',
         project,
         index,
-        total: group.projectIds.length
+        total: orderedProjectIds.length
       });
       if (!await options.startProject(projectId)) {
         failedProjectId = projectId;
@@ -159,12 +176,12 @@ async function startRunGroup(group, options) {
         status: 'ready',
         project,
         index,
-        total: group.projectIds.length
+        total: orderedProjectIds.length
       });
     }
 
     if (!failedProjectId) {
-      notify(options, { status: 'started', total: group.projectIds.length });
+      notify(options, { status: 'started', total: orderedProjectIds.length });
       return { status: 'started', startedProjectIds };
     }
 

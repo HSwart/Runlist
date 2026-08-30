@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0 — Import, dependencies, and log search
+
+- **Import from workspace** — review package scripts, workspace packages, Procfile processes, VS Code tasks, and Compose in one screen; saving multiple projects can create an **Imported stack** run group.
+- **Start after** — projects can depend on other saved projects; run groups and single starts respect that order.
+- **Search logs** — search output kept in this VS Code window across projects, with excerpts and a jump to each project's output view.
+- **Load stack** attention chip — when projects already exist, pending `runlist.json` changes surface as **Load stack (N)** instead of only on the empty state.
+- **Response contains** — optional HTTP health-check text for custom ready detection.
+- Empty-state discovery chips remain for quick one-click save-and-start when the list is empty.
+
 ## 0.1.7 — Faster sidebar startup
 
 - Show a muted Runlist logo and loading label immediately when the sidebar opens, before the project list renders.

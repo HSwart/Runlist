@@ -30,7 +30,7 @@ test('palette commands that need the sidebar reveal Runlist when it is not open 
   assert.match(reveal, /workbench\.view\.extension\.runlist/);
   assert.match(reveal, /runlist\.projects\.focus/);
   assert.match(addAndAgents, /await this\.revealRunlistView\(\)/);
-  assert.equal((addAndAgents.match(/await this\.revealRunlistView\(\)/g) || []).length, 5);
+  assert.equal((addAndAgents.match(/await this\.revealRunlistView\(\)/g) || []).length, 7);
   assert.doesNotMatch(addAndAgents, /this\.view\?\.show\?\.\(true\)/);
 });
 

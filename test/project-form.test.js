@@ -196,7 +196,8 @@ test('normalizes and compares every stored service', () => {
         method: 'HEAD',
         expectedStatus: '',
         timeoutMs: '700',
-        retries: '0'
+        retries: '0',
+        bodyContains: ''
       }
     },
     {
@@ -210,7 +211,8 @@ test('normalizes and compares every stored service', () => {
         method: 'HEAD',
         expectedStatus: '',
         timeoutMs: '700',
-        retries: '0'
+        retries: '0',
+        bodyContains: ''
       }
     }
   ]);

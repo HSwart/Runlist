@@ -46,7 +46,7 @@ test('exports selected or complete project lists as current documents', (t) => {
   const second = project('second', 'Second', fixture.folder('second'), { pinned: true });
 
   assert.deepEqual(JSON.parse(exportProjectDocument([first])), {
-    schemaVersion: 10,
+    schemaVersion: 11,
     projects: [first]
   });
   assert.deepEqual(parseImportDocument(exportProjectDocument([first, second])), [first, second]);
@@ -58,7 +58,7 @@ test('rejects legacy, future, and oversized import documents', () => {
     (error) => error instanceof ProjectTransferError && error.code === 'UNSUPPORTED_IMPORT_FORMAT'
   );
   assert.throws(
-    () => parseImportDocument('{"schemaVersion":11,"projects":[]}'),
+    () => parseImportDocument('{"schemaVersion":12,"projects":[]}'),
     (error) => error instanceof ProjectTransferError && error.code === 'UNSUPPORTED_IMPORT_VERSION'
   );
   assert.throws(

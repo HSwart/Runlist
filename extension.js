@@ -37,6 +37,7 @@ function installMcpBridge(context) {
     'src/projects/command-display.js',
     'src/projects/required-env.js',
     'src/projects/project-store.js',
+    'src/projects/project-dependencies.js',
     'src/projects/project-tags.js',
     'src/services/external-url.js',
     'src/services/local-hostname.js',

@@ -77,9 +77,12 @@ Named local hostnames are for this machine. Phone handoff is for devices on the 
 
 ### Bring a whole stack into the sidebar
 
-- **Load stack** — pull a shared project setup from the repo, review what’s new or changing, then load it
+- **Load stack** — pull a shared project setup from the repo, review what’s new or changing, then load it (including a **Load stack** chip when projects already exist)
+- **Import from workspace** — review scripts, packages, Procfile, VS Code tasks, and Compose together before saving
 - **Import or Export** — move setups between machines or teammates, with review before anything can run
 - **Docker Compose import** — review services first; Compose is not started until you press Start
+- **Start after** — optional project dependencies so related apps start in order
+- **Search logs** — find text across project output kept in this VS Code window
 - **Optional env file** on a launch profile — attach a local file so Start has what it needs (keep secrets in the file, not in exports)
 
 Nothing auto-starts on clone. You review, then you start.

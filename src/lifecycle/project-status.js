@@ -156,10 +156,11 @@ function serviceHealthCheck(service) {
           ...(alternateUrls.length > 1 ? { alternateUrls: alternateUrls.slice(1) } : {})
         }
       : {}),
-    method: configured.method || 'HEAD',
+    method: configured.method || (configured.bodyContains ? 'GET' : 'HEAD'),
     expectedStatus: configured.expectedStatus,
     timeout: configured.timeoutMs || HTTP_PROBE_TIMEOUT_MS,
-    retries: configured.retries || 0
+    retries: configured.retries || 0,
+    ...(configured.bodyContains ? { bodyContains: configured.bodyContains } : {})
   };
 }
 
@@ -206,6 +207,22 @@ function probeHttpService(url, options = {}) {
 
     try {
       request = transport.request(safeUrl, { method: options.method || 'HEAD' }, (response) => {
+        if (options.bodyContains) {
+          let body = '';
+          response.on('data', (chunk) => {
+            body += chunk;
+            if (body.length > 65536) {
+              response.destroy();
+            }
+          });
+          response.on('end', () => {
+            const statusOk = options.expectedStatus === undefined
+              || response.statusCode === options.expectedStatus;
+            finish(statusOk && body.includes(options.bodyContains));
+          });
+          response.on('error', () => finish(false));
+          return;
+        }
         response.resume();
         finish(options.expectedStatus === undefined
           || response.statusCode === options.expectedStatus);
@@ -262,7 +279,8 @@ async function serviceHttpStatus(services, openPorts, options = {}) {
             () => probe(resolvedUrl, {
               timeout: attemptTimeout,
               method: check.method,
-              expectedStatus: check.expectedStatus
+              ...(check.expectedStatus === undefined ? {} : { expectedStatus: check.expectedStatus }),
+              ...(check.bodyContains ? { bodyContains: check.bodyContains } : {})
             }),
             attemptTimeout
           );

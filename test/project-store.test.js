@@ -629,7 +629,7 @@ test('migrates version-one projects and persists alternate launch profiles', (t)
   fs.writeFileSync(projectsFile, `${JSON.stringify(original, null, 2)}\n`);
 
   assert.equal(readProjects(projectsFile)[0].startCommand, 'npm run dev');
-  assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).schemaVersion, 10);
+  assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).schemaVersion, 11);
 
   const saved = upsertProject(projectsFile, {
     ...readProjects(projectsFile)[0],
@@ -663,7 +663,7 @@ test('migrates version-two storage and validates explicit service health checks'
   })}\n`);
 
   assert.equal(readProjects(projectsFile)[0].services[0].name, 'web');
-  assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).schemaVersion, 10);
+  assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).schemaVersion, 11);
 
   const updated = upsertProject(projectsFile, {
     ...readProjects(projectsFile)[0],
@@ -709,7 +709,7 @@ test('migrates version-four storage and persists normalized project tags', (t) =
   })}\n`);
 
   assert.equal(readProjects(projectsFile)[0].name, 'Tags');
-  assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).schemaVersion, 10);
+  assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).schemaVersion, 11);
 
   const updated = upsertProject(projectsFile, {
     ...readProjects(projectsFile)[0],
@@ -728,7 +728,7 @@ test('creates a versioned project document while preserving the array API', (t) 
   initializeProjectStore(projectsFile);
 
   assert.deepEqual(JSON.parse(fs.readFileSync(projectsFile, 'utf8')), {
-    schemaVersion: 10,
+    schemaVersion: 11,
     projects: []
   });
   assert.deepEqual(readProjects(projectsFile), []);
@@ -753,7 +753,7 @@ test('migrates historical arrays without losing project values or order', (t) =>
   }]);
   assert.equal(fs.readFileSync(`${projectsFile}.bak`, 'utf8'), legacyText);
   assert.deepEqual(JSON.parse(fs.readFileSync(projectsFile, 'utf8')), {
-    schemaVersion: 10,
+    schemaVersion: 11,
     projects: [{
       ...legacy[0],
       services: [],
@@ -851,7 +851,7 @@ test('leaves an unrecoverable primary and backup unchanged', (t) => {
 
 test('does not rewrite an unsupported future schema', (t) => {
   const { projectsFile } = projectStoreFixture(t);
-  const future = '{"schemaVersion":11,"projects":[]}\n';
+  const future = '{"schemaVersion":12,"projects":[]}\n';
   fs.writeFileSync(projectsFile, future);
 
   assert.throws(
@@ -938,7 +938,7 @@ test('retries a transient Windows atomic replacement denial', (t) => {
 
   assert.equal(attempts, 2);
   assert.deepEqual(JSON.parse(fs.readFileSync(projectsFile, 'utf8')), {
-    schemaVersion: 10,
+    schemaVersion: 11,
     projects: []
   });
 });
@@ -1153,7 +1153,7 @@ test('persists relative envFile and env map on projects and profiles', (t) => {
   assert.equal(created.project.envFile, '.env');
   assert.deepEqual(created.project.env, { FLAG: '1' });
   assert.equal(created.project.launchProfiles[0].envFile, 'config/.env.tests');
-  assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).schemaVersion, 10);
+  assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).schemaVersion, 11);
 
   assert.throws(
     () => upsertProject(projectsFile, {
@@ -1185,7 +1185,7 @@ test('migrates schema version 7 documents that omit launch env fields', (t) => {
 
   const projects = readProjects(projectsFile);
   assert.equal(projects[0].localHostname, 'legacy');
-  assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).schemaVersion, 10);
+  assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).schemaVersion, 11);
 });
 
 test('preserves existing stopCommand when upsert omits it; empty string clears', (t) => {
@@ -1228,4 +1228,33 @@ test('preserves existing stopCommand when upsert omits it; empty string clears',
   });
   assert.equal(Object.hasOwn(cleared.project, 'stopCommand'), false);
   assert.equal(Object.hasOwn(readProjects(projectsFile)[0], 'stopCommand'), false);
+});
+
+test('persists dependsOn and custom bodyContains health checks', (t) => {
+  const { projectsFile, projectFolder } = projectStoreFixture(t);
+  const apiFolder = path.join(path.dirname(projectFolder), 'api');
+  fs.mkdirSync(apiFolder, { recursive: true });
+  const api = upsertProject(projectsFile, {
+    folder: apiFolder,
+    startCommand: 'npm run dev',
+    services: [{ name: 'web', port: 3100 }]
+  }).project;
+  const web = upsertProject(projectsFile, {
+    folder: projectFolder,
+    startCommand: 'npm run dev',
+    services: [{
+      name: 'web',
+      port: 3200,
+      healthCheck: {
+        mode: 'http',
+        target: '/health',
+        method: 'GET',
+        bodyContains: 'ready'
+      }
+    }],
+    dependsOn: [api.id]
+  }).project;
+  assert.deepEqual(web.dependsOn, [api.id]);
+  assert.equal(web.services[0].healthCheck.bodyContains, 'ready');
+  assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).schemaVersion, 11);
 });

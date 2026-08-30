@@ -1281,11 +1281,101 @@ test('empty state shows Load stack when a stack contract is pending', () => {
     stateOverrides: {
       currentWorkspaceFolder: '/Users/example/app',
       currentWorkspaceFolderName: 'app',
-      stackContractPending: true
+      stackContractPending: true,
+      stackContractSummary: {
+        pending: true,
+        changeCount: 3,
+        addCount: 3,
+        updateCount: 0
+      }
     }
   });
 
-  assert.match(result.app.innerHTML, /data-action="load-workspace-stack">Load stack</);
+  assert.match(result.app.innerHTML, /<h2>Load team stack<\/h2>/);
+  assert.match(result.app.innerHTML, /3 project setups to review/);
+  assert.match(result.app.innerHTML, /class="primary-button"[^>]*data-action="load-workspace-stack"[^>]*>Load stack \(3\)</);
+  assert.match(result.app.innerHTML, /class="secondary-button"[^>]*data-action="show-add">Add this folder</);
+});
+
+test('empty state shows workspace package chips for monorepo packages', () => {
+  const result = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      currentWorkspaceFolder: '/Users/example/monorepo',
+      currentWorkspaceFolderName: 'monorepo',
+      workspacePackageCandidates: [
+        {
+          folder: '/Users/example/monorepo/packages/api',
+          name: '@acme/api',
+          scriptName: 'dev',
+          startCommand: 'npm run dev'
+        }
+      ]
+    }
+  });
+
+  assert.match(result.app.innerHTML, /data-action="add-workspace-package"/);
+  assert.match(result.app.innerHTML, /@acme\/api/);
+  assert.match(result.app.innerHTML, /data-start-command="npm run dev"/);
+});
+
+test('empty state shows Import Compose services when a compose file exists', () => {
+  const result = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      currentWorkspaceFolder: '/Users/example/stack',
+      currentWorkspaceFolderName: 'stack',
+      composeImportCandidate: {
+        folder: '/Users/example/stack',
+        composeFiles: ['compose.yaml']
+      }
+    }
+  });
+
+  assert.match(result.app.innerHTML, /data-action="import-workspace-compose"/);
+  assert.match(result.app.innerHTML, />Import Compose services</);
+  assert.match(result.app.innerHTML, /title="Review services from compose\.yaml"/);
+});
+
+test('empty state shows Procfile process chips when Procfile.dev exists', () => {
+  const result = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      currentWorkspaceFolder: '/Users/example/app',
+      currentWorkspaceFolderName: 'app',
+      procfileProcessCandidates: [
+        {
+          folder: '/Users/example/app',
+          name: 'web',
+          startCommand: 'npm run dev',
+          sourceFile: 'Procfile.dev'
+        }
+      ]
+    }
+  });
+
+  assert.match(result.app.innerHTML, /data-action="add-procfile-process"/);
+  assert.match(result.app.innerHTML, /data-name="web"/);
+  assert.match(result.app.innerHTML, /data-start-command="npm run dev"/);
+});
+
+test('empty state shows VS Code npm task chips from tasks.json', () => {
+  const result = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      currentWorkspaceFolder: '/Users/example/app',
+      currentWorkspaceFolderName: 'app',
+      vscodeTaskCandidates: [
+        {
+          folder: '/Users/example/app/packages/web',
+          name: 'Web dev',
+          scriptName: 'dev',
+          startCommand: 'npm run dev'
+        }
+      ]
+    }
+  });
+
+  assert.match(result.app.innerHTML, /data-action="add-vscode-task"/);
+  assert.match(result.app.innerHTML, /Web dev/);
+  assert.match(result.app.innerHTML, /data-folder="\/Users\/example\/app\/packages\/web"/);
+  assert.match(result.app.innerHTML, /data-start-command="npm run dev"/);
 });
 
 test('empty state hides Add this folder when no workspace folder is open', () => {
