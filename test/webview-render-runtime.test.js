@@ -1335,6 +1335,27 @@ test('empty state shows Import Compose services when a compose file exists', () 
   assert.match(result.app.innerHTML, /title="Review services from compose\.yaml"/);
 });
 
+test('empty state shows Procfile process chips when Procfile.dev exists', () => {
+  const result = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      currentWorkspaceFolder: '/Users/example/app',
+      currentWorkspaceFolderName: 'app',
+      procfileProcessCandidates: [
+        {
+          folder: '/Users/example/app',
+          name: 'web',
+          startCommand: 'npm run dev',
+          sourceFile: 'Procfile.dev'
+        }
+      ]
+    }
+  });
+
+  assert.match(result.app.innerHTML, /data-action="add-procfile-process"/);
+  assert.match(result.app.innerHTML, /data-name="web"/);
+  assert.match(result.app.innerHTML, /data-start-command="npm run dev"/);
+});
+
 test('empty state hides Add this folder when no workspace folder is open', () => {
   const result = renderNonEmptyProjectList([]);
 

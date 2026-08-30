@@ -1207,6 +1207,12 @@ function renderList() {
       && Array.isArray(state.composeImportCandidate.composeFiles)
       ? state.composeImportCandidate.composeFiles.filter((name) => typeof name === 'string' && name.trim())
       : [];
+    const procfileProcesses = Array.isArray(state.procfileProcessCandidates)
+      ? state.procfileProcessCandidates.filter((entry) => entry
+        && typeof entry.folder === 'string'
+        && typeof entry.name === 'string'
+        && typeof entry.startCommand === 'string')
+      : [];
     const startScripts = Array.isArray(state.workspaceStartScripts)
       ? state.workspaceStartScripts.filter((script) => script
         && ['start', 'dev'].includes(script.name)
@@ -1255,6 +1261,16 @@ function renderList() {
                 const chipHint = `Save and start ${entry.name} with \`${entry.startCommand}\``;
                 return `
                 <button class="empty-start-chip" data-action="add-workspace-package" data-folder="${escapeHtml(entry.folder)}" data-start-command="${escapeHtml(entry.startCommand)}" title="${escapeHtml(chipHint)}" aria-label="${escapeHtml(chipHint)}">
+                  ${escapeHtml(entry.name)}
+                </button>`;
+              }).join('')}
+            </div>` : ''}
+          ${workspaceFolder && procfileProcesses.length ? `
+            <div class="empty-procfile-processes" role="group" aria-label="Procfile processes in this workspace">
+              ${procfileProcesses.map((entry) => {
+                const chipHint = `Save and start ${entry.name} with \`${entry.startCommand}\``;
+                return `
+                <button class="empty-start-chip" data-action="add-procfile-process" data-name="${escapeHtml(entry.name)}" data-start-command="${escapeHtml(entry.startCommand)}" title="${escapeHtml(chipHint)}" aria-label="${escapeHtml(chipHint)}">
                   ${escapeHtml(entry.name)}
                 </button>`;
               }).join('')}
@@ -2962,6 +2978,11 @@ app.addEventListener('click', (event) => {
     'start-workspace-script': () => vscode.postMessage({
       type: 'startWorkspaceScript',
       script: button.dataset.script
+    }),
+    'add-procfile-process': () => vscode.postMessage({
+      type: 'addProcfileProcess',
+      name: button.dataset.name,
+      startCommand: button.dataset.startCommand
     }),
     'add-workspace-package': () => vscode.postMessage({
       type: 'addWorkspacePackage',
