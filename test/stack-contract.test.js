@@ -222,3 +222,47 @@ test('round-trip export then load preview shows no spurious project churn', (t) 
   assert.equal(preview.changeCount, 0);
   assert.ok(preview.entries.every((entry) => entry.status === 'skip'));
 });
+
+test('round-trip export then load preview preserves dependsOnFolders', (t) => {
+  const fixture = workspaceFixture(t);
+  const projectsFile = path.join(fixture.root, 'storage', 'projects.json');
+  fs.mkdirSync(path.dirname(projectsFile), { recursive: true });
+  const web = fixture.root;
+  const api = path.join(fixture.root, 'apps', 'api');
+  const saved = [
+    {
+      id: 'web-id',
+      name: 'Web',
+      folder: web,
+      startCommand: 'npm run dev',
+      services: [{ name: 'web', port: 3000 }],
+      dependsOn: ['api-id'],
+      reviewRequired: false
+    },
+    {
+      id: 'api-id',
+      name: 'API',
+      folder: api,
+      startCommand: 'npm start',
+      services: [{ name: 'api', port: 4000 }],
+      reviewRequired: false
+    }
+  ];
+  writeProjects(projectsFile, saved);
+
+  const exported = serializeStackContract({
+    projects: readProjects(projectsFile),
+    groups: []
+  }, { workspaceRoot: fixture.root });
+  assert.match(exported, /dependsOnFolders/);
+
+  const parsed = parseStackContract(exported, { workspaceRoot: fixture.root });
+  assert.ok(parsed.projects[0].dependsOnFolderKeys?.length);
+
+  const preview = previewProjectImport(readProjects(projectsFile), parsed.projects, {
+    replaceOptionalMetadata: false
+  });
+  assert.equal(preview.changeCount, 0);
+  assert.ok(preview.entries.every((entry) => entry.status === 'skip'));
+  assert.deepEqual(preview.nextProjects.find((project) => project.id === 'web-id')?.dependsOn, ['api-id']);
+});

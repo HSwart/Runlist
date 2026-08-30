@@ -129,6 +129,12 @@ function previewProjectImport(currentProjects, importedProjects, options = {}) {
   });
   const repeatedFolders = repeatedValues(candidates.map((candidate) => candidate.folder));
   const repeatedIds = repeatedValues(candidates.map((candidate) => candidate.id));
+  const folderToProject = new Map(currentProjects.map((project) => [project.id, project]));
+  for (const candidate of candidates) {
+    if (!candidate.error) {
+      folderToProject.set(candidate.id, candidate.normalized);
+    }
+  }
 
   const entries = candidates.map((candidate) => {
     const name = candidate.candidate?.name || 'Unnamed project';
@@ -160,7 +166,8 @@ function previewProjectImport(currentProjects, importedProjects, options = {}) {
       reviewRequired: true,
       projectsById
     });
-    if (existing && projectSetupFingerprint(existing) === projectSetupFingerprint(normalized)) {
+    if (existing && projectSetupFingerprint(existing, { folderToProject })
+      === projectSetupFingerprint(normalized, { folderToProject })) {
       return {
         status: 'skip',
         name: existing.name,
@@ -566,7 +573,24 @@ function remapImportedDependsOnIds(nextProjects, entries, idRemap) {
   }
 }
 
-function projectSetupFingerprint(project) {
+function dependencyFoldersFingerprint(project, folderToProject) {
+  if (Array.isArray(project.dependsOnFolderKeys) && project.dependsOnFolderKeys.length) {
+    return project.dependsOnFolderKeys.map((folder) => folderIdentity(folder)).sort();
+  }
+  if (Array.isArray(project.dependsOn) && project.dependsOn.length) {
+    return project.dependsOn.map((dependencyId) => {
+      const dependency = folderToProject.get(dependencyId);
+      if (!dependency) {
+        return dependencyId;
+      }
+      return folderIdentity(dependency.folder);
+    }).sort();
+  }
+  return [];
+}
+
+function projectSetupFingerprint(project, options = {}) {
+  const folderToProject = options.folderToProject || new Map();
   const env = project.env || {};
   const envKeys = Object.keys(env).sort();
   const sortedEnv = envKeys.length
@@ -585,7 +609,7 @@ function projectSetupFingerprint(project) {
     localHostname: project.localHostname || '',
     envFile: project.envFile || '',
     env: sortedEnv,
-    dependsOn: [...(project.dependsOn || [])].sort(),
+    dependsOnFolders: dependencyFoldersFingerprint(project, folderToProject),
     ...(project.composePath ? { composePath: project.composePath } : {}),
     ...(project.runtime && project.runtime !== 'unknown' ? { runtime: project.runtime } : {}),
     ...(Array.isArray(project.requiredEnvKeys) && project.requiredEnvKeys.length
