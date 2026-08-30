@@ -1242,7 +1242,7 @@ test('keeps a fast Windows launch alive through the complete identity-recording 
   assert.equal(signal, null);
 });
 
-test('preserves existing shell launch behavior on Linux', () => {
+test('anchors Linux launches through the process supervisor', () => {
   const calls = [];
   spawnProjectCommand('npm run dev', {
     platform: 'linux',
@@ -1253,17 +1253,21 @@ test('preserves existing shell launch behavior on Linux', () => {
     stdio: 'pipe'
   });
 
-  assert.deepEqual(calls, [[
-    'npm run dev',
-    { detached: true, shell: true, stdio: 'pipe' }
-  ]]);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], process.execPath);
+  assert.deepEqual(calls[0][1], [
+    path.join(__dirname, '..', 'src', 'lifecycle', 'process-supervisor.js'),
+    'npm run dev'
+  ]);
+  assert.deepEqual(calls[0][2], { detached: true, shell: false, stdio: 'pipe' });
 });
 
-test('spawns Compose argv without a shell on Linux and through the supervisor on macOS/Windows', () => {
+test('spawns Compose argv through the supervisor on Linux and macOS/Windows', () => {
   const argv = {
     file: '/usr/local/bin/docker',
     args: ['compose', '-f', '/tmp/my stack/compose.yaml', 'up', 'web']
   };
+  const supervisorPath = path.join(__dirname, '..', 'src', 'lifecycle', 'process-supervisor.js');
 
   const linuxCalls = [];
   spawnProjectCommand('docker compose up web', {
@@ -1276,8 +1280,8 @@ test('spawns Compose argv without a shell on Linux and through the supervisor on
     stdio: ['ignore', 'pipe', 'pipe']
   });
   assert.deepEqual(linuxCalls, [[
-    '/usr/local/bin/docker',
-    ['compose', '-f', '/tmp/my stack/compose.yaml', 'up', 'web'],
+    process.execPath,
+    [supervisorPath, '--', '/usr/local/bin/docker', 'compose', '-f', '/tmp/my stack/compose.yaml', 'up', 'web'],
     { detached: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'] }
   ]]);
 

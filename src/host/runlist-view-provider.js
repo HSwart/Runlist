@@ -648,6 +648,9 @@ class RunlistViewProvider {
       return false;
     }
     if (this.projects.length > 0) {
+      vscode.window.showInformationMessage(
+        'Runlist already has saved projects. Open a project setup and use Import Compose instead.'
+      );
       this.mode = 'list';
       this.render();
       return false;
@@ -713,35 +716,47 @@ class RunlistViewProvider {
       vscode.window.showErrorMessage(error?.message || 'Could not import workspace projects.');
       return false;
     }
-    const savedIds = [];
+    const staged = [];
     try {
-      await withProjectStoreLockAsync(this.projectsFile, () => {
-        for (const entry of importEntries) {
-          if (entry.kind === 'compose') {
-            const composePath = resolveComposeFile(entry.folder, entry.composeFiles?.[0]);
-            const file = readComposeFile(composePath);
-            const proposal = buildComposeImportProposal({
-              folder: entry.folder,
-              projectName: entry.name,
-              composePath: file.path,
-              contents: file.contents
-            });
-            const saved = upsertProject(this.projectsFile, {
+      for (const entry of importEntries) {
+        if (entry.kind === 'compose') {
+          const composePath = resolveComposeFile(entry.folder, entry.composeFiles?.[0]);
+          const file = readComposeFile(composePath);
+          const proposal = buildComposeImportProposal({
+            folder: entry.folder,
+            projectName: entry.name,
+            composePath: file.path,
+            contents: file.contents
+          });
+          staged.push({
+            project: {
               ...proposal.proposedProject,
               services: composeImportServicesForSave(proposal.proposedProject.services)
-            }, {
-              expectProjectAbsent: true,
-              reviewRequired: true,
-              lockHeld: true
-            });
-            savedIds.push(saved.project.id);
-            continue;
-          }
-          const saved = upsertProject(this.projectsFile, {
+            }
+          });
+          continue;
+        }
+        staged.push({
+          project: {
             name: entry.name,
             folder: entry.folder,
             startCommand: entry.startCommand
-          }, {
+          }
+        });
+      }
+    } catch (error) {
+      const message = error instanceof ComposeFileError
+        ? error.message
+        : error?.message || 'Could not import workspace projects.';
+      vscode.window.showErrorMessage(message);
+      return false;
+    }
+    const savedIds = [];
+    let savedGroupId;
+    try {
+      await withProjectStoreLockAsync(this.projectsFile, () => {
+        for (const item of staged) {
+          const saved = upsertProject(this.projectsFile, item.project, {
             expectProjectAbsent: true,
             reviewRequired: true,
             lockHeld: true
@@ -749,14 +764,29 @@ class RunlistViewProvider {
           savedIds.push(saved.project.id);
         }
         if (savedIds.length >= 2) {
-          upsertRunGroup(this.projectsFile, {
+          const group = upsertRunGroup(this.projectsFile, {
             name: 'Imported stack',
             projectIds: savedIds,
             startMode: 'sequential'
           }, { lockHeld: true });
+          savedGroupId = group.group.id;
         }
       });
     } catch (error) {
+      for (const id of [...savedIds].reverse()) {
+        try {
+          removeProject(this.projectsFile, id);
+        } catch {
+          // Best-effort rollback after a partial import.
+        }
+      }
+      if (savedGroupId) {
+        try {
+          removeRunGroup(this.projectsFile, savedGroupId);
+        } catch {
+          // Best-effort rollback after a partial import.
+        }
+      }
       const message = error instanceof ComposeFileError
         ? error.message
         : error?.message || 'Could not import workspace projects.';
@@ -799,7 +829,7 @@ class RunlistViewProvider {
 
   setLogSearchQuery(query) {
     this.logSearchQuery = String(query || '').slice(0, 200);
-    const focusTarget = { type: 'field', id: 'log-search-input', caret: 'end' };
+    const focusTarget = { type: 'field', id: 'log-search-input' };
     this.focusTarget = focusTarget;
     this.lastFocusTarget = focusTarget;
     this.render();
@@ -1189,7 +1219,8 @@ class RunlistViewProvider {
       const parsed = parseStackContract(fs.readFileSync(contractPath), { workspaceRoot, contractPath });
       const preview = previewProjectImport(this.projects, parsed.projects, {
         replaceOptionalMetadata: false,
-        isProjectActive: () => false
+        isProjectActive: (project) => this.getProjectStatus(project.id) === 'active'
+          || this.projectSetupLocked(project.id)
       });
       if (!preview.changeCount) {
         return undefined;
@@ -2683,8 +2714,13 @@ class RunlistViewProvider {
       }
     }
     if ((this.mode === 'output' && this.selectedProjectId === id)
-      || (this.mode === 'list' && this.expandedPreviewProjectId === id)) {
-      this.outputUpdateScheduler.schedule(id);
+      || (this.mode === 'list' && this.expandedPreviewProjectId === id)
+      || this.mode === 'log-search') {
+      if (this.mode === 'log-search') {
+        this.render();
+      } else {
+        this.outputUpdateScheduler.schedule(id);
+      }
     }
     this.writeProjectTerminal(id, chunk);
   }

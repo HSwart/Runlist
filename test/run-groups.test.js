@@ -477,6 +477,34 @@ test('does not launch remaining parallel members after losing the group lease', 
   assert.deepEqual(calls, ['start:first', 'stop:first', 'stopped:first', 'release']);
 });
 
+test('parallel preflight blocks group start when an external dependency is not ready', async () => {
+  const starts = [];
+  const result = await startRunGroup({
+    id: 'stack',
+    name: 'Stack',
+    projectIds: ['api'],
+    startMode: 'parallel'
+  }, {
+    coordinator: { acquire: () => true, release: () => {} },
+    projects: [
+      { id: 'api', name: 'API', dependsOn: ['db'] },
+      { id: 'db', name: 'Database' }
+    ],
+    getStatus: (id) => id === 'db' ? 'stopped' : 'stopped',
+    startProject: async (id) => {
+      starts.push(id);
+      return true;
+    },
+    waitUntilReady: async () => true,
+    stopProject: async () => true,
+    waitUntilStopped: async () => true
+  });
+
+  assert.equal(result.status, 'failed');
+  assert.match(result.failureReason, /Start Database before API/);
+  assert.deepEqual(starts, []);
+});
+
 test('parallel preflight starts nothing when any member is unsafe', async () => {
   const starts = [];
   const result = await startRunGroup({

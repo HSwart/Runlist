@@ -67,7 +67,7 @@ function spawnProjectCommand(command, options = {}) {
     && argv.file
     && Array.isArray(argv.args)
   );
-  if (platform === 'darwin' || platform === 'win32') {
+  if (platform === 'darwin' || platform === 'win32' || platform === 'linux') {
     const supervisorArgs = useArgv
       ? [supervisorPath, '--', argv.file, ...argv.args]
       : [supervisorPath, command];
@@ -312,6 +312,8 @@ async function exitedRootHasNoRemainingProcesses(pid, platform, options = {}) {
 
 async function terminateExitedWindowsTree(rootPid, rootIdentity, options = {}) {
   const readTree = options.readOwnedProcessTree || readOwnedProcessTree;
+  const knownTree = Array.isArray(options.knownTree) ? options.knownTree : [];
+  const treeIncomplete = knownTree.some((row) => row?.treeIncomplete === true);
   let rows = await readTree(rootPid, 'win32', options);
   const visibleRoot = rows.find((row) => row.pid === rootPid);
   if (visibleRoot) {
@@ -337,9 +339,22 @@ async function terminateExitedWindowsTree(rootPid, rootIdentity, options = {}) {
       }
     }
   }
+  if (treeIncomplete && stableProcessIdentity(rootIdentity)) {
+    try {
+      await terminateProcessTree(rootPid, {
+        ...options,
+        platform: 'win32',
+        expectedIdentity: rootIdentity,
+        readProcessIdentity: options.readProcessIdentity || readProcessIdentity
+      });
+      rows = await readTree(rootPid, 'win32', options);
+    } catch {
+      rows = await readTree(rootPid, 'win32', options);
+    }
+  }
   const rootStartedAt = windowsIdentityStartedAt(rootIdentity);
   const candidates = new Map();
-  for (const row of [...(options.knownTree || []), ...rows]) {
+  for (const row of [...knownTree, ...rows]) {
     const childStartedAt = windowsIdentityStartedAt(row.identity);
     if (row.pid !== rootPid
       && (rootStartedAt === undefined
@@ -1653,6 +1668,21 @@ class ProcessOwnershipStore {
           const expectedIdentity = persistedIdentity || pendingValue;
           if (!stableProcessIdentity(expectedIdentity)) {
             throw new Error('Runlist could not verify the launched process identity after the root process exited.');
+          }
+          const readGroup = options.readProcessGroup;
+          if (typeof readGroup === 'function') {
+            let members;
+            try {
+              members = await readGroup(current.childPid, {
+                ...options,
+                requireProcessGroupRoot: false
+              });
+            } catch {
+              throw new Error('Runlist could not verify the launched process group after the root process exited.');
+            }
+            if (!Array.isArray(members) || !members.length) {
+              return true;
+            }
           }
           // Root PID is dead; do not revalidate its identity or cleanup false-fails.
           await terminateProcessTree(current.childPid, {

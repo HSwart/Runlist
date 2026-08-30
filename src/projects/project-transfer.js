@@ -31,11 +31,15 @@ class ProjectTransferError extends Error {
   }
 }
 
-function exportProjectDocument(projects) {
-  return serializeProjectDocument(projects);
+function exportProjectDocument(projects, options = {}) {
+  const serializeOptions = {};
+  if (Array.isArray(options.groups) && options.groups.length) {
+    serializeOptions.groups = options.groups;
+  }
+  return serializeProjectDocument(projects, serializeOptions);
 }
 
-function parseImportDocument(contents) {
+function parseImportFile(contents) {
   const text = Buffer.isBuffer(contents) || contents instanceof Uint8Array
     ? Buffer.from(contents).toString('utf8')
     : String(contents ?? '');
@@ -69,7 +73,14 @@ function parseImportDocument(contents) {
     value: document.schemaVersion,
     enumerable: false
   });
-  return document.projects;
+  return {
+    projects: document.projects,
+    groups: document.groups || []
+  };
+}
+
+function parseImportDocument(contents) {
+  return parseImportFile(contents).projects;
 }
 
 function previewProjectImport(currentProjects, importedProjects, options = {}) {
@@ -82,11 +93,28 @@ function previewProjectImport(currentProjects, importedProjects, options = {}) {
     currentProjects.map((project) => [folderIdentity(project.folder), project])
   );
   const currentById = new Map(currentProjects.map((project) => [project.id, project]));
+  const importProjectsById = new Map(
+    importedProjects
+      .filter((candidate) => candidate && typeof candidate.id === 'string' && candidate.id)
+      .map((candidate) => [candidate.id, candidate])
+  );
+  const projectsById = new Map(currentById);
+  for (const [id, candidate] of importProjectsById) {
+    if (!projectsById.has(id)) {
+      projectsById.set(id, {
+        id,
+        name: candidate.name || 'Unnamed project',
+        folder: candidate.folder || '',
+        startCommand: candidate.startCommand || ''
+      });
+    }
+  }
   const candidates = importedProjects.map((candidate) => {
     try {
       const normalized = normalizeProjectInput(candidate, {
         allowStoredName: true,
-        reviewRequired: true
+        reviewRequired: true,
+        projectsById
       });
       return {
         candidate,
@@ -128,7 +156,8 @@ function previewProjectImport(currentProjects, importedProjects, options = {}) {
       existing: replaceOptionalMetadata ? undefined : existing,
       id: existing?.id || candidate.id,
       normalizedFolder: candidate.normalized.folder,
-      reviewRequired: true
+      reviewRequired: true,
+      projectsById
     });
     if (existing && projectSetupFingerprint(existing) === projectSetupFingerprint(normalized)) {
       return {
@@ -321,9 +350,15 @@ async function exportProjects(options) {
   if (!target) {
     return { status: 'cancelled' };
   }
+  const selectedIds = new Set(selectedProjects.map((project) => project.id));
+  const groups = options.action === 'export-all'
+    ? readRunGroups(options.projectsFile).filter((group) => (
+      group.projectIds.length > 0 && group.projectIds.every((id) => selectedIds.has(id))
+    ))
+    : [];
   await options.workspace.fs.writeFile(
     target,
-    Buffer.from(exportProjectDocument(selectedProjects), 'utf8')
+    Buffer.from(exportProjectDocument(selectedProjects, { groups }), 'utf8')
   );
   const label = `${selectedProjects.length} project setup${selectedProjects.length === 1 ? '' : 's'}`;
   await options.window.showInformationMessage(`Exported ${label}. Saved commands are included in the file.`);
@@ -343,10 +378,10 @@ async function importProjects(options) {
     return { status: 'cancelled' };
   }
   const contents = await options.workspace.fs.readFile(selection[0]);
-  const importedProjects = parseImportDocument(contents);
-  const preview = previewProjectImport(readProjects(options.projectsFile), importedProjects, {
+  const imported = parseImportFile(contents);
+  const preview = previewProjectImport(readProjects(options.projectsFile), imported.projects, {
     isProjectActive: options.isProjectActive,
-    replaceOptionalMetadata: importedProjects.schemaVersion >= 5
+    replaceOptionalMetadata: imported.projects.schemaVersion >= 5
   });
   const detail = formatProjectImportPreview(preview.entries);
   if (!preview.changeCount) {
@@ -371,9 +406,13 @@ async function importProjects(options) {
     return { status: 'cancelled', preview };
   }
 
-  const applyImport = () => applyProjectImport(options.projectsFile, preview, {
-    reserveUpdatedProjects: options.reserveUpdatedProjects
-  });
+  const applyImport = () => {
+    const projects = applyProjectImport(options.projectsFile, preview, {
+      reserveUpdatedProjects: options.reserveUpdatedProjects
+    });
+    syncImportedRunGroups(options.projectsFile, projects, imported.groups);
+    return projects;
+  };
   const projects = options.withProjectStoreLock
     ? await options.withProjectStoreLock(applyImport)
     : applyImport();
@@ -447,7 +486,8 @@ function projectSetupFingerprint(project) {
     pinned: project.pinned === true,
     localHostname: project.localHostname || '',
     envFile: project.envFile || '',
-    env: project.env || {}
+    env: project.env || {},
+    dependsOn: project.dependsOn || []
   });
 }
 
@@ -696,6 +736,29 @@ function syncRunGroupsFromContract(projectsFile, projects, contractGroups, works
   }
 }
 
+function syncImportedRunGroups(projectsFile, projects, importedGroups) {
+  if (!Array.isArray(importedGroups) || !importedGroups.length) {
+    return;
+  }
+  const projectIds = new Set(projects.map((project) => project.id));
+  const existing = readRunGroups(projectsFile);
+  for (const group of importedGroups) {
+    const memberIds = (group.projectIds || []).filter((id) => projectIds.has(id));
+    if (!memberIds.length) {
+      continue;
+    }
+    const match = existing.find((entry) => (
+      entry.name.toLocaleLowerCase() === String(group.name || '').toLocaleLowerCase()
+    ));
+    upsertRunGroup(projectsFile, {
+      ...(match ? { id: match.id } : {}),
+      name: group.name,
+      projectIds: memberIds,
+      startMode: group.startMode
+    });
+  }
+}
+
 function formatContractGroupPreview(groups) {
   if (!groups?.length) {
     return '';
@@ -716,10 +779,12 @@ module.exports = {
   MAX_IMPORT_BYTES,
   MAX_IMPORT_PROJECTS,
   parseImportDocument,
+  parseImportFile,
   prepareStackContractLoad,
   previewProjectImport,
   ProjectTransferError,
   runProjectTransferWorkflow,
   runStackContractExportWorkflow,
-  runStackContractLoadWorkflow
+  runStackContractLoadWorkflow,
+  syncImportedRunGroups
 };

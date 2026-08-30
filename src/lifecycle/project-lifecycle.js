@@ -113,6 +113,7 @@ class ProjectLifecycleCoordinator {
     }
     const result = await stopRunGroup(group, {
       coordinator: this.host.runGroupCoordinator,
+      projects: this.host.projects,
       isOwned: (projectId) => {
         const project = this.host.projects.find((candidate) => candidate.id === projectId);
         const runtimeProject = projectStopStrategy(
@@ -151,6 +152,17 @@ class ProjectLifecycleCoordinator {
       } else {
         this.showErrorMessage(
           `Runlist could not confirm that every owned process in ${group.name} stopped.`
+        );
+      }
+    } else if (result.skippedProjectIds?.length) {
+      const skippedNames = result.skippedProjectIds
+        .map((projectId) => this.host.projects.find((project) => project.id === projectId)?.name)
+        .filter(Boolean);
+      if (skippedNames.length) {
+        this.showInformationMessage(
+          `${group.name}: stopped the Runlist-owned projects. ${skippedNames.join(', ')} ${
+            skippedNames.length === 1 ? 'was' : 'were'
+          } left unchanged because Runlist does not manage them in this window.`
         );
       }
     }

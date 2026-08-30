@@ -1,5 +1,9 @@
 const { ProcessOwnershipStore } = require('../lifecycle/project-process');
-const { dependencyLayers, orderProjectsByDependencies } = require('../projects/project-dependencies');
+const {
+  dependencyLayers,
+  orderProjectsByDependencies,
+  unresolvedDependencies
+} = require('../projects/project-dependencies');
 
 class RunGroupCoordinator {
   constructor(directory, options = {}) {
@@ -102,6 +106,7 @@ async function startRunGroup(group, options) {
       rollbackFailures: []
     };
   }
+  const groupProjectIds = new Set(group.projectIds);
   try {
     if (group.startMode === 'parallel') {
       return await startRunGroupInParallel({
@@ -125,6 +130,17 @@ async function startRunGroup(group, options) {
       if (project.reviewRequired) {
         failedProjectId = projectId;
         failureReason = 'Review and approve this project setup before running it.';
+        break;
+      }
+      const dependencyFailure = dependencyStartFailure(
+        project,
+        groupProjectIds,
+        projects,
+        options.getStatus
+      );
+      if (dependencyFailure) {
+        failedProjectId = projectId;
+        failureReason = dependencyFailure;
         break;
       }
 
@@ -233,7 +249,13 @@ async function startRunGroupInParallel(group, options, projects, startedProjectI
     for (const projectId of layerProjectIds) {
       const project = projects.get(projectId);
       const status = options.getStatus(projectId);
-      const failureReason = parallelPreflightFailure(project, status);
+      const failureReason = parallelPreflightFailure(
+        project,
+        status,
+        new Set(group.projectIds),
+        projects,
+        options.getStatus
+      );
       if (failureReason) {
         notify(options, { status: 'failed', project, reason: failureReason, rollbackFailures: [] });
         return {
@@ -341,17 +363,41 @@ async function startRunGroupInParallel(group, options, projects, startedProjectI
   return { status: 'started', startedProjectIds: orderedProjectIds(group, startedProjectIds) };
 }
 
-function parallelPreflightFailure(project, status) {
+function parallelPreflightFailure(project, status, groupProjectIds, projectsById, getStatus) {
   if (!project) {
     return 'The saved project is no longer available.';
   }
   if (project.reviewRequired) {
     return 'Review and approve this project setup before running it.';
   }
+  const dependencyFailure = dependencyStartFailure(
+    project,
+    groupProjectIds,
+    projectsById,
+    getStatus
+  );
+  if (dependencyFailure) {
+    return dependencyFailure;
+  }
   if (!['stopped', 'running', 'active'].includes(status)) {
     return `The project is ${status || 'not ready'} and cannot be started safely.`;
   }
   return undefined;
+}
+
+function dependencyStartFailure(project, groupProjectIds, projectsById, getStatus) {
+  const waiting = unresolvedDependencies(project, projectsById, getStatus);
+  if (!waiting.length) {
+    return undefined;
+  }
+  const external = waiting.filter((entry) => !groupProjectIds.has(entry.projectId));
+  if (!external.length) {
+    return undefined;
+  }
+  const names = external.map((entry) => entry.name).join(', ');
+  return external.length === 1
+    ? `Start ${names} before ${project.name}.`
+    : `Start these projects before ${project.name}: ${names}.`;
 }
 
 function orderedProjectIds(group, projectIds) {
@@ -383,14 +429,17 @@ async function stopRunGroup(group, options) {
 
   const stoppedProjectIds = [];
   const failedProjectIds = [];
+  const skippedProjectIds = [];
   let coordinationLost = false;
+  const stopOrder = stopOrderProjectIds(group, options);
   try {
-    for (const projectId of [...group.projectIds].reverse()) {
+    for (const projectId of stopOrder) {
       if (!groupLeaseIsHeld(options.coordinator, group.id)) {
         coordinationLost = true;
         break;
       }
       if (!options.isOwned(projectId)) {
+        skippedProjectIds.push(projectId);
         continue;
       }
       notify(options, { status: 'stopping', projectId });
@@ -426,11 +475,25 @@ async function stopRunGroup(group, options) {
       status,
       stoppedProjectIds,
       failedProjectIds,
+      skippedProjectIds,
       ...(failedProjectId ? { failedProjectId } : {}),
       ...(failureReason ? { failureReason } : {})
     };
   } finally {
     options.coordinator.release(group.id);
+  }
+}
+
+function stopOrderProjectIds(group, options) {
+  const projects = options.projects;
+  if (!Array.isArray(projects) || !projects.length) {
+    return [...group.projectIds].reverse();
+  }
+  const projectsById = new Map(projects.map((project) => [project.id, project]));
+  try {
+    return [...orderProjectsByDependencies(group.projectIds, projectsById)].reverse();
+  } catch {
+    return [...group.projectIds].reverse();
   }
 }
 

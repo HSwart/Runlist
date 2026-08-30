@@ -56,6 +56,14 @@ async function findListeningProcesses(ports, options = {}) {
       listeners = [];
     }
   }
+  if (!listeners.length && platform === 'darwin') {
+    try {
+      const output = await runFile('netstat', ['-anv', '-p', 'tcp'], commandOptions(options));
+      listeners = parseDarwinNetstatListeners(output, requestedPorts);
+    } catch {
+      listeners = [];
+    }
+  }
 
   const readIdentity = options.readProcessIdentity
     || ((pid) => readProcessIdentity(pid, platform, options));
@@ -198,6 +206,25 @@ function parseSsListeners(output, ports) {
   return deduplicateListeners(listeners);
 }
 
+function parseDarwinNetstatListeners(output, ports) {
+  const allowed = portSet(ports);
+  const listeners = [];
+  for (const line of String(output).split(/\r?\n/)) {
+    if (!/\sLISTEN\b/.test(line)) {
+      continue;
+    }
+    const columns = line.trim().split(/\s+/);
+    const localEndpoint = columns[3] || columns[2];
+    const port = endpointPort(localEndpoint);
+    const pid = Number(columns[columns.length - 2]);
+    if (!allowed.has(port) || !validPid(pid)) {
+      continue;
+    }
+    listeners.push({ port, pid, name: 'Unknown process' });
+  }
+  return deduplicateListeners(listeners);
+}
+
 function portSet(ports) {
   return new Set((ports || [])
     .map(Number)
@@ -205,8 +232,13 @@ function portSet(ports) {
 }
 
 function endpointPort(value) {
-  const match = String(value || '').match(/:(\d+)$/);
-  return match ? Number(match[1]) : undefined;
+  const text = String(value || '');
+  const colonMatch = text.match(/:(\d+)$/);
+  if (colonMatch) {
+    return Number(colonMatch[1]);
+  }
+  const dotMatch = text.match(/\.(\d+)$/);
+  return dotMatch ? Number(dotMatch[1]) : undefined;
 }
 
 function processName(value) {
@@ -301,6 +333,7 @@ function execFileText(file, args, options) {
 
 module.exports = {
   findListeningProcesses,
+  parseDarwinNetstatListeners,
   parseLsofListeners,
   parseSsListeners,
   parseWindowsNetstatListeners,
