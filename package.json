@@ -233,9 +233,10 @@
     "update:webview-screenshot": "node scripts/webview-e2e.js --update-screenshot",
     "validate:marketplace": "node scripts/validate-marketplace.js --preparation",
     "validate:marketplace:publish": "node scripts/validate-marketplace.js",
+    "validate:marketplace:packaging": "node scripts/validate-vsix.js --source-only",
     "validate:marketplace:vsix": "node scripts/validate-vsix.js",
     "validate:sbom": "node scripts/validate-sbom.js",
-    "quality": "npm run lint && npm run scan:secrets && npm run test:critical-coverage && npm run validate:sbom && npm run validate:marketplace:vsix",
+    "quality": "npm run lint && npm run scan:secrets && npm run test:critical-coverage && npm run validate:sbom && npm run validate:marketplace:packaging",
     "verify": "npm run quality && npm test && npm run test:smoke",
     "package": "npm run validate:marketplace:publish && node scripts/package-vsix.js",
     "publish:marketplace": "npm run validate:marketplace:publish && npm run validate:marketplace:vsix && vsce publish --azure-credential --packagePath releases/runlist.vsix"

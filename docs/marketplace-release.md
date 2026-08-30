@@ -34,6 +34,8 @@ The strict `npm run validate:marketplace:publish` command must pass before publi
 
 Before publication, `npm run validate:marketplace:vsix` checks the tracked `releases/runlist.vsix` artifact. It creates a temporary candidate from the current source, compares the candidate's identity, version, and packaged contents with the tracked artifact, and removes the candidate after the check. The temporary candidate is for comparison only; it is not published or retained.
 
+`npm run verify` runs `npm run validate:marketplace:packaging` instead. That builds a temporary candidate from the current source and checks identity, version, and gallery packaging without requiring the tracked release artifact to be regenerated on every logic-only change.
+
 ## Secure publication
 
 Ops publishes from GitHub Actions on `main`. That is the only Ops publish path. Local `vsce` is not required for Ops.
