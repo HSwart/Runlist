@@ -184,7 +184,7 @@ function previewProjectImport(currentProjects, importedProjects, options = {}) {
     };
   });
 
-  const nextProjects = currentProjects.map((project) => ({ ...project }));
+  let nextProjects = currentProjects.map((project) => ({ ...project }));
   const indexesById = new Map(nextProjects.map((project, index) => [project.id, index]));
   for (const entry of entries) {
     if (entry.status === 'update') {
@@ -220,6 +220,8 @@ function previewProjectImport(currentProjects, importedProjects, options = {}) {
       delete entry.project;
     }
   }
+
+  nextProjects = buildNextProjectsFromEntries(currentProjects, entries);
 
   return {
     fingerprint: projectListFingerprint(currentProjects),
@@ -505,6 +507,20 @@ function folderIdentity(folder) {
   } catch {
     return path.resolve(folder);
   }
+}
+
+function buildNextProjectsFromEntries(currentProjects, entries) {
+  const nextProjects = currentProjects.map((project) => ({ ...project }));
+  const indexesById = new Map(nextProjects.map((project, index) => [project.id, index]));
+  for (const entry of entries) {
+    if (entry.status === 'update' && entry.project) {
+      nextProjects[indexesById.get(entry.project.id)] = entry.project;
+    } else if (entry.status === 'add' && entry.project) {
+      indexesById.set(entry.project.id, nextProjects.length);
+      nextProjects.push(entry.project);
+    }
+  }
+  return nextProjects;
 }
 
 function resolveImportedDependsOnFolders(nextProjects, entries) {
