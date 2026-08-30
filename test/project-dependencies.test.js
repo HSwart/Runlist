@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
   dependencyCycleMessage,
+  dependencyLayers,
   normalizeDependsOn,
   orderProjectsByDependencies,
   unresolvedDependencies
@@ -15,6 +16,29 @@ test('orderProjectsByDependencies respects dependency order', () => {
   assert.deepEqual(
     orderProjectsByDependencies(['web', 'api'], projectsById),
     ['api', 'web']
+  );
+});
+
+test('orderProjectsByDependencies ignores dependencies outside the run group', () => {
+  const projectsById = new Map([
+    ['api', { id: 'api', name: 'API', dependsOn: [] }],
+    ['web', { id: 'web', name: 'Web', dependsOn: ['api'] }]
+  ]);
+  assert.deepEqual(
+    orderProjectsByDependencies(['web'], projectsById),
+    ['web']
+  );
+});
+
+test('dependencyLayers groups parallel-ready projects by dependency depth', () => {
+  const projectsById = new Map([
+    ['api', { id: 'api', name: 'API', dependsOn: [] }],
+    ['admin', { id: 'admin', name: 'Admin', dependsOn: [] }],
+    ['web', { id: 'web', name: 'Web', dependsOn: ['api'] }]
+  ]);
+  assert.deepEqual(
+    dependencyLayers(['web', 'api', 'admin'], projectsById),
+    [['api', 'admin'], ['web']]
   );
 });
 

@@ -1258,3 +1258,23 @@ test('persists dependsOn and custom bodyContains health checks', (t) => {
   assert.equal(web.services[0].healthCheck.bodyContains, 'ready');
   assert.equal(JSON.parse(fs.readFileSync(projectsFile, 'utf8')).schemaVersion, 11);
 });
+
+test('removing a dependency project clears dependsOn from dependents', (t) => {
+  const { projectsFile, projectFolder } = projectStoreFixture(t);
+  const apiFolder = path.join(path.dirname(projectFolder), 'api');
+  fs.mkdirSync(apiFolder, { recursive: true });
+  const api = upsertProject(projectsFile, {
+    folder: apiFolder,
+    startCommand: 'npm run dev',
+    services: [{ name: 'web', port: 3100 }]
+  }).project;
+  upsertProject(projectsFile, {
+    folder: projectFolder,
+    startCommand: 'npm run dev',
+    services: [{ name: 'web', port: 3200 }],
+    dependsOn: [api.id]
+  });
+  assert.equal(removeProject(projectsFile, api.id), true);
+  const [remaining] = readProjects(projectsFile);
+  assert.equal(Object.hasOwn(remaining, 'dependsOn'), false);
+});

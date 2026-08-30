@@ -94,7 +94,7 @@ const {
 } = require('../projects/project-workspace');
 const { discoverProcfileProcessCandidates } = require('../projects/procfile-discovery');
 const { discoverVscodeTaskCandidates } = require('../projects/vscode-tasks-discovery');
-const { buildWorkspaceImportProposal, workspaceImportKey } = require('../projects/workspace-import');
+const { buildWorkspaceImportProposal, consolidateChosenImportEntries, workspaceImportKey } = require('../projects/workspace-import');
 const { searchProjectLogs } = require('../projects/project-log-search');
 const { unresolvedDependencies } = require('../projects/project-dependencies');
 const {
@@ -705,10 +705,18 @@ class RunlistViewProvider {
       vscode.window.showWarningMessage('Select at least one project to import.');
       return false;
     }
+    let importEntries;
+    let skippedEntries = [];
+    try {
+      ({ entries: importEntries, skipped: skippedEntries } = consolidateChosenImportEntries(chosen));
+    } catch (error) {
+      vscode.window.showErrorMessage(error?.message || 'Could not import workspace projects.');
+      return false;
+    }
     const savedIds = [];
     try {
       await withProjectStoreLockAsync(this.projectsFile, () => {
-        for (const entry of chosen) {
+        for (const entry of importEntries) {
           if (entry.kind === 'compose') {
             const composePath = resolveComposeFile(entry.folder, entry.composeFiles?.[0]);
             const file = readComposeFile(composePath);
@@ -763,7 +771,11 @@ class RunlistViewProvider {
     this.renderProjectList();
     void this.refreshProjectStatuses();
     vscode.window.showInformationMessage(
-      `Imported ${savedIds.length} project setup${savedIds.length === 1 ? '' : 's'}. Review each one before running.`
+      `Imported ${savedIds.length} project setup${savedIds.length === 1 ? '' : 's'}. Review each one before running.${
+        skippedEntries.length
+          ? ` Skipped ${skippedEntries.length} duplicate folder selection${skippedEntries.length === 1 ? '' : 's'}.`
+          : ''
+      }`
     );
     return true;
   }
@@ -775,7 +787,9 @@ class RunlistViewProvider {
     this.mode = 'log-search';
     this.logSearchQuery = this.logSearchQuery || '';
     this.routeNotice = undefined;
-    this.focusTarget = { type: 'field', id: 'log-search-input' };
+    const focusTarget = { type: 'field', id: 'log-search-input' };
+    this.focusTarget = focusTarget;
+    this.lastFocusTarget = focusTarget;
     this.returnFocus = this.defaultListFocusTarget();
     this.selectedProjectId = undefined;
     await this.revealRunlistView();
@@ -785,6 +799,9 @@ class RunlistViewProvider {
 
   setLogSearchQuery(query) {
     this.logSearchQuery = String(query || '').slice(0, 200);
+    const focusTarget = { type: 'field', id: 'log-search-input', caret: 'end' };
+    this.focusTarget = focusTarget;
+    this.lastFocusTarget = focusTarget;
     this.render();
   }
 
