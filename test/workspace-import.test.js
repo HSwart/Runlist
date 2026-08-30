@@ -44,3 +44,21 @@ test('consolidateChosenImportEntries rejects compose and project for the same fo
     /Cannot import both Compose and separate projects/
   );
 });
+
+test('consolidateChosenImportEntries keeps distinct case-sensitive folders separate', (t) => {
+  if (process.platform === 'darwin' || process.platform === 'win32') {
+    return;
+  }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-import-case-'));
+  const upper = path.join(root, 'App');
+  const lower = path.join(root, 'app');
+  fs.mkdirSync(upper);
+  fs.mkdirSync(lower);
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const consolidated = consolidateChosenImportEntries([
+    { kind: 'project', name: 'Upper', folder: upper, startCommand: 'npm run upper' },
+    { kind: 'project', name: 'lower', folder: lower, startCommand: 'npm run lower' }
+  ]);
+  assert.equal(consolidated.entries.length, 2);
+  assert.equal(consolidated.skipped.length, 0);
+});

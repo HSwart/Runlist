@@ -307,6 +307,33 @@ test('rolls back only newly started members in reverse after a blocked start', a
   ]);
 });
 
+test('parallel dependency layers preflight later members before starting earlier layers', async () => {
+  const starts = [];
+  const result = await startRunGroup({
+    id: 'parallel-deps-preflight',
+    name: 'Parallel deps',
+    projectIds: ['api', 'web'],
+    startMode: 'parallel'
+  }, {
+    coordinator: { acquire: () => true, release: () => {} },
+    projects: [
+      { id: 'api', name: 'API', dependsOn: [] },
+      { id: 'web', name: 'Web', dependsOn: ['api'] }
+    ],
+    getStatus: (id) => (id === 'web' ? 'port-in-use' : 'stopped'),
+    startProject: async (id) => {
+      starts.push(id);
+      return true;
+    },
+    waitUntilReady: async () => true,
+    stopProject: async () => true,
+    waitUntilStopped: async () => true
+  });
+  assert.equal(result.status, 'failed');
+  assert.equal(result.failedProjectId, 'web');
+  assert.deepEqual(starts, []);
+});
+
 test('starts parallel group members in dependency layers', async () => {
   const calls = [];
   const readyResolvers = new Map();

@@ -1,3 +1,4 @@
+const fs = require('node:fs');
 const path = require('node:path');
 const { discoverWorkspacePackageCandidates } = require('./project-workspace');
 const { discoverProcfileProcessCandidates } = require('./procfile-discovery');
@@ -10,7 +11,15 @@ function workspaceImportKey(entry) {
 }
 
 function workspaceImportFolderKey(folder) {
-  return path.resolve(String(folder || '').trim()).toLocaleLowerCase();
+  const trimmed = String(folder || '').trim();
+  if (!trimmed) {
+    return '';
+  }
+  try {
+    return fs.realpathSync(trimmed);
+  } catch {
+    return path.resolve(trimmed);
+  }
 }
 
 function preferImportEntry(left, right) {

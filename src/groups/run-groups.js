@@ -230,9 +230,7 @@ async function startRunGroupInParallel(group, options, projects, startedProjectI
   }
 
   for (const layerProjectIds of layers) {
-    const eligible = [];
-    for (let index = 0; index < layerProjectIds.length; index += 1) {
-      const projectId = layerProjectIds[index];
+    for (const projectId of layerProjectIds) {
       const project = projects.get(projectId);
       const status = options.getStatus(projectId);
       const failureReason = parallelPreflightFailure(project, status);
@@ -247,6 +245,15 @@ async function startRunGroupInParallel(group, options, projects, startedProjectI
           rollbackFailures: []
         };
       }
+    }
+  }
+
+  for (const layerProjectIds of layers) {
+    const eligible = [];
+    for (let index = 0; index < layerProjectIds.length; index += 1) {
+      const projectId = layerProjectIds[index];
+      const project = projects.get(projectId);
+      const status = options.getStatus(projectId);
       if (['running', 'active'].includes(status)) {
         notify(options, {
           status: 'skipped',
