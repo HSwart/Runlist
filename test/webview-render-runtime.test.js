@@ -1297,6 +1297,27 @@ test('empty state shows Load stack when a stack contract is pending', () => {
   assert.match(result.app.innerHTML, /class="secondary-button"[^>]*data-action="show-add">Add this folder</);
 });
 
+test('empty state shows workspace package chips for monorepo packages', () => {
+  const result = renderNonEmptyProjectList([], {
+    stateOverrides: {
+      currentWorkspaceFolder: '/Users/example/monorepo',
+      currentWorkspaceFolderName: 'monorepo',
+      workspacePackageCandidates: [
+        {
+          folder: '/Users/example/monorepo/packages/api',
+          name: '@acme/api',
+          scriptName: 'dev',
+          startCommand: 'npm run dev'
+        }
+      ]
+    }
+  });
+
+  assert.match(result.app.innerHTML, /data-action="add-workspace-package"/);
+  assert.match(result.app.innerHTML, /@acme\/api/);
+  assert.match(result.app.innerHTML, /data-start-command="npm run dev"/);
+});
+
 test('empty state hides Add this folder when no workspace folder is open', () => {
   const result = renderNonEmptyProjectList([]);
 
