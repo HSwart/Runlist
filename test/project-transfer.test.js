@@ -275,3 +275,26 @@ test('rejects more than eight dependsOnFolderKeys during preview', (t) => {
   assert.equal(preview.changeCount, 0);
   assert.deepEqual(preview.nextProjects, []);
 });
+
+test('invalidates dependents when a referenced import project is invalid', (t) => {
+  const fixture = transferFixture(t);
+  const goodFolder = fixture.folder('good');
+  const badFolder = fixture.folder('bad');
+  const preview = previewProjectImport([], [
+    {
+      ...project('good-id', 'Good', goodFolder),
+      dependsOnFolderKeys: [badFolder]
+    },
+    {
+      ...project('bad-id', 'Bad', badFolder),
+      dependsOnFolderKeys: [path.join(fixture.root, 'missing')]
+    }
+  ]);
+
+  assert.equal(preview.entries.find((entry) => entry.name === 'Bad').status, 'invalid');
+  const goodEntry = preview.entries.find((entry) => entry.name === 'Good');
+  assert.equal(goodEntry.status, 'invalid');
+  assert.match(goodEntry.reason, /missing or invalid/i);
+  assert.equal(preview.changeCount, 0);
+  assert.deepEqual(preview.nextProjects, []);
+});
