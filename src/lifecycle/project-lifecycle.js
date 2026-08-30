@@ -160,9 +160,9 @@ class ProjectLifecycleCoordinator {
         .filter(Boolean);
       if (skippedNames.length) {
         this.showInformationMessage(
-          `${group.name}: stopped Runlist-owned projects. ${skippedNames.join(', ')} ${
+          `${group.name}: stopped the Runlist-owned projects. ${skippedNames.join(', ')} ${
             skippedNames.length === 1 ? 'was' : 'were'
-          } running elsewhere and left unchanged.`
+          } left unchanged because Runlist does not manage them in this window.`
         );
       }
     }

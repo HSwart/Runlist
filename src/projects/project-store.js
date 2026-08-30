@@ -116,6 +116,7 @@ function writeProjects(filePath, projects, options = {}) {
   }
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const validatedProjects = validateStoredProjects(projects);
+  rejectDependencyCycles(validatedProjects);
   let groups;
   if (fs.existsSync(filePath)) {
     const currentContents = fs.readFileSync(filePath, 'utf8');
@@ -679,15 +680,18 @@ function validateStoredProjects(value, options = {}) {
         }
       }
     });
-    const cycle = dependencyCycleMessage(
-      [...savedProjectIds],
-      new Map(validated.map((project) => [project.id, project]))
-    );
-    if (cycle) {
-      throw projectStoreError('INVALID_STORAGE', cycle);
-    }
   }
   return validated;
+}
+
+function rejectDependencyCycles(projects) {
+  const cycle = dependencyCycleMessage(
+    projects.map((project) => project.id),
+    new Map(projects.map((project) => [project.id, project]))
+  );
+  if (cycle) {
+    throw projectStoreError('INVALID_STORAGE', cycle);
+  }
 }
 
 function validateStoredLaunchProfiles(value, projectIndex, options = {}) {

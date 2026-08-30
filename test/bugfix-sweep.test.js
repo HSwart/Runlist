@@ -6,10 +6,13 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const {
+  applyProjectImport,
   exportProjectDocument,
-  previewProjectImport
+  parseImportFile,
+  previewProjectImport,
+  syncImportedRunGroups
 } = require('../src/projects/project-transfer');
-const { writeProjects, readProjects, upsertRunGroup } = require('../src/projects/project-store');
+const { writeProjects, readProjects, upsertRunGroup, readRunGroups } = require('../src/projects/project-store');
 const { stopRunGroup } = require('../src/groups/run-groups');
 const { workspaceImportFolderKey } = require('../src/projects/workspace-import');
 const { parseDarwinNetstatListeners } = require('../src/ports/port-process');
@@ -65,18 +68,53 @@ test('exportProjectDocument includes run groups when requested', () => {
   }]);
 });
 
-test('writeProjects rejects dependency cycles', () => {
+test('export and import round-trip preserves run groups', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-export-groups-'));
+  const sourceFile = path.join(root, 'source.json');
+  const targetFile = path.join(root, 'target.json');
+  fs.mkdirSync(path.dirname(sourceFile), { recursive: true });
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const first = project('first', 'First', path.join(root, 'first'));
+  const second = project('second', 'Second', path.join(root, 'second'));
+  fs.mkdirSync(first.folder, { recursive: true });
+  fs.mkdirSync(second.folder, { recursive: true });
+  writeProjects(sourceFile, [first, second]);
+  upsertRunGroup(sourceFile, {
+    name: 'Stack',
+    projectIds: ['first', 'second'],
+    startMode: 'sequential'
+  });
+
+  const exported = parseImportFile(exportProjectDocument([first, second], {
+    groups: readRunGroups(sourceFile)
+  }));
+  assert.equal(exported.groups.length, 1);
+  assert.equal(exported.groups[0].name, 'Stack');
+
+  const preview = previewProjectImport([], exported.projects);
+  applyProjectImport(targetFile, preview);
+  syncImportedRunGroups(targetFile, preview.nextProjects, exported.groups);
+  const groups = readRunGroups(targetFile);
+  assert.equal(groups.length, 1);
+  assert.deepEqual(groups[0].projectIds, ['first', 'second']);
+});
+
+test('writeProjects rejects dependency cycles', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-cycle-'));
   const projectsFile = path.join(root, 'projects.json');
-  fs.mkdirSync(path.dirname(projectsFile), { recursive: true });
+  const apiFolder = path.join(root, 'api');
+  const dbFolder = path.join(root, 'db');
+  fs.mkdirSync(apiFolder, { recursive: true });
+  fs.mkdirSync(dbFolder, { recursive: true });
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   assert.throws(
     () => writeProjects(projectsFile, [
-      project('api', 'API', '/workspace/api', { dependsOn: ['db'] }),
-      project('db', 'Database', '/workspace/db', { dependsOn: ['api'] })
+      project('api', 'API', apiFolder, { dependsOn: ['db'] }),
+      project('db', 'Database', dbFolder, { dependsOn: ['api'] })
     ]),
     /Dependency cycle detected/
   );
-  fs.rmSync(root, { recursive: true, force: true });
 });
 
 test('stopRunGroup stops members in reverse dependency order', async () => {

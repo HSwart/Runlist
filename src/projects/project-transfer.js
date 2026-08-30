@@ -39,7 +39,7 @@ function exportProjectDocument(projects, options = {}) {
   return serializeProjectDocument(projects, serializeOptions);
 }
 
-function parseImportDocument(contents) {
+function parseImportFile(contents) {
   const text = Buffer.isBuffer(contents) || contents instanceof Uint8Array
     ? Buffer.from(contents).toString('utf8')
     : String(contents ?? '');
@@ -73,7 +73,14 @@ function parseImportDocument(contents) {
     value: document.schemaVersion,
     enumerable: false
   });
-  return document.projects;
+  return {
+    projects: document.projects,
+    groups: document.groups || []
+  };
+}
+
+function parseImportDocument(contents) {
+  return parseImportFile(contents).projects;
 }
 
 function previewProjectImport(currentProjects, importedProjects, options = {}) {
@@ -371,10 +378,10 @@ async function importProjects(options) {
     return { status: 'cancelled' };
   }
   const contents = await options.workspace.fs.readFile(selection[0]);
-  const importedProjects = parseImportDocument(contents);
-  const preview = previewProjectImport(readProjects(options.projectsFile), importedProjects, {
+  const imported = parseImportFile(contents);
+  const preview = previewProjectImport(readProjects(options.projectsFile), imported.projects, {
     isProjectActive: options.isProjectActive,
-    replaceOptionalMetadata: importedProjects.schemaVersion >= 5
+    replaceOptionalMetadata: imported.projects.schemaVersion >= 5
   });
   const detail = formatProjectImportPreview(preview.entries);
   if (!preview.changeCount) {
@@ -399,9 +406,13 @@ async function importProjects(options) {
     return { status: 'cancelled', preview };
   }
 
-  const applyImport = () => applyProjectImport(options.projectsFile, preview, {
-    reserveUpdatedProjects: options.reserveUpdatedProjects
-  });
+  const applyImport = () => {
+    const projects = applyProjectImport(options.projectsFile, preview, {
+      reserveUpdatedProjects: options.reserveUpdatedProjects
+    });
+    syncImportedRunGroups(options.projectsFile, projects, imported.groups);
+    return projects;
+  };
   const projects = options.withProjectStoreLock
     ? await options.withProjectStoreLock(applyImport)
     : applyImport();
@@ -725,6 +736,29 @@ function syncRunGroupsFromContract(projectsFile, projects, contractGroups, works
   }
 }
 
+function syncImportedRunGroups(projectsFile, projects, importedGroups) {
+  if (!Array.isArray(importedGroups) || !importedGroups.length) {
+    return;
+  }
+  const projectIds = new Set(projects.map((project) => project.id));
+  const existing = readRunGroups(projectsFile);
+  for (const group of importedGroups) {
+    const memberIds = (group.projectIds || []).filter((id) => projectIds.has(id));
+    if (!memberIds.length) {
+      continue;
+    }
+    const match = existing.find((entry) => (
+      entry.name.toLocaleLowerCase() === String(group.name || '').toLocaleLowerCase()
+    ));
+    upsertRunGroup(projectsFile, {
+      ...(match ? { id: match.id } : {}),
+      name: group.name,
+      projectIds: memberIds,
+      startMode: group.startMode
+    });
+  }
+}
+
 function formatContractGroupPreview(groups) {
   if (!groups?.length) {
     return '';
@@ -745,10 +779,12 @@ module.exports = {
   MAX_IMPORT_BYTES,
   MAX_IMPORT_PROJECTS,
   parseImportDocument,
+  parseImportFile,
   prepareStackContractLoad,
   previewProjectImport,
   ProjectTransferError,
   runProjectTransferWorkflow,
   runStackContractExportWorkflow,
-  runStackContractLoadWorkflow
+  runStackContractLoadWorkflow,
+  syncImportedRunGroups
 };

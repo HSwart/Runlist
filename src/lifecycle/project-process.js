@@ -1669,12 +1669,25 @@ class ProcessOwnershipStore {
           if (!stableProcessIdentity(expectedIdentity)) {
             throw new Error('Runlist could not verify the launched process identity after the root process exited.');
           }
+          const readGroup = options.readProcessGroup;
+          if (typeof readGroup === 'function') {
+            let members;
+            try {
+              members = await readGroup(current.childPid, {
+                ...options,
+                requireProcessGroupRoot: false
+              });
+            } catch {
+              throw new Error('Runlist could not verify the launched process group after the root process exited.');
+            }
+            if (!Array.isArray(members) || !members.length) {
+              return true;
+            }
+          }
+          // Root PID is dead; do not revalidate its identity or cleanup false-fails.
           await terminateProcessTree(current.childPid, {
             platform: this.platform,
-            ...options,
-            expectedIdentity,
-            readProcessIdentity: options.readProcessIdentity || this.readProcessIdentity,
-            readProcessGroup: options.readProcessGroup
+            ...options
           });
         }
       }
