@@ -477,6 +477,39 @@ test('does not launch remaining parallel members after losing the group lease', 
   assert.deepEqual(calls, ['start:first', 'stop:first', 'stopped:first', 'release']);
 });
 
+test('releases the group lease when dependency ordering fails', async () => {
+  const coordinator = {
+    acquired: false,
+    acquire() {
+      this.acquired = true;
+      return true;
+    },
+    release() {
+      this.acquired = false;
+    }
+  };
+  const result = await startRunGroup({
+    id: 'cycle',
+    name: 'Cycle',
+    projectIds: ['api', 'db'],
+    startMode: 'sequential'
+  }, {
+    coordinator,
+    projects: [
+      { id: 'api', name: 'API', dependsOn: ['db'] },
+      { id: 'db', name: 'Database', dependsOn: ['api'] }
+    ],
+    getStatus: () => 'stopped',
+    startProject: async () => true,
+    waitUntilReady: async () => true,
+    stopProject: async () => true,
+    waitUntilStopped: async () => true
+  });
+
+  assert.equal(result.status, 'failed');
+  assert.equal(coordinator.acquired, false);
+});
+
 test('parallel preflight blocks group start when an external dependency is not ready', async () => {
   const starts = [];
   const result = await startRunGroup({

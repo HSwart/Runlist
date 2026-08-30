@@ -19,6 +19,7 @@ const {
   serializeStackContract,
   resolveContractFolder
 } = require('./stack-contract');
+const { dependencyCycleMessage } = require('./project-dependencies');
 
 const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 const MAX_IMPORT_PROJECTS = 1000;
@@ -184,6 +185,32 @@ function previewProjectImport(currentProjects, importedProjects, options = {}) {
     } else if (entry.status === 'add') {
       indexesById.set(entry.project.id, nextProjects.length);
       nextProjects.push(entry.project);
+    }
+  }
+  const idRemap = new Map();
+  candidates.forEach((candidate, index) => {
+    if (candidate.error) {
+      return;
+    }
+    const entry = entries[index];
+    if (entry.project && candidate.id !== entry.project.id) {
+      idRemap.set(candidate.id, entry.project.id);
+    }
+  });
+  resolveImportedDependsOnFolders(nextProjects, entries);
+  remapImportedDependsOnIds(nextProjects, entries, idRemap);
+  const cycle = dependencyCycleMessage(
+    nextProjects.map((project) => project.id),
+    new Map(nextProjects.map((project) => [project.id, project]))
+  );
+  if (cycle) {
+    for (const entry of entries) {
+      if (!['add', 'update'].includes(entry.status)) {
+        continue;
+      }
+      entry.status = 'invalid';
+      entry.reason = cycle;
+      delete entry.project;
     }
   }
 
@@ -410,7 +437,7 @@ async function importProjects(options) {
     const projects = applyProjectImport(options.projectsFile, preview, {
       reserveUpdatedProjects: options.reserveUpdatedProjects
     });
-    syncImportedRunGroups(options.projectsFile, projects, imported.groups);
+    syncImportedRunGroups(options.projectsFile, projects, imported.groups, imported.projects);
     return projects;
   };
   const projects = options.withProjectStoreLock
@@ -473,7 +500,78 @@ function folderIdentity(folder) {
   }
 }
 
+function resolveImportedDependsOnFolders(nextProjects, entries) {
+  const folderToId = new Map(
+    nextProjects.map((project) => [folderIdentity(project.folder), project.id])
+  );
+  for (let index = 0; index < nextProjects.length; index += 1) {
+    const folderKeys = nextProjects[index].dependsOnFolderKeys;
+    if (!Array.isArray(folderKeys) || !folderKeys.length) {
+      continue;
+    }
+    const dependsOn = [];
+    let unresolved = false;
+    for (const folderKey of folderKeys) {
+      const dependencyId = folderToId.get(folderIdentity(folderKey));
+      if (!dependencyId) {
+        unresolved = true;
+        break;
+      }
+      dependsOn.push(dependencyId);
+    }
+    const entry = entries.find((candidate) => (
+      candidate.project?.id === nextProjects[index].id && ['add', 'update'].includes(candidate.status)
+    ));
+    if (unresolved) {
+      if (entry) {
+        entry.status = 'invalid';
+        entry.reason = 'The import depends on a project folder that is missing from this file.';
+        delete entry.project;
+      }
+      continue;
+    }
+    const updated = { ...nextProjects[index] };
+    delete updated.dependsOnFolderKeys;
+    if (dependsOn.length) {
+      updated.dependsOn = dependsOn;
+    }
+    nextProjects[index] = updated;
+    if (entry) {
+      entry.project = updated;
+    }
+  }
+}
+
+function remapImportedDependsOnIds(nextProjects, entries, idRemap) {
+  if (!idRemap.size) {
+    return;
+  }
+  for (let index = 0; index < nextProjects.length; index += 1) {
+    const dependsOn = nextProjects[index].dependsOn;
+    if (!Array.isArray(dependsOn) || !dependsOn.length) {
+      continue;
+    }
+    const remapped = dependsOn.map((dependencyId) => idRemap.get(dependencyId) || dependencyId);
+    if (remapped.join('\0') === dependsOn.join('\0')) {
+      continue;
+    }
+    const updated = { ...nextProjects[index], dependsOn: remapped };
+    nextProjects[index] = updated;
+    const entry = entries.find((candidate) => (
+      candidate.project?.id === updated.id && ['add', 'update'].includes(candidate.status)
+    ));
+    if (entry) {
+      entry.project = updated;
+    }
+  }
+}
+
 function projectSetupFingerprint(project) {
+  const env = project.env || {};
+  const envKeys = Object.keys(env).sort();
+  const sortedEnv = envKeys.length
+    ? Object.fromEntries(envKeys.map((key) => [key, env[key]]))
+    : {};
   return JSON.stringify({
     name: project.name,
     folder: folderIdentity(project.folder),
@@ -482,12 +580,17 @@ function projectSetupFingerprint(project) {
     services: project.services || [],
     launchProfiles: project.launchProfiles || [],
     selectedLaunchProfileId: project.selectedLaunchProfileId || 'default',
-    tags: project.tags || [],
+    tags: [...(project.tags || [])].sort(),
     pinned: project.pinned === true,
     localHostname: project.localHostname || '',
     envFile: project.envFile || '',
-    env: project.env || {},
-    dependsOn: project.dependsOn || []
+    env: sortedEnv,
+    dependsOn: [...(project.dependsOn || [])].sort(),
+    ...(project.composePath ? { composePath: project.composePath } : {}),
+    ...(project.runtime && project.runtime !== 'unknown' ? { runtime: project.runtime } : {}),
+    ...(Array.isArray(project.requiredEnvKeys) && project.requiredEnvKeys.length
+      ? { requiredEnvKeys: [...project.requiredEnvKeys].sort() }
+      : {})
   });
 }
 
@@ -736,14 +839,29 @@ function syncRunGroupsFromContract(projectsFile, projects, contractGroups, works
   }
 }
 
-function syncImportedRunGroups(projectsFile, projects, importedGroups) {
+function syncImportedRunGroups(projectsFile, projects, importedGroups, importedProjects) {
   if (!Array.isArray(importedGroups) || !importedGroups.length) {
     return;
   }
-  const projectIds = new Set(projects.map((project) => project.id));
+  const byFolder = new Map(
+    projects.map((project) => [folderIdentity(project.folder), project.id])
+  );
+  const importedById = new Map(
+    (importedProjects || []).map((project) => [project.id, project])
+  );
   const existing = readRunGroups(projectsFile);
   for (const group of importedGroups) {
-    const memberIds = (group.projectIds || []).filter((id) => projectIds.has(id));
+    const memberIds = [];
+    for (const importedId of group.projectIds || []) {
+      const imported = importedById.get(importedId);
+      if (!imported?.folder) {
+        continue;
+      }
+      const localId = byFolder.get(folderIdentity(imported.folder));
+      if (localId) {
+        memberIds.push(localId);
+      }
+    }
     if (!memberIds.length) {
       continue;
     }

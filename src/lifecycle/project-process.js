@@ -109,6 +109,40 @@ function customStopSpawnOptions(platform = process.platform) {
   };
 }
 
+async function signalPosixProcessGroup(pid, signal, kill, options = {}) {
+  try {
+    kill(-pid, signal);
+    return true;
+  } catch (error) {
+    if (error.code !== 'ESRCH') {
+      throw error;
+    }
+  }
+  const readGroup = options.readProcessGroup || readPosixProcessGroup;
+  let members;
+  try {
+    members = await readGroup(pid, {
+      ...options,
+      requireProcessGroupRoot: false
+    });
+  } catch {
+    return false;
+  }
+  if (!Array.isArray(members) || !members.length) {
+    return false;
+  }
+  for (const memberPid of members) {
+    try {
+      kill(memberPid, signal);
+    } catch (memberError) {
+      if (memberError.code !== 'ESRCH') {
+        throw memberError;
+      }
+    }
+  }
+  return true;
+}
+
 async function terminateProcessTree(pid, options = {}) {
   if (!Number.isInteger(pid) || pid <= 0) {
     return Promise.reject(new Error('Runlist no longer has a valid process identifier for this project.'));
@@ -134,14 +168,7 @@ async function terminateProcessTree(pid, options = {}) {
   }
   if (platform !== 'win32') {
     const kill = options.kill || process.kill;
-    try {
-      kill(-pid, 'SIGTERM');
-    } catch (error) {
-      if (error.code === 'ESRCH') {
-        return;
-      }
-      throw error;
-    }
+    await signalPosixProcessGroup(pid, 'SIGTERM', kill, options);
     await waitForProcessGroupExit(pid, kill, options);
     return;
   }
@@ -829,13 +856,7 @@ async function waitForProcessGroupExit(pid, kill, options) {
       if (!await posixEscalationTargetIsCurrent(pid, kill, options)) {
         return;
       }
-      try {
-        kill(-pid, 'SIGKILL');
-      } catch (error) {
-        if (error.code !== 'ESRCH') {
-          throw error;
-        }
-      }
+      await signalPosixProcessGroup(pid, 'SIGKILL', kill, options);
       break;
     }
     await delay(options.pollIntervalMs ?? 100);
@@ -1669,20 +1690,18 @@ class ProcessOwnershipStore {
           if (!stableProcessIdentity(expectedIdentity)) {
             throw new Error('Runlist could not verify the launched process identity after the root process exited.');
           }
-          const readGroup = options.readProcessGroup;
-          if (typeof readGroup === 'function') {
-            let members;
-            try {
-              members = await readGroup(current.childPid, {
-                ...options,
-                requireProcessGroupRoot: false
-              });
-            } catch {
-              throw new Error('Runlist could not verify the launched process group after the root process exited.');
-            }
-            if (!Array.isArray(members) || !members.length) {
-              return true;
-            }
+          const readGroup = options.readProcessGroup || readPosixProcessGroup;
+          let members;
+          try {
+            members = await readGroup(current.childPid, {
+              ...options,
+              requireProcessGroupRoot: false
+            });
+          } catch {
+            throw new Error('Runlist could not verify the launched process group after the root process exited.');
+          }
+          if (!Array.isArray(members) || !members.length) {
+            return true;
           }
           // Root PID is dead; do not revalidate its identity or cleanup false-fails.
           await terminateProcessTree(current.childPid, {

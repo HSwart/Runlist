@@ -17,6 +17,7 @@ test('allowlists the complete host-to-webview message contract', () => {
   assert.deepEqual([...WEBVIEW_MESSAGE_TYPES].sort(), [
     'diagnosisRequestCopied',
     'diagnosisRequestSent',
+    'logSearchUpdate',
     'outputCopied',
     'projectHttpPulse',
     'projectMetrics',
@@ -344,6 +345,23 @@ test('rejects the wrong token, unknown types, and malformed payloads', () => {
     messageToken: 'token',
     id: ''
   }, 'token'), undefined);
+  assert.equal(validateWebviewMessage({
+    type: 'logSearchUpdate',
+    messageToken: 'token',
+    logSearch: { query: 'error', results: [{ projectId: '', matches: [] }] }
+  }, 'token'), undefined);
+  assert.equal(validateWebviewMessage({
+    type: 'logSearchUpdate',
+    messageToken: 'token',
+    logSearch: {
+      query: 'error',
+      results: [{
+        projectId: 'project-1',
+        name: 'Web',
+        matches: [{ lineNumber: 1, excerpt: 'error: boom' }]
+      }]
+    }
+  }, 'token')?.type, 'logSearchUpdate');
 });
 
 test('accepts the bounded array histories published by runtime monitoring', () => {

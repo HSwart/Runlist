@@ -62,7 +62,24 @@ let selectedGroupFilter = String(persistedWebviewState.groupFilter || '');
 let reviewFilterActive = persistedWebviewState.reviewFilterActive === true;
 let attentionFocusSignature = String(persistedWebviewState.attentionFocusSignature || '');
 let lastAttentionFocusId = String(persistedWebviewState.lastAttentionFocusId || '');
-let runGroupDraft = undefined;
+let lastLogSearchResultsMarkup = '';
+function normalizePersistedRunGroupDraft(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const name = typeof value.name === 'string' ? value.name : '';
+  const startMode = value.startMode === 'parallel' ? 'parallel' : 'sequential';
+  const projectIds = Array.isArray(value.projectIds)
+    ? value.projectIds.map((id) => String(id)).filter(Boolean)
+    : [];
+  const draft = { name, projectIds, startMode };
+  if (typeof value.id === 'string' && value.id.trim()) {
+    draft.id = value.id.trim();
+  }
+  return draft;
+}
+
+let runGroupDraft = normalizePersistedRunGroupDraft(persistedWebviewState.runGroupDraft);
 let outputFollowLatest = true;
 let announcedProjectStatuses = new Map();
 let announcedFolderAccess = new Map();
@@ -526,7 +543,8 @@ function saveWebviewState() {
     searchSelectionEnd,
     searchFocused,
     attentionFocusSignature,
-    lastAttentionFocusId
+    lastAttentionFocusId,
+    ...(runGroupDraft ? { runGroupDraft } : {})
   });
 }
 
@@ -1790,7 +1808,7 @@ function applyProjectFilter(query) {
   }
   const attentionSlot = document.getElementById('summary-attention-slot');
   if (attentionSlot) {
-    attentionSlot.innerHTML = `${reviewFilterSummaryHtml(state.projects)}${attentionSummaryHtml(state.projects)}`;
+    attentionSlot.innerHTML = `${stackAttentionSummaryHtml(state.stackContractAttention)}${reviewFilterSummaryHtml(state.projects)}${attentionSummaryHtml(state.projects)}`;
   }
 
   const emptyState = document.querySelector('[data-search-empty]');
@@ -2648,6 +2666,7 @@ function beginRunGroupDraft(group) {
       projectIds: [...(group.projectIds || [])].map(String),
       startMode: group.startMode === 'parallel' ? 'parallel' : 'sequential'
     };
+    saveWebviewState();
     return;
   }
   runGroupDraft = {
@@ -2655,6 +2674,7 @@ function beginRunGroupDraft(group) {
     projectIds: [],
     startMode: 'sequential'
   };
+  saveWebviewState();
 }
 
 function syncRunGroupDraftFromForm() {
@@ -2673,6 +2693,7 @@ function syncRunGroupDraftFromForm() {
 
 function clearRunGroupDraft() {
   runGroupDraft = undefined;
+  saveWebviewState();
 }
 
 function renderRunGroupsEditor() {
@@ -3310,6 +3331,7 @@ app.addEventListener('click', (event) => {
         return;
       }
       runGroupDraft.projectIds.push(projectId);
+      saveWebviewState();
       renderRunGroupsEditor();
     },
     'remove-run-group-member': () => {
@@ -3319,6 +3341,7 @@ app.addEventListener('click', (event) => {
       syncRunGroupDraftFromForm();
       const projectId = String(button.dataset.projectId || '');
       runGroupDraft.projectIds = runGroupDraft.projectIds.filter((id) => id !== projectId);
+      saveWebviewState();
       renderRunGroupsEditor();
     },
     'move-run-group-member': () => {
@@ -3339,6 +3362,7 @@ app.addEventListener('click', (event) => {
       const next = [...runGroupDraft.projectIds];
       [next[index], next[swapWith]] = [next[swapWith], next[index]];
       runGroupDraft.projectIds = next;
+      saveWebviewState();
       renderRunGroupsEditor();
     },
     'save-run-group-draft': () => {
@@ -3493,6 +3517,9 @@ app.addEventListener('click', (event) => {
     output: () => {
       closeMenus();
       vscode.postMessage({ type: 'showTerminal', id: button.dataset.id });
+    },
+    'show-output': () => {
+      vscode.postMessage({ type: 'showOutput', id: button.dataset.id });
     },
     'show-terminal': () => {
       closeMenus();
@@ -3785,6 +3812,40 @@ const hostMessageHandlers = {
     if (state.mode === 'output' && state.projectOutput?.agentHandoffNotice) {
       renderProjectOutput();
     }
+  },
+  logSearchUpdate: (message) => {
+    if (state.mode !== 'log-search') {
+      return;
+    }
+    state.logSearch = message.logSearch || { query: '', results: [] };
+    const resultsContainer = document.querySelector('.log-search-results');
+    if (!resultsContainer) {
+      return;
+    }
+    const results = Array.isArray(state.logSearch.results) ? state.logSearch.results : [];
+    const markup = results.length
+      ? results.map((entry) => {
+        const projectId = escapeHtml(String(entry.projectId));
+        const matches = (entry.matches || []).map((match) => `
+          <li>
+            <span class="log-search-line">Line ${match.lineNumber}</span>
+            <code class="log-search-excerpt">${escapeHtml(match.excerpt || '')}</code>
+          </li>`).join('');
+        return `
+          <article class="log-search-result">
+            <div class="log-search-result-topline">
+              <strong>${escapeHtml(entry.name || 'Project')}</strong>
+              <button type="button" class="secondary-button" data-action="show-output" data-id="${projectId}" aria-label="Open output for ${escapeHtml(entry.name || 'project')}">Open output</button>
+            </div>
+            <ul class="log-search-matches">${matches}</ul>
+          </article>`;
+      }).join('')
+      : '<p class="screen-copy" role="status">No matching log lines in this VS Code window.</p>';
+    if (markup === lastLogSearchResultsMarkup) {
+      return;
+    }
+    lastLogSearchResultsMarkup = markup;
+    resultsContainer.innerHTML = markup;
   },
   projectOutput: (message) => {
     const outputPanel = document.querySelector('.output-panel');

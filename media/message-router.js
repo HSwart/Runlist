@@ -14,6 +14,7 @@
     'projectMetrics',
     'projectOutput',
     'projectOutputPeek',
+    'logSearchUpdate',
     'restoreProjectMenuFocus'
   ]);
   const WEBVIEW_COMMAND_TYPES = new Set([
@@ -309,6 +310,9 @@
     if (value.type === 'projectHttpPulse' && !optionalArray(value.httpResponsePulse)) {
       return undefined;
     }
+    if (value.type === 'logSearchUpdate' && !validLogSearch(value.logSearch)) {
+      return undefined;
+    }
     return value;
   }
 
@@ -364,6 +368,25 @@
 
   function optionalArray(value) {
     return value === undefined || value === null || Array.isArray(value);
+  }
+
+  function validLogSearch(value) {
+    if (!isRecord(value) || typeof value.query !== 'string' || value.query.length > 4096) {
+      return false;
+    }
+    if (!Array.isArray(value.results) || value.results.length > 200) {
+      return false;
+    }
+    return value.results.every((entry) => isRecord(entry)
+      && validId(entry.projectId)
+      && (entry.name === undefined || (typeof entry.name === 'string' && entry.name.length <= 4096))
+      && Array.isArray(entry.matches)
+      && entry.matches.length <= 200
+      && entry.matches.every((match) => isRecord(match)
+        && Number.isInteger(match.lineNumber)
+        && match.lineNumber >= 1
+        && typeof match.excerpt === 'string'
+        && match.excerpt.length <= 20000));
   }
 
   function validOutputEntries(value) {

@@ -28,6 +28,6 @@ test('review filter chip uses summary attention styling', () => {
 test('applyProjectFilter keeps the review filter chip in the attention slot', () => {
   assert.match(
     webview,
-    /attentionSlot\.innerHTML = `\$\{reviewFilterSummaryHtml\(state\.projects\)\}\$\{attentionSummaryHtml\(state\.projects\)\}`/
+    /attentionSlot\.innerHTML = `\$\{stackAttentionSummaryHtml\(state\.stackContractAttention\)\}\$\{reviewFilterSummaryHtml\(state\.projects\)\}\$\{attentionSummaryHtml\(state\.projects\)\}`/
   );
 });

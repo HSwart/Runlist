@@ -17,6 +17,7 @@ class ProjectLifecycleCoordinator {
     this.host = host;
     this.showWarningMessage = options.showWarningMessage || (() => undefined);
     this.showErrorMessage = options.showErrorMessage || (() => undefined);
+    this.showInformationMessage = options.showInformationMessage || (() => undefined);
     this.now = options.now || Date.now;
     this.delay = options.delay || ((milliseconds) => new Promise((resolve) => (
       setTimeout(resolve, milliseconds)
