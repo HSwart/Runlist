@@ -19,6 +19,7 @@
   const WEBVIEW_COMMAND_TYPES = new Set([
     'approveProjectRepair',
     'approveComposeImport',
+    'approveWorkspaceImport',
     'closeScreen',
     'copyDiagnosisRequest',
     'copyProjectFailure',
@@ -62,6 +63,9 @@
     'loadWorkspaceStack',
     'showPortListening',
     'importWorkspaceCompose',
+    'showWorkspaceImport',
+    'showLogSearch',
+    'setLogSearchQuery',
     'showComposeImport',
     'refreshPortListening',
     'copyPortListeningDetails',

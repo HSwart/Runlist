@@ -11,6 +11,7 @@ const { withExclusiveJsonLock } = require('../lifecycle/exclusive-json-lock');
 const { safeServiceUrl } = require('../services/external-url');
 const { optionalPortVariableValidationMessage } = require('../ports/service-port-overrides');
 const { normalizeProjectTags } = require('./project-tags');
+const { MAX_DEPENDS_ON, normalizeDependsOn } = require('./project-dependencies');
 const { normalizeLocalHostname } = require('../services/local-hostname');
 const { normalizeEnvFile, normalizeEnvMap } = require('./launch-env');
 const {
@@ -24,7 +25,7 @@ const {
   MAX_ALTERNATE_LAUNCH_PROFILES
 } = require('./launch-profile');
 
-const PROJECT_STORE_SCHEMA_VERSION = 10;
+const PROJECT_STORE_SCHEMA_VERSION = 11;
 const ATOMIC_RENAME_MAX_ATTEMPTS = 5;
 const ATOMIC_RENAME_RETRY_DELAY_MS = 10;
 const ATOMIC_RENAME_WAIT = new Int32Array(new SharedArrayBuffer(4));
@@ -386,7 +387,7 @@ function parseProjectDocument(contents) {
   if (!Object.hasOwn(value, 'schemaVersion')) {
     throw projectStoreError('INVALID_STORAGE', 'Runlist project storage does not have a schema version.');
   }
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, PROJECT_STORE_SCHEMA_VERSION].includes(value.schemaVersion)) {
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, PROJECT_STORE_SCHEMA_VERSION].includes(value.schemaVersion)) {
     throw projectStoreError(
       'UNSUPPORTED_VERSION',
       `Runlist project storage version ${value.schemaVersion} is not supported.`
@@ -468,13 +469,14 @@ function validateStoredProjects(value, options = {}) {
   const supportsLaunchEnv = options.schemaVersion === undefined || options.schemaVersion >= 8;
   const supportsRuntime = options.schemaVersion === undefined || options.schemaVersion >= 9;
   const supportsRequiredEnvKeys = options.schemaVersion === undefined || options.schemaVersion >= 10;
+  const supportsDependsOn = options.schemaVersion === undefined || options.schemaVersion >= 11;
   if (!Array.isArray(value)) {
     throw projectStoreError('INVALID_STORAGE', 'Runlist project storage does not contain a valid project list.');
   }
 
   const projectIds = new Set();
   const projectFolders = new Set();
-  return value.map((project, index) => {
+  const validated = value.map((project, index) => {
     if (!project || typeof project !== 'object' || Array.isArray(project)) {
       throw projectStoreError('INVALID_STORAGE', `Runlist project ${index + 1} is not valid.`);
     }
@@ -492,6 +494,7 @@ function validateStoredProjects(value, options = {}) {
       ...(supportsLaunchEnv ? ['envFile', 'env'] : []),
       ...(supportsRuntime ? ['runtime'] : []),
       ...(supportsRequiredEnvKeys ? ['requiredEnvKeys'] : []),
+      ...(supportsDependsOn ? ['dependsOn'] : []),
       'pinned',
       'reviewRequired'
     ]);
@@ -619,6 +622,28 @@ function validateStoredProjects(value, options = {}) {
         throw projectStoreError('INVALID_STORAGE', `Runlist project ${index + 1} has invalid required env keys.`);
       }
     }
+    let dependsOn;
+    if (supportsDependsOn && project.dependsOn !== undefined) {
+      if (!Array.isArray(project.dependsOn)) {
+        throw projectStoreError('INVALID_STORAGE', `Runlist project ${index + 1} has invalid dependencies.`);
+      }
+      if (project.dependsOn.length > MAX_DEPENDS_ON) {
+        throw projectStoreError('INVALID_STORAGE', `Runlist project ${index + 1} lists too many dependencies.`);
+      }
+      const seen = new Set();
+      dependsOn = [];
+      for (const entry of project.dependsOn) {
+        if (typeof entry !== 'string' || !entry.trim()) {
+          throw projectStoreError('INVALID_STORAGE', `Runlist project ${index + 1} has invalid dependencies.`);
+        }
+        const dependencyId = entry.trim();
+        if (seen.has(dependencyId)) {
+          continue;
+        }
+        seen.add(dependencyId);
+        dependsOn.push(dependencyId);
+      }
+    }
 
     const projectWithoutTags = { ...project };
     delete projectWithoutTags.tags;
@@ -632,9 +657,30 @@ function validateStoredProjects(value, options = {}) {
       ...(env ? { env } : {}),
       ...(runtime ? { runtime } : {}),
       ...(requiredEnvKeys ? { requiredEnvKeys } : {}),
+      ...(dependsOn?.length ? { dependsOn } : {}),
       reviewRequired
     };
   });
+  if (supportsDependsOn) {
+    const savedProjectIds = new Set(validated.map((project) => project.id));
+    validated.forEach((project, index) => {
+      for (const dependencyId of project.dependsOn || []) {
+        if (dependencyId === project.id) {
+          throw projectStoreError(
+            'INVALID_STORAGE',
+            `Runlist project ${index + 1} cannot depend on itself.`
+          );
+        }
+        if (!savedProjectIds.has(dependencyId)) {
+          throw projectStoreError(
+            'INVALID_STORAGE',
+            `Runlist project ${index + 1} depends on a missing project.`
+          );
+        }
+      }
+    });
+  }
+  return validated;
 }
 
 function validateStoredLaunchProfiles(value, projectIndex, options = {}) {
@@ -902,6 +948,13 @@ function normalizeProjectInput(input, options = {}) {
   const requiredEnvKeys = input.requiredEnvKeys === undefined
     ? existing?.requiredEnvKeys
     : normalizeRequiredEnvKeys(input.requiredEnvKeys);
+  const projectsById = options.projectsById || new Map();
+  let dependsOn;
+  if (input.dependsOn === undefined) {
+    dependsOn = existing?.dependsOn;
+  } else {
+    dependsOn = normalizeDependsOn(input.dependsOn, id, projectsById);
+  }
 
   const selectedProfile = input.selectedLaunchProfileId === undefined
     ? existing?.selectedLaunchProfileId
@@ -931,6 +984,7 @@ function normalizeProjectInput(input, options = {}) {
     ...(env ? { env } : {}),
     ...(runtime ? { runtime } : {}),
     ...(requiredEnvKeys ? { requiredEnvKeys } : {}),
+    ...(dependsOn?.length ? { dependsOn } : {}),
     reviewRequired: options.reviewRequired === undefined
       ? Boolean(existing?.reviewRequired)
       : Boolean(options.reviewRequired)
@@ -986,7 +1040,7 @@ function validateStoredHealthCheck(value, serviceIndex) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw projectStoreError('INVALID_STORAGE', `Runlist service ${serviceIndex + 1} has an invalid health check.`);
   }
-  if (Object.keys(value).some((key) => !['mode', 'target', 'method', 'expectedStatus', 'timeoutMs', 'retries'].includes(key))) {
+  if (Object.keys(value).some((key) => !['mode', 'target', 'method', 'expectedStatus', 'timeoutMs', 'retries', 'bodyContains'].includes(key))) {
     throw projectStoreError('INVALID_STORAGE', `Runlist service ${serviceIndex + 1} health check contains unsupported data.`);
   }
   if (!['port', 'http'].includes(value.mode)) {
@@ -1014,6 +1068,15 @@ function validateStoredHealthCheck(value, serviceIndex) {
     if (value.retries !== undefined
       && (!Number.isInteger(value.retries) || value.retries < 0 || value.retries > 2)) {
       throw projectStoreError('INVALID_STORAGE', `Runlist service ${serviceIndex + 1} has invalid health retries.`);
+    }
+    if (value.bodyContains !== undefined) {
+      const bodyContains = typeof value.bodyContains === 'string' ? value.bodyContains.trim() : '';
+      if (!bodyContains || bodyContains.length > 256) {
+        throw projectStoreError('INVALID_STORAGE', `Runlist service ${serviceIndex + 1} has an invalid health body check.`);
+      }
+      if (value.method !== undefined && value.method !== 'GET') {
+        throw projectStoreError('INVALID_STORAGE', `Runlist service ${serviceIndex + 1} body checks require GET requests.`);
+      }
     }
   }
 }
@@ -1190,6 +1253,7 @@ function upsertProject(filePath, input, options = {}) {
     allowStoredName: options.allowStoredName === true,
     existing,
     normalizedFolder: folder,
+    projectsById: new Map(projects.map((candidate) => [candidate.id, candidate])),
     reviewRequired: options.reviewRequired
   });
 
@@ -1457,6 +1521,8 @@ function normalizeServices(value) {
   });
 }
 
+const MAX_HEALTH_BODY_CONTAINS_LENGTH = 256;
+
 function normalizeHealthCheck(value, serviceIndex) {
   if (value === undefined || value === null || value === '' || value.mode === 'default') {
     return undefined;
@@ -1475,7 +1541,19 @@ function normalizeHealthCheck(value, serviceIndex) {
     throw new Error(`services[${serviceIndex}].healthCheck.target must be a safe HTTP URL or path beginning with /.`);
   }
   const method = value.method === undefined || value.method === '' ? 'HEAD' : value.method;
-  if (!['HEAD', 'GET'].includes(method)) {
+  const bodyContains = value.bodyContains === undefined || value.bodyContains === ''
+    ? undefined
+    : String(value.bodyContains).trim();
+  if (bodyContains !== undefined) {
+    if (!bodyContains || bodyContains.length > MAX_HEALTH_BODY_CONTAINS_LENGTH) {
+      throw new Error(`services[${serviceIndex}].healthCheck.bodyContains must contain 1 to ${MAX_HEALTH_BODY_CONTAINS_LENGTH} characters.`);
+    }
+    if (method !== 'GET' && value.method !== undefined && value.method !== '') {
+      throw new Error(`services[${serviceIndex}].healthCheck.bodyContains requires GET requests.`);
+    }
+  }
+  const resolvedMethod = bodyContains ? 'GET' : method;
+  if (!['HEAD', 'GET'].includes(resolvedMethod)) {
     throw new Error(`services[${serviceIndex}].healthCheck.method must be HEAD or GET.`);
   }
   const expectedStatus = value.expectedStatus === undefined || value.expectedStatus === ''
@@ -1498,10 +1576,11 @@ function normalizeHealthCheck(value, serviceIndex) {
   return {
     mode: 'http',
     ...(target ? { target } : {}),
-    method,
+    method: resolvedMethod,
     ...(expectedStatus === undefined ? {} : { expectedStatus }),
     timeoutMs,
-    retries
+    retries,
+    ...(bodyContains ? { bodyContains } : {})
   };
 }
 

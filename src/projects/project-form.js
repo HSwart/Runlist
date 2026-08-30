@@ -31,7 +31,8 @@ function serviceFormValues(services) {
       method: String(service?.healthCheck?.method || 'HEAD'),
       expectedStatus: String(service?.healthCheck?.expectedStatus ?? ''),
       timeoutMs: String(service?.healthCheck?.timeoutMs ?? 700),
-      retries: String(service?.healthCheck?.retries ?? 0)
+      retries: String(service?.healthCheck?.retries ?? 0),
+      bodyContains: String(service?.healthCheck?.bodyContains ?? '')
     }
   }));
 }
@@ -77,7 +78,10 @@ function projectFormValues(input = {}) {
       input.editingLaunchProfileId
       || input.selectedLaunchProfileId
       || DEFAULT_LAUNCH_PROFILE_ID
-    )
+    ),
+    dependsOn: Array.isArray(input.dependsOn)
+      ? input.dependsOn.join(', ')
+      : String(input.dependsOn || '')
   };
 }
 
@@ -285,7 +289,8 @@ function validateProjectForm(input) {
     `service-health-method-${index}`,
     `service-health-status-${index}`,
     `service-health-timeout-${index}`,
-    `service-health-retries-${index}`
+    `service-health-retries-${index}`,
+    `service-health-body-${index}`
   ]);
   return {
     errors,
@@ -324,7 +329,10 @@ function projectFormServices(values) {
                   ? { expectedStatus: Number(service.healthCheck.expectedStatus) }
                   : {}),
                 timeoutMs: Number(service.healthCheck.timeoutMs),
-                retries: Number(service.healthCheck.retries)
+                retries: Number(service.healthCheck.retries),
+                ...(service.healthCheck.bodyContains.trim()
+                  ? { bodyContains: service.healthCheck.bodyContains.trim() }
+                  : {})
               }
             }
           : {})
@@ -335,7 +343,31 @@ function normalizedProfileServices(services) {
   return projectFormServices({ services });
 }
 
-function projectFormSetup(input) {
+function parseDependsOnText(value, projectId, projectsById) {
+  const { normalizeDependsOn } = require('./project-dependencies');
+  const entries = String(value || '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (!entries.length) {
+    return [];
+  }
+  const ids = entries.map((entry) => {
+    if (projectsById.has(entry)) {
+      return entry;
+    }
+    const match = [...projectsById.values()].find((project) => (
+      project.name.toLocaleLowerCase('en-US') === entry.toLocaleLowerCase('en-US')
+    ));
+    if (!match) {
+      throw new Error(`dependsOn references a project that is not saved in Runlist: ${entry}`);
+    }
+    return match.id;
+  });
+  return normalizeDependsOn(ids, projectId, projectsById);
+}
+
+function projectFormSetup(input, options = {}) {
   const values = projectFormValues(input);
   const defaultEnvFile = normalizeEnvFile(values.envFile);
   const defaultEnv = Object.keys(parseEnvMapText(values.envText)).length
@@ -364,7 +396,16 @@ function projectFormSetup(input) {
         services: normalizedProfileServices(profile.services)
       };
     }),
-    selectedLaunchProfileId: values.selectedLaunchProfileId
+    selectedLaunchProfileId: values.selectedLaunchProfileId,
+    ...(values.dependsOn.trim()
+      ? {
+          dependsOn: parseDependsOnText(
+            values.dependsOn,
+            values.id,
+            options.projectsById || new Map()
+          )
+        }
+      : { dependsOn: [] })
   };
 }
 
@@ -386,7 +427,10 @@ function projectServicesChanged(input, baseline) {
 
 function projectSaveError(error) {
   const message = String(error?.message || 'Could not save this project.');
-  const healthField = message.match(/services\[(\d+)\]\.healthCheck\.(mode|target|method|expectedStatus|timeoutMs|retries)\b/);
+  if (message.includes('dependsOn')) {
+    return { field: 'depends-on', message };
+  }
+  const healthField = message.match(/services\[(\d+)\]\.healthCheck\.(mode|target|method|expectedStatus|timeoutMs|retries|bodyContains)\b/);
   if (healthField) {
     const names = {
       mode: 'mode',
@@ -394,7 +438,8 @@ function projectSaveError(error) {
       method: 'method',
       expectedStatus: 'status',
       timeoutMs: 'timeout',
-      retries: 'retries'
+      retries: 'retries',
+      bodyContains: 'body'
     };
     return { field: `service-health-${names[healthField[2]]}-${healthField[1]}`, message };
   }

@@ -978,6 +978,16 @@ function reviewFilterSummaryHtml(projects) {
   return `<button type="button" class="active-review-chip" data-action="toggle-review-filter" aria-pressed="${pressed}" aria-label="${escapeHtml(ariaLabel)}" title="${escapeHtml(label)}">${escapeHtml(label)}${reviewFilterActive ? ` ${icon('close')}` : ''}</button>`;
 }
 
+function stackAttentionSummaryHtml(attention) {
+  if (!attention?.pending || !Number.isInteger(attention.changeCount) || attention.changeCount <= 0) {
+    return '';
+  }
+  const count = attention.changeCount;
+  const label = `Load stack (${count})`;
+  const ariaLabel = `Review and load ${count} project setup${count === 1 ? '' : 's'} from this workspace`;
+  return `<button type="button" class="summary-attention stack-attention" data-action="load-workspace-stack" aria-label="${escapeHtml(ariaLabel)}" title="${escapeHtml(label)}">${autoScrollHtml(escapeHtml(label))}</button>`;
+}
+
 function attentionSummaryHtml(projects) {
   const attentionProjects = (projects || []).filter((project) => projectNeedsAttention(project));
   if (!attentionProjects.length) {
@@ -1249,7 +1259,8 @@ function renderList() {
         <div class="empty-actions">
           ${!workspaceFolder && workspaceFolders.length <= 1 ? `<button class="primary-button" data-action="open-workspace-folder" aria-label="Open a folder in this window" title="Open a folder in this window">Open folder</button>` : ''}
           ${stackPending && workspaceFolder ? `<button class="primary-button" data-action="load-workspace-stack" aria-label="Load ${stackChangeCount} project setup${stackChangeCount === 1 ? '' : 's'} from this workspace" title="Review and load the Runlist stack in this repo">Load stack (${stackChangeCount})</button>` : ''}
-          ${workspaceFolder ? `<button class="${stackPending ? 'secondary-button' : 'primary-button'}" data-action="show-add">${addLabel}</button>` : ''}
+          ${workspaceFolder && state.workspaceImportAvailable ? `<button class="${stackPending ? 'secondary-button' : 'primary-button'}" data-action="show-workspace-import" aria-label="Import projects from this workspace" title="Review scripts, packages, Procfile, tasks, and Compose in one place">Import from workspace</button>` : ''}
+          ${workspaceFolder ? `<button class="${stackPending || state.workspaceImportAvailable ? 'secondary-button' : 'primary-button'}" data-action="show-add">${addLabel}</button>` : ''}
           ${workspaceFolder && startScripts.length ? `
             <div class="empty-start-chips" role="group" aria-label="Start options for this folder">
               ${startScripts.map((script) => {
@@ -1314,7 +1325,7 @@ function renderList() {
           </button>` : ''}
       </span>
     </header>
-    <div id="summary-attention-slot" class="summary-attention-slot">${reviewFilterSummaryHtml(state.projects)}${attentionSummaryHtml(state.projects)}</div>
+    <div id="summary-attention-slot" class="summary-attention-slot">${stackAttentionSummaryHtml(state.stackContractAttention)}${reviewFilterSummaryHtml(state.projects)}${attentionSummaryHtml(state.projects)}</div>
     <span id="attention-focus-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span>
     <span id="project-lifecycle-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span>
     ${state.routeNotice ? `
@@ -1335,6 +1346,14 @@ function renderList() {
     <div class="project-search">
       ${icon('search', 'search-icon')}
       <input id="project-search" type="search" value="${escapeHtml(searchQuery)}" placeholder="Search projects" aria-label="Search projects" autocomplete="off" spellcheck="false">
+      <button type="button" class="log-search-button secondary-button" data-action="show-log-search" aria-label="Search logs across projects" title="Search logs across projects">Search logs</button>
+    </div>` : state.projects.length === 1 ? `
+    <div class="project-search project-search-single">
+      <button type="button" class="log-search-button secondary-button" data-action="show-log-search" aria-label="Search logs across projects" title="Search logs across projects">Search logs</button>
+    </div>` : ''}
+    ${state.workspaceImportAvailable && state.currentWorkspaceFolder ? `
+    <div class="workspace-import-bar">
+      <button type="button" class="secondary-button" data-action="show-workspace-import" aria-label="Import projects from this workspace" title="Review scripts, packages, Procfile, tasks, and Compose in one place">Import from workspace</button>
     </div>` : ''}
     ${tagFilterHtml()}
     <span id="project-search-status" class="visually-hidden" aria-live="polite"></span>
@@ -2026,8 +2045,9 @@ function renderProjectForm(mode) {
     const healthStatusField = `service-health-status-${index}`;
     const healthTimeoutField = `service-health-timeout-${index}`;
     const healthRetriesField = `service-health-retries-${index}`;
+    const healthBodyField = `service-health-body-${index}`;
     const health = service.healthCheck || {
-      mode: 'default', target: '', method: 'HEAD', expectedStatus: '', timeoutMs: '700', retries: '0'
+      mode: 'default', target: '', method: 'HEAD', expectedStatus: '', timeoutMs: '700', retries: '0', bodyContains: ''
     };
     const warning = sharedPortWarningText(state.draft, index);
     const serviceOptionsSet = Boolean(String(service.url || '').trim()) || health.mode !== 'default';
@@ -2038,7 +2058,8 @@ function renderProjectForm(mode) {
       healthMethodField,
       healthStatusField,
       healthTimeoutField,
-      healthRetriesField
+      healthRetriesField,
+      healthBodyField
     ].some((field) => Boolean(errors[field]));
     const removeLabel = String(service.name || '').trim()
       ? `Remove ${String(service.name).trim()} service`
@@ -2104,6 +2125,13 @@ function renderProjectForm(mode) {
                   <input id="${healthRetriesField}" class="service-input" name="serviceHealthRetries" type="number" min="0" max="2" step="1" value="${escapeHtml(String(health.retries ?? 0))}" ${errorAttributes(healthRetriesField)}>
                   ${fieldError(healthRetriesField)}
                 </div>
+                ${health.method === 'GET' || String(health.bodyContains || '').trim() ? `
+                <div class="service-field service-health-wide">
+                  <label class="service-url-label" for="${healthBodyField}">Response contains <span class="optional-label">Optional</span></label>
+                  <input id="${healthBodyField}" class="service-input" name="serviceHealthBody" value="${escapeHtml(health.bodyContains || '')}" placeholder="ready" autocomplete="off" spellcheck="false" ${errorAttributes(healthBodyField)}>
+                  ${fieldError(healthBodyField)}
+                  <p class="field-hint">Uses GET and waits for this text in the response body.</p>
+                </div>` : ''}
               </div>` : ''}
           </div>
         </details>
@@ -2172,6 +2200,15 @@ function renderProjectForm(mode) {
           <label for="tags">Tags <span class="optional-label">Optional</span></label>
           <input id="tags" name="tags" value="${escapeHtml(state.draft.tags || '')}" placeholder="frontend, customer portal" maxlength="406" autocomplete="off" spellcheck="false" ${errorAttributes('tags')}>
           ${fieldError('tags')}
+
+          ${Array.isArray(state.dependencyOptions) && state.dependencyOptions.length ? `
+          <label for="depends-on">Start after <span class="optional-label">Optional</span></label>
+          <input id="depends-on" name="dependsOn" list="depends-on-options" value="${escapeHtml(state.draft.dependsOn || '')}" placeholder="api, worker" autocomplete="off" spellcheck="false" ${errorAttributes('depends-on')}>
+          <datalist id="depends-on-options">
+            ${state.dependencyOptions.map((option) => `<option value="${escapeHtml(option.name)}"></option>`).join('')}
+          </datalist>
+          <p class="field-hint">Comma-separated project names. Runlist starts these before this project.</p>
+          ${fieldError('depends-on')}` : ''}
 
           ${showLaunchProfileEditor ? `
           <fieldset class="launch-profile-editor" ${state.servicesLocked ? 'disabled' : ''}>
@@ -2330,6 +2367,91 @@ function renderProjectOutput() {
       outputPanel.addEventListener('scroll', handleOutputScroll, { passive: true });
     }
   });
+}
+
+function renderWorkspaceImport() {
+  const review = state.workspaceImport;
+  const entries = Array.isArray(review?.entries) ? review.entries : [];
+  if (!entries.length) {
+    app.innerHTML = '<section class="diagnosis-screen"><p class="screen-copy">This workspace import review is no longer available.</p></section>';
+    return;
+  }
+  const rows = entries.map((entry) => {
+    const key = escapeHtml(entry.key || '');
+    const checked = entry.selected !== false ? 'checked' : '';
+    const detail = entry.kind === 'compose'
+      ? 'Compose stack'
+      : entry.startCommand
+        ? `Start: ${entry.startCommand}`
+        : '';
+    return `
+      <label class="workspace-import-row" data-import-key="${key}">
+        <input type="checkbox" name="workspace-import-entry" value="${key}" ${checked}>
+        <span class="workspace-import-copy">
+          <strong>${escapeHtml(entry.name || 'Unnamed project')}</strong>
+          <span class="workspace-import-source">${escapeHtml(entry.source || '')}</span>
+          ${detail ? `<span class="workspace-import-detail">${escapeHtml(detail)}</span>` : ''}
+          <span class="workspace-import-folder">${escapeHtml(entry.folder || '')}</span>
+        </span>
+      </label>`;
+  }).join('');
+  app.innerHTML = `
+    <section class="diagnosis-screen workspace-import-screen" aria-label="Import from workspace">
+      <header class="screen-header">
+        <h2>Import from workspace</h2>
+        <button class="icon-button" data-action="close-screen" aria-label="Close workspace import">${icon('close')}</button>
+      </header>
+      <p class="screen-copy">Choose what to save from this workspace. Imported projects stay blocked until you review each setup.</p>
+      <div class="workspace-import-list" role="group" aria-label="Importable projects">
+        ${rows}
+      </div>
+      <div class="repair-actions">
+        <button class="primary-button" data-action="approve-workspace-import">Import selected</button>
+        <button class="secondary-button" data-action="close-screen">Cancel</button>
+      </div>
+    </section>`;
+}
+
+function renderLogSearch() {
+  const search = state.logSearch || { query: '', results: [] };
+  const results = Array.isArray(search.results) ? search.results : [];
+  const resultRows = results.length
+    ? results.map((entry) => {
+      const projectId = escapeHtml(String(entry.projectId));
+      const matches = (entry.matches || []).map((match) => `
+        <li>
+          <span class="log-search-line">Line ${match.lineNumber}</span>
+          <code class="log-search-excerpt">${escapeHtml(match.excerpt || '')}</code>
+        </li>`).join('');
+      return `
+        <article class="log-search-result">
+          <div class="log-search-result-topline">
+            <strong>${escapeHtml(entry.name || 'Project')}</strong>
+            <button type="button" class="secondary-button" data-action="show-output" data-id="${projectId}" aria-label="Open output for ${escapeHtml(entry.name || 'project')}">Open output</button>
+          </div>
+          <ul class="log-search-matches">${matches}</ul>
+        </article>`;
+    }).join('')
+    : '<p class="screen-copy" role="status">No matching log lines in this VS Code window.</p>';
+  app.innerHTML = `
+    <section class="diagnosis-screen log-search-screen" aria-label="Search project logs">
+      <header class="screen-header">
+        <h2>Search logs</h2>
+        <button class="icon-button" data-action="close-screen" aria-label="Close log search">${icon('close')}</button>
+      </header>
+      <label class="log-search-field" for="log-search-input">Search output kept in this VS Code window</label>
+      <input id="log-search-input" class="log-search-input" type="search" value="${escapeHtml(search.query || '')}" placeholder="Error, port, route name…" aria-label="Search project logs" autocomplete="off" spellcheck="false">
+      <div class="log-search-results" aria-live="polite">${resultRows}</div>
+      <div class="repair-actions">
+        <button class="secondary-button" data-action="close-screen">Close</button>
+      </div>
+    </section>`;
+  const input = document.getElementById('log-search-input');
+  if (input) {
+    input.addEventListener('input', () => {
+      vscode.postMessage({ type: 'setLogSearchQuery', query: input.value });
+    });
+  }
 }
 
 function renderStackReview() {
@@ -2819,7 +2941,9 @@ function currentDraft(
       timeoutMs: row.querySelector('[name="serviceHealthTimeout"]')?.value
         ?? activeServices[index]?.healthCheck?.timeoutMs ?? '700',
       retries: row.querySelector('[name="serviceHealthRetries"]')?.value
-        ?? activeServices[index]?.healthCheck?.retries ?? '0'
+        ?? activeServices[index]?.healthCheck?.retries ?? '0',
+      bodyContains: row.querySelector('[name="serviceHealthBody"]')?.value
+        ?? activeServices[index]?.healthCheck?.bodyContains ?? ''
     }
   }));
   const draft = {
@@ -2828,6 +2952,7 @@ function currentDraft(
     name: fieldValue('name'),
     localHostname: fieldValue('localHostname'),
     tags: fieldValue('tags'),
+    dependsOn: fieldValue('dependsOn'),
     folder: fieldValue('folder'),
     launchProfiles: (state.draft.launchProfiles || []).map((profile) => ({
       ...profile,
@@ -2984,6 +3109,13 @@ app.addEventListener('click', (event) => {
     'show-add': () => vscode.postMessage({ type: 'showAdd' }),
     'load-workspace-stack': () => vscode.postMessage({ type: 'loadWorkspaceStack' }),
     'import-workspace-compose': () => vscode.postMessage({ type: 'importWorkspaceCompose' }),
+    'show-workspace-import': () => vscode.postMessage({ type: 'showWorkspaceImport' }),
+    'show-log-search': () => vscode.postMessage({ type: 'showLogSearch' }),
+    'approve-workspace-import': () => {
+      const selectedKeys = [...document.querySelectorAll('input[name="workspace-import-entry"]:checked')]
+        .map((input) => input.value);
+      vscode.postMessage({ type: 'approveWorkspaceImport', selectedKeys });
+    },
     'open-workspace-folder': () => vscode.postMessage({ type: 'openWorkspaceFolder' }),
     'select-workspace-folder': () => vscode.postMessage({
       type: 'selectWorkspaceFolder',
@@ -3036,7 +3168,7 @@ app.addEventListener('click', (event) => {
           portVariable: '',
           url: '',
           healthCheck: {
-            mode: 'default', target: '', method: 'HEAD', expectedStatus: '', timeoutMs: '700', retries: '0'
+            mode: 'default', target: '', method: 'HEAD', expectedStatus: '', timeoutMs: '700', retries: '0', bodyContains: ''
           }
         }], `service-name-${index}`);
       }
@@ -4056,6 +4188,10 @@ if (state.mode === 'list') {
   renderStackReview();
   } else if (state.mode === 'compose-import') {
   renderComposeImport();
+  } else if (state.mode === 'workspace-import') {
+  renderWorkspaceImport();
+  } else if (state.mode === 'log-search') {
+  renderLogSearch();
   } else {
   renderProjectForm(state.mode);
 }

@@ -89,6 +89,7 @@ function createRunlistWebviewRouter(host, adapters = {}) {
     handlers: {
       approveProjectRepair: (message) => host.approveProjectRepair(message.proposalId),
       approveComposeImport: () => host.approveComposeImport(),
+      approveWorkspaceImport: (message) => host.approveWorkspaceImport(message.selectedKeys),
       closeScreen: (message) => host.closeScreen(message.draft),
       copyDiagnosisRequest: () => host.copyDiagnosisRequest(),
       copyProjectFailure: (message) => host.copyProjectFailure(message.id),
@@ -129,6 +130,9 @@ function createRunlistWebviewRouter(host, adapters = {}) {
       choosePortResolve: (message) => host.choosePortResolve(message.action),
       revealPortOwnerProject: (message) => host.revealPortOwnerProject(message.id),
       showComposeImport: (message) => host.showComposeImport(message.id),
+      showWorkspaceImport: () => host.showWorkspaceImport(),
+      showLogSearch: () => host.showLogSearch(),
+      setLogSearchQuery: (message) => host.setLogSearchQuery(message.query),
       importWorkspaceCompose: () => host.importWorkspaceCompose(),
       restartProject: (message) => host.restartProject(message.id),
       retryProjectRepair: () => host.retryProjectRepair(),
