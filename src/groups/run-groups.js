@@ -95,19 +95,19 @@ async function startRunGroup(group, options) {
   let failureReason;
   let orderedProjectIds;
   try {
-    orderedProjectIds = orderProjectsByDependencies(group.projectIds, projects);
-  } catch (error) {
-    notify(options, { status: 'failed', reason: error.message, rollbackFailures: [] });
-    return {
-      status: 'failed',
-      startedProjectIds,
-      failedProjectId: group.projectIds[0],
-      failureReason: error.message,
-      rollbackFailures: []
-    };
-  }
-  const groupProjectIds = new Set(group.projectIds);
-  try {
+    try {
+      orderedProjectIds = orderProjectsByDependencies(group.projectIds, projects);
+    } catch (error) {
+      notify(options, { status: 'failed', reason: error.message, rollbackFailures: [] });
+      return {
+        status: 'failed',
+        startedProjectIds,
+        failedProjectId: group.projectIds[0],
+        failureReason: error.message,
+        rollbackFailures: []
+      };
+    }
+    const groupProjectIds = new Set(group.projectIds);
     if (group.startMode === 'parallel') {
       return await startRunGroupInParallel({
         ...group,

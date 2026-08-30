@@ -15,7 +15,6 @@ const {
 const { writeProjects, readProjects, upsertRunGroup, readRunGroups } = require('../src/projects/project-store');
 const { stopRunGroup } = require('../src/groups/run-groups');
 const { workspaceImportFolderKey } = require('../src/projects/workspace-import');
-const { parseDarwinNetstatListeners } = require('../src/ports/port-process');
 
 function project(id, name, folder, extra = {}) {
   return {
@@ -94,7 +93,7 @@ test('export and import round-trip preserves run groups', (t) => {
 
   const preview = previewProjectImport([], exported.projects);
   applyProjectImport(targetFile, preview);
-  syncImportedRunGroups(targetFile, preview.nextProjects, exported.groups);
+  syncImportedRunGroups(targetFile, preview.nextProjects, exported.groups, exported.projects);
   const groups = readRunGroups(targetFile);
   assert.equal(groups.length, 1);
   assert.deepEqual(groups[0].projectIds, ['first', 'second']);
@@ -176,14 +175,53 @@ test('workspaceImportFolderKey is case-sensitive on Linux', (t) => {
   assert.notEqual(workspaceImportFolderKey(upper), workspaceImportFolderKey(lower));
 });
 
-test('parseDarwinNetstatListeners extracts listening ports and pids', () => {
-  const output = [
-    'tcp4       0      0  127.0.0.1.3000         *.*                    LISTEN                 0            0  131072  131072  4242      0',
-    'tcp4       0      0  127.0.0.1.4000         *.*                    LISTEN                 0            0  131072  131072  5151      0'
-  ].join('\n');
-  const listeners = parseDarwinNetstatListeners(output, [3000, 4000]);
-  assert.deepEqual(listeners, [
-    { port: 3000, pid: 4242, name: 'Unknown process' },
-    { port: 4000, pid: 5151, name: 'Unknown process' }
-  ]);
+test('applyProjectFilter keeps the stack attention chip in the summary slot', () => {
+  const source = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '..', 'media', 'main.js'),
+    'utf8'
+  );
+  assert.match(
+    source,
+    /attentionSlot\.innerHTML = `\$\{stackAttentionSummaryHtml\(state\.stackContractAttention\)\}/
+  );
+});
+
+test('setLogSearchQuery updates results without a full render', () => {
+  const source = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '..', 'src', 'host', 'runlist-view-provider.js'),
+    'utf8'
+  );
+  const setQuery = source.slice(
+    source.indexOf('setLogSearchQuery(query)'),
+    source.indexOf('async beginComposeImport')
+  );
+  assert.match(setQuery, /sendLogSearchUpdate\(\)/);
+  assert.doesNotMatch(setQuery, /this\.render\(\)/);
+});
+
+test('imported run groups resolve members by folder when ids differ', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-import-group-folder-'));
+  const projectsFile = path.join(root, 'target.json');
+  const folder = path.join(root, 'api');
+  fs.mkdirSync(folder, { recursive: true });
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const local = project('local-id', 'API', folder);
+  writeProjects(projectsFile, [local]);
+  const imported = [
+    project('export-id', 'API', folder)
+  ];
+  Object.defineProperty(imported, 'schemaVersion', { value: 11, enumerable: false });
+  const groups = [{
+    id: 'stack',
+    name: 'Stack',
+    projectIds: ['export-id'],
+    startMode: 'sequential'
+  }];
+  const preview = previewProjectImport(readProjects(projectsFile), imported);
+  applyProjectImport(projectsFile, preview);
+  syncImportedRunGroups(projectsFile, preview.nextProjects, groups, imported);
+  const savedGroups = readRunGroups(projectsFile);
+  assert.equal(savedGroups.length, 1);
+  assert.deepEqual(savedGroups[0].projectIds, ['local-id']);
 });

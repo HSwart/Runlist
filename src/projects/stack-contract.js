@@ -132,6 +132,15 @@ function serializeStackContract({ projects = [], groups = [] } = {}, options = {
         services: (profile.services || []).map((service) => serializeContractService(service))
       }));
     }
+    if (Array.isArray(project.dependsOn) && project.dependsOn.length) {
+      entry.dependsOnFolders = project.dependsOn.map((dependencyId) => {
+        const dependency = byId.get(dependencyId);
+        if (!dependency) {
+          throw stackError('INVALID_CONTRACT', `Project "${project.name}" depends on a missing project.`);
+        }
+        return relativeWorkspaceFolder(dependency.folder, workspaceRoot);
+      });
+    }
     return entry;
   });
 
@@ -170,7 +179,8 @@ function normalizeContractProject(project, index, workspaceRoot) {
     'services',
     'tags',
     'launchProfiles',
-    'envFile'
+    'envFile',
+    'dependsOnFolders'
   ]);
   if (Object.keys(project).some((key) => !allowed.has(key))) {
     throw stackError('INVALID_CONTRACT', `Stack project ${index + 1} contains unsupported fields.`);
@@ -263,6 +273,15 @@ function normalizeContractProject(project, index, workspaceRoot) {
       };
     });
   }
+  if (project.dependsOnFolders !== undefined) {
+    if (!Array.isArray(project.dependsOnFolders)
+      || project.dependsOnFolders.some((folder) => typeof folder !== 'string' || !folder.trim())) {
+      throw stackError('INVALID_CONTRACT', `Stack project ${index + 1} has invalid dependsOnFolders.`);
+    }
+    entry.dependsOnFolderKeys = project.dependsOnFolders.map((relativeFolder) => (
+      resolveContractFolder(relativeFolder, workspaceRoot, `project ${index + 1} dependency`)
+    ));
+  }
   return entry;
 }
 
@@ -324,6 +343,7 @@ function normalizeContractGroups(groups, projects, workspaceRoot) {
   if (groups.length > 32) {
     throw stackError('INVALID_CONTRACT', 'The Runlist stack file has too many groups.');
   }
+  const seenNames = new Set();
   const folderSet = new Set(projects.map((project) => normalizePathKey(project.folder)));
   return groups.map((group, index) => {
     if (!group || typeof group !== 'object' || Array.isArray(group)) {
@@ -337,6 +357,12 @@ function normalizeContractGroups(groups, projects, workspaceRoot) {
     if (typeof group.name !== 'string' || !group.name.trim()) {
       throw stackError('INVALID_CONTRACT', `Stack group ${index + 1} needs a name.`);
     }
+    const normalizedName = group.name.trim();
+    const nameKey = normalizedName.toLowerCase();
+    if (seenNames.has(nameKey)) {
+      throw stackError('INVALID_CONTRACT', `Stack group ${index + 1} repeats the name "${normalizedName}".`);
+    }
+    seenNames.add(nameKey);
     if (!Array.isArray(group.projectFolders) || !group.projectFolders.length) {
       throw stackError('INVALID_CONTRACT', `Stack group ${index + 1} needs projectFolders.`);
     }
@@ -364,7 +390,7 @@ function normalizeContractGroups(groups, projects, workspaceRoot) {
       return relativeWorkspaceFolder(absolute, workspaceRoot);
     });
     return {
-      name: group.name.trim(),
+      name: normalizedName,
       projectFolders,
       startMode: group.startMode === 'parallel' ? 'parallel' : 'sequential'
     };

@@ -57,12 +57,7 @@ async function findListeningProcesses(ports, options = {}) {
     }
   }
   if (!listeners.length && platform === 'darwin') {
-    try {
-      const output = await runFile('netstat', ['-anv', '-p', 'tcp'], commandOptions(options));
-      listeners = parseDarwinNetstatListeners(output, requestedPorts);
-    } catch {
-      listeners = [];
-    }
+    listeners = await findDarwinListenersByPort(requestedPorts, runFile, options);
   }
 
   const readIdentity = options.readProcessIdentity
@@ -180,6 +175,21 @@ function parseLsofListeners(output, ports) {
       if (allowed.has(port)) {
         listeners.push({ port, pid, name });
       }
+    }
+  }
+  return deduplicateListeners(listeners);
+}
+
+async function findDarwinListenersByPort(ports, runFile, options) {
+  const listeners = [];
+  for (const port of portSet(ports)) {
+    try {
+      const output = await runFile('lsof', [
+        '-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fpcn'
+      ], commandOptions(options));
+      listeners.push(...parseLsofListeners(output, [port]));
+    } catch {
+      // Try the next port.
     }
   }
   return deduplicateListeners(listeners);

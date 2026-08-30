@@ -359,6 +359,7 @@ class RunlistViewProvider {
     this.projectFailureDetails = new Map();
     this.projectStopFailures = new Map();
     this.outputUpdateScheduler = createOutputUpdateScheduler((id) => this.sendProjectOutput(id));
+    this.logSearchUpdateScheduler = createOutputUpdateScheduler(() => this.sendLogSearchUpdate());
     this.managedProjectIds = new Set();
     this.detachedProjectIds = new Set();
     this.portReservations = new PortReservationStore(
@@ -434,6 +435,7 @@ class RunlistViewProvider {
       remoteStopTimeoutMs: REMOTE_STOP_TIMEOUT_MS,
       servicePortStatus,
       showErrorMessage: (...args) => vscode.window.showErrorMessage(...args),
+      showInformationMessage: (...args) => vscode.window.showInformationMessage(...args),
       showWarningMessage: (...args) => vscode.window.showWarningMessage(...args),
       startReadinessTimeoutMs: START_READINESS_TIMEOUT_MS,
       statusPollIntervalMs: STATUS_POLL_INTERVAL_MS
@@ -829,10 +831,25 @@ class RunlistViewProvider {
 
   setLogSearchQuery(query) {
     this.logSearchQuery = String(query || '').slice(0, 200);
-    const focusTarget = { type: 'field', id: 'log-search-input' };
-    this.focusTarget = focusTarget;
-    this.lastFocusTarget = focusTarget;
-    this.render();
+    this.sendLogSearchUpdate();
+  }
+
+  sendLogSearchUpdate() {
+    if (this.mode !== 'log-search') {
+      return;
+    }
+    this.view?.webview.postMessage({
+      type: 'logSearchUpdate',
+      messageToken: this.webviewMessageToken,
+      logSearch: {
+        query: this.logSearchQuery || '',
+        results: searchProjectLogs(
+          this.projectOutputs,
+          this.projects,
+          this.logSearchQuery || ''
+        )
+      }
+    });
   }
 
   async beginComposeImport({ projectId, folder: initialFolder, preferredPath: initialPreferredPath } = {}) {
@@ -2714,13 +2731,10 @@ class RunlistViewProvider {
       }
     }
     if ((this.mode === 'output' && this.selectedProjectId === id)
-      || (this.mode === 'list' && this.expandedPreviewProjectId === id)
-      || this.mode === 'log-search') {
-      if (this.mode === 'log-search') {
-        this.render();
-      } else {
-        this.outputUpdateScheduler.schedule(id);
-      }
+      || (this.mode === 'list' && this.expandedPreviewProjectId === id)) {
+      this.outputUpdateScheduler.schedule(id);
+    } else if (this.mode === 'log-search' && this.logSearchQuery) {
+      this.logSearchUpdateScheduler.schedule();
     }
     this.writeProjectTerminal(id, chunk);
   }
