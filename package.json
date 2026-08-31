@@ -225,7 +225,7 @@
   "scripts": {
     "lint": "eslint . --max-warnings=0",
     "scan:secrets": "node scripts/scan-secrets.js",
-    "test": "node --test --test-concurrency=4",
+    "test": "node --test",
     "test:compose-lifecycle": "node --test test/compose-lifecycle.integration.js",
     "test:critical-coverage": "node scripts/test-critical-coverage.js",
     "test:smoke": "node smoke/run.js",
