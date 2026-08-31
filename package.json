@@ -2,7 +2,7 @@
   "name": "runlist",
   "displayName": "Runlist",
   "description": "Start, stop, and switch local apps from one sidebar.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "hankoswart",
   "license": "SEE LICENSE IN LICENSE",
   "icon": "media/runlist.png",
@@ -225,7 +225,7 @@
   "scripts": {
     "lint": "eslint . --max-warnings=0",
     "scan:secrets": "node scripts/scan-secrets.js",
-    "test": "node --test",
+    "test": "node --test --test-concurrency=4",
     "test:compose-lifecycle": "node --test test/compose-lifecycle.integration.js",
     "test:critical-coverage": "node scripts/test-critical-coverage.js",
     "test:smoke": "node smoke/run.js",

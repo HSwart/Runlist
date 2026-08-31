@@ -33,6 +33,16 @@ function waitForWorker(child) {
   });
 }
 
+async function waitForFile(filePath, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!fs.existsSync(filePath)) {
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out waiting for ${filePath}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 function projectStoreFixture(t) {
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-store-'));
   const projectFolder = path.join(temporaryRoot, 'sample-app');
@@ -203,11 +213,7 @@ test('does not let a delayed schema migration overwrite a newer project save', a
     '-e', workerSource, storeModule, projectsFile, marker
   ], { stdio: ['ignore', 'ignore', 'pipe'] });
 
-  const deadline = Date.now() + 2000;
-  while (!fs.existsSync(marker) && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  assert.equal(fs.existsSync(marker), true);
+  await waitForFile(marker);
 
   const newerProject = {
     id: 'newer-project',
@@ -455,11 +461,7 @@ test('does not start atomic lock removal for a live unverified store lock', asyn
     }
     await ownerDone.catch(() => undefined);
   });
-  const deadline = Date.now() + 2000;
-  while (!fs.existsSync(ownerReady) && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  assert.equal(fs.existsSync(ownerReady), true);
+  await waitForFile(ownerReady);
 
   const originalOpenSync = fs.openSync;
   fs.openSync = function(filePath, ...args) {

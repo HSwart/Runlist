@@ -12,6 +12,7 @@ const {
   REVIEWED_PACKAGING_CONTROL_FILES,
   assertArchiveMatchesAllowlist,
   assertMarketplaceGalleryPackaging,
+  assertReviewedPackageFiles,
   expectedArchiveFiles,
   marketplaceScreenshotUrl,
   packageMarketplaceGallery,
@@ -122,6 +123,27 @@ test('reviewed allowlist includes runtime modules required by shipped handoff an
   assert.ok(REVIEWED_PACKAGE_FILES.includes('src/integrations/diagnosis-handoff.js'));
   assert.ok(REVIEWED_PACKAGE_FILES.includes('src/integrations/failure-clipboard.js'));
   assert.ok(REVIEWED_PACKAGE_FILES.includes('mcp/persisted-ownership.js'));
+});
+
+test('rejects a relative runtime dependency outside the reviewed package allowlist', (t) => {
+  const fixtureRoot = temporaryFixtureRoot(t);
+  const dependencyPath = path.join(
+    fixtureRoot,
+    'src',
+    'projects',
+    'unreviewed-runtime.js'
+  );
+  fs.mkdirSync(path.dirname(dependencyPath), { recursive: true });
+  fs.writeFileSync(dependencyPath, 'module.exports = {};\n');
+  fs.writeFileSync(
+    path.join(fixtureRoot, 'extension.js'),
+    "require('./src/projects/unreviewed-runtime');\n"
+  );
+
+  assert.throws(
+    () => assertReviewedPackageFiles(fixtureRoot),
+    /runtime dependency is not reviewed: src\/projects\/unreviewed-runtime\.js/
+  );
 });
 
 const GALLERY_STILLS = GALLERY_SCREENSHOTS;

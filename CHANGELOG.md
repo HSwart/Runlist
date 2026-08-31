@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1 — Activation hotfix
+
+- Restore the five runtime modules omitted from the 0.2.0 VSIX so Marketplace installs can activate and load the Runlist sidebar.
+- Reject future packages when a local runtime dependency is missing from the reviewed VSIX allowlist.
+
 ## 0.2.0 — Import, dependencies, and log search
 
 - **Import from workspace** — review package scripts, workspace packages, Procfile processes, VS Code tasks, and Compose in one screen; saving multiple projects can create an **Imported stack** run group.

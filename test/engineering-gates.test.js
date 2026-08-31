@@ -5,6 +5,25 @@ const test = require('node:test');
 
 const root = path.join(__dirname, '..');
 
+test('launches the npm SBOM command through cmd.exe on Windows', () => {
+  const { npmSbomInvocation } = require('../scripts/validate-sbom');
+
+  assert.deepEqual(npmSbomInvocation('win32', {
+    ComSpec: 'C:\\Windows\\System32\\cmd.exe'
+  }), {
+    command: 'C:\\Windows\\System32\\cmd.exe',
+    args: [
+      '/d',
+      '/s',
+      '/c',
+      'npm.cmd',
+      'sbom',
+      '--omit=dev',
+      '--sbom-format=cyclonedx'
+    ]
+  });
+});
+
 test('enforces focused static analysis, critical coverage, SBOM, and package identity gates', () => {
   const manifest = require('../package.json');
   const coverage = fs.readFileSync(path.join(root, 'scripts', 'test-critical-coverage.js'), 'utf8');
