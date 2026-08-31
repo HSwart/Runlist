@@ -13,6 +13,8 @@ const {
   assertArchiveMatchesAllowlist,
   assertMarketplaceGalleryPackaging,
   assertReviewedPackageFiles,
+  assertRuntimeDependenciesReviewed,
+  collectStaticRelativeRequires,
   expectedArchiveFiles,
   marketplaceScreenshotUrl,
   packageMarketplaceGallery,
@@ -125,6 +127,21 @@ test('reviewed allowlist includes runtime modules required by shipped handoff an
   assert.ok(REVIEWED_PACKAGE_FILES.includes('mcp/persisted-ownership.js'));
 });
 
+test('collects static relative require forms used in reviewed runtime code', () => {
+  const source = [
+    "require('./src/projects/a');",
+    "require ('./src/projects/b');",
+    "require(/* setup */ './src/projects/c');",
+    'require(`./src/projects/d`);'
+  ].join('\n');
+  assert.deepEqual(collectStaticRelativeRequires(source), [
+    './src/projects/a',
+    './src/projects/b',
+    './src/projects/c',
+    './src/projects/d'
+  ]);
+});
+
 test('rejects a relative runtime dependency outside the reviewed package allowlist', (t) => {
   const fixtureRoot = temporaryFixtureRoot(t);
   const dependencyPath = path.join(
@@ -142,6 +159,27 @@ test('rejects a relative runtime dependency outside the reviewed package allowli
 
   assert.throws(
     () => assertReviewedPackageFiles(fixtureRoot),
+    /runtime dependency is not reviewed: src\/projects\/unreviewed-runtime\.js/
+  );
+});
+
+test('rejects unreviewed runtime dependencies referenced with spaced or template require calls', (t) => {
+  const fixtureRoot = temporaryFixtureRoot(t);
+  const dependencyPath = path.join(
+    fixtureRoot,
+    'src',
+    'projects',
+    'unreviewed-runtime.js'
+  );
+  fs.mkdirSync(path.dirname(dependencyPath), { recursive: true });
+  fs.writeFileSync(dependencyPath, 'module.exports = {};\n');
+  fs.writeFileSync(
+    path.join(fixtureRoot, 'extension.js'),
+    "require (`./src/projects/unreviewed-runtime`);\n"
+  );
+
+  assert.throws(
+    () => assertRuntimeDependenciesReviewed(fixtureRoot),
     /runtime dependency is not reviewed: src\/projects\/unreviewed-runtime\.js/
   );
 });

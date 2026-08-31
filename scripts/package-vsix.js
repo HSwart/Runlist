@@ -466,6 +466,23 @@ function resolveRuntimeDependency(root, parentFile, request) {
   return normalizeReviewedPath(relative);
 }
 
+function collectStaticRelativeRequires(source) {
+  const withoutComments = source
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const patterns = [
+    /require\s*\(\s*['"](\.\/?[^'"]+)['"]\s*\)/g,
+    /require\s*\(\s*`(\.\/?[^$`\\]+)`\s*\)/g
+  ];
+  const requests = [];
+  for (const pattern of patterns) {
+    for (const match of withoutComments.matchAll(pattern)) {
+      requests.push(match[1]);
+    }
+  }
+  return requests;
+}
+
 function assertRuntimeDependenciesReviewed(root) {
   const reviewed = new Set(REVIEWED_PACKAGE_FILES.map(normalizeReviewedPath));
   const pending = [...RUNTIME_ENTRY_FILES];
@@ -481,8 +498,8 @@ function assertRuntimeDependenciesReviewed(root) {
     visited.add(file);
     const sourcePath = path.join(root, ...file.split('/'));
     const source = readReviewedSource(root, sourcePath, file).toString('utf8');
-    for (const match of source.matchAll(/require\(\s*['"](\.[^'"]+)['"]\s*\)/g)) {
-      pending.push(resolveRuntimeDependency(root, file, match[1]));
+    for (const request of collectStaticRelativeRequires(source)) {
+      pending.push(resolveRuntimeDependency(root, file, request));
     }
   }
   return visited;
@@ -752,6 +769,7 @@ module.exports = {
   assertOutputPath,
   assertReviewedPackageFiles,
   assertRuntimeDependenciesReviewed,
+  collectStaticRelativeRequires,
   assertSafePathComponents,
   canonicalRepositoryRoot,
   copyReviewedPackage,
