@@ -12,8 +12,8 @@ const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
 
 test('builds GitHub release notes from the manifest version changelog section', () => {
   const notes = releaseNotesForCurrentVersion(root);
-  assert.match(notes, /## Import, dependencies, and log search/);
-  assert.match(notes, /Import from workspace/);
+  assert.match(notes, /## Activation hotfix/);
+  assert.match(notes, /five runtime modules omitted from the 0\.2\.0 VSIX/);
   assert.match(notes, /download `runlist\.vsix` from this release/);
   assert.match(notes, /Publish Marketplace/);
 });

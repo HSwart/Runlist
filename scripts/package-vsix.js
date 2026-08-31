@@ -76,8 +76,11 @@ const REVIEWED_PACKAGE_FILES = Object.freeze([
   'src/projects/launch-profile.js',
   'src/projects/launch-env.js',
   'src/projects/command-display.js',
+  'src/projects/procfile-discovery.js',
+  'src/projects/project-dependencies.js',
   'src/projects/project-diagnostics.js',
   'src/projects/project-form.js',
+  'src/projects/project-log-search.js',
   'src/projects/project-output.js',
   'src/projects/project-repair.js',
   'src/projects/project-runtime.js',
@@ -89,6 +92,8 @@ const REVIEWED_PACKAGE_FILES = Object.freeze([
   'src/projects/project-transfer.js',
   'src/projects/stack-contract.js',
   'src/projects/project-workspace.js',
+  'src/projects/vscode-tasks-discovery.js',
+  'src/projects/workspace-import.js',
   'src/services/external-url.js',
   'src/services/local-hostname.js',
   'src/webview/phone-handoff.js',
@@ -100,6 +105,11 @@ const REVIEWED_PACKAGE_FILES = Object.freeze([
 ]);
 
 const REVIEWED_PACKAGING_CONTROL_FILES = Object.freeze(['.vscodeignore']);
+
+const RUNTIME_ENTRY_FILES = Object.freeze([
+  'extension.js',
+  'mcp/server.js'
+]);
 
 const GENERATED_ARCHIVE_FILES = Object.freeze([
   '[Content_Types].xml',
@@ -430,6 +440,71 @@ function expectedArchiveFiles() {
   ]);
 }
 
+function resolveRuntimeDependency(root, parentFile, request) {
+  const requestedPath = path.resolve(root, path.dirname(parentFile), request);
+  const candidates = path.extname(requestedPath)
+    ? [requestedPath]
+    : [
+        `${requestedPath}.js`,
+        `${requestedPath}.json`,
+        path.join(requestedPath, 'index.js')
+      ];
+  const resolved = candidates.find((candidate) => {
+    try {
+      return fs.statSync(candidate).isFile();
+    } catch {
+      return false;
+    }
+  });
+  if (!resolved) {
+    throw new Error(`Refusing to package because runtime dependency cannot be resolved: ${request} from ${parentFile}`);
+  }
+  const relative = path.relative(root, resolved).split(path.sep).join('/');
+  if (!relative || relative === '..' || relative.startsWith('../')) {
+    throw new Error(`Refusing to package a runtime dependency outside the repository: ${request} from ${parentFile}`);
+  }
+  return normalizeReviewedPath(relative);
+}
+
+function collectStaticRelativeRequires(source) {
+  const withoutComments = source
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const patterns = [
+    /require\s*\(\s*['"](\.\/?[^'"]+)['"]\s*\)/g,
+    /require\s*\(\s*`(\.\/?[^$`\\]+)`\s*\)/g
+  ];
+  const requests = [];
+  for (const pattern of patterns) {
+    for (const match of withoutComments.matchAll(pattern)) {
+      requests.push(match[1]);
+    }
+  }
+  return requests;
+}
+
+function assertRuntimeDependenciesReviewed(root) {
+  const reviewed = new Set(REVIEWED_PACKAGE_FILES.map(normalizeReviewedPath));
+  const pending = [...RUNTIME_ENTRY_FILES];
+  const visited = new Set();
+  while (pending.length > 0) {
+    const file = pending.pop();
+    if (visited.has(file)) {
+      continue;
+    }
+    if (!reviewed.has(file)) {
+      throw new Error(`Refusing to package because runtime dependency is not reviewed: ${file}`);
+    }
+    visited.add(file);
+    const sourcePath = path.join(root, ...file.split('/'));
+    const source = readReviewedSource(root, sourcePath, file).toString('utf8');
+    for (const request of collectStaticRelativeRequires(source)) {
+      pending.push(resolveRuntimeDependency(root, file, request));
+    }
+  }
+  return visited;
+}
+
 function assertReviewedPackageFiles(root) {
   const rootRealPath = canonicalRepositoryRoot(root);
   const normalized = [
@@ -454,6 +529,7 @@ function assertReviewedPackageFiles(root) {
       throw error;
     }
   }
+  assertRuntimeDependenciesReviewed(rootRealPath);
   return rootRealPath;
 }
 
@@ -685,12 +761,15 @@ module.exports = {
   GENERATED_ARCHIVE_FILES,
   REVIEWED_PACKAGING_CONTROL_FILES,
   REVIEWED_PACKAGE_FILES,
+  RUNTIME_ENTRY_FILES,
   addScreenshotAssets,
   applyMarketplaceGalleryPackaging,
   assertArchiveMatchesAllowlist,
   assertMarketplaceGalleryPackaging,
   assertOutputPath,
   assertReviewedPackageFiles,
+  assertRuntimeDependenciesReviewed,
+  collectStaticRelativeRequires,
   assertSafePathComponents,
   canonicalRepositoryRoot,
   copyReviewedPackage,
