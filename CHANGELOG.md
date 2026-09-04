@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2 — Terminal output alignment
+
+- Fix mirrored Runlist terminal output so process logs are left-aligned like a normal terminal by converting lone line feeds to CRLF before writing to the pseudoterminal.
+
 ## 0.2.1 — Activation hotfix
 
 - Restore the five runtime modules omitted from the 0.2.0 VSIX so Marketplace installs can activate and load the Runlist sidebar.

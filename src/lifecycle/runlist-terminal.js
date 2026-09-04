@@ -3,6 +3,10 @@ function runlistTerminalName(projectName) {
   return `Runlist · ${name || 'project'}`;
 }
 
+function formatTerminalWrite(chunk) {
+  return String(chunk).replace(/\r?\n/g, '\r\n');
+}
+
 class RunlistTerminalSession {
   constructor(vscode, options = {}) {
     const { name, cwd, env, onClose } = options;
@@ -35,7 +39,7 @@ class RunlistTerminalSession {
     if (this.disposed || chunk === undefined || chunk === null) {
       return;
     }
-    const text = String(chunk);
+    const text = formatTerminalWrite(chunk);
     if (!text) {
       return;
     }
@@ -68,5 +72,6 @@ function createRunlistTerminalSession(vscode, options) {
 module.exports = {
   RunlistTerminalSession,
   createRunlistTerminalSession,
+  formatTerminalWrite,
   runlistTerminalName
 };

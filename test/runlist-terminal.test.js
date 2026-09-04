@@ -3,12 +3,19 @@ const test = require('node:test');
 const {
   RunlistTerminalSession,
   createRunlistTerminalSession,
+  formatTerminalWrite,
   runlistTerminalName
 } = require('../src/lifecycle/runlist-terminal');
 
 test('runlistTerminalName prefixes the project name', () => {
   assert.equal(runlistTerminalName('My App'), 'Runlist · My App');
   assert.equal(runlistTerminalName(''), 'Runlist · project');
+});
+
+test('formatTerminalWrite converts lone line feeds to CRLF for PTY alignment', () => {
+  assert.equal(formatTerminalWrite('line one\nline two\n'), 'line one\r\nline two\r\n');
+  assert.equal(formatTerminalWrite('already\r\ncrlf\n'), 'already\r\ncrlf\r\n');
+  assert.equal(formatTerminalWrite('progress\rstill here'), 'progress\rstill here');
 });
 
 test('createRunlistTerminalSession mirrors output through a pseudoterminal', () => {
@@ -53,7 +60,7 @@ test('createRunlistTerminalSession mirrors output through a pseudoterminal', () 
   session.write('hello\n');
   session.write('world');
 
-  assert.deepEqual(writes, ['hello\n', 'world']);
+  assert.deepEqual(writes, ['hello\r\n', 'world']);
 });
 
 test('RunlistTerminalSession notifies onClose when the terminal tab closes', () => {
