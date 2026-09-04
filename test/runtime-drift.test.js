@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { detectRuntimeDrift } = require('../src/projects/runtime-drift');
+const { detectRuntimeDrift } = require('../src/host/host-helpers');
 
 test('detects Python version drift between PATH and project venv', () => {
   const drift = detectRuntimeDrift({

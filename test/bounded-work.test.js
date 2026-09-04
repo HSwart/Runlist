@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { mapWithConcurrency } = require('../src/lifecycle/bounded-work');
+const { mapWithConcurrency } = require('../src/host/host-helpers');
 
 for (const size of [100, 500, 1000]) {
   test(`bounds and completes ${size} status checks without reordering`, async () => {

@@ -5,7 +5,7 @@ const test = require('node:test');
 const {
   availableProjectDetailTabs,
   preferredProjectDetailTab
-} = require('../src/webview/project-detail-tabs');
+} = require('../src/host/host-helpers');
 const { readShippedHostSource } = require('./helpers/extension-source');
 
 test('offers only relevant detail tabs and defaults to a live preview', () => {

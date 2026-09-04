@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const {
   normalizeSearchQuery,
   projectSearchText
-} = require('../src/projects/project-search');
+} = require('../src/host/host-helpers');
 
 const project = {
   name: 'goSearch',

@@ -1,5 +1,5 @@
 const { sanitizeProjectOutput } = require('./project-output');
-const { normalizeSearchQuery } = require('./project-search');
+const { normalizeSearchQuery } = require('../host/host-helpers');
 
 const DEFAULT_LIMIT = 40;
 const EXCERPT_RADIUS = 80;

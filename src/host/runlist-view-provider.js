@@ -37,16 +37,23 @@ const {
   stoppableProjectIds
 } = require('../lifecycle/project-status');
 const {
-  readyOpenMessage,
-  shouldOfferReadyOpen
-} = require('../lifecycle/ready-open-offer');
-const {
+  availableProjectDetailTabs,
+  buildStartFailureClipboardText,
+  buildStopFailureClipboardText,
   copyProjectPath: writeProjectPathToClipboard,
+  customStopPostcondition,
+  detectRuntimeDrift,
+  mapWithConcurrency,
   openProjectInNewWindow,
   openProjectTerminal,
   openWorkspaceFolderInCurrentWindow,
-  projectFolderIsAccessible
-} = require('../webview/project-navigation');
+  preferredProjectDetailTab,
+  projectFolderIsAccessible,
+  projectSearchText,
+  readyOpenMessage,
+  shouldOfferReadyOpen,
+  stopHonestyMessage
+} = require('./host-helpers');
 const { previewFrameSources, projectPreviewService } = require('../webview/preview-security');
 const {
   createPhoneHandoff,
@@ -64,11 +71,6 @@ const {
   recoverProjectPorts,
   relatedPortProjectIds
 } = require('../ports/port-recovery');
-const { customStopPostcondition, stopHonestyMessage } = require('../lifecycle/custom-stop-recovery');
-const {
-  availableProjectDetailTabs,
-  preferredProjectDetailTab
-} = require('../webview/project-detail-tabs');
 const { HttpResponseHistory, RuntimePulseHistory } = require('../lifecycle/runtime-pulse');
 const {
   appendStartupHistory,
@@ -92,9 +94,13 @@ const {
   discoverWorkspacePackageCandidates,
   workspaceStartDevScripts
 } = require('../projects/project-workspace');
-const { discoverProcfileProcessCandidates } = require('../projects/procfile-discovery');
-const { discoverVscodeTaskCandidates } = require('../projects/vscode-tasks-discovery');
-const { buildWorkspaceImportProposal, consolidateChosenImportEntries, workspaceImportKey } = require('../projects/workspace-import');
+const {
+  buildWorkspaceImportProposal,
+  consolidateChosenImportEntries,
+  discoverProcfileProcessCandidates,
+  discoverVscodeTaskCandidates,
+  workspaceImportKey
+} = require('../projects/workspace-import');
 const { searchProjectLogs } = require('../projects/project-log-search');
 const { unresolvedDependencies } = require('../projects/project-dependencies');
 const {
@@ -149,7 +155,6 @@ const {
   MISSING_REQUIRED_ENV_FAILURE_KIND,
   resolveExplicitRequiredEnvKeys
 } = require('../projects/required-env');
-const { detectRuntimeDrift } = require('../projects/runtime-drift');
 const { redactSensitiveText } = require('../projects/project-diagnostics');
 const {
   detectLifecycleCapability,
@@ -210,7 +215,6 @@ const {
   readProjectDiagnostics,
   writeProjectDiagnostics
 } = require('../projects/project-diagnostics');
-const { projectSearchText } = require('../projects/project-search');
 const { projectTagVocabulary } = require('../projects/project-tags');
 const {
   launchProfileOptions,
@@ -218,16 +222,11 @@ const {
   selectedLaunchProfileId
 } = require('../projects/launch-profile');
 const {
-  buildStartFailureClipboardText,
-  buildStopFailureClipboardText
-} = require('../integrations/failure-clipboard');
-const {
   ProjectLifecycleCoordinator,
   stopAllConfirmation,
   stopGroupConfirmation
 } = require('../lifecycle/project-lifecycle');
 const { RunlistDiagnostics } = require('../lifecycle/runlist-diagnostics');
-const { mapWithConcurrency } = require('../lifecycle/bounded-work');
 const { createRunlistWebviewRouter } = require('../webview/webview-message-router');
 const {
   approveProjectRepairProposal,

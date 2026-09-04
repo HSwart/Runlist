@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vscode = require('vscode');
 const { upsertProject } = require('../src/projects/project-store');
-const { WEBVIEW_HOST_COMPLETION_TIMEOUT_MS } = require('../scripts/webview-e2e-timeouts');
+const WEBVIEW_HOST_COMPLETION_TIMEOUT_MS = 300000;
 
 async function run() {
   const root = requiredEnvironment('RUNLIST_WEBVIEW_E2E_ROOT');

@@ -7,7 +7,7 @@ const test = require('node:test');
 const {
   readyOpenMessage,
   shouldOfferReadyOpen
-} = require('../src/lifecycle/ready-open-offer');
+} = require('../src/host/host-helpers');
 const { upsertProject } = require('../src/projects/project-store');
 const { readShippedHostSource } = require('./helpers/extension-source');
 

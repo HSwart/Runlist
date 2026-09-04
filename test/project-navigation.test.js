@@ -7,7 +7,7 @@ const {
   openProjectInNewWindow,
   openProjectTerminal,
   projectFolderIsAccessible
-} = require('../src/webview/project-navigation');
+} = require('../src/host/host-helpers');
 const { readShippedHostSource } = require('./helpers/extension-source');
 
 test('opens a saved project folder in a new VS Code window', async () => {

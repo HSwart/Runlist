@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { normalizeSearchQuery, projectSearchText } = require('../src/projects/project-search');
+const { normalizeSearchQuery, projectSearchText } = require('../src/host/host-helpers');
 const {
   pinnedProjectsFirst,
   readProjects,
