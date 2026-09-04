@@ -10,9 +10,4 @@ function projectSearchText(project) {
   ].filter(Boolean).join('\n'));
 }
 
-function projectMatchesQuery(project, query) {
-  const normalizedQuery = normalizeSearchQuery(query);
-  return !normalizedQuery || projectSearchText(project).includes(normalizedQuery);
-}
-
-module.exports = { normalizeSearchQuery, projectSearchText, projectMatchesQuery };
+module.exports = { normalizeSearchQuery, projectSearchText };

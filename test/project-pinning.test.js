@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { projectMatchesQuery } = require('../src/projects/project-search');
+const { normalizeSearchQuery, projectSearchText } = require('../src/projects/project-search');
 const {
   pinnedProjectsFirst,
   readProjects,
@@ -49,11 +49,11 @@ test('keeps stable order within pinned and unpinned groups and does not affect s
 
   assert.deepEqual(ordered.map((project) => project.id), ['b', 'd', 'a', 'c']);
   assert.deepEqual(
-    ordered.filter((project) => projectMatchesQuery(project, 'projects')).map((project) => project.id),
+    ordered.filter((project) => projectSearchText(project).includes(normalizeSearchQuery('projects'))).map((project) => project.id),
     ['b', 'd', 'a', 'c']
   );
   assert.deepEqual(
-    ordered.filter((project) => projectMatchesQuery(project, 'gamma')).map((project) => project.id),
+    ordered.filter((project) => projectSearchText(project).includes(normalizeSearchQuery('gamma'))).map((project) => project.id),
     ['c']
   );
 });

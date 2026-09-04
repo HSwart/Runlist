@@ -7,7 +7,7 @@ const test = require('node:test');
 const { serializeStackContract } = require('../src/projects/stack-contract');
 const { writeProjects } = require('../src/projects/project-store');
 
-test('stackContractAttentionState reports pending stack changes when projects exist', async (t) => {
+test('stack contract attention reports pending stack changes when projects exist', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-stack-attention-'));
   const projectsFile = path.join(root, 'projects.json');
   fs.writeFileSync(projectsFile, '[]\n');
@@ -79,8 +79,8 @@ test('stackContractAttentionState reports pending stack changes when projects ex
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  assert.equal(provider.stackContractEmptyState(), undefined);
-  assert.deepEqual(provider.stackContractAttentionState(), {
+  assert.ok(provider.projects.length > 0);
+  assert.deepEqual(provider.stackContractSummary(), {
     pending: true,
     changeCount: 1,
     addCount: 1,

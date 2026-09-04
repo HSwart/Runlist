@@ -98,7 +98,7 @@ const { buildWorkspaceImportProposal, consolidateChosenImportEntries, workspaceI
 const { searchProjectLogs } = require('../projects/project-log-search');
 const { unresolvedDependencies } = require('../projects/project-dependencies');
 const {
-  createRunlistTerminalSession,
+  RunlistTerminalSession,
   runlistTerminalName
 } = require('../lifecycle/runlist-terminal');
 const {
@@ -1249,24 +1249,6 @@ class RunlistViewProvider {
     } catch {
       return undefined;
     }
-  }
-
-  stackContractEmptyState() {
-    if (this.projects.length > 0) {
-      return undefined;
-    }
-    return this.stackContractSummary();
-  }
-
-  stackContractAttentionState() {
-    if (this.projects.length === 0) {
-      return undefined;
-    }
-    return this.stackContractSummary();
-  }
-
-  stackContractPendingForEmptyState() {
-    return Boolean(this.stackContractEmptyState()?.pending);
   }
 
   workspaceImportAvailable() {
@@ -2582,7 +2564,7 @@ class RunlistViewProvider {
   ensureRunlistTerminal(id, project, launchEnvironment) {
     this.disposeProjectTerminal(id);
     let session;
-    session = createRunlistTerminalSession(vscode, {
+    session = new RunlistTerminalSession(vscode, {
       name: runlistTerminalName(project.name),
       cwd: project.folder,
       env: launchEnvironment,
@@ -6434,9 +6416,14 @@ class RunlistViewProvider {
       draftStartCommandNotice: this.mode === 'add'
         ? this.draftStartCommandNotice
         : undefined,
-      stackContractPending: this.stackContractPendingForEmptyState(),
-      stackContractSummary: this.stackContractEmptyState(),
-      stackContractAttention: this.stackContractAttentionState(),
+      stackContractPending: this.projects.length === 0
+        && Boolean(this.stackContractSummary()?.pending),
+      stackContractSummary: this.projects.length > 0
+        ? undefined
+        : this.stackContractSummary(),
+      stackContractAttention: this.projects.length === 0
+        ? undefined
+        : this.stackContractSummary(),
       workspaceImportAvailable: this.workspaceImportAvailable(),
       focusTarget: this.focusTarget || this.lastFocusTarget,
       formErrors: this.formErrors,

@@ -2,7 +2,6 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   normalizeSearchQuery,
-  projectMatchesQuery,
   projectSearchText
 } = require('../src/projects/project-search');
 
@@ -17,11 +16,12 @@ test('normalizes project searches for case-insensitive matching', () => {
 });
 
 test('finds projects by name, folder, or tag', () => {
-  assert.equal(projectMatchesQuery(project, 'GOSEARCH'), true);
-  assert.equal(projectMatchesQuery(project, 'search'), true);
-  assert.equal(projectMatchesQuery(project, 'git projects'), true);
-  assert.equal(projectMatchesQuery(project, 'customer portal'), true);
-  assert.equal(projectMatchesQuery(project, 'missing'), false);
+  const text = projectSearchText(project);
+  assert.equal(text.includes(normalizeSearchQuery('GOSEARCH')), true);
+  assert.equal(text.includes(normalizeSearchQuery('search')), true);
+  assert.equal(text.includes(normalizeSearchQuery('git projects')), true);
+  assert.equal(text.includes(normalizeSearchQuery('customer portal')), true);
+  assert.equal(text.includes(normalizeSearchQuery('missing')), false);
 });
 
 test('builds a reusable search index from the project name, folder, and tags', () => {
@@ -32,5 +32,5 @@ test('builds a reusable search index from the project name, folder, and tags', (
 });
 
 test('shows every project when the search is empty', () => {
-  assert.equal(projectMatchesQuery(project, '  '), true);
+  assert.equal(normalizeSearchQuery('  '), '');
 });
