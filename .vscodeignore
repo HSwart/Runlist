@@ -8,7 +8,6 @@
 .env*
 AGENTS.md
 .agents/**
-.cursor/**
 FUTURE_FEATURE_IDEAS.local.md
 docs/**
 node_modules/**
