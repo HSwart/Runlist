@@ -1,6 +1,7 @@
 .git/**
 .github/**
 .agents/**
+.cursor/**
 .gitignore
 .vscode/**
 .vscode-test/**
