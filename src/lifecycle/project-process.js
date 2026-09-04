@@ -1934,34 +1934,6 @@ class ProcessOwnershipStore {
     return projects;
   }
 
-  peekSnapshot() {
-    return this.readPersistedSnapshot();
-  }
-
-  readPersistedSnapshot(projectId) {
-    const projects = new Map();
-    if (!fs.existsSync(this.directory)) {
-      return projects;
-    }
-    for (const filename of fs.readdirSync(this.directory).filter((name) => name.endsWith('.json'))) {
-      const ownershipPath = path.join(this.directory, filename);
-      const ownership = readJson(ownershipPath);
-      if (!validOwnership(ownership)) {
-        continue;
-      }
-      if (projectId && ownership.projectId !== projectId) {
-        continue;
-      }
-      const stopRequested = readJson(this.stopRequestPath(ownership.projectId))?.token === ownership.token;
-      projects.set(ownership.projectId, {
-        ...ownership,
-        ownerHeartbeatFresh: !this.ownerHeartbeatExpired(ownership),
-        state: stopRequested ? 'stopping' : ownership.state
-      });
-    }
-    return projects;
-  }
-
   requestStop(projectId, expectedToken) {
     const ownership = readJson(this.ownershipPath(projectId));
     if (!validOwnership(ownership, projectId)) {

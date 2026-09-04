@@ -9,7 +9,6 @@ const {
   subscribeProjectStoreDiagnostics
 } = require('./src/projects/project-store');
 const { RunlistViewProvider } = require('./src/host/runlist-view-provider');
-const { resolveRunlistHostRole } = require('./src/host/runlist-host-role');
 
 const STORAGE_KEY = 'runlist.projects';
 
@@ -72,14 +71,7 @@ function bridgeFileNeedsCopy(sourcePath, targetPath) {
 let activeProvider;
 
 function activate(context) {
-  const hostRole = resolveRunlistHostRole({
-    remoteName: vscode.env?.remoteName,
-    extensionKind: context.extension?.extensionKind
-  });
-  if (!hostRole.activate) {
-    return { hostRole };
-  }
-
+  // VS Code picks one host from extensionKind; always activate that host.
   const projectsFile = path.join(context.globalStorageUri.fsPath, 'projects.json');
   try {
     initializeProjectStore(projectsFile, context.globalState.get(STORAGE_KEY, []));

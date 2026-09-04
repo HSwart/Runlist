@@ -34,7 +34,6 @@ test('empty state is the workspace discovery surface', () => {
   assert.match(host, /stackContractPendingForEmptyState\(\)/);
   assert.match(host, /stackContractPending: this\.stackContractPendingForEmptyState\(\)/);
   assert.match(host, /currentWorkspaceFolderName:/);
-  assert.match(host, /Stack discovery is empty-state/);
   assert.doesNotMatch(host, /showInformationMessage\(\s*'This workspace has a Runlist stack file/);
   assert.doesNotMatch(webview, /class="[^"]*workspace-strip/);
   assert.doesNotMatch(styles, /\.workspace-strip\b/);

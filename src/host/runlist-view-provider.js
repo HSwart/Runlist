@@ -1219,10 +1219,6 @@ class RunlistViewProvider {
     });
   }
 
-  async maybeOfferStackContractLoad() {
-    // Stack discovery is empty-state / Global ⋯ only — no toast above the list.
-  }
-
   stackContractSummary() {
     const workspaceRoot = this.workspaceRoot();
     if (!workspaceRoot) {
