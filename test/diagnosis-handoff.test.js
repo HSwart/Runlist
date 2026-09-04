@@ -3,7 +3,6 @@ const test = require('node:test');
 const {
   AGENT_CHAT_COMMAND,
   buildDiagnosisHandoff,
-  hasConnectedAgent,
   openAgentHandoff,
   sanitizeFailureSummary
 } = require('../src/integrations/diagnosis-handoff');
@@ -46,12 +45,6 @@ test('hasHandoffReadyAgent only treats Copilot setup success as handoff-ready', 
   assert.equal(hasHandoffReadyAgent({ copilot: { status: 'success' } }), true);
   assert.equal(hasHandoffReadyAgent({ codex: { status: 'success' } }), false);
   assert.equal(hasHandoffReadyAgent({ codex: { status: 'installed' } }), false);
-});
-
-test('hasConnectedAgent follows handoff-ready Copilot state', () => {
-  assert.equal(hasConnectedAgent({ copilot: { status: 'idle' } }), false);
-  assert.equal(hasConnectedAgent({ codex: { status: 'success' } }), false);
-  assert.equal(hasConnectedAgent({ copilot: { status: 'success' } }), true);
 });
 
 test('agentRegistrationStatus distinguishes Copilot handoff from CLI agents', () => {

@@ -5,15 +5,11 @@ const net = require('node:net');
 const path = require('node:path');
 const test = require('node:test');
 const {
-  areServicesRunning,
   httpServiceUrl,
   hasUnownedPortReservation,
   isPortOpen,
-  isPrimaryServiceOpen,
-  isPrimaryServiceResponding,
   managedServiceReadinessTimedOut,
   managedRuntimeProjectIds,
-  primaryServiceUrl,
   probeHttpService,
   projectServicesLocked,
   projectStatus,
@@ -132,7 +128,6 @@ test('detects whether configured local service ports are accepting connections',
   const port = await listen(server);
 
   assert.equal(await isPortOpen(port), true);
-  assert.equal(await areServicesRunning([{ name: 'web', port }]), true);
   assert.deepEqual(await servicePortStatus([{ name: 'web', port }]), {
     allOpen: true,
     anyOpen: true,
@@ -738,34 +733,6 @@ test('distinguishes a live process whose launching host is unavailable', () => {
     ownerAvailable: false,
     processActive: true
   }), 'ownership-lost');
-});
-
-test('uses a safe primary service URL override or derives localhost from its port', () => {
-  assert.equal(primaryServiceUrl([{
-    name: 'web',
-    port: 8787,
-    url: 'https://app.local/dashboard?view=all'
-  }]), 'https://app.local/dashboard?view=all');
-  assert.equal(primaryServiceUrl([{ name: 'web', port: 8787 }]), 'http://127.0.0.1:8787');
-  assert.equal(primaryServiceUrl([{ name: 'web', port: 8787, url: 'file:///tmp/app' }]), undefined);
-  assert.equal(primaryServiceUrl([]), undefined);
-});
-
-test('opens the primary service only when its own port is ready', () => {
-  const services = [
-    { name: 'web', port: 8787 },
-    { name: 'api', port: 8788 }
-  ];
-  assert.equal(isPrimaryServiceOpen(services, [8788]), false);
-  assert.equal(isPrimaryServiceOpen(services, [8787, 8788]), true);
-  assert.equal(isPrimaryServiceOpen([], [8787]), false);
-  assert.equal(isPrimaryServiceResponding(services, [8787, 8788], []), true);
-  const webServices = [
-    { name: 'web', port: 8787, url: 'http://localhost:8787' },
-    { name: 'api', port: 8788 }
-  ];
-  assert.equal(isPrimaryServiceResponding(webServices, [8787, 8788], []), false);
-  assert.equal(isPrimaryServiceResponding(webServices, [8787, 8788], [8787]), true);
 });
 
 test('uses VS Code URI forwarding for service health and browser opening', () => {

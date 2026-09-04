@@ -342,18 +342,9 @@ async function runProjectTransferWorkflow(options) {
       });
     }
     if (choice.action === 'load-stack') {
-      if (typeof options.loadStack === 'function') {
-        return options.loadStack();
-      }
-      return await runStackContractLoadWorkflow({
-        isProjectActive,
-        onImported,
-        projectsFile,
-        reserveUpdatedProjects,
-        window,
-        workspaceRoot: options.workspaceRoot,
-        withProjectStoreLock: options.withProjectStoreLock
-      });
+      return typeof options.loadStack === 'function'
+        ? options.loadStack()
+        : { status: 'cancelled' };
     }
     if (choice.action === 'export-stack') {
       return await runStackContractExportWorkflow({
@@ -687,79 +678,6 @@ function transferError(code, message, options) {
   return new ProjectTransferError(code, message, options);
 }
 
-async function runStackContractLoadWorkflow(options) {
-  const {
-    isProjectActive,
-    onImported,
-    projectsFile,
-    reserveUpdatedProjects,
-    window,
-    workspaceRoot,
-    withProjectStoreLock
-  } = options;
-  try {
-    const prepared = prepareStackContractLoad({
-      isProjectActive,
-      projectsFile,
-      workspaceRoot
-    });
-    if (prepared.status === 'error') {
-      await window.showErrorMessage(prepared.message);
-      return { status: 'error', error: prepared.error };
-    }
-    if (prepared.status === 'missing') {
-      await window.showInformationMessage(prepared.message);
-      return { status: 'missing' };
-    }
-    const { preview, parsed } = prepared;
-    const groupDetail = formatContractGroupPreview(parsed.groups);
-    const detail = [formatProjectImportPreview(preview.entries), groupDetail]
-      .filter(Boolean)
-      .join('\n\n');
-    if (!preview.changeCount) {
-      await window.showInformationMessage(
-        'Nothing new to load from the Runlist stack file.',
-        { modal: true, detail }
-      );
-      return { status: 'unchanged', preview };
-    }
-
-    const label = `${preview.changeCount} project setup${preview.changeCount === 1 ? '' : 's'}`;
-    const confirm = `Load ${label}`;
-    const approved = await window.showWarningMessage(
-      `Load ${label} from the workspace stack file?`,
-      {
-        modal: true,
-        detail: `${detail}\n\nAdded and updated commands remain blocked until you review and approve each setup in Runlist.`
-      },
-      confirm
-    );
-    if (approved !== confirm) {
-      return { status: 'cancelled', preview };
-    }
-
-    const projects = await commitStackContractLoad({
-      parsed,
-      preview,
-      projectsFile,
-      reserveUpdatedProjects,
-      workspaceRoot,
-      withProjectStoreLock
-    });
-    await onImported?.(projects);
-    await window.showInformationMessage(
-      `Loaded ${label}. Review each changed setup before running its commands.`
-    );
-    return { status: 'imported', count: preview.changeCount, preview };
-  } catch (error) {
-    const message = error instanceof StackContractError || error instanceof ProjectTransferError
-      ? error.message
-      : boundedMessage(error);
-    await window.showErrorMessage(message);
-    return { status: 'error', error };
-  }
-}
-
 function prepareStackContractLoad(options) {
   const {
     isProjectActive,
@@ -962,19 +880,6 @@ function syncImportedRunGroups(projectsFile, projects, importedGroups, importedP
   }
 }
 
-function formatContractGroupPreview(groups) {
-  if (!groups?.length) {
-    return '';
-  }
-  const lines = groups.slice(0, 25).map((group) => (
-    `• ${group.name} — ${group.projectFolders.join(', ')} (${group.startMode})`
-  ));
-  if (groups.length > lines.length) {
-    lines.push(`• …and ${groups.length - lines.length} more`);
-  }
-  return `Groups (${groups.length})\n${lines.join('\n')}`;
-}
-
 module.exports = {
   applyProjectImport,
   commitStackContractLoad,
@@ -988,6 +893,5 @@ module.exports = {
   ProjectTransferError,
   runProjectTransferWorkflow,
   runStackContractExportWorkflow,
-  runStackContractLoadWorkflow,
   syncImportedRunGroups
 };

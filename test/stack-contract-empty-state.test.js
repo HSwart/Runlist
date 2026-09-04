@@ -6,7 +6,7 @@ const path = require('node:path');
 const test = require('node:test');
 const { serializeStackContract } = require('../src/projects/stack-contract');
 
-test('stackContractEmptyState reports pending import counts for an empty list', async (t) => {
+test('stack contract empty state reports pending import counts for an empty list', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-stack-empty-'));
   const projectsFile = path.join(root, 'projects.json');
   fs.writeFileSync(projectsFile, '[]\n');
@@ -78,11 +78,12 @@ test('stackContractEmptyState reports pending import counts for an empty list', 
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  assert.deepEqual(provider.stackContractEmptyState(), {
+  assert.equal(provider.projects.length, 0);
+  assert.deepEqual(provider.stackContractSummary(), {
     pending: true,
     changeCount: 2,
     addCount: 2,
     updateCount: 0
   });
-  assert.equal(provider.stackContractPendingForEmptyState(), true);
+  assert.equal(Boolean(provider.stackContractSummary()?.pending), true);
 });

@@ -2,7 +2,6 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
   RunlistTerminalSession,
-  createRunlistTerminalSession,
   formatTerminalWrite,
   runlistTerminalName
 } = require('../src/lifecycle/runlist-terminal');
@@ -18,7 +17,7 @@ test('formatTerminalWrite converts lone line feeds to CRLF for PTY alignment', (
   assert.equal(formatTerminalWrite('progress\rstill here'), 'progress\rstill here');
 });
 
-test('createRunlistTerminalSession mirrors output through a pseudoterminal', () => {
+test('RunlistTerminalSession mirrors output through a pseudoterminal', () => {
   const writes = [];
   const vscode = {
     EventEmitter: class {
@@ -52,7 +51,7 @@ test('createRunlistTerminalSession mirrors output through a pseudoterminal', () 
     }
   };
 
-  const session = createRunlistTerminalSession(vscode, {
+  const session = new RunlistTerminalSession(vscode, {
     name: runlistTerminalName('Demo'),
     cwd: '/tmp/demo',
     env: { PORT: '3000' }

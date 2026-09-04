@@ -37,16 +37,23 @@ const {
   stoppableProjectIds
 } = require('../lifecycle/project-status');
 const {
-  readyOpenMessage,
-  shouldOfferReadyOpen
-} = require('../lifecycle/ready-open-offer');
-const {
+  availableProjectDetailTabs,
+  buildStartFailureClipboardText,
+  buildStopFailureClipboardText,
   copyProjectPath: writeProjectPathToClipboard,
+  customStopPostcondition,
+  detectRuntimeDrift,
+  mapWithConcurrency,
   openProjectInNewWindow,
   openProjectTerminal,
   openWorkspaceFolderInCurrentWindow,
-  projectFolderIsAccessible
-} = require('../webview/project-navigation');
+  preferredProjectDetailTab,
+  projectFolderIsAccessible,
+  projectSearchText,
+  readyOpenMessage,
+  shouldOfferReadyOpen,
+  stopHonestyMessage
+} = require('./host-helpers');
 const { previewFrameSources, projectPreviewService } = require('../webview/preview-security');
 const {
   createPhoneHandoff,
@@ -64,11 +71,6 @@ const {
   recoverProjectPorts,
   relatedPortProjectIds
 } = require('../ports/port-recovery');
-const { customStopPostcondition, stopHonestyMessage } = require('../lifecycle/custom-stop-recovery');
-const {
-  availableProjectDetailTabs,
-  preferredProjectDetailTab
-} = require('../webview/project-detail-tabs');
 const { HttpResponseHistory, RuntimePulseHistory } = require('../lifecycle/runtime-pulse');
 const {
   appendStartupHistory,
@@ -92,13 +94,17 @@ const {
   discoverWorkspacePackageCandidates,
   workspaceStartDevScripts
 } = require('../projects/project-workspace');
-const { discoverProcfileProcessCandidates } = require('../projects/procfile-discovery');
-const { discoverVscodeTaskCandidates } = require('../projects/vscode-tasks-discovery');
-const { buildWorkspaceImportProposal, consolidateChosenImportEntries, workspaceImportKey } = require('../projects/workspace-import');
+const {
+  buildWorkspaceImportProposal,
+  consolidateChosenImportEntries,
+  discoverProcfileProcessCandidates,
+  discoverVscodeTaskCandidates,
+  workspaceImportKey
+} = require('../projects/workspace-import');
 const { searchProjectLogs } = require('../projects/project-log-search');
 const { unresolvedDependencies } = require('../projects/project-dependencies');
 const {
-  createRunlistTerminalSession,
+  RunlistTerminalSession,
   runlistTerminalName
 } = require('../lifecycle/runlist-terminal');
 const {
@@ -149,7 +155,6 @@ const {
   MISSING_REQUIRED_ENV_FAILURE_KIND,
   resolveExplicitRequiredEnvKeys
 } = require('../projects/required-env');
-const { detectRuntimeDrift } = require('../projects/runtime-drift');
 const { redactSensitiveText } = require('../projects/project-diagnostics');
 const {
   detectLifecycleCapability,
@@ -210,7 +215,6 @@ const {
   readProjectDiagnostics,
   writeProjectDiagnostics
 } = require('../projects/project-diagnostics');
-const { projectSearchText } = require('../projects/project-search');
 const { projectTagVocabulary } = require('../projects/project-tags');
 const {
   launchProfileOptions,
@@ -218,16 +222,11 @@ const {
   selectedLaunchProfileId
 } = require('../projects/launch-profile');
 const {
-  buildStartFailureClipboardText,
-  buildStopFailureClipboardText
-} = require('../integrations/failure-clipboard');
-const {
   ProjectLifecycleCoordinator,
   stopAllConfirmation,
   stopGroupConfirmation
 } = require('../lifecycle/project-lifecycle');
 const { RunlistDiagnostics } = require('../lifecycle/runlist-diagnostics');
-const { mapWithConcurrency } = require('../lifecycle/bounded-work');
 const { createRunlistWebviewRouter } = require('../webview/webview-message-router');
 const {
   approveProjectRepairProposal,
@@ -1219,10 +1218,6 @@ class RunlistViewProvider {
     });
   }
 
-  async maybeOfferStackContractLoad() {
-    // Stack discovery is empty-state / Global ⋯ only — no toast above the list.
-  }
-
   stackContractSummary() {
     const workspaceRoot = this.workspaceRoot();
     if (!workspaceRoot) {
@@ -1253,24 +1248,6 @@ class RunlistViewProvider {
     } catch {
       return undefined;
     }
-  }
-
-  stackContractEmptyState() {
-    if (this.projects.length > 0) {
-      return undefined;
-    }
-    return this.stackContractSummary();
-  }
-
-  stackContractAttentionState() {
-    if (this.projects.length === 0) {
-      return undefined;
-    }
-    return this.stackContractSummary();
-  }
-
-  stackContractPendingForEmptyState() {
-    return Boolean(this.stackContractEmptyState()?.pending);
   }
 
   workspaceImportAvailable() {
@@ -2586,7 +2563,7 @@ class RunlistViewProvider {
   ensureRunlistTerminal(id, project, launchEnvironment) {
     this.disposeProjectTerminal(id);
     let session;
-    session = createRunlistTerminalSession(vscode, {
+    session = new RunlistTerminalSession(vscode, {
       name: runlistTerminalName(project.name),
       cwd: project.folder,
       env: launchEnvironment,
@@ -6438,9 +6415,14 @@ class RunlistViewProvider {
       draftStartCommandNotice: this.mode === 'add'
         ? this.draftStartCommandNotice
         : undefined,
-      stackContractPending: this.stackContractPendingForEmptyState(),
-      stackContractSummary: this.stackContractEmptyState(),
-      stackContractAttention: this.stackContractAttentionState(),
+      stackContractPending: this.projects.length === 0
+        && Boolean(this.stackContractSummary()?.pending),
+      stackContractSummary: this.projects.length > 0
+        ? undefined
+        : this.stackContractSummary(),
+      stackContractAttention: this.projects.length === 0
+        ? undefined
+        : this.stackContractSummary(),
       workspaceImportAvailable: this.workspaceImportAvailable(),
       focusTarget: this.focusTarget || this.lastFocusTarget,
       formErrors: this.formErrors,

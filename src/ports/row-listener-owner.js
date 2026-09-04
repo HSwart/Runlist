@@ -153,24 +153,10 @@ function listenerOwnerMapsDiffer(left, right) {
   });
 }
 
-function rowListenerOwnerVisible(owner, portConflict) {
-  if (!owner || !owner.label) {
-    return false;
-  }
-  if (owner.kind === 'other-runlist'
-    && typeof portConflict?.ownerName === 'string'
-    && portConflict.ownerName === owner.label) {
-    // Status capsule already names the other Runlist app.
-    return false;
-  }
-  return true;
-}
-
 module.exports = {
   ROW_LISTENER_STATUSES,
   buildProjectListenerOwners,
   listenerOwnerMapsDiffer,
   presentRowListenerOwner,
-  rowListenerOwnerVisible,
   rowListenerProbePort
 };

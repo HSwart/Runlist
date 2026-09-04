@@ -31,10 +31,9 @@ test('empty state is the workspace discovery surface', () => {
   assert.match(router, /loadWorkspaceStack: \(\) => host\.showProjectTransferLoadStack\(\)/);
   const messageRouter = fs.readFileSync(path.join(root, 'media', 'message-router.js'), 'utf8');
   assert.match(messageRouter, /'loadWorkspaceStack'/);
-  assert.match(host, /stackContractPendingForEmptyState\(\)/);
-  assert.match(host, /stackContractPending: this\.stackContractPendingForEmptyState\(\)/);
+  assert.match(host, /stackContractPending: this\.projects\.length === 0/);
+  assert.match(host, /Boolean\(this\.stackContractSummary\(\)\?\.pending\)/);
   assert.match(host, /currentWorkspaceFolderName:/);
-  assert.match(host, /Stack discovery is empty-state/);
   assert.doesNotMatch(host, /showInformationMessage\(\s*'This workspace has a Runlist stack file/);
   assert.doesNotMatch(webview, /class="[^"]*workspace-strip/);
   assert.doesNotMatch(styles, /\.workspace-strip\b/);

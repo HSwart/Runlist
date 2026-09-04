@@ -67,10 +67,6 @@ function servicePortHosts(service) {
   return ['127.0.0.1', '::1'];
 }
 
-async function areServicesRunning(services) {
-  return (await servicePortStatus(services)).allOpen;
-}
-
 function httpServiceUrl(service) {
   const override = typeof service?.url === 'string' ? service.url.trim() : '';
   return override ? safeServiceUrl(override) : undefined;
@@ -497,20 +493,6 @@ function serviceTimelineStages({
   return stages;
 }
 
-function isPrimaryServiceOpen(services, openPorts) {
-  const primaryPort = services?.[0]?.port;
-  return Number.isInteger(primaryPort) && (openPorts || []).includes(primaryPort);
-}
-
-function isPrimaryServiceResponding(services, openPorts, respondingPorts) {
-  if (!isPrimaryServiceOpen(services, openPorts)) {
-    return false;
-  }
-  const primary = services?.[0];
-  return serviceHealthCheck(primary).mode !== 'http'
-    || (respondingPorts || []).includes(primary.port);
-}
-
 function projectStatus({
   ambiguousConflict = false,
   allOpen = false,
@@ -562,10 +544,6 @@ function projectStatus({
     return readinessTimedOut ? 'not-ready' : 'starting';
   }
   return 'stopped';
-}
-
-function primaryServiceUrl(services) {
-  return serviceUrl(services?.[0]);
 }
 
 function stoppableProjectIds(projects) {
@@ -630,15 +608,11 @@ function projectServicesLocked(status, unownedPortReservation = false) {
 }
 
 module.exports = {
-  areServicesRunning,
   hasUnownedPortReservation,
   httpServiceUrl,
   serviceHealthCheck,
   isPortOpen,
-  isPrimaryServiceOpen,
-  isPrimaryServiceResponding,
   managedRuntimeProjectIds,
-  primaryServiceUrl,
   probeHttpService,
   projectServicesLocked,
   projectStatus,
