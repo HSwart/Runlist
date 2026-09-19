@@ -243,7 +243,7 @@
   },
   "devDependencies": {
     "@vscode/test-electron": "3.1.0",
-    "@vscode/vsce": "3.9.2",
+    "@vscode/vsce": "4.0.0",
     "axe-core": "4.13.0",
     "eslint": "10.9.1",
     "playwright-core": "1.62.1"
