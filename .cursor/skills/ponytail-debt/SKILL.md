@@ -15,10 +15,19 @@ can't quietly become permanent.
 
 ## Scan
 
-Grep the repo for comment markers, skipping `node_modules`, `.git`, and build
-output:
+Grep the repo for comment markers. **Exclude** tooling, dependencies, and
+build output — never scan `.cursor` (ponytail's own skill docs contain example
+markers), `.git`, `node_modules`, `dist`, `build`, `out`, `coverage`, or
+`.vscode-test`:
 
-`grep -rnE '(#|//) ?ponytail:' .`  (add other comment prefixes if your stack uses them)
+```bash
+grep -rnE '(#|//) ?ponytail:' . \
+  --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.cursor \
+  --exclude-dir=dist --exclude-dir=build --exclude-dir=out \
+  --exclude-dir=coverage --exclude-dir=.vscode-test
+```
+
+Add other comment prefixes if your stack uses them (`/*`, `--`, etc.).
 
 Each hit is one ledger row. The comment prefix keeps prose that merely mentions
 the convention out of the ledger.

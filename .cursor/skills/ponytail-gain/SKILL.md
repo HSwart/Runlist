@@ -14,10 +14,18 @@ disable-model-invocation: true
 Display this scoreboard when invoked. One-shot: do NOT change mode, write flag
 files, or persist anything.
 
-The figures are the published benchmark medians (5 everyday tasks: email
-validator, debounce, CSV sum, countdown timer, rate limiter; three models:
-Haiku, Sonnet, Opus). They are measured, not computed from the current repo.
-Source: `benchmarks/` and the README.
+The figures are published benchmark medians from
+[upstream ponytail](https://github.com/DietrichGebert/ponytail) — measured,
+not computed from this repo. This repo does not ship `benchmarks/`; verify
+figures at:
+
+- [README — Numbers](https://github.com/DietrichGebert/ponytail#numbers)
+  (agentic benchmark summary: ~54% less code, ~20% cheaper, ~27% faster)
+- [Agentic benchmark writeup](https://github.com/DietrichGebert/ponytail/blob/main/benchmarks/results/2026-06-18-agentic.md)
+- [Single-shot benchmarks](https://github.com/DietrichGebert/ponytail/tree/main/benchmarks)
+  (5 everyday tasks × 3 models; the 80–94% LOC range in the scoreboard below)
+
+Always cite the upstream link when presenting these numbers.
 
 ## Scoreboard
 

@@ -40,32 +40,23 @@ slash commands).
 ## Deactivate
 
 Say "stop ponytail" or "normal mode". Resume anytime with `/ponytail`.
-`/ponytail off` also works.
+`/ponytail off` also works for the current session.
 
-## Configure Default Mode
+## Activation in Cursor
 
-Default mode = `full`, auto-active every session. Change it:
+In this repo, ponytail is **always active** via `.cursor/rules/ponytail.mdc`
+(`alwaysApply: true`). Every new Agent chat starts in **full** mode.
 
-**Environment variable** (highest priority):
-```bash
-export PONYTAIL_DEFAULT_MODE=ultra
-```
-
-**Config file** (`~/.config/ponytail/config.json`, Windows: `%APPDATA%\ponytail\config.json`):
-```json
-{ "defaultMode": "lite" }
-```
-
-Set `"off"` to disable auto-activation on session start, activate manually
-with `/ponytail` when wanted.
-
-Resolution: env var > config file > `full`.
+`PONYTAIL_DEFAULT_MODE` and `~/.config/ponytail/config.json` are **not**
+supported in Cursor — those controls exist only on hosts with ponytail lifecycle
+hooks (Claude Code, Codex, OpenCode, etc.). To change intensity here, use
+`/ponytail lite|full|ultra`. To pause for the session, say "stop ponytail".
 
 ## Update
 
-Enable auto-update once: open `/plugin`, go to Marketplaces, pick ponytail, Enable auto-update. Claude Code then pulls new versions at startup (run `/reload-plugins` when it prompts). Manual refresh: `/plugin marketplace update ponytail` then `/reload-plugins`.
-
-If `/plugin` is not recognized, your Claude Code is out of date. Update it (`npm install -g @anthropic-ai/claude-code@latest`, or `brew upgrade claude-code`) and restart. Other hosts use their own update flow.
+Cursor has no `/plugin` marketplace. Refresh the installed adapter from
+[upstream ponytail](https://github.com/DietrichGebert/ponytail) and copy the
+updated `.cursor/rules/` and `.cursor/skills/` files into this repo.
 
 ## More
 

@@ -29,6 +29,10 @@ Deps the stdlib or platform already ships, single-implementation interfaces,
 factories with one product, wrappers that only delegate, files exporting one
 thing, dead flags and config, hand-rolled stdlib.
 
+**Skip** `.cursor`, `.git`, `node_modules`, `dist`, `build`, `out`,
+`coverage`, `.vscode-test`, and other dependency/build trees — ponytail's own
+installed skill files contain example markers and are not project debt.
+
 ## Output
 
 One line per finding, ranked: `<tag> <what to cut>. <replacement>. [path]`.
