@@ -65,13 +65,8 @@ class RunlistTerminalSession {
   }
 }
 
-function createRunlistTerminalSession(vscode, options) {
-  return new RunlistTerminalSession(vscode, options);
-}
-
 module.exports = {
   RunlistTerminalSession,
-  createRunlistTerminalSession,
   formatTerminalWrite,
   runlistTerminalName
 };

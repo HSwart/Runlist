@@ -6,7 +6,7 @@ const test = require('node:test');
 const {
   discoverProcfileProcessCandidates,
   parseProcfileContents
-} = require('../src/projects/procfile-discovery');
+} = require('../src/projects/workspace-import');
 
 test('parseProcfileContents reads process names and commands', () => {
   assert.deepEqual(parseProcfileContents(`

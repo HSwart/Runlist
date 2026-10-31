@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { discoverVscodeTaskCandidates } = require('../src/projects/vscode-tasks-discovery');
+const { discoverVscodeTaskCandidates } = require('../src/projects/workspace-import');
 
 test('discovers npm start and dev tasks from .vscode/tasks.json', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runlist-vscode-tasks-'));

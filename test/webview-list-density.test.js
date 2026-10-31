@@ -56,9 +56,9 @@ test('uses compact native sidebar density instead of padded cards', () => {
   assert.doesNotMatch(styles, /border-radius: 10px;/);
 });
 
-test('uses bundled Inter for sidebar chrome and leaves output on the editor font', () => {
-  assert.match(styles, /@font-face \{\n  font-family: "RunlistInter";/);
-  assert.match(styles, /^:root \{[\s\S]*?font-family: "RunlistInter", "Inter", var\(--vscode-font-family\), system-ui, sans-serif;/m);
+test('uses VS Code theme fonts for sidebar chrome and leaves output on the editor font', () => {
+  assert.doesNotMatch(styles, /@font-face/);
+  assert.match(styles, /^:root \{[\s\S]*?font-family: var\(--vscode-font-family\), system-ui, sans-serif;/m);
   assert.match(styles, /\.project-search input \{[\s\S]*?font-family: inherit;/);
   assert.match(styles, /\.output-peek-line \{\n(?:  .*\n)*  font-family: var\(--vscode-editor-font-family\);\n  font-size: var\(--vscode-editor-font-size, 11px\);/);
   assert.match(styles, /\.output-entry \{\n(?:  .*\n)*  font-family: var\(--vscode-editor-font-family\);\n  font-size: var\(--vscode-editor-font-size, 11px\);/);

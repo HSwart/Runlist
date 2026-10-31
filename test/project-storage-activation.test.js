@@ -14,7 +14,6 @@ function loadExtension(vscode) {
   };
   delete require.cache[require.resolve('../extension')];
   delete require.cache[require.resolve('../src/host/runlist-view-provider')];
-  delete require.cache[require.resolve('../src/host/runlist-host-role')];
   try {
     return require('../extension');
   } finally {

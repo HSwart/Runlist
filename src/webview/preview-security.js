@@ -31,13 +31,8 @@ function projectPreviewService(project, status, serviceUrls, conflicted = false)
   return undefined;
 }
 
-function projectPreviewUrl(project, status, serviceUrls, conflicted = false) {
-  return projectPreviewService(project, status, serviceUrls, conflicted)?.url;
-}
-
 module.exports = {
   previewFrameSource,
   previewFrameSources,
-  projectPreviewService,
-  projectPreviewUrl
+  projectPreviewService
 };

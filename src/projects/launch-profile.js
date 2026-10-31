@@ -28,11 +28,6 @@ function selectedLaunchProfileId(project = {}) {
     : DEFAULT_LAUNCH_PROFILE_ID;
 }
 
-function selectedLaunchProfile(project = {}) {
-  const id = selectedLaunchProfileId(project);
-  return launchProfileOptions(project).find((profile) => profile.id === id);
-}
-
 function resolveLaunchProfile(project = {}, profileId) {
   if (!Object.hasOwn(project, 'startCommand')
     && !Array.isArray(project.launchProfiles)
@@ -79,6 +74,5 @@ module.exports = {
   MAX_ALTERNATE_LAUNCH_PROFILES,
   MAX_LAUNCH_PROFILES,
   resolveLaunchProfile,
-  selectedLaunchProfile,
   selectedLaunchProfileId
 };

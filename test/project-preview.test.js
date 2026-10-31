@@ -5,8 +5,7 @@ const test = require('node:test');
 const {
   previewFrameSource,
   previewFrameSources,
-  projectPreviewService,
-  projectPreviewUrl
+  projectPreviewService
 } = require('../src/webview/preview-security');
 const { readShippedHostSource } = require('./helpers/extension-source');
 
@@ -19,16 +18,19 @@ const serviceUrls = [{ port: 4310, url: 'http://127.0.0.1:4310/dashboard' }];
 
 test('offers a preview while a safe web service is reachable', () => {
   for (const status of ['running', 'starting', 'not-ready', 'not-responding', 'ownership-lost', 'active']) {
-    assert.equal(projectPreviewUrl(project, status, serviceUrls), serviceUrls[0].url);
+    assert.deepEqual(projectPreviewService(project, status, serviceUrls), {
+      port: 4310,
+      url: serviceUrls[0].url
+    });
   }
 
   for (const status of ['stopped', 'stopping']) {
-    assert.equal(projectPreviewUrl(project, status, serviceUrls), undefined);
+    assert.equal(projectPreviewService(project, status, serviceUrls), undefined);
   }
-  assert.equal(projectPreviewUrl(project, 'running', [], false), undefined);
-  assert.equal(projectPreviewUrl(project, 'running', serviceUrls, true), undefined);
-  assert.equal(projectPreviewUrl({ ...project, reviewRequired: true }, 'running', serviceUrls), undefined);
-  assert.equal(projectPreviewUrl(project, 'running', [{ port: 4310, url: 'file:///tmp/app' }]), undefined);
+  assert.equal(projectPreviewService(project, 'running', [], false), undefined);
+  assert.equal(projectPreviewService(project, 'running', serviceUrls, true), undefined);
+  assert.equal(projectPreviewService({ ...project, reviewRequired: true }, 'running', serviceUrls), undefined);
+  assert.equal(projectPreviewService(project, 'running', [{ port: 4310, url: 'file:///tmp/app' }]), undefined);
 });
 
 test('selects the first responding web service in saved order during partial startup', () => {

@@ -12,7 +12,6 @@ const {
 } = require('../src/projects/project-store');
 const {
   RunGroupCoordinator,
-  runGroupManagementWorkflow,
   startRunGroup,
   stopRunGroup
 } = require('../src/groups/run-groups');
@@ -743,90 +742,4 @@ test('marks a rejected or failed group heartbeat as a lost lease without throwin
   assert.equal(losses[1].reason, 'heartbeat-failed');
   assert.equal(losses[1].error.code, 'EIO');
   coordinator.ownership.setState = setState;
-});
-
-test('creates a group in the exact order selected through native controls', async () => {
-  const projects = [{ id: 'first', name: 'First' }, { id: 'second', name: 'Second' }];
-  const actions = ['create', 'add', 'second', 'add', 'first', 'save'];
-  let saved;
-  const result = await runGroupManagementWorkflow({
-    groups: [],
-    projects,
-    window: {
-      showInputBox: async () => 'Daily apps',
-      showQuickPick: async (items) => {
-        const action = actions.shift();
-        return items.find((item) => item.action === action || item.project?.id === action);
-      },
-      showErrorMessage: async () => {}
-    },
-    saveGroup: async (group) => {
-      saved = group;
-    }
-  });
-
-  assert.equal(result.status, 'saved');
-  assert.deepEqual(saved, {
-    name: 'Daily apps',
-    projectIds: ['second', 'first'],
-    startMode: 'sequential'
-  });
-});
-
-test('edits member order and renames without changing other group data', async () => {
-  const group = { id: 'daily', name: 'Daily apps', projectIds: ['first', 'second'] };
-  const saved = [];
-  const editActions = ['edit', 'second', 'move-up', 'save'];
-  const editResult = await runGroupManagementWorkflow({
-    selectedGroupId: group.id,
-    groups: [group],
-    projects: [{ id: 'first', name: 'First' }, { id: 'second', name: 'Second' }],
-    window: {
-      showQuickPick: async (items) => {
-        const action = editActions.shift();
-        return items.find((item) => item.action === action || item.projectId === action);
-      },
-      showErrorMessage: async () => {}
-    },
-    saveGroup: async (value) => saved.push(value)
-  });
-  assert.equal(editResult.status, 'saved');
-  assert.deepEqual(saved[0], {
-    ...group,
-    projectIds: ['second', 'first'],
-    startMode: 'sequential'
-  });
-
-  const renameResult = await runGroupManagementWorkflow({
-    selectedGroupId: group.id,
-    groups: [group],
-    projects: [],
-    window: {
-      showQuickPick: async (items) => items.find((item) => item.action === 'rename'),
-      showInputBox: async () => 'Morning apps',
-      showErrorMessage: async () => {}
-    },
-    saveGroup: async (value) => saved.push(value)
-  });
-  assert.equal(renameResult.status, 'saved');
-  assert.deepEqual(saved[1], { ...group, name: 'Morning apps' });
-});
-
-test('removes a group only after native modal confirmation', async () => {
-  const group = { id: 'daily', name: 'Daily apps', projectIds: ['first'] };
-  const removed = [];
-  const result = await runGroupManagementWorkflow({
-    selectedGroupId: group.id,
-    groups: [group],
-    projects: [],
-    window: {
-      showQuickPick: async (items) => items.find((item) => item.action === 'remove'),
-      showWarningMessage: async () => 'Remove group',
-      showErrorMessage: async () => {}
-    },
-    removeGroup: async (id) => removed.push(id)
-  });
-
-  assert.equal(result.status, 'removed');
-  assert.deepEqual(removed, ['daily']);
 });

@@ -5,15 +5,14 @@ const path = require('node:path');
 const test = require('node:test');
 const {
   readProjects,
-  readRunGroups,
-  writeProjects,
-  upsertRunGroup
+  writeProjects
 } = require('../src/projects/project-store');
 const {
   serializeStackContract
 } = require('../src/projects/stack-contract');
 const {
-  runStackContractLoadWorkflow,
+  prepareStackContractLoad,
+  commitStackContractLoad,
   runStackContractExportWorkflow
 } = require('../src/projects/project-transfer');
 
@@ -28,7 +27,7 @@ function fixture(t) {
   return { workspaceRoot, projectsFile };
 }
 
-test('load workflow previews adds, applies only after confirm, and marks review required', async (t) => {
+test('prepare/commit load applies only after commit and marks review required', async (t) => {
   const { workspaceRoot, projectsFile } = fixture(t);
   fs.writeFileSync(path.join(workspaceRoot, 'runlist.json'), serializeStackContract({
     projects: [
@@ -43,54 +42,29 @@ test('load workflow previews adds, applies only after confirm, and marks review 
     groups: []
   }, { workspaceRoot }));
 
-  let imported = 0;
-  const cancelled = await runStackContractLoadWorkflow({
-    projectsFile,
-    workspaceRoot,
-    window: {
-      showWarningMessage: async () => undefined,
-      showInformationMessage: async () => undefined,
-      showErrorMessage: async () => undefined
-    },
-    onImported: () => { imported += 1; }
-  });
-  assert.equal(cancelled.status, 'cancelled');
+  const prepared = prepareStackContractLoad({ projectsFile, workspaceRoot });
+  assert.equal(prepared.status, 'ready');
+  assert.equal(prepared.preview.changeCount, 1);
   assert.equal(readProjects(projectsFile).length, 0);
-  assert.equal(imported, 0);
 
-  const applied = await runStackContractLoadWorkflow({
+  await commitStackContractLoad({
+    parsed: prepared.parsed,
+    preview: prepared.preview,
     projectsFile,
-    workspaceRoot,
-    window: {
-      showWarningMessage: async (_message, _opts, confirm) => confirm,
-      showInformationMessage: async () => undefined,
-      showErrorMessage: async () => undefined
-    },
-    onImported: () => { imported += 1; }
+    workspaceRoot
   });
-  assert.equal(applied.status, 'imported');
-  assert.equal(imported, 1);
   const projects = readProjects(projectsFile);
   assert.equal(projects.length, 1);
   assert.equal(projects[0].name, 'Web');
   assert.equal(projects[0].reviewRequired, true);
 });
 
-test('load workflow dismisses malformed files without writing', async (t) => {
+test('prepare dismisses malformed files without writing', (t) => {
   const { workspaceRoot, projectsFile } = fixture(t);
   fs.writeFileSync(path.join(workspaceRoot, 'runlist.json'), '{"schemaVersion":1,"projects":[{"name":"Bad","folder":"../x","startCommand":"x","services":[]}]}');
-  const errors = [];
-  const result = await runStackContractLoadWorkflow({
-    projectsFile,
-    workspaceRoot,
-    window: {
-      showErrorMessage: async (message) => { errors.push(message); },
-      showWarningMessage: async () => 'Import',
-      showInformationMessage: async () => undefined
-    }
-  });
-  assert.equal(result.status, 'error');
-  assert.match(errors[0], /workspace|relative|escape|inside/i);
+  const prepared = prepareStackContractLoad({ projectsFile, workspaceRoot });
+  assert.equal(prepared.status, 'error');
+  assert.match(prepared.message, /workspace|relative|escape|inside/i);
   assert.equal(readProjects(projectsFile).length, 0);
 });
 
@@ -136,7 +110,7 @@ test('export workflow writes relative contract and confirms overwrite', async (t
   assert.equal(document.projects[0].id, undefined);
 });
 
-test('export then load review shows no spurious churn for identical setups', async (t) => {
+test('export then prepare shows no spurious churn for identical setups', async (t) => {
   const { workspaceRoot, projectsFile } = fixture(t);
   writeProjects(projectsFile, [{
     id: 'web-id',
@@ -155,15 +129,8 @@ test('export then load review shows no spurious churn for identical setups', asy
       showErrorMessage: async () => undefined
     }
   });
-  const result = await runStackContractLoadWorkflow({
-    projectsFile,
-    workspaceRoot,
-    window: {
-      showWarningMessage: async () => 'Import',
-      showInformationMessage: async () => undefined,
-      showErrorMessage: async () => undefined
-    }
-  });
-  assert.equal(result.status, 'unchanged');
+  const prepared = prepareStackContractLoad({ projectsFile, workspaceRoot });
+  assert.equal(prepared.status, 'ready');
+  assert.equal(prepared.preview.changeCount, 0);
   assert.equal(readProjects(projectsFile)[0].reviewRequired, false);
 });

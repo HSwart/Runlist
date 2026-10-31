@@ -3,7 +3,7 @@ const test = require('node:test');
 const {
   buildStartFailureClipboardText,
   buildStopFailureClipboardText
-} = require('../src/integrations/failure-clipboard');
+} = require('../src/host/host-helpers');
 
 test('buildStartFailureClipboardText redacts secrets and includes bounded output', () => {
   const text = buildStartFailureClipboardText({

@@ -40,12 +40,9 @@ test('opens Manage Groups as a sidebar editor screen instead of Quick Pick', () 
   assert.match(router, /removeRunGroup: \(message\) => host\.removeRunGroupFromEditor\(message\.id\)/);
 });
 
-test('uses Add to group copy in the run-group draft form and quick pick', () => {
-  const runGroups = fs.readFileSync(path.join(root, 'src', 'groups', 'run-groups.js'), 'utf8');
+test('uses Add to group copy in the run-group draft form', () => {
   assert.match(webview, /for="run-group-add-project">Add to group</);
   assert.doesNotMatch(webview, /for="run-group-add-project">Add project</);
-  assert.match(runGroups, /label: '\$\(add\) Add to group'/);
-  assert.doesNotMatch(runGroups, /label: '\$\(add\) Add project'/);
 });
 
 test('keeps group UI filter-weight with Start/Stop and hides it when empty', () => {

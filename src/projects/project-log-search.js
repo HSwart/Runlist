@@ -1,14 +1,11 @@
 const { sanitizeProjectOutput } = require('./project-output');
+const { normalizeSearchQuery } = require('../host/host-helpers');
 
 const DEFAULT_LIMIT = 40;
 const EXCERPT_RADIUS = 80;
 
-function normalizeLogSearchQuery(value) {
-  return String(value || '').trim().toLocaleLowerCase();
-}
-
 function searchProjectLogs(outputsByProjectId, projects, query, options = {}) {
-  const normalizedQuery = normalizeLogSearchQuery(query);
+  const normalizedQuery = normalizeSearchQuery(query);
   if (!normalizedQuery) {
     return [];
   }
@@ -69,6 +66,5 @@ function excerptAround(line, query) {
 }
 
 module.exports = {
-  normalizeLogSearchQuery,
   searchProjectLogs
 };
